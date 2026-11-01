@@ -10,4 +10,4 @@ dev = ["pytest"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-norecursedirs = ["reference", "web", ".git", "node_modules"]
+norecursedirs = ["web", ".git", "node_modules"]

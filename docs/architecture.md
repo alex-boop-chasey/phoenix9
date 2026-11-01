@@ -66,7 +66,7 @@ phoenix9/                      the Python package
   chat.py                      the `chat` adapter: delegate mode (section 9)
   templates.py images.py       templates menu loader; profile Dockerfile checks
   stepctx.py                   StepContext and StepResult (section 4.4)
-  claude.py docker.py git.py watch.py   ports of V8 (reference/v8/phoenix/*), adapters (section 9)
+  claude.py docker.py git.py watch.py   ports of V8, adapters (section 9)
   scrub.py                     secret redaction for every log line written
   project.py                   phoenix project (proj folded in) (phase 2)
   keys.py                      per-project keys (phase 2; global secrets store phase 4)
@@ -102,8 +102,8 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
   images build                                build the step images, label `phoenix9.commit`
   doctor [--quick|--for-update]               the checks in section 15
-reference/                     READ-ONLY copies of V8, proj and the project-selector. Never imported,
-                               never edited. Deleted at the end of phase 4.
+(reference/ held read-only copies of V8, proj and the project-selector for porting; it was removed at
+ the end of phase 4. `# ported from reference/...` comments remain as history.)
 ```
 
 ## 3. Where things live at runtime (`phoenix9/paths.py`)

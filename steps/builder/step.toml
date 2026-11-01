@@ -1,0 +1,26 @@
+name = "builder"
+title = "Builder"
+description = "Writes the code for one task."
+kind = "ai"
+level = "task"
+order = 30
+needs = ["task", "worktree", "failures", "plan"]
+produces = ["diff"]
+default = "always"
+
+[ai]
+model = "claude-fable-5-1"
+fallback_models = ["claude-opus-5-5"]
+tools = []
+tools_denied = []
+mcp_servers = []
+claude_md = "library"
+skills = []
+max_turns = 200
+timeout = 60
+
+[ai.advisor]
+on = false
+model = "claude-opus-5-5"
+when = ["blocked"]
+instructions = ""

@@ -1,0 +1,10 @@
+name = "diff-rules"
+title = "Diff rules"
+description = "Refuses changes to files the agent may not touch."
+kind = "script"
+level = "task"
+order = 40
+needs = ["diff"]
+produces = []
+safety = true
+default = "on"

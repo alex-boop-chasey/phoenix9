@@ -1,0 +1,10 @@
+title = "Research"
+image = "phoenix9-step-research:1"
+allowed_domains = []
+diff_allow_extra = []
+screenshots = false
+suggested_deployer = "none"
+
+[test]
+cmd = "true"
+report = "exit-code"

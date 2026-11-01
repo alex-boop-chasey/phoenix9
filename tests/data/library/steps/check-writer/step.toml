@@ -1,0 +1,9 @@
+name = "check-writer"
+title = "Check-writer"
+description = "Test step: writes the task's checks."
+kind = "ai"
+level = "task"
+order = 10
+needs = ["task", "worktree"]
+produces = ["checks"]
+default = "off"

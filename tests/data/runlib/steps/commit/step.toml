@@ -1,0 +1,9 @@
+name = "commit"
+title = "commit"
+kind = "script"
+level = "task"
+phase = ""
+order = 80
+needs = ["diff","exit-codes"]
+produces = ["commit"]
+default = "always"

@@ -1,0 +1,33 @@
+"""Commands for `phoenix gate`: list open questions and answer one."""
+from phoenix9.cli.output import show, table
+from phoenix9.ops import gates
+
+ACTIONS = ("approve", "back", "skip", "stop", "acknowledged")
+
+
+def add(sub, common) -> None:
+    """Register the gate group."""
+    group = sub.add_parser("gate", help="questions waiting for you").add_subparsers(
+        dest="action", metavar="ACTION", required=True)
+    p = group.add_parser("list", parents=[common], help="list open questions")
+    p.add_argument("project", nargs="?")
+    p.set_defaults(func=list_)
+    p = group.add_parser("answer", parents=[common], help="answer a question")
+    p.add_argument("gate_id")
+    p.add_argument("answer", choices=ACTIONS)
+    p.add_argument("--note", default="", help="words for the step (needed for 'back')")
+    p.set_defaults(func=answer)
+
+
+def list_(args) -> int:
+    """List open gates."""
+    found = gates.list(args.project)
+    text = table([[g["id"], g["kind"], g["title"]] for g in found], ["gate", "kind", "title"]) \
+        if found else "Nothing is waiting for you."
+    return show(args, found, text)
+
+
+def answer(args) -> int:
+    """Answer a gate."""
+    r = gates.answer(args.gate_id, args.answer, note=args.note, who=args.who)
+    return show(args, r, f"Answered {args.gate_id}: {args.answer}.")

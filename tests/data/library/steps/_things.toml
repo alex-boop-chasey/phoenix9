@@ -1,0 +1,21 @@
+# Test-only things list (tests/data/library). Mirrors docs/architecture.md 4.2 in miniature.
+[spec]
+provided = "run"
+[task]
+provided = "task"
+[worktree]
+provided = "run"
+[failures]
+provided = "task"
+[plan]
+fallback = "spec-as-written"
+[checks]
+fallback = "spec-done-when"
+[test-report]
+fallback = "exit-codes-only"
+[diff]
+fallback = ""        # no fallback: something must produce it
+[exit-codes]
+fallback = ""
+[commit]
+fallback = ""

@@ -1,0 +1,10 @@
+name = "red-check"
+title = "Red check"
+description = "Test step: proves the checks fail before building."
+kind = "script"
+level = "task"
+order = 20
+needs = ["checks"]
+safety = true
+default = "on"
+only_with = ["check-writer"]

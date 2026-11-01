@@ -1,0 +1,10 @@
+name = "summary"
+title = "Summary"
+description = "Writes the plain-English summary of the run."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 20
+needs = ["spec"]
+produces = []
+default = "on"

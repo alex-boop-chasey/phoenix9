@@ -1,0 +1,11 @@
+name = "full-suite"
+title = "Full suite"
+description = "Runs the whole test suite once all tasks are done."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 10
+needs = ["worktree"]
+produces = []
+safety = true
+default = "on"

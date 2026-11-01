@@ -1,0 +1,18 @@
+title = "Full"
+description = "Everything on: plan, checks first, full verification and a review."
+
+[steps.planner]
+on = true
+
+[steps.check-writer]
+on = true
+
+[steps.red-check]
+on = true
+
+[steps.verify]
+on = true
+scope = "full"
+
+[steps.reviewer]
+on = true

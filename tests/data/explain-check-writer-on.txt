@@ -1,0 +1,27 @@
+Run start:
+  ON    10  Pick-up (pick-up) [always on]
+      needs spec: provided by Phoenix
+  off   30  Planner (planner) (off by default)
+
+Each task:
+  ON    10  Check-writer (check-writer)
+      needs task: provided by Phoenix
+      needs worktree: provided by Phoenix
+  ON    20  Red check (red-check) [safety]
+      needs checks: from check-writer
+  ON    30  Builder (builder) [always on]
+      needs task: provided by Phoenix
+      needs worktree: provided by Phoenix
+      needs failures: provided by Phoenix
+      needs plan: fallback 'spec-as-written'
+  ON    40  Commit (commit)
+      needs diff: from builder
+  ON    60  Acceptance (acceptance) [always on]
+      needs checks: from check-writer
+      needs worktree: provided by Phoenix
+
+Run finish:
+  ON    10  Full suite (full-suite) [safety]
+      needs worktree: provided by Phoenix
+      needs exit-codes: from acceptance
+      needs commit: from commit

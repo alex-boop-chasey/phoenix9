@@ -1,0 +1,9 @@
+name = "acceptance"
+title = "acceptance"
+kind = "script"
+level = "task"
+phase = ""
+order = 60
+needs = ["diff"]
+produces = ["exit-codes"]
+default = "always"

@@ -1,0 +1,14 @@
+title = "Simple"
+description = "Just build each task and check it. No planner, check writer, verify or reviewer."
+
+[steps.planner]
+on = false
+
+[steps.check-writer]
+on = false
+
+[steps.verify]
+on = false
+
+[steps.reviewer]
+on = false

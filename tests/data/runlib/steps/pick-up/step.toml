@@ -1,0 +1,9 @@
+name = "pick-up"
+title = "pick-up"
+kind = "script"
+level = "run"
+phase = "start"
+order = 10
+needs = ["spec"]
+produces = []
+default = "always"

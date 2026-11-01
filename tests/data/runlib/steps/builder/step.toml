@@ -1,0 +1,9 @@
+name = "builder"
+title = "builder"
+kind = "script"
+level = "task"
+phase = ""
+order = 30
+needs = ["task","worktree","failures","plan","baseline"]
+produces = ["diff"]
+default = "always"

@@ -1,0 +1,10 @@
+name = "branch"
+title = "Branch"
+description = "Makes the run's branch and worktree and records main's test result."
+kind = "script"
+level = "run"
+phase = "start"
+order = 40
+needs = ["spec"]
+produces = ["baseline"]
+default = "always"

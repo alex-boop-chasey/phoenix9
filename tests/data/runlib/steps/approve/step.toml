@@ -1,0 +1,9 @@
+name = "approve"
+title = "approve"
+kind = "gate"
+level = "task"
+phase = ""
+order = 50
+needs = ["diff"]
+produces = []
+default = "off"

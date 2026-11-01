@@ -1,0 +1,12 @@
+title = "Web app"
+image = "phoenix9-step-web:1"
+allowed_domains = ["registry.npmjs.org", "registry.yarnpkg.com"]
+diff_allow_extra = ["pnpm-lock.yaml"]
+screenshots = true
+suggested_deployer = "supabase"
+
+[test]
+cmd = "pnpm test"
+task_cmd = "pnpm test"
+report = "vitest-json"
+report_path = "test-report.json"

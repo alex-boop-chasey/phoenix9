@@ -1,0 +1,12 @@
+title = "Python script"
+image = "phoenix9-step-python:1"
+allowed_domains = ["pypi.org", "files.pythonhosted.org"]
+diff_allow_extra = []
+screenshots = false
+suggested_deployer = "none"
+
+[test]
+cmd = "python3 -m pytest -q"
+task_cmd = "python3 -m pytest -q"
+report = "pytest-junit"
+report_path = "test-report.xml"

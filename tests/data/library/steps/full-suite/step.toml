@@ -1,0 +1,10 @@
+name = "full-suite"
+title = "Full suite"
+description = "Test step: runs every test at the end."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 10
+needs = ["worktree", "exit-codes", "commit"]
+produces = ["test-report"]
+safety = true

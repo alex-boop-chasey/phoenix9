@@ -46,8 +46,17 @@ export const useProject = (name: string) =>
   useQuery({ queryKey: keys.project(name), queryFn: () => api.project(name), enabled: !!name })
 export const useBuilds = (name: string) =>
   useQuery({ queryKey: keys.builds(name), queryFn: () => api.builds(name), enabled: !!name })
+const RUN_POLL_MS = 4000
+const LIVE_RUN = ["queued", "running", "waiting"]
+
+/** One run's detail; refetched every 4 s while it is queued, running or waiting. */
 export const useRun = (project: string, runId: string) =>
-  useQuery({ queryKey: keys.run(project, runId), queryFn: () => api.run(project, runId), enabled: !!project && !!runId })
+  useQuery({
+    queryKey: keys.run(project, runId),
+    queryFn: () => api.run(project, runId),
+    enabled: !!project && !!runId,
+    refetchInterval: (q) => (LIVE_RUN.includes(q.state.data?.status ?? "") ? RUN_POLL_MS : false),
+  })
 export const useGates = (project?: string) =>
   useQuery({ queryKey: keys.gates(project), queryFn: () => api.gates(project), refetchInterval: REFRESH_MS })
 export const useSettings = (name: string) =>

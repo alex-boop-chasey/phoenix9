@@ -31,7 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import reports
+from phoenix9 import reports, summary
 from phoenix9 import keys as keys_mod
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod
@@ -132,6 +132,7 @@ class Runner:
         state.set_status(run_dir, status)
         data = {"reason": reason} if reason else {}
         events.emit("run.finished", project=project, run=run_id, status=status, **data)
+        summary.refresh(run_dir, self.lib.root)   # a summary written mid-run gets its final status
         return status
 
     def _stop(self, run_dir: Path, setup: dict, things: dict) -> str:

@@ -185,3 +185,42 @@ def test_notify_never_contains_secret(tmp_path, adapters, monkeypatch):
     notify_step.run(ctx)
     (msg,) = adapters.notify.messages
     assert "hunter2-hunter2" not in msg and "failed" in msg
+
+
+# ------------------------------------------------------------- the summary's final status
+def test_summary_written_mid_run_says_finishing(tmp_path, adapters, lib, project):
+    from phoenix9 import summary
+    run_dir = start(tmp_path, ONE)
+    state.set_status(run_dir, "running")
+    facts = summary.facts(run_dir)
+    for text in (summary.markdown(facts), summary.html(facts)):
+        assert "finishing (the last steps were still running when this was written)" in text
+        assert "not yet" in text
+        assert "Status: running" not in text
+
+
+def test_summary_refreshed_with_final_status_when_run_ends(tmp_path, adapters, lib, project):
+    run_dir = finished_run(tmp_path, adapters, lib, ONE)
+    text = (run_dir / "summary.md").read_text()
+    assert "Status: done" in text and "finishing" not in text and "Finished: not yet" not in text
+    assert "done" in (run_dir / "summary.html").read_text()
+    assert not (run_dir / "logs" / "summary.log").exists()
+
+
+def test_summary_refresh_skipped_when_no_summary(tmp_path, adapters, lib, project):
+    shutil.rmtree(lib / "steps" / "summary")
+    run_dir = finished_run(tmp_path, adapters, lib, ONE)
+    assert not (run_dir / "summary.md").exists() and not (run_dir / "summary.html").exists()
+
+
+def test_stopped_run_summary_says_stopped(tmp_path, adapters, lib, project):
+    toml = lib / "steps" / "summary" / "step.toml"
+    toml.write_text(toml.read_text() + "\n[settings]\nafter_stop = true\n")
+    on("builder", 1, 1, fail("missing config"))
+    run_dir = start(tmp_path, ONE, max_tries=1)
+    runner = Runner(adapters, lib)
+    assert runner.drive(run_dir) == "waiting"
+    (g,) = [x for x in gates.list_gates() if x["run"] == run_dir.name]
+    gates.answer(g["id"], "stop", who="alex")
+    assert runner.drive(run_dir) == "stopped"
+    assert "Status: stopped" in (run_dir / "summary.md").read_text()

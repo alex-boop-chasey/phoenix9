@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, events, state
+from phoenix9 import atomic, events, scrub, settings, state
 
 TEMPLATE = Path(__file__).parent / "assets" / "summary.html"
 
@@ -122,10 +122,20 @@ def _for_you(f: dict) -> list:
     return [f"Task {t['number']}: {t['title']}" for t in f["tasks"] if t["human"]]
 
 
+FINAL_STATUSES = ("done", "failed", "stopped")
+
+
+def _status_text(f: dict) -> str:
+    """The status in plain words; a run that is not over yet reads 'finishing', never a bare 'running'."""
+    if f["status"] in FINAL_STATUSES:
+        return f["status"]
+    return "finishing (the last steps were still running when this was written)"
+
+
 def markdown(f: dict) -> str:
     """The summary as Markdown (summary.md)."""
     c = f["counts"]
-    out = [f"# {f['title']}", "", f"- Project: {f['project']}", f"- Run: {f['run_id']}", f"- Status: {f['status']}",
+    out = [f"# {f['title']}", "", f"- Project: {f['project']}", f"- Run: {f['run_id']}", f"- Status: {_status_text(f)}",
            f"- Preset: {f['preset']}", f"- Started: {f['started'] or 'unknown'}",
            f"- Finished: {f['finished'] or 'not yet'}", f"- Duration: {f['duration'] or 'unknown'}",
            f"- Tasks: {c['passed']} passed, {c['failed']} failed, {c['skipped']} skipped",
@@ -157,7 +167,7 @@ def html(f: dict) -> str:
     shots = ("<ul>\n" + "\n".join(f'<li><a href="{e(p, quote=True)}">{e(p)}</a></li>' for p in f["screenshots"])
              + "\n</ul>") if f["screenshots"] else "<p>None.</p>"
     values = {
-        "title": e(f["title"]), "status": e(f["status"]), "project": e(f["project"]), "run_id": e(f["run_id"]),
+        "title": e(f["title"]), "status": e(_status_text(f)), "project": e(f["project"]), "run_id": e(f["run_id"]),
         "preset": e(f["preset"]), "started": e(f["started"] or "unknown"), "finished": e(f["finished"] or "not yet"),
         "duration": e(f["duration"] or "unknown"), "full_suite": e(f["full_suite"]), "cost": e(f["cost"]),
         "sessions": e(f["sessions"]), "tasks": _items([_task_line(t) for t in f["tasks"]], "(no tasks)"),
@@ -166,3 +176,26 @@ def html(f: dict) -> str:
     }
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), TEMPLATE.read_text())
 
+
+
+def refresh(run_dir, lib_root=None) -> None:
+    """Rewrite summary.md and summary.html from fresh facts, only when the run already has a summary.md.
+    A failure is appended (scrubbed) to logs/summary.log and never raised."""
+    run_dir = Path(run_dir)
+    if not (run_dir / "summary.md").exists():
+        return
+    try:
+        name = (atomic.read_json(run_dir / "settings.json") or {}).get("profile") or ""
+        profile = settings.load_profile(lib_root, name) if name and lib_root else {}
+        shots = bool(profile.get("screenshots"))
+        f = facts(run_dir, screenshots=shots)
+        atomic.write_text(run_dir / "summary.md", markdown(f))
+        atomic.write_text(run_dir / "summary.html", html(f))
+    except Exception as err:  # the summary is a courtesy; it must never fail the run
+        try:
+            log = run_dir / "logs" / "summary.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            with log.open("a") as fh:
+                fh.write(f"could not refresh the summary: {scrub.scrub(str(err))}\n")
+        except OSError:
+            pass

@@ -85,11 +85,17 @@ class Http:
 
 
 class Chat:
-    """Delegate mode placeholder (phase 2)."""
+    """Delegate mode: hands a failed task to the project's own chat agent (phoenix9/chat.py)."""
 
-    def delegate(self, *args, **kwargs) -> Any:
-        """Hand a failure to the project chat agent (not built yet)."""
-        raise NotImplementedError("chat delegate is built in phase 2")
+    def delegate(self, project: str, project_dir, gate: str, prompt: str, log_path) -> dict:
+        """Start the detached project chat session; returns {"started", "handle", "error"}."""
+        from phoenix9 import chat
+        return chat.delegate(project, project_dir, gate, prompt, log_path)
+
+    def status(self, handle: str) -> str:
+        """"running" or "exited"."""
+        from phoenix9 import chat
+        return chat.status(handle)
 
 
 class Claude:

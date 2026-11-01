@@ -110,3 +110,18 @@ def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
     if not who.startswith("chat:"):
         return True
     return gate["kind"] in (project_settings.get("home_chat_may_answer") or [])
+
+
+def read(run_dir, gate_id: str) -> dict | None:
+    """The gate file of this run, or None."""
+    return atomic.read_json(_gates_dir(run_dir) / f"{gate_id}.json")
+
+
+def current_answer(run_dir) -> dict | None:
+    """The answer to the gate the run is waiting on now (state `current.gate`), or None.
+
+    Only this gate counts: answers to older gates of the run never wake it up again.
+    """
+    st = state.load(Path(run_dir)) or {}
+    gate_id = (st.get("current") or {}).get("gate")
+    return poll(run_dir, gate_id) if gate_id else None

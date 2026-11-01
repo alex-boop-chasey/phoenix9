@@ -65,6 +65,7 @@ class StepContext:
     adapters: Any
     emit: Callable[..., Any]
     log: Callable[[str], None]
+    answer: dict | None = None   # the gate answer {action, note, who} when Alex sent this step back
 
 
 class UsageLimit(Exception):

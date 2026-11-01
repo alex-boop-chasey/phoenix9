@@ -26,8 +26,7 @@ def run_dir(project: str, run_id: str) -> Path:
 
 
 def _tasks_from_spec(parsed) -> dict:
-    return {str(t.number): {"title": t.title, "status": "pending", "tries": 0, "failures": [],
-                            "depends_on": list(t.depends_on)} for t in parsed.tasks}
+    return {str(t.number): state.new_task(t.title, t.depends_on) for t in parsed.tasks}
 
 
 def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> Path:

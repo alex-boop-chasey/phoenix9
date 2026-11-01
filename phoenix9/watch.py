@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, events, paths, state
+from phoenix9 import atomic, docker as docker_mod, events, gates, paths, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -52,8 +52,8 @@ def _run_dir(s: dict) -> Path:
 
 
 def _has_answer(run_dir: Path) -> bool:
-    """True when any gate of this run has an answer file."""
-    return any((run_dir / "gates").glob("*.answer.json"))
+    """True when the gate this run waits on now (state current.gate) has been answered."""
+    return gates.current_answer(run_dir) is not None
 
 
 def _fail(adapters, s: dict, reason: str) -> str:
@@ -130,9 +130,16 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
                 drive_safely(adapters, runner, state.load(_run_dir(s)), memory)
             return s["run_id"]
     for s in states:
-        if s["status"] == "waiting" and _has_answer(_run_dir(s)):
+        if s["status"] != "waiting":
+            continue
+        if _has_answer(_run_dir(s)):
             drive_safely(adapters, runner, s, memory)
             return s["run_id"]
+        if hasattr(runner, "check_waiting"):   # e.g. the delegate watchdog; never drives the run
+            try:
+                runner.check_waiting(_run_dir(s))
+            except Exception:  # noqa: BLE001 - a watchdog problem must not stop the loop
+                pass
     chosen = next_run(states)
     if chosen is None:
         return None

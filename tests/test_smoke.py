@@ -108,6 +108,8 @@ def test_smoke_run_builds_commits_and_merges(smoke):
 
 def test_smoke_env_file_fails_task_and_main_stays(smoke):
     code = smoke["code"]
+    (smoke["project"] / "phoenix.toml").write_text(
+        'preset = "simple"\nprofile = "python-script"\nmax_tries = 1\non_failure = "continue"\n')
     before = git(code, "rev-parse", "main")
     run_dir, st = play(smoke, [{"hello.py": HELLO}, {"tests/test_hello.py": TEST_HELLO, ".env": "KEY=1\n"}])
     assert st["status"] == "failed"

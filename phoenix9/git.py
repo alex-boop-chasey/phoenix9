@@ -229,10 +229,22 @@ def _clean_trailer(text: str) -> str:
     return " ".join(str(text).split())
 
 
-def commit(worktree: Path, message: str, trailers: dict) -> str:
+def pending_paths(worktree: Path, skip_env: bool = False) -> list[str]:
+    """Paths with uncommitted changes (new, changed or deleted); skip_env leaves out .env-style files."""
+    out = git(Path(worktree), "status", "--porcelain", "-z", "--untracked-files=all")
+    found, parts, i = [], out.split("\0"), 0
+    while i < len(parts) and parts[i]:
+        entry = parts[i]
+        found.append(entry[3:])
+        i += 2 if entry[0] in "RC" else 1        # a rename is followed by its old path
+    return [p for p in found if not (skip_env and is_env_file(p.rsplit("/", 1)[-1]))]
+
+
+def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False) -> str:
     """Commit everything in the worktree with trailers (`Key: value`). Return the new sha.
 
-    A commit with no changes is still made, so the step's pass is on record.
+    A commit with no changes is still made, so the step's pass is on record. skip_env=True leaves
+    .env-style files out of the commit (they stay in the worktree, uncommitted).
     """
     lines = [ln for ln in message.strip().splitlines()]
     body = "\n".join(lines).strip() or "Phoenix step"
@@ -241,6 +253,11 @@ def commit(worktree: Path, message: str, trailers: dict) -> str:
                      if _clean_trailer(ln.partition(":")[0]).lower() not in keys)
     block = "\n".join(f"{_clean_trailer(k)}: {_clean_trailer(v)}" for k, v in trailers.items())
     _stage_all(Path(worktree))
+    if skip_env:
+        staged = git(Path(worktree), "diff", "--cached", "--name-only", "-z").split("\0")
+        env = [p for p in staged if p and is_env_file(p.rsplit("/", 1)[-1])]
+        if env:
+            git(Path(worktree), "reset", "-q", "--", *env)
     text = f"{body}\n\n{block}\n" if block else f"{body}\n"
     git(worktree, *IDENT, "commit", "-q", "--allow-empty", "--no-verify", "-F", "-", input=text.encode())
     return head(worktree)

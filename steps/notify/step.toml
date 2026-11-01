@@ -8,3 +8,6 @@ order = 50
 needs = ["spec"]
 produces = []
 default = "on"
+
+[settings]
+after_stop = true    # also runs when Alex stops the run (every other finish step is left out then)

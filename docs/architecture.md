@@ -131,6 +131,11 @@ model = "claude-sonnet-5-5"
   `before(ctx) -> dict` (extra placeholder values) and `after(ctx, session) -> StepResult` (judge the
   session's outcome by looking at files only, never by trusting what the session said).
 - `kind = "gate"`: no code needed; the runner opens a gate (section 8) and waits.
+- Two `[settings]` keys the runner itself reads (any step may set them; the runner knows no step by
+  name): `once = true` (task step) runs on every attempt until it has passed once, then never again
+  for that task; after the once-steps the worktree's commit is the task's `attempt_base`.
+  `after_stop = true` (finish step) still runs when Alex answers `stop` (Notify sets it); every other
+  finish step is left out of a stopped run.
 - Library loading imports `run.py` with `importlib.util.spec_from_file_location`; a broken folder is
   reported by `phoenix steps list` and skipped, it never crashes the runner.
 
@@ -192,9 +197,11 @@ class StepResult:
 ```
 StepContext carries: `project` (name, paths, settings), `run` (id, folder, spec), `step` (its effective
 settings incl. ai block), `task` (or None at run level), `attempt` (int), `worktree` (Path or None),
-`things` (dict of everything produced so far, after fallbacks), `adapters` (docker, claude, git, host,
-clock, notify; real or fake), `emit(type, **data)` (writes an event), `log(text)` (scrubbed log line
-into the run folder).
+`things` (dict of everything produced so far, after fallbacks; `failures` = every earlier failure
+reason of this task, including notes sent with `back` or `acknowledged`), `adapters` (docker, claude,
+git, host, clock, notify, chat; real or fake), `emit(type, **data)` (writes an event), `log(text)`
+(scrubbed log line into the run folder), `answer` (None, or the gate answer `{action, note, who, at}`
+when Alex sent this step back with `back` and the runner calls it again).
 
 ### 4.5 Profile folder: `profiles/<name>/profile.toml`
 
@@ -281,12 +288,57 @@ Done when:
   (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`,
   `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
   `gates/<gate-id>.answer.json`, `logs/<step>.log`, `summary.md`.
-- `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt},
-  tasks: {"1": {title, status, tries, failures: [..], depends_on: [..]}}, steps: [ {group, task, step,
-  status, started, finished, note} ], usage: {cost_usd, sessions}}`.
+- `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
+  gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
+  gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
+  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}}`.
   Run status: `queued | running | waiting | paused-limit | done | failed | stopped`.
   Task status: `pending | running | passed | failed | skipped | waiting`.
-  Step line status: `pending | running | passed | failed | skipped`.
+  Step line status: `pending | running | passed | failed | skipped | waiting`.
+  Phase 2 fields (old files without them still load; code reads them with `.get`):
+  - `current.gate`: the ONE gate the run waits on now. The service loop re-drives a waiting run only
+    when this gate has an answer file (`gates.current_answer`). Opening a gate and recording who
+    holds it (`current.gate` + task `gate` or step line `gate`) is one helper, `runner._open_gate`,
+    with one state update. If a crash lands between the gate file and that update, the run is
+    waiting with no `current.gate`: `drive()` and `check_waiting` then adopt the newest unanswered
+    gate in `gates/` (`runner.adopt_gate`, re-attached to its task, or to its step's latest line).
+  - task `tries` = the attempt being worked on (0 = not started). `escalations` = acknowledged
+    escalations so far (max `failmodes.MAX_ESCALATIONS` = 2). `flagged` = why it failed (Build tab,
+    summary). `gate` = the task's own gate (human-task or escalation). `attempt_base` = the commit
+    each attempt starts from (a failed attempt is reset to it; an outside fix moves it).
+    `delegate` = `{gate, handle, started_at, log, notified}` while the project chat has the
+    escalation. `note` = why it was skipped ("depends on task 1, which failed", "skipped by cli").
+    `rerun` = an escalation was acknowledged: the next attempt starts whatever `should_retry` says;
+    starting it sets `tries = k+1, rerun = false` in one update.
+  - step lines: task steps get one line per attempt (`attempt`). A step that returned a gate has
+    status `waiting` plus `gate`, and keeps what it said (`produces`, `reasons`) so the answer can be
+    acted on after a restart; `answers` = every answer it was called again with (back, or an action
+    the runner does not know). `ctx.answer` = the latest answer plus `notes` = every back note in order.
+  - `tasks/<n>/attempt-<k>/result.json` `{attempt, status, reasons, at}` is written when attempt k is
+    over (passed or failed and reset). No result.json = the attempt is still going (a restart
+    continues it from its first unfinished step). Early escalation compares these files. What comes
+    after attempt k is decided at the top of the loop from these files: passed = task passed; failed
+    and no `rerun` and `should_retry` false = `on_failure`; else attempt k+1. So a restart after a
+    failed result.json never runs an extra attempt past `max_tries` (default 1 when unset).
+  - `once` steps (e.g. Checks) are skipped once they passed in an earlier attempt; a failed once-step
+    runs again. attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
+- The attempt loop (`phoenix9/runner.py` + `phoenix9/failmodes.py`, harness spec 13): a task runs
+  attempts of its task steps. A failed attempt (a step `fail`, or a crash: "step <name> crashed: ...")
+  adds its reasons to `failures` and is retried until `max_tries`, unless it was already escalated,
+  a reason starts with `SPEC_PROBLEM` or `AUTH_ERROR`, or it failed for exactly the same reasons as
+  the attempt before. Then `on_failure`: `continue` = task `failed` + flagged, dependents `skipped`;
+  `pause` = escalation gate + one notify; `delegate` = the same gate (flag "delegated to project
+  chat") handed to the project chat (section 9 `chat`, 12). `acknowledged` = commit any outside fix,
+  `attempt_base` = the worktree's HEAD (always, so a crash after the fix commit keeps the fix), one
+  more attempt; if that fails, the mode once more, then `failed`. .env-style files found in the
+  worktree at that point are moved to `tasks/<n>/outside-env/<path>` (never committed), with the
+  failure line and notify "env file <path> was moved out of the worktree; keys belong in Phoenix
+  secrets". A `For you: yes` task runs no
+  steps: it is a `human-task` gate. A usage limit is not a try (the same attempt goes on afterwards).
+  Run-level steps have no retries and no `on_failure`: a failed start step fails the run, a failed
+  finish step makes it `failed` while the other finish steps still run; a run-level step that needs
+  Alex returns a gate (for a failure: kind `escalation`). Run end: `done` unless a task or a run-level
+  step failed (`failed`) or Alex stopped it (`stopped`).
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart
   resumes `running` runs from `state.json`.
@@ -308,6 +360,24 @@ Done when:
   `flags`: e.g. `["changes safety code"]`.
   Escalation actions are `["acknowledged", "skip", "stop"]` (acknowledged = rerun the task once).
 - `back` always needs a note (it is fed to the step that runs again).
+- What each answer does (`runner.STEP_ANSWERS`, `runner.TASK_ANSWERS`):
+
+  | Gate held by | approve | back | skip | stop | acknowledged |
+  | --- | --- | --- | --- | --- | --- |
+  | a step (any kind it returns: step, plan, merge, deploy, escalation, ...) | step passed with its `produces` | same step called again with `ctx.answer`; note added to `failures` | step skipped; a task step skips the whole task and its dependents | run `stopped` | step stays failed; normal failure handling goes on (it does NOT rerun the step) |
+  | a `human-task` task | task passed | - | task + dependents skipped | run `stopped` | - |
+  | an `escalation` task (after the last try) | - | - | task + dependents skipped | run `stopped` | outside fix committed, one more attempt |
+
+  Any other action a step's gate offers (a new gate kind's own action) calls the step again with
+  `ctx.answer`, like back, but adds nothing to `failures`; the step decides what it means
+  (`runner._handle_gate`, where step 07's on_approved hook also plugs in).
+  Run-level steps (start/finish) get no retries and no `on_failure`; `acknowledged` on a gate a
+  run-level step opened leaves that step failed (a failed start step fails the run).
+  `stop` leaves out every finish step except those with `after_stop = true` (Notify). A new gate
+  kind returned by a step needs no runner change. The runner never blocks on a gate: `drive()`
+  returns "waiting" and the service loop drives the run again when `current.gate` is answered
+  (an answer written while the runner was down is acted on the same way). `phoenix run stop` on a
+  waiting run ends it; a later answer is ignored.
 - Answer file `gates/<gate-id>.answer.json`: `{action, note, who, at}`. Written only by
   `gates.answer()` (CLI `phoenix gate answer`, API, Home chat through the CLI). The runner polls for it.
   Gate ids: `<run-id>.<n>`.
@@ -337,7 +407,7 @@ Done when:
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
 | `proxy` | phase 4: start/stop the per-step key proxy (phoenix9/proxy.py) | in-process fake forwarder |
-| `chat` | delegate mode: starts a detached headless `claude -p` in the project folder (section 11, rule 1 exception) | records the request, scripted outcome |
+| `chat` | delegate mode (`phoenix9/chat.py`): `delegate(project, project_dir, gate_id, prompt, log_path) -> {started, handle, error}` starts a detached headless `claude -p <prompt> --permission-mode bypassPermissions --output-format text` in the project folder (own session, output to the log, env `PHOENIX_WHO=chat:delegate`, never `--bare`); `status(handle) -> running \| exited` (section 11, rule 1 exception) | `FakeChat.mode`: answer (acknowledges as chat:delegate) / exit / run / fail |
 `phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
 `subprocess` for these tools directly.
 
@@ -357,7 +427,8 @@ Done when:
 1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. One recorded
    exception: the `delegate` failure mode starts a headless Claude session in the project folder with
    the same permissions as the project's own chat (Alex's decision: the project chat agent handles it).
-   It is a separate process, never imported or driven step-by-step by the runner.
+   It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
+   is the only place in phoenix9 that starts Claude on the host.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -381,10 +452,24 @@ Done when:
   container or service recipe needs; the host Merge step never needed the helper) through the `host` adapter in phase 2; phase 4's key proxy is for
   step containers and service setup. The Merge step is a script step on the host, so no container ever
   holds the GitHub token either way.
+- **Delegate mode** (harness spec 13): the escalation gate opens exactly as in pause mode, with the
+  flag "delegated to project chat"; the runner renders `steps/_delegate/prompt.md` (a `_` folder, so
+  the library loader skips it) and starts the project chat once through the `chat` adapter, then
+  forgets it. The chat either fixes the cause in the run's worktree and answers the gate
+  `acknowledged --who chat:delegate`, or ends with `DELEGATE GAVE UP: <why>`. Alex is told once
+  (with the last 20 scrubbed lines of the delegate log) when it could not be started, has exited
+  without answering, its handle is gone after a restart, or 60 minutes passed
+  (`failmodes.DELEGATE_TIMEOUT_MIN`); the run then simply waits as in pause mode. Anyone's
+  `acknowledged` continues the run. The delegate is never started twice for one gate.
 - **Chat link**: a project records `chat_session_url` when known (`phoenix project set-chat`) and always
   knows the environment link parsed from `journalctl -u claude-rc@<name>`
   (`https://claude.ai/code?environment=env_...`). The Projects page shows the session link if recorded,
   else the environment link.
+
+- **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
+  `running` with no result.json for the attempt, so the restart calls that step again as it is; the
+  worktree is not reset to `attempt_base` first (half-written files from the cut-off session stay).
+  Accepted: the step's own checks judge the result, and a failed attempt is reset as usual.
 
 ## 13. Formats defined in later phases
 

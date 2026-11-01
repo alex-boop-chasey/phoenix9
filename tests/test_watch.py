@@ -132,6 +132,8 @@ def test_limit_uses_probe_when_reset_unknown(tmp_path):
 
 def test_waiting_run_is_redriven_only_with_an_answer(tmp_path):
     folder = make_run("w", "waiting")
+    atomic.write_json(folder / "gates" / "w.0.answer.json", {"action": "approve"})   # an old gate's answer
+    state.update(folder, lambda s: s["current"].__setitem__("gate", "w.1"))
     runner = FakeRunner("waiting")
     assert watch.watch_once(fake_adapters(tmp_path), runner) is None
     atomic.write_json(folder / "gates" / "w.1.answer.json", {"action": "approve"})

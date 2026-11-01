@@ -9,7 +9,7 @@ from . import atomic
 
 RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "done", "failed", "stopped")
 TASK_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
-STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped")
+STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
 
 
 # ported from reference/v8/phoenix/state.py:79 (Lock)
@@ -62,8 +62,23 @@ def new_state(run_id: str, project: str, tasks: dict | None = None) -> dict:
     """A fresh state.json body with status queued."""
     stamp = now()
     return {"run_id": run_id, "project": project, "status": "queued", "created": stamp, "updated": stamp,
-            "current": {"group": None, "task": None, "step": None, "attempt": None},
+            "current": {"group": None, "task": None, "step": None, "attempt": None, "gate": None},
             "tasks": tasks or {}, "steps": [], "usage": {"cost_usd": 0.0, "sessions": 0}}
+
+
+def new_task(title: str = "", depends_on=()) -> dict:
+    """A fresh task entry. Old state files may lack the later fields, so readers use .get().
+
+    tries = the attempt being worked on (0 = not started); failures = every reason so far, fed to the
+    next attempt; escalations = how many times Alex (or the project chat) acknowledged it;
+    flagged = why it failed, shown on the Build tab; gate = the open gate it waits on;
+    attempt_base = the commit each attempt starts from (failed attempts are reset to it);
+    delegate = the project chat hand-over (handle, started_at, notified); note = why it was skipped;
+    rerun = an escalation was acknowledged, so the next attempt runs whatever should_retry says.
+    """
+    return {"title": title, "status": "pending", "tries": 0, "failures": [], "depends_on": list(depends_on),
+            "escalations": 0, "flagged": "", "gate": None, "attempt_base": None, "delegate": None, "note": "",
+            "rerun": False}
 
 
 def _file(run_dir: Path) -> Path:
@@ -108,18 +123,19 @@ def set_status(run_dir: Path, status: str) -> dict:
 def set_task(run_dir: Path, n: int, **fields) -> dict:
     """Change fields of task n (created if missing, status pending)."""
     def change(s):
-        task = s["tasks"].setdefault(str(n), {"title": "", "status": "pending", "tries": 0,
-                                              "failures": [], "depends_on": []})
+        task = s["tasks"].setdefault(str(n), new_task())
         task.update(fields)
     return update(run_dir, change)
 
 
 def add_step_line(run_dir: Path, group: str | None, task: int | None, step: str,
-                  status: str = "pending", note: str = "") -> int:
-    """Append a step line and return its index."""
+                  status: str = "pending", note: str = "", attempt: int | None = None) -> int:
+    """Append a step line and return its index. Task steps get one line per attempt."""
     _check(status, STEP_STATUSES, "step")
     line = {"group": group, "task": task, "step": step, "status": status,
             "started": now() if status == "running" else None, "finished": None, "note": note}
+    if attempt is not None:
+        line["attempt"] = attempt
     state = update(run_dir, lambda s: s["steps"].append(line))
     return len(state["steps"]) - 1
 

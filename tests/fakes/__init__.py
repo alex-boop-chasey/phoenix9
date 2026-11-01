@@ -93,17 +93,51 @@ class FakeHttp:
 
 
 class FakeChat:
-    """Records delegate requests."""
+    """Records delegate requests; `mode` scripts what the pretend project chat does.
+
+    answer: it fixes things and answers the gate `acknowledged` as chat:delegate, then exits.
+    exit:   it starts, gives up without answering, and exits.
+    run:    it starts and keeps running (never answers).
+    fail:   it cannot be started.
+    `fix` (optional) is called with the gate id before answering (e.g. to write a fix into the worktree).
+    `log` lines are written into the log file it is given.
+    """
 
     def __init__(self):
-        """Start empty."""
+        """Start empty, in answer mode."""
         self.calls: list[tuple] = []
         self.result = None
+        self.mode = "answer"
+        self.note = "fixed it"
+        self.fix = None
+        self.log: list[str] = []
+        self.running: dict[str, bool] = {}
 
     def delegate(self, *args, **kwargs):
-        """Record the request and return the scripted result."""
+        """Record the request and act out the scripted mode."""
         self.calls.append((args, kwargs))
-        return self.result
+        if self.result is not None:
+            return self.result
+        project, project_dir, gate, prompt, log_path = (list(args) + [None] * 5)[:5]
+        gate = kwargs.get("gate", gate)
+        log_path = kwargs.get("log_path", log_path)
+        if self.mode == "fail":
+            return {"started": False, "handle": "", "error": "claude: command not found"}
+        if log_path and self.log:
+            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(log_path).write_text("\n".join(self.log) + "\n")
+        handle = f"fake-{len(self.calls)}"
+        self.running[handle] = self.mode == "run"
+        if self.mode == "answer":
+            from phoenix9 import gates
+            if self.fix:
+                self.fix(gate)
+            gates.answer(gate, "acknowledged", note=self.note, who="chat:delegate")
+        return {"started": True, "handle": handle, "error": ""}
+
+    def status(self, handle):
+        """running while scripted to run; unknown handles (lost in a restart) count as exited."""
+        return "running" if self.running.get(handle) else "exited"
 
 
 class FakeDocker:

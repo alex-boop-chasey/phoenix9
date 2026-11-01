@@ -3,7 +3,8 @@
 The container is the safety boundary for every Claude session. Each one is fresh, firewalled (only
 allowed sites can be reached), has limited memory, CPU and process count, and is removed when it ends.
 A container never gets Docker control, the GitHub token, SSH keys or account service keys (hard rule 2).
-Every call to the docker program goes through DockerRunner, so tests can swap in a fake.
+Every step-container call to the docker program goes through DockerRunner, so tests can swap in a fake.
+The only other place is deployers/vps-docker/deploy.py (site containers, via the host adapter).
 """
 from __future__ import annotations
 

@@ -1,15 +1,24 @@
 name = "vps-docker"
 title = "This VPS (Docker)"
 description = "Builds the project's Dockerfile and runs it on this server behind the tunnel."
-supported = false
+supported = true
 proxy_service = ""
 preview = true
 for_profiles = ["web", "platform"]
 required_settings = ["live_port"]
 
 [settings]
-live_port = 0                    # 0 = must be set by the project
+live_port = 0                    # 0 = must be set by the project (the port the tunnel points at)
+side_port = 0                    # 0 = live_port + 1000 (the new version is checked here first)
+preview_port = 0                 # 0 = live_port + 2000
+container_port = 3000
+dockerfile = "Dockerfile"
+health_path = "/"
+memory = "512m"
+cpus = "1.0"
+public_url = ""                  # the address set up by hand in the tunnel; shown in messages
+preview_url = ""                 # same, for previews
 
 [health]
 timeout_s = 60
-tries = 5
+tries = 6

@@ -36,11 +36,12 @@ pyproject.toml                 name phoenix9, no runtime deps, pytest testpaths 
 docs/architecture.md           this file
 phoenix9/                      the Python package
   __main__.py                  CLI entry (argparse); one sub-module per command group in phoenix9/cli/
-  cli/                         project.py run.py gate.py settings.py global_.py services.py keys.py
-                               steps.py update.py doctor.py deploy.py api.py runner.py  (thin: parse args, call ops, print)
+  cli/                         project.py (also `project keys` and `project services`) run.py gate.py
+                               settings.py library.py runner.py output.py doctor.py (thin: parse args,
+                               call ops, print); phase 4 adds global_.py update.py deploy.py api.py
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
-                               common runs gates settings library projects keys logs (phases 1-3),
+                               common runs gates settings library projects keys (phases 1-2), logs (phase 3),
                                global_ services update deploy doctor (phase 4). Errors: OpsError.
   paths.py                     where things live (section 3)
   tomlw.py                     small TOML writer (stdlib has no writer); round-trips what we use
@@ -54,17 +55,26 @@ phoenix9/                      the Python package
   events.py                    events.jsonl append/read/tail (section 8)
   gates.py                     gate files and answers (section 8)
   runner.py                    the step runner (phase 1 = run-level + simple task loop; phase 2 = full)
+  failmodes.py                 retry / escalation / on_failure handling (section 7)
+  aistep.py                    prompt rendering and helpers shared by the ai steps
+  checklock.py reports.py      locked task checks (fingerprints); test report readers + verdict fallback
+  summary.py                   run summary facts -> summary.md / summary.html (assets/summary.html)
+  chat.py                      the `chat` adapter: delegate mode (section 9)
+  templates.py images.py       templates menu loader; profile Dockerfile checks
   stepctx.py                   StepContext and StepResult (section 4.4)
   claude.py docker.py git.py watch.py   ports of V8 (reference/v8/phoenix/*), adapters (section 9)
   scrub.py                     secret redaction for every log line written
   project.py                   phoenix project (proj folded in) (phase 2)
-  keys.py                      per-project keys + global secrets store (phase 2; global part phase 4)
-  services.py proxy.py         services registry, key proxy (phase 4)
+  keys.py                      per-project keys (phase 2; global secrets store phase 4)
+  services.py                  services library loader (phase 2); project_services.py: a project's set
+  proxy.py                     key proxy (phase 4)
+  assets/                      static files the package ships (summary.html)
   updater.py                   phoenix update (phase 4)
   deploy.py                    deployers runner (phase 4)
   doctor.py                    phoenix doctor (phase 4; stub in phase 1)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
 steps/<name>/                  step library: step.toml + prompt.md (ai) and/or run.py (script)
+steps/_delegate/               delegate-mode prompt (a `_` folder: not a step, the loader skips it)
 steps/_things.toml             every "thing" a step can need/produce, with its fallback
 presets/<name>.toml            simple, quick, full (custom = no file; it is "start from a preset")
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
@@ -74,7 +84,7 @@ templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        systemd units, install.sh, update.sh (phase 4)
 web/                           React app (phase 3)
-tests/                         pytest; tests/fakes/ holds every fake adapter
+tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
 reference/                     READ-ONLY copies of V8, proj and the project-selector. Never imported,
                                never edited. Deleted at the end of phase 4.
 ```
@@ -120,7 +130,7 @@ only_with = []                   # step names that must be on for this one to be
 proxy = []                       # phase 4: services whose key proxy runs for this step (e.g. ["github"])
 
 [settings]                       # the step's own options and their defaults (validated by type)
-max_tries = 3
+once = false                     # example: a task step that runs until it has passed once
 
 [ai]                             # ai steps only; full block in section 5.3
 model = "claude-sonnet-5-5"
@@ -302,7 +312,8 @@ Done when:
   `spec.md` (copy, read-only), `spec.json`, `settings.json` (frozen effective settings), `plan.json`
   (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`,
   `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
-  `gates/<gate-id>.answer.json`, `logs/<step>.log`, `summary.md`.
+  `gates/<gate-id>.answer.json`, `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
+  (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
   gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,

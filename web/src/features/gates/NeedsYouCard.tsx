@@ -12,13 +12,19 @@ import { useAnswerGate } from "@/lib/queries"
 import type { Gate, GateAction } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const LABEL: Record<GateAction, string> = {
+const LABEL: Record<string, string> = {
   approve: "Approve",
   back: "Send back with a note",
   skip: "Skip task",
   stop: "Stop run",
   acknowledged: "Acknowledged",
+  done: "Done, keys pasted",
 }
+
+const KNOWN: GateAction[] = ["approve", "back", "skip", "stop", "acknowledged"]
+
+/** The label for an action: the known one, else the action's own name. */
+const labelOf = (action: GateAction) => LABEL[action] ?? action
 
 const ESCALATION_HELP =
   "Fix it (for example with the project's chat), then press Acknowledged; the task runs once more."
@@ -69,10 +75,11 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
   const order: GateAction[] = escalation
     ? ["acknowledged", "skip", "stop"]
     : ["approve", "back", "skip", "stop", "acknowledged"]
-  const shown = order.filter(offers)
+  const extra = gate.actions.filter((a) => !KNOWN.includes(a))
+  const shown = [...order.filter(offers), ...extra]
 
   const button = (action: GateAction) => {
-    const label = LABEL[action]
+    const label = labelOf(action)
     const spin = pressed === action && <Loader2 className="animate-spin" aria-hidden />
     if (action === "back") {
       return (
@@ -97,7 +104,7 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
 
   let body
   if (done) {
-    body = <p role="status" className="text-sm font-medium">Answered: {LABEL[done]}</p>
+    body = <p role="status" className="text-sm font-medium">Answered: {labelOf(done)}</p>
   } else if (already) {
     body = <p role="status" className="text-sm font-medium">Someone already answered this.</p>
   } else {

@@ -39,6 +39,23 @@ describe("NeedsYouCard", () => {
     expect(screen.queryByRole("button", { name: "Acknowledged" })).toBeNull()
   })
 
+  it("shows a gate's own action as a plain button and posts it", async () => {
+    const { calls } = mockApi(answerRoute("r.2"))
+    const keys: Gate = { ...merge, id: "r.2", kind: "human-task", title: "Paste keys for Supabase",
+      actions: ["done", "skip", "stop"] }
+    renderWithProviders(<NeedsYouCard gate={keys} />)
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull()
+    fireEvent.click(button("Done, keys pasted"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "done", note: "" })
+  })
+
+  it("an unknown action is labelled with its own name", () => {
+    mockApi({})
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, actions: ["approve", "deploy"] }} />)
+    expect(button("deploy")).toBeInTheDocument()
+  })
+
   it("approve posts approve", async () => {
     const { calls } = mockApi(answerRoute("r.1"))
     renderWithProviders(<NeedsYouCard gate={merge} />)

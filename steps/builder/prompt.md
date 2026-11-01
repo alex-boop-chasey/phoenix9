@@ -54,6 +54,10 @@ tests. Only that run decides whether the task passed. Your own words do not coun
 - The network is firewalled to an allowlist. If something you need is blocked, say so at the end.
 - Pin exact versions when you add a package and keep the lockfile in sync.
 
+## Services this project uses
+
+{{services}}
+
 ## Run so far
 
 Commits on this run's branch:

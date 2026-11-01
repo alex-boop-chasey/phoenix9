@@ -1,0 +1,12 @@
+name = "service-setup"
+title = "Service setup"
+description = "Wires the project's chosen services in once: keys present, hosts allowed, install notes for the Builder."
+kind = "script"
+level = "run"
+phase = "start"
+order = 50
+needs = ["worktree"]
+produces = ["service-notes"]
+default = "on"
+safety = false
+proxy = ["@project"]

@@ -30,7 +30,7 @@ TESTS = {
 BAD_TEST_1 = ("test_shout.py", "from e2e.shout import shout\n\n\ndef test_shout():\n    assert shout('hi') == 'nope'\n")
 PASS = json.dumps({"verdict": "pass", "reasons": []})
 DONE = "I wrote the code.\nSTEP DONE"
-QUICK_LINES = (["pick-up", "spec-check", "branch"]
+QUICK_LINES = (["pick-up", "spec-check", "branch", "service-setup"]
                + [s for _ in (1, 2, 3) for s in ("builder", "diff-rules", "secret-scan", "acceptance", "verify", "commit")]
                + ["full-suite", "summary", "merge", "notify"])
 

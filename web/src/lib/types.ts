@@ -58,7 +58,9 @@ export interface ChangelogLine {
 }
 
 export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step"
-export type GateAction = "approve" | "back" | "skip" | "stop" | "acknowledged"
+export type KnownGateAction = "approve" | "back" | "skip" | "stop" | "acknowledged"
+/** A gate's own extra action (for example "done") is any other word. */
+export type GateAction = KnownGateAction | (string & {})
 
 export interface Gate {
   id: string

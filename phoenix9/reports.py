@@ -333,3 +333,14 @@ def fallback_verdict(ctx) -> dict:
 
 
 FALLBACK_VALUES["verdict"] = fallback_verdict
+
+
+NO_SERVICES_TEXT = "This project uses no third-party services."
+
+
+def fallback_service_notes(ctx) -> str:
+    """The service notes used when Service setup is off or produced nothing."""
+    return NO_SERVICES_TEXT
+
+
+FALLBACK_VALUES["service-notes"] = fallback_service_notes

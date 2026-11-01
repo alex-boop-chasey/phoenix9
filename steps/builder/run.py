@@ -1,6 +1,9 @@
 """Builder: Claude writes the code for one task; Phoenix judges only the files it left behind."""
+from pathlib import Path
+
 from phoenix9 import atomic, state
 from phoenix9.aistep import finish_line, profile_test, task_text
+from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
 
 EARLY_END = ("crashed", "timed_out", "no_output", "error")
@@ -52,6 +55,15 @@ def _failures(ctx) -> str:
     return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
 
 
+def _services(ctx) -> str:
+    """The service notes: the text of services.md when Service setup wrote it, else the fallback text."""
+    notes = str(ctx.things.get("service-notes") or "")
+    path = Path(notes) if notes and len(notes) < 1000 else None
+    if path is not None and path.is_file():
+        return path.read_text(encoding="utf-8").strip()
+    return notes if notes and notes != "no-services" else NO_SERVICES_TEXT
+
+
 def before(ctx) -> dict:
     """Fill the builder prompt's placeholders."""
     test = profile_test(ctx)
@@ -65,6 +77,7 @@ def before(ctx) -> dict:
         "check_command": _check_command(ctx, test),
         "suite_command": test.get("cmd", ""),
         "git_log": _git_log(ctx),
+        "services": _services(ctx),
         "failures": _failures(ctx),
         "attempt": ctx.attempt,
         "max_tries": ctx.project.settings.get("max_tries", 1),

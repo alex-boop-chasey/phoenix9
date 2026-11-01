@@ -25,7 +25,7 @@ def plan_for(lib, tmp_path, preset):
 
 
 SIMPLE = {
-    "run-start": ["pick-up", "spec-check", "branch"],
+    "run-start": ["pick-up", "spec-check", "branch", "service-setup"],
     "task": ["builder", "diff-rules", "secret-scan", "acceptance", "commit"],
     "run-finish": ["full-suite", "summary", "merge", "notify"],
 }
@@ -33,7 +33,7 @@ SIMPLE = {
 
 def test_real_library_has_no_problems(lib):
     assert lib.problems == []
-    assert len(lib.steps) == 17
+    assert len(lib.steps) == 18
 
 
 def test_every_step_has_a_readme(lib):

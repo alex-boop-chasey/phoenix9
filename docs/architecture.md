@@ -121,7 +121,8 @@ build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
-chat link, environment id, services set up).
+chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run}`; older
+files may hold plain name strings).
 
 ## 4. The plug-in libraries
 
@@ -174,6 +175,14 @@ model = "claude-sonnet-5-5"
   in spec.json) when Planner is on. The Planner writes the plan to `plan.md` in the run folder (never
   `plan.json`, which is the resolver's step plan) and opens a `plan` gate; approve adopts its tasks
   (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
+- Service setup is a run-start step at `order = 50`, after Branch (40) and Planner (45), `proxy =
+  ["@project"]`, on by default. Per chosen service (phoenix.toml `services`): unknown service fails;
+  project keys without a value open a `human-task` gate (actions `done`, `skip`, `stop`; `done` calls
+  the step again and it re-checks, still missing = fail; `skip` continues without them); hosts missing
+  from the project's `[domains] allow` are added (and to this run's frozen settings); the service's
+  `recipe.py` `wire(ctx, service, proxy)` runs once (recorded in `.phoenix/project.json`
+  `services_set_up`). It writes `<run>/services.md` (titles, env var names, install notes; never
+  values) and produces `service-notes`.
 - Library loading imports `run.py` with `importlib.util.spec_from_file_location`; a broken folder is
   reported by `phoenix steps list` and skipped, it never crashes the runner.
 
@@ -206,6 +215,8 @@ fallback = "not-merged"
 fallback = "exit-codes-only"
 [verdict]
 fallback = "pass-if-checks-passed"
+[service-notes]  # services.md from Service setup (the text "This project uses no third-party services." when off)
+fallback = "no-services"
 ```
 One key per line under each `[name]` (valid TOML). `provided` things never need a producer. A thing with an empty fallback must be produced by an
 enabled earlier step.
@@ -463,6 +474,10 @@ Done when:
   | a step (any kind it returns: step, plan, merge, deploy, escalation, ...) | step passed with its `produces` | same step called again with `ctx.answer`; note added to `failures` | step skipped; a task step skips the whole task and its dependents | run `stopped` | step stays failed; normal failure handling goes on (it does NOT rerun the step) |
   | a `human-task` task | task passed | - | task + dependents skipped | run `stopped` | - |
   | an `escalation` task (after the last try) | - | - | task + dependents skipped | run `stopped` | outside fix committed, one more attempt |
+
+  Service setup's "Paste keys" gate offers `done` (not in the table: the step is called again with
+  `ctx.answer` and re-checks), `skip` and `stop`; the dashboard shows any action it does not know as a
+  plain button labelled with its name (`done` = "Done, keys pasted").
 
   Any other action a step's gate offers (a new gate kind's own action) calls the step again with
   `ctx.answer`, like back, but adds nothing to `failures`; the step decides what it means

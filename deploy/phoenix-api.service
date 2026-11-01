@@ -1,0 +1,19 @@
+# Phoenix 9 API and dashboard. Installed (copied) into /etc/systemd/system by deploy/install.sh.
+# The port comes from PHOENIX_API_PORT in /var/lib/phoenix9/config/api.env (install.sh writes it).
+[Unit]
+Description=Phoenix 9 API and dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/phoenix9
+Environment=PHOENIX_HOME=/var/lib/phoenix9
+Environment=PHOENIX_INSTALL=/opt/phoenix9
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/var/lib/phoenix9/config/api.env
+ExecStart=/opt/phoenix9/bin/phoenix api serve --port ${PHOENIX_API_PORT} --host 127.0.0.1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

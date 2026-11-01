@@ -1,0 +1,21 @@
+# Phoenix 9 runner: picks up queued runs and builds them in step containers.
+# Installed (copied) into /etc/systemd/system by deploy/install.sh.
+[Unit]
+Description=Phoenix 9 runner
+After=docker.service network.target
+Wants=docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/phoenix9
+Environment=PHOENIX_HOME=/var/lib/phoenix9
+Environment=PHOENIX_INSTALL=/opt/phoenix9
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/phoenix9/bin/phoenix runner serve
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

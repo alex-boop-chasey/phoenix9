@@ -17,6 +17,9 @@ safety_files = [
   "phoenix9/hold.py",
   "deploy/update.sh",
   "deploy/phoenix9-update.service",
+  "deploy/install.sh",
+  "deploy/phoenix-api.service",
+  "deploy/phoenix-runner.service",
   "steps/diff-rules/run.py",
   "steps/secret-scan/run.py",
 ]

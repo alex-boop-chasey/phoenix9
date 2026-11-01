@@ -1,0 +1,9 @@
+name = "summary"
+title = "summary"
+kind = "script"
+level = "run"
+phase = "finish"
+order = 20
+needs = ["commit","exit-codes"]
+produces = []
+default = "always"

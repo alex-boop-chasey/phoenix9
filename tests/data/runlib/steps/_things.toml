@@ -1,0 +1,19 @@
+# Runner-test things list.
+[spec]
+provided = "run"
+[task]
+provided = "task"
+[worktree]
+provided = "run"
+[failures]
+provided = "task"
+[plan]
+fallback = "spec-as-written"
+[baseline]
+fallback = "not-run"
+[diff]
+fallback = ""
+[exit-codes]
+fallback = ""
+[commit]
+fallback = ""

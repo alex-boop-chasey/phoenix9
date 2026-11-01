@@ -336,8 +336,8 @@ def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> E
     profile = project.get("profile", "")
     if profile:
         data = load_profile(lib.root, profile)
-        steps = {"steps": data.get("steps", {})}
-        apply(f"profile:{profile}", steps, f"profiles/{profile}/profile.toml")
+        if data.get("steps"):               # a profile with no [steps.*] changes nothing
+            apply(f"profile:{profile}", {"steps": data["steps"]}, f"profiles/{profile}/profile.toml")
     preset = preset_name(project)
     apply(f"preset:{preset}", load_preset(lib.root, preset), f"presets/{preset}.toml")
     apply("project", project, "phoenix.toml")

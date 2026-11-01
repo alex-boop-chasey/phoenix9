@@ -1,0 +1,9 @@
+name = "planner"
+title = "planner"
+kind = "script"
+level = "run"
+phase = "start"
+order = 30
+needs = ["spec"]
+produces = ["plan"]
+default = "on"

@@ -7,6 +7,7 @@ plain-English problem and is left out. Nothing here ever raises on bad library c
 """
 from __future__ import annotations
 
+import importlib.util
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -353,3 +354,29 @@ def load_library(root: Path) -> Library:
     problems += cross_problems
     steps.sort(key=lambda s: s.sort_key)
     return Library(root=root, steps=steps, things=things, problems=problems)
+
+
+class CodeError(Exception):
+    """A step's run.py could not be imported; the message is the plain-English reason."""
+
+
+def load_code(lib: Library, step: Step | str):
+    """Import steps/<name>/run.py and return the module, or None when the step has no run.py.
+
+    A run.py that fails to import raises CodeError (the runner turns that into a failed step).
+    """
+    if isinstance(step, str):
+        step = lib.step(step)
+    folder = step.folder or lib.root / "steps" / step.name
+    path = Path(folder) / "run.py"
+    if not path.is_file():
+        return None
+    try:
+        spec = importlib.util.spec_from_file_location(f"phoenix_step_{step.name.replace('-', '_')}", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except BaseException as err:  # a broken step must never crash the runner
+        if isinstance(err, KeyboardInterrupt):
+            raise
+        raise CodeError(f"steps/{step.name}/run.py could not be loaded: {type(err).__name__}: {err}") from err
+    return module

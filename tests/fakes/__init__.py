@@ -179,6 +179,19 @@ class FakeClaude:
         return session.get("result", {})
 
 
+    def launch(self, docker, **kwargs):
+        """Record a launch; write scripted files into the workspace; return a Result of the scripted kind."""
+        from phoenix9.claude import Result
+        self.calls.append(("launch", (), kwargs))
+        session = self.sessions.pop(0) if self.sessions else {}
+        for name, text in (session.get("files") or {}).items():
+            path = Path(kwargs["workspace"]) / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        return Result(kind=session.get("kind", "ok"), text=session.get("text", ""),
+                      cost_usd=session.get("cost_usd", 0.0), model=kwargs["ai"].get("model", ""))
+
+
 def fake_adapters(tmp_path) -> Adapters:
     """Build the full fake set. Git is the real git adapter (real git runs on temp repos)."""
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=FakeHost(),

@@ -1,0 +1,6 @@
+title = "Python (test)"
+image = "phoenix9-step-python"
+
+[steps.builder]
+model = "profile-model"
+max_tries = 2

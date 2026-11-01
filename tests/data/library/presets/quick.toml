@@ -1,0 +1,9 @@
+title = "Quick (test)"
+merge = "ask"
+
+[steps.builder]
+model = "preset-quick-model"
+max_tries = 4
+
+[steps.planner]
+on = true

@@ -1,0 +1,5 @@
+title = "Full (test)"
+on_failure = "continue"
+
+[steps.check-writer]
+on = true

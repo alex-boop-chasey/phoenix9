@@ -24,6 +24,10 @@ class Scrubber:
                     self._secrets.append(form)
         self._secrets.sort(key=len, reverse=True)
 
+    def values(self) -> list[str]:
+        """The secret values held (longest first, JSON-escaped forms included)."""
+        return list(self._secrets)
+
     def text(self, s: str) -> str:
         """Return the text with every known secret replaced by [secret], longest first."""
         for secret in self._secrets:
@@ -75,3 +79,8 @@ def add_secrets(values) -> None:
 def scrub(s: str) -> str:
     """Scrub the text with the process-wide scrubber (call this in every log writer)."""
     return _GLOBAL.text(s)
+
+
+def known_secrets() -> list[str]:
+    """The secret values the process-wide scrubber knows (for the Secret scan; never log them)."""
+    return _GLOBAL.values()

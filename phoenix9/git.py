@@ -6,7 +6,9 @@ Nothing here pushes, adds remotes or talks to GitHub.
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -14,6 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 # ported from reference/v8/phoenix/git.py:35
 SAFE = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")   # hard rule 5
@@ -29,7 +32,10 @@ SECRET_PATTERNS = [
     (re.compile(r"sk_live_"), "a live Stripe key (sk_live_)"),
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY"), "a private key (-----BEGIN ... PRIVATE KEY)"),
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "an AWS access key (AKIA...)"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub token (ghp_/github_pat_)"),
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{10,}"), "an Anthropic key (sk-ant-)"),
 ]
+MIN_SECRET_LEN = 8
 
 # ported from reference/v8/phoenix/git.py:84
 _STRIP = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_CONFIG",
@@ -371,6 +377,56 @@ def scan_secrets(diff_text: str) -> list[str]:
                 msg = f"{path}: contains {what}"
                 if msg not in found:
                     found.append(msg)
+    return found
+
+
+# ported from reference/v8/phoenix/git.py:603
+def secret_forms(values) -> dict[str, str]:
+    """Map every written form of each secret value (raw, JSON-escaped, url-encoded, base64) to a label.
+
+    Values under 8 characters are skipped (they match ordinary words). Labels never hold the value.
+    """
+    forms: dict[str, str] = {}
+    for n, value in enumerate(dict.fromkeys(v for v in values if isinstance(v, str)), 1):
+        if len(value) < MIN_SECRET_LEN:
+            continue
+        raw = value.encode("utf-8")
+        b64 = base64.b64encode
+        for f in (value, json.dumps(value)[1:-1], quote(value, safe=""), b64(raw).decode().rstrip("="),
+                  b64(b" " + raw).decode()[2:].rstrip("="), b64(b"  " + raw).decode()[3:].rstrip("=")):
+            if len(f) >= MIN_SECRET_LEN:
+                forms.setdefault(f, "a known secret value")
+    return forms
+
+
+# ported from reference/v8/phoenix/git.py:625
+def find_secrets(text: str, forms: dict[str, str]) -> list[str]:
+    """Return plain descriptions of the secrets found in some text (what kind, never the value)."""
+    out = sorted({what for form, what in forms.items() if form in text})
+    return out + [what for pattern, what in SECRET_PATTERNS if pattern.search(text) and what not in out]
+
+
+def scan_added_lines(diff_text: str, forms: dict[str, str]) -> list[tuple[str, int, str]]:
+    """Return (file, line number, what) for each added diff line holding a secret; never the value."""
+    found: list[tuple[str, int, str]] = []
+    path, skip, line_no = "", False, 0
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            m = re.match(r"diff --git a/.* b/(.*)$", line)
+            path = m.group(1) if m else ""
+            skip, line_no = path.split("/")[-1].lower() in ENV_EXAMPLES, 0
+        elif line.startswith("@@"):
+            m = re.match(r"@@ -\S+ \+(\d+)", line)
+            line_no = int(m.group(1)) if m else 0
+        elif line.startswith("+++") and not line_no:
+            continue
+        elif line.startswith("+"):
+            if not skip:
+                for what in find_secrets(line[1:], forms):
+                    found.append((path, line_no, what))
+            line_no += 1
+        elif line.startswith(" "):
+            line_no += 1
     return found
 
 

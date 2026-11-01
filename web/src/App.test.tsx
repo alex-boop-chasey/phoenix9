@@ -1,7 +1,14 @@
 import { screen } from "@testing-library/react"
 
 import App from "@/App"
+import { info } from "@/test/fixtures"
+import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
+
+beforeEach(() => {
+  mockApi({ "GET /api/info": info })
+})
+afterEach(() => vi.unstubAllGlobals())
 
 test("renders Projects placeholder at /", () => {
   renderWithProviders(<App />, { route: "/" })

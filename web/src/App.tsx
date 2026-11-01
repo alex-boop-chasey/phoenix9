@@ -1,6 +1,6 @@
 import { Route, Routes } from "react-router"
 
-import { ThemeToggle } from "@/components/ThemeToggle"
+import { AppShell } from "@/components/AppShell"
 import GlobalSettings from "@/pages/GlobalSettings"
 import NewProject from "@/pages/NewProject"
 import NotFound from "@/pages/NotFound"
@@ -10,10 +10,7 @@ import Projects from "@/pages/Projects"
 /** The route table for the whole app (the router itself is added in main.tsx). */
 export default function App() {
   return (
-    <>
-      <div className="flex justify-end p-2">
-        <ThemeToggle />
-      </div>
+    <AppShell>
       <Routes>
         <Route path="/" element={<Projects />} />
         <Route path="/new" element={<NewProject />} />
@@ -22,6 +19,6 @@ export default function App() {
         <Route path="/settings" element={<GlobalSettings />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-    </>
+    </AppShell>
   )
 }

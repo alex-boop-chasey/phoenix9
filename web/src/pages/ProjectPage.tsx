@@ -9,7 +9,7 @@ export default function ProjectPage() {
     return <Navigate to={`/p/${name}/overview`} replace />
   }
   return (
-    <main className="p-4">
+    <main className="">
       <h1 className="text-2xl font-semibold">{name}</h1>
       <p data-testid="tab" className="text-muted-foreground capitalize">
         {tab}

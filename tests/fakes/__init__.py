@@ -167,6 +167,12 @@ class FakeClaude:
         """Start with no calls and no scripted sessions."""
         self.calls: list[tuple[str, tuple, dict]] = []
         self.sessions: list[dict] = []
+        self.probes: list[str] = []
+
+    def probe(self):
+        """Answer a "can I use Claude again?" check with the next scripted kind (default ok)."""
+        from phoenix9.claude import Result
+        return Result(kind=self.probes.pop(0) if self.probes else "ok")
 
     def run_session(self, *args, **kwargs):
         """Record a session; write any scripted files and return the next scripted result."""

@@ -65,3 +65,12 @@ class StepContext:
     adapters: Any
     emit: Callable[..., Any]
     log: Callable[[str], None]
+
+
+class UsageLimit(Exception):
+    """Claude's usage limit was hit; the service loop pauses the run and waits (it never switches model)."""
+
+    def __init__(self, result):
+        """Keep the session result (it may say when the limit resets)."""
+        super().__init__("Claude's usage limit was reached")
+        self.result = result

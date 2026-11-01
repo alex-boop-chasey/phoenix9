@@ -14,7 +14,7 @@ from phoenix9 import claude as claude_mod
 from phoenix9 import docker as docker_mod
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
 from phoenix9.resolve import resolve
-from phoenix9.stepctx import ProjectInfo, RunInfo, StepContext, StepInfo, StepResult
+from phoenix9.stepctx import ProjectInfo, RunInfo, StepContext, StepInfo, StepResult, UsageLimit
 
 FINAL = ("done", "failed", "stopped")
 AI_KEYS = ("model", "fallback_models", "tools", "tools_denied", "mcp_servers", "claude_md", "skills",
@@ -223,6 +223,8 @@ class Runner:
             return result
         except CodeError as err:
             return StepResult("fail", [str(err)])
+        except UsageLimit:
+            raise
         except Exception as err:
             ctx.log(traceback.format_exc())
             return StepResult("fail", [f"{step.title} crashed: {type(err).__name__}: {err}"])
@@ -325,6 +327,8 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
         domains_file=domains)
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     ctx.log(f"session ended: {session.kind}")
+    if session.kind == "rate_limited":
+        raise UsageLimit(session)
     if code is not None and hasattr(code, "after"):
         return code.after(ctx, session)
     if session.kind == "ok":

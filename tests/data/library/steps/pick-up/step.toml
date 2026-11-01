@@ -1,0 +1,9 @@
+name = "pick-up"
+title = "Pick-up"
+description = "Test step: takes the spec."
+kind = "script"
+level = "run"
+phase = "start"
+order = 10
+needs = ["spec"]
+default = "always"

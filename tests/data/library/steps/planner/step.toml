@@ -1,0 +1,13 @@
+name = "planner"
+title = "Planner"
+description = "Test step: turns the spec into a plan. Also reads checks, to test that a run-start step never takes them from a task step."
+kind = "ai"
+level = "run"
+phase = "start"
+order = 30
+needs = ["spec", "checks"]
+produces = ["plan"]
+default = "off"
+
+[ai]
+model = "claude-sonnet-5-5"

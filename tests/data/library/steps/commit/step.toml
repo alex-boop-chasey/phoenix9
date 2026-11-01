@@ -1,0 +1,9 @@
+name = "commit"
+title = "Commit"
+description = "Test step: commits the task's diff."
+kind = "script"
+level = "task"
+order = 40
+needs = ["diff"]
+produces = ["commit"]
+default = "on"   # real Commit is always; switchable here to exercise rule 3

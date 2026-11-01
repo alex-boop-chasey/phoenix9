@@ -1,0 +1,9 @@
+name = "acceptance"
+title = "Acceptance"
+description = "Test step: runs the checks; always on."
+kind = "script"
+level = "task"
+order = 60
+needs = ["checks", "worktree"]
+produces = ["exit-codes"]
+default = "always"

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fakes import FakeDocker, fake_adapters
+from fakes import RealCheckDocker, fake_adapters
 from phoenix9 import events, paths, state, watch
 from phoenix9.__main__ import main
 from phoenix9.ops import common
@@ -29,23 +29,6 @@ parser.add_argument("--name", default="")
 args = parser.parse_args()
 print(("hello " + args.name).strip())
 '''
-
-
-class RealCheckDocker(FakeDocker):
-    """A fake docker whose check containers really run the command, in the mounted /workspace."""
-
-    def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
-        """Run the `bash -c` command from the argv in the worktree and return its real exit code."""
-        self.argvs.append(list(argv))
-        mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
-        workspace = next(m.split("src=")[1].split(",")[0] for m in mounts if "dst=/workspace" in m)
-        command = argv[-1]
-        for m in mounts:   # a mounted /out is really a host folder here
-            if "dst=/out" in m:
-                command = command.replace("/out/", m.split("src=")[1].split(",")[0] + "/")
-        p = subprocess.run(["bash", "-c", command], cwd=workspace, capture_output=True, text=True)
-        Path(stdout_path).write_text(p.stdout + p.stderr)
-        return p.returncode
 
 
 def git(cwd, *args):

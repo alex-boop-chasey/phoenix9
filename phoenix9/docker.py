@@ -169,7 +169,7 @@ def build_argv(r: Run, limits: dict | None = None) -> list[str]:
         "--label", f"{LABEL}.role={r.role}",
         "--user", "0:0", "--entrypoint", ENTRY,
         "--shm-size", "1g",
-        "-e", "TZ=UTC",
+        "-e", "TZ=UTC", "-e", "PYTHONDONTWRITEBYTECODE=1",   # no .pyc files in the locked checks folder
         "--memory", memory, "--memory-swap", memory,
         "--cpus", str(lim["cpus"]), "--pids-limit", str(lim["pids"]),
         "--security-opt", "no-new-privileges",

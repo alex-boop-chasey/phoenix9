@@ -106,7 +106,11 @@ def poll(run_dir, gate_id: str) -> dict | None:
 
 
 def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
-    """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything."""
+    """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
+
+    The delegate session (chat:delegate) may always answer escalations: that is what it is started for."""
+    if who == "chat:delegate" and gate["kind"] == "escalation":
+        return True
     if not who.startswith("chat:"):
         return True
     return gate["kind"] in (project_settings.get("home_chat_may_answer") or [])

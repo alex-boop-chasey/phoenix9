@@ -23,6 +23,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     except (OSError, UnicodeDecodeError) as err:
         raise OpsError(f"I cannot read the spec file {spec_path}: {err.strerror or err}.") from None
     problems = spec.check(text)
+    if not spec.parse(text).tasks:   # a brief for the Planner has no tasks yet; Spec check decides if that is allowed
+        problems = [p for p in problems if not p.startswith("The spec has no tasks")]
     if problems:
         raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in problems))
     named = spec.parse(text).project

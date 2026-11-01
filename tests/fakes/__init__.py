@@ -1,4 +1,6 @@
 """Fake adapters for tests: nothing here touches the real server."""
+import os
+import subprocess
 from pathlib import Path
 
 from phoenix9.adapters import Adapters, Git
@@ -124,6 +126,7 @@ class FakeChat:
         self.mode = "answer"
         self.note = "fixed it"
         self.fix = None
+        self.answer_with = None     # optional f(gate, answer, note, who) that answers through the CLI instead
         self.log: list[str] = []
         self.running: dict[str, bool] = {}
         self.stopped: list[str] = []
@@ -147,7 +150,10 @@ class FakeChat:
             from phoenix9 import gates
             if self.fix:
                 self.fix(gate)
-            gates.answer(gate, "acknowledged", note=self.note, who="chat:delegate")
+            if self.answer_with:
+                self.answer_with(gate, "acknowledged", self.note, "chat:delegate")
+            else:
+                gates.answer(gate, "acknowledged", note=self.note, who="chat:delegate")
         return {"started": True, "handle": handle, "error": ""}
 
     def status(self, handle):
@@ -214,6 +220,64 @@ class FakeDocker:
         self.calls.append(("chown", (str(path), uid, gid), {}))
 
 
+class RealCheckDocker(FakeDocker):
+    """A fake docker whose check containers really run the command, in the mounted /workspace.
+
+    `script_check(match, rc, files)` overrides one command: when the command contains `match` the
+    container is not run; it returns `rc` and writes `files` ({name: text}) into the mounted /out.
+    Scripts are used in order, `times` times each (None = every time), before any real run.
+    """
+
+    def __init__(self):
+        """Start with no scripted check results."""
+        super().__init__()
+        self.scripts: list[dict] = []
+
+    def script_check(self, match: str, rc: int = 0, files: dict | None = None, output: str = "", times=None):
+        """Answer any check command containing `match` with this exit code, output and /out files."""
+        self.scripts.append({"match": match, "rc": rc, "files": files or {}, "output": output, "times": times})
+
+    @staticmethod
+    def _mounts(argv) -> list[str]:
+        return [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
+
+    @staticmethod
+    def _src(mount: str) -> str:
+        return mount.split("src=")[1].split(",")[0]
+
+    def _scripted(self, command, mounts):
+        """The scripted (rc, output) for this command, after writing its files to /out; else None."""
+        for s in self.scripts:
+            if s["match"] in command and s["times"] != 0:
+                if s["times"] is not None:
+                    s["times"] -= 1
+                for m in mounts:
+                    if "dst=/out" in m:
+                        for name, text in s["files"].items():
+                            (Path(self._src(m)) / name).write_text(text)
+                return s["rc"], s["output"]
+        return None
+
+    def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
+        """Run the `bash -c` command from the argv in the worktree and return its real exit code."""
+        self.argvs.append(list(argv))
+        mounts = self._mounts(argv)
+        workspace = next(self._src(m) for m in mounts if "dst=/workspace" in m)
+        command = argv[-1]
+        scripted = self._scripted(command, mounts)
+        if scripted is not None:
+            Path(stdout_path).write_text(scripted[1])
+            return scripted[0]
+        for m in mounts:   # a mounted /out is really a host folder here
+            if "dst=/out" in m:
+                command = command.replace("/out/", self._src(m) + "/")
+        env = {**os.environ, **{kv.split("=", 1)[0]: kv.split("=", 1)[1] for kv in
+                                (argv[i + 1] for i, a in enumerate(argv) if a == "-e") if "=" in kv}}
+        p = subprocess.run(["bash", "-c", command], cwd=workspace, capture_output=True, text=True, env=env)
+        Path(stdout_path).write_text(p.stdout + p.stderr)
+        return p.returncode
+
+
 class FakeClaude:
     """Skeleton claude: records calls and returns scripted sessions (step 09 will add the real method names)."""
 
@@ -221,6 +285,7 @@ class FakeClaude:
         """Start with no calls and no scripted sessions."""
         self.calls: list[tuple[str, tuple, dict]] = []
         self.sessions: list[dict] = []
+        self.scripts: dict[tuple, list[dict]] = {}   # (role, task, attempt) -> sessions, None = any
         self.probes: list[str] = []
 
     def probe(self):
@@ -239,11 +304,28 @@ class FakeClaude:
         return session.get("result", {})
 
 
+    def script(self, role, task=None, attempt=None, **session):
+        """Script the session for a role (builder, reviewer...), optionally for one task and attempt.
+
+        The session is {files, kind, text, cost_usd}; file names starting with / go through a mount
+        (e.g. /out/verdict.json). Several scripts for one key are used one per launch (the last repeats).
+        """
+        self.scripts.setdefault((role, task, attempt), []).append(session)
+
+    def _next_session(self, kwargs) -> dict:
+        """The scripted session for this launch: most specific key first, then the plain FIFO list."""
+        role, task, attempt = kwargs.get("role"), kwargs.get("task"), kwargs.get("attempt")
+        for key in ((role, task, attempt), (role, task, None), (role, None, attempt), (role, None, None)):
+            queue = self.scripts.get(key)
+            if queue:
+                return queue.pop(0) if len(queue) > 1 else queue[0]
+        return self.sessions.pop(0) if self.sessions else {}
+
     def launch(self, docker, **kwargs):
         """Record a launch; write scripted files into the workspace; return a Result of the scripted kind."""
         from phoenix9.claude import Result
         self.calls.append(("launch", (), kwargs))
-        session = self.sessions.pop(0) if self.sessions else {}
+        session = self._next_session(kwargs)
         for name, text in (session.get("files") or {}).items():
             if name.startswith("/"):       # an absolute name is written through the mount that has this dst
                 mount = [m for m in kwargs.get("extra_mounts", ()) if m.dst == str(Path(name).parent)][0]

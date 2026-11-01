@@ -363,7 +363,7 @@ def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> E
         data = load_profile(lib.root, profile)
         if data.get("steps"):               # a profile with no [steps.*] changes nothing
             apply(f"profile:{profile}", {"steps": data["steps"]}, f"profiles/{profile}/profile.toml")
-    preset = preset_name(project)
+    preset = preset_name({**project, **{k: v for k, v in (run_overrides or {}).items() if k in ("preset", "based_on")}})
     apply(f"preset:{preset}", load_preset(lib.root, preset), f"presets/{preset}.toml")
     apply("project", project, "phoenix.toml")
     if run_overrides:

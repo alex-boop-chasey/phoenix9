@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, events, gates, paths, state
+from phoenix9 import atomic, docker as docker_mod, events, gates, hold, paths, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -141,8 +141,8 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
             except Exception:  # noqa: BLE001 - a watchdog problem must not stop the loop
                 pass
     chosen = next_run(states)
-    if chosen is None:
-        return None
+    if chosen is None or (chosen["status"] == "queued" and hold.hold_requested()):
+        return None   # an update holds the harness: no new run starts until it is done
     drive_safely(adapters, runner, chosen, memory)
     return chosen["run_id"]
 

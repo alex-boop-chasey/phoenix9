@@ -21,6 +21,10 @@ class FakeHost:
         """Answer any command starting with prefix (later scripts win)."""
         self.responses.append((list(prefix), (rc, out, err)))
 
+    def script_seq(self, prefix: list[str], answers: list[tuple[int, str, str]]) -> None:
+        """Answer commands starting with prefix with these (rc, out, err) in turn; the last one repeats."""
+        self.responses.append((list(prefix), [tuple(a) for a in answers]))
+
     def run(self, argv, timeout=60, cwd=None):
         """Record the call and return the scripted answer (default: success, no output)."""
         argv = list(argv)
@@ -28,6 +32,8 @@ class FakeHost:
         self.cwds.append(str(cwd) if cwd else None)
         for prefix, answer in reversed(self.responses):
             if argv[:len(prefix)] == prefix:
+                if isinstance(answer, list):      # a sequence from script_seq
+                    return answer.pop(0) if len(answer) > 1 else answer[0]
                 return answer
         return 0, "", ""
 

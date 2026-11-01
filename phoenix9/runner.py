@@ -29,7 +29,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, events, failmodes, gates, paths, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import reports, summary
 from phoenix9 import keys as keys_mod
@@ -201,16 +201,31 @@ class Runner:
         if not spec_data.get("tasks"):
             raise RunFailed("No plan: the brief has no tasks and the plan was skipped")
         for task in spec_mod.order(spec_mod.from_json(spec_data)):
+            self._hold_point(run_dir)
             outcome = self._run_task(run_dir, setup, things, spec_data, task)
             if outcome in ("waiting", "stopped"):
                 return outcome
         failed = any(t["status"] == "failed" for t in state.load(run_dir)["tasks"].values())
+        self._hold_point(run_dir)
         for name in plan["run-finish"]:
             out = self._do_step(run_dir, setup, things, "run-finish", name, None)
             if out.status in ("waiting", "stopped"):
                 return out.status
             failed = failed or out.status == "failed"
         return "failed" if failed else "ok"
+
+    def _hold_point(self, run_dir: Path) -> None:
+        """A task boundary: while an update asks for a hold, mark the run held and wait here (blocks drive())."""
+        if not hold.hold_requested():
+            if (state.load(run_dir).get("current") or {}).get("held"):   # left over from a restart
+                state.update(run_dir, lambda s: s.setdefault("current", {}).__setitem__("held", False))
+            return
+        st = state.update(run_dir, lambda s: s.setdefault("current", {}).__setitem__("held", True))
+        events.emit("run.held", project=st["project"], run=st["run_id"],
+                    why=(hold.hold_info() or {}).get("why", ""))
+        while hold.hold_requested():
+            self.adapters.clock.sleep(5)
+        state.update(run_dir, lambda s: s.setdefault("current", {}).__setitem__("held", False))
 
     def _skip_all(self, run_dir: Path, st: dict) -> None:
         """After a failed start: mark every unfinished task skipped."""

@@ -71,7 +71,8 @@ phoenix9/                      the Python package
   services.py                  services library loader (phase 2); project_services.py: a project's set
   proxy.py                     key proxy (phase 4)
   assets/                      static files the package ships (summary.html)
-  updater.py                   phoenix update (phase 4)
+  updater.py                   install / roll back a release tag, with recovery (phase 4, section 15)
+  hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
   doctor.py                    phoenix doctor (phase 4; stub in phase 1)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
@@ -107,7 +108,16 @@ reference/                     READ-ONLY copies of V8, proj and the project-sele
 | events | HOME/events.jsonl | | global event stream (section 8) |
 | projects | `/srv/projects` | `PHOENIX_PROJECTS` | one folder per project |
 | install | `/opt/phoenix9` | `PHOENIX_INSTALL` | the installed copy (updater only) |
+| install neighbours | `<install>-next`, `-prev`, `-failed` | | the candidate being tested; the copy before the last swap (rollback point); a copy that failed its health check (kept for inspection) |
+| update | HOME/update | | `request.json` `{action, tag, who, at}` (queued by `updater.request`), `status.json` (below), `lock` (flock while an update runs), `hold` `{why, at}` (runs stop at their next task boundary; counts only while `lock` is held) |
 | library | repo root of the running copy | `PHOENIX_LIBRARY` | steps/ presets/ profiles/ services/ deployers/ templates/ |
+
+`HOME/update/status.json`: `{last: {action, tag, result, reason, at, who}, newest, checked,
+waiting: "waiting: <reason>" (only while waiting for the harness), job: {kind, tag, who, from: {tag,
+commit}, to: {tag, commit}, phase, reverting, started, at}}` (`job` only while an update is under
+way; section 15). Written only while holding `HOME/update/lock`. Also `HOME/logs/updater.log`
+(timestamped, scrubbed lines) and `HOME/logs/update-<tag>-checks.txt` (test, web build and image
+build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
@@ -349,6 +359,10 @@ Done when:
     after attempt k is decided at the top of the loop from these files: passed = task passed; failed
     and no `rerun` and `should_retry` false = `on_failure`; else attempt k+1. So a restart after a
     failed result.json never runs an extra attempt past `max_tries` (default 1 when unset).
+  - `current.held` (phase 4): true while the run waits at a task boundary for an update
+    (`runner._hold_point`, section 15); set false when the hold is released, and gone again when the
+    next step starts (each step start rewrites `current`). Read with `.get`; a `held = true` left
+    by a restart is set false at the next task boundary when no hold is asked for.
   - `once` steps (e.g. Checks) are skipped once they passed in an earlier attempt; a failed once-step
     runs again. attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
 - The attempt loop (`phoenix9/runner.py` + `phoenix9/failmodes.py`, harness spec 13): a task runs
@@ -379,6 +393,11 @@ Done when:
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
   update.started update.installed update.failed update.rolledback deploy.finished run.held command`.
+- Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
+  `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
+  previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|
+  rolled-back-manual, reason?, who?}`. `run.held {why}` is a run event (project, run set) written when
+  a run stops at a task boundary for an update hold.
 - Every `phoenix` command that changes something writes a `command` event and one line to
   HOME/logs/commands.jsonl `{ts, who, command, project}`; `who` = `--who` flag, else
   `$PHOENIX_WHO`, else `cli`. The API passes `dashboard`. It also appends a plain line to the
@@ -500,6 +519,13 @@ Done when:
   worktree is not reset to `attempt_base` first (half-written files from the cut-off session stay).
   Accepted: the step's own checks judge the result, and a failed attempt is reset as usual.
 
+- **The update hold blocks `drive()`.** Gates never block the runner, but the update hold does: at a
+  task boundary `Runner._hold_point` waits (5 s polls on the clock adapter) until the hold is gone.
+  Acceptable because only one run is driven at a time and the updater releases the hold in every
+  outcome. The hold counts only while the hold file exists AND an updater holds `HOME/update/lock`
+  (probed read-only with `LOCK_SH|LOCK_NB`), so a killed updater (its flock dies with it) can never
+  freeze the runner; there is no time limit.
+
 ## 13. Formats defined in later phases
 
 Phase 4's sheets define these, and the phase 4 review step adds them here: `services/<name>/service.toml`,
@@ -588,3 +614,90 @@ env_names(service) -> ("PHOENIX_PROXY_<SERVICE>", "PHOENIX_PROXY_TOKEN_<SERVICE>
 - **Container use** (wired in grunt step 04): `PHOENIX_PROXY_<SERVICE>` (url) and
   `PHOENIX_PROXY_TOKEN_<SERVICE>` (token), `<SERVICE>` = name upper-cased with `-` as `_`. The token is
   per step and useless after `stop()`.
+
+## 15. Updater (`phoenix9/updater.py`, `phoenix9/hold.py`, `deploy/update.sh`)
+
+Installs a release tag `v9.<n>` (git tag on the phoenix9 repo; `phoenix9.__version__` is not the release
+number) over the installed copy, health-checks it and rolls back on failure (updates spec section 3).
+
+- **Who runs it.** `updater.request(action, tag, who)` writes `HOME/update/request.json` and runs
+  `systemctl start --no-block phoenix9-update.service` (oneshot, no `[Install]`). The unit runs the
+  INSTALLED copy's `deploy/update.sh`, which copies the installed `phoenix9/` package into a fresh
+  `mktemp -d` folder (under `/run`), runs `python3 -m phoenix9.updater run-request` from that copy and
+  deletes it on exit. Why the copy: the swap renames `/opt/phoenix9`, so the code doing the swap must
+  not live in a folder being swapped, and new (untested) code must never run its own install or the
+  rollback. update.sh never looks at `-next`. `request` also accepts `recover` (tag ignored): the unit
+  then only repairs a half-done update. `run_request` takes the lock FIRST, then reads and deletes
+  `request.json` (so a second unit start never steals the running update's request).
+- **The unit file** (`deploy/phoenix9-update.service`): `Environment=HOME=/root` (gh reads root's login)
+  and `ExecStartPre=-/bin/sh -c 'test -e /opt/phoenix9 || mv /opt/phoenix9-prev /opt/phoenix9'` (an
+  update that died between its two renames would otherwise leave ExecStart missing). Grunt step 13's
+  install.sh must COPY the unit into `/etc/systemd/system`, never symlink it from `/opt/phoenix9`
+  (the swap renames that folder).
+- **Install flow** (`install(tag)`): lock (non-blocking flock; held = `refused`); tag checked against
+  `TAG_RE` before it reaches any argv; `recover()`; installed tag = the highest `v9.<n>` tag pointing at
+  HEAD (`git tag --points-at`, not `describe`, because `pre-v9.<n>` points at the same commit), shown
+  as `unknown` when none; `already-installed` is decided by COMMIT (the tag's commit = HEAD), checked
+  before and after the fetch; `git fetch --tags origin` (no `--force`) with the host gh credential
+  helper; a release tag that moved on origin makes the fetch fail and is `refused` "release v9.N
+  changed on origin" (found with `ls-remote`); other fetch failures `refused` "could not fetch";
+  tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD`; clone `install` into
+  `-next`, checkout the tag, origin url copied, HEAD verified; in `-next`: `pnpm -C web install
+  --frozen-lockfile` and `pnpm -C web build` (when web/package.json exists), `./check.sh` (output to
+  the checks file) - a failure is `tests-failed`, `-next` removed, install untouched; hold + wait for
+  idle (5 s polls, `idle_timeout_min` default 120, else `harness-busy`); THEN `bin/phoenix images
+  build --changed --json` from `-next` when `git diff --name-only <installed> <tag> -- image profiles`
+  is not empty (a failing diff is an error, never "nothing changed"; images are rebuilt only once no
+  run is mid-task) - failure releases the hold, drops `-next`, `images-failed`, no swap. Note: a
+  rollback (automatic or manual) does NOT revert rebuilt images; swap; `systemctl restart
+  phoenix-runner phoenix-api`; health = `<install>/bin/phoenix doctor --for-update --json`, 3 tries
+  10 s apart; healthy = `installed`; unhealthy = `-prev` back, new copy to `-failed`, restart, health
+  again: `rolled-back` or `rolled-back-unhealthy` (urgent notify "Phoenix 9 may be down").
+- **Rollback** (`rollback()`): refused without `-prev`; hold + idle wait; exchange `install` and
+  `-prev` (stage `-prev` as `-next`, then the same swap as an install); restart; health; healthy =
+  `rolled-back-manual` (rolling back twice returns to where it was); unhealthy = exchange back,
+  restart, `refused` with the doctor's lines.
+- **The job and its phases.** Every install or rollback is a job saved in `status.json.job` with
+  its phase, written BEFORE each step that changes something. Allowed changes are the table
+  `updater.TRANSITIONS`:
+  install `preparing -> waiting -> swapping -> swapped -> restarted [-> restoring]`;
+  rollback `waiting -> staged -> swapping -> swapped -> restarted [-> staged -> ... with reverting]`.
+  Each folder move (`_swap_in`, `_stage`, `_restore`) checks which folders exist first, so running it
+  again finishes a half-done move.
+- **Recovery** (`recover()`, run first by every install, rollback and run_request, under the lock):
+  with a job saved, it finishes the interrupted folder move, then puts back the version that was
+  installed when the job started (the last one known to work): install job before the swap = drop
+  `-next`; from `swapping` on = finish the swap, new copy to `-failed`, `-prev` back. Rollback job =
+  end with the `from` commit installed (checked by commit) and the other copy as `-prev`. Then
+  restart if anything had moved, release the hold, clear the job, notify, result `recovered`. With
+  no job but `install` missing and `-prev` present, `-prev` is put back. A hold left without an
+  update running is released. Any unexpected error inside install/rollback runs the same recovery
+  at once, and so does a stop signal: `main` turns SIGTERM into SystemExit, which is caught
+  (`BaseException`), recovered, and then passed on (also KeyboardInterrupt). When that in-process
+  recovery moved no folders (e.g. the clone failed while preparing), the result is `refused` with
+  the error text, not `recovered`. A swap that crashed is therefore never left half-done and an
+  unconfirmed version is never left installed.
+- **The hold** (`hold.py`): `request_hold(why)` writes `HOME/update/hold`; the runner checks
+  `hold_requested()` at each task boundary (before each task, and before the run-finish steps),
+  sets `current.held = true`, emits `run.held` and waits; the service loop (`watch_once`) starts no
+  queued run while a hold exists. `hold_requested()` is true only while the hold file exists AND
+  `HOME/update/lock` is held (`hold.lock_held()`: opened read-only, `LOCK_SH|LOCK_NB` fails; a
+  missing lock file = not held, since the API may not run as root); no expiry. `harness_busy()` = some run `running` and not held ("run X (project) is on task 3 of
+  7"); `waiting`, `queued` and `paused-limit` runs are not busy (a restart resumes them from
+  state.json). The hold is released after the health check, in every failure path, and by recovery.
+- **Results**: every public function returns `{ok, result, tag, previous, reason, log}`; `result` is
+  one of `installed | already-installed | tests-failed | images-failed | harness-busy | rolled-back |
+  rolled-back-unhealthy | rolled-back-manual | refused | recovered` (`request` returns `queued: true`
+  and `result: null`). `status(refresh)` returns `{supported, installed: {tag, commit}|null,
+  previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase,
+  interrupted, last, log_tail}`; `running` = the lock is held (read-only probe); `interrupted` = a job
+  is recorded but the lock is free (the updater died: request `recover`); `refresh` runs `git
+  ls-remote --tags origin "v9.*"` and caches `newest` (skipped quietly when HOME/update is not
+  writable).
+- **Doctor contract** (for grunt step 12): `<install>/bin/phoenix doctor --for-update --json`; exit 0 =
+  healthy; any other exit = unhealthy, and its failing lines are printed on stdout (the updater
+  quotes them as the reason).
+- Every log line, status reason and notify text goes through `scrub.py`; every public updater call
+  (install, rollback, recover, request, run_request, status) loads the global secret env files into
+  the scrubber first. Imports: stdlib plus `phoenix9.{paths, atomic,
+  adapters, events, scrub, hold}`, all at module top (a test checks).

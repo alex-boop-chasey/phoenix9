@@ -1,0 +1,20 @@
+# Phoenix 9 updater: installs or rolls back a release, then exits. Started only on request
+# (`systemctl start --no-block phoenix9-update.service` by phoenix9/updater.py request()), so it has
+# no [Install] section. It runs the INSTALLED copy's update.sh, never the new code.
+# install.sh (grunt step 13) must COPY this file into /etc/systemd/system, never symlink it from
+# /opt/phoenix9: the swap renames /opt/phoenix9, so a symlinked unit would vanish or change mid-update.
+[Unit]
+Description=Phoenix 9 updater (install or roll back a release on request)
+After=network-online.target
+
+[Service]
+Type=oneshot
+# If an earlier update died between its two folder renames, /opt/phoenix9 is missing and ExecStart
+# cannot be found: put the previous copy back first ("-" = a failure here never blocks the start).
+ExecStartPre=-/bin/sh -c 'test -e /opt/phoenix9 || mv /opt/phoenix9-prev /opt/phoenix9'
+ExecStart=/opt/phoenix9/deploy/update.sh
+Environment=PHOENIX_HOME=/var/lib/phoenix9
+Environment=PHOENIX_INSTALL=/opt/phoenix9
+# gh (the credential helper for git fetch) reads root's login from HOME.
+Environment=HOME=/root
+TimeoutStartSec=3h

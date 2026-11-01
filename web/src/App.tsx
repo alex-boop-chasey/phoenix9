@@ -1,7 +1,7 @@
 import { Route, Routes } from "react-router"
 
 import { AppShell } from "@/components/AppShell"
-import GlobalSettings from "@/pages/GlobalSettings"
+import GlobalSettingsPage from "@/pages/GlobalSettingsPage"
 import NewProjectPage from "@/pages/NewProjectPage"
 import NotFound from "@/pages/NotFound"
 import ProjectPage from "@/pages/ProjectPage"
@@ -16,7 +16,7 @@ export default function App() {
         <Route path="/new" element={<NewProjectPage />} />
         <Route path="/p/:name" element={<ProjectPage />} />
         <Route path="/p/:name/:tab" element={<ProjectPage />} />
-        <Route path="/settings" element={<GlobalSettings />} />
+        <Route path="/settings" element={<GlobalSettingsPage />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AppShell>

@@ -8,7 +8,7 @@ import { ChatLink, RepoLink } from "@/features/projects/parts"
 import { runText } from "@/features/projects/rows"
 import { useBuilds, useChangelog, useGates, useProject } from "@/lib/queries"
 import { useLiveEvents } from "@/lib/live"
-import { UpdatePanel } from "./UpdatePanel"
+import { UpdatePanel } from "@/features/updates/UpdatePanel"
 
 /** The Overview tab: open questions, about, current build and recent changes. */
 export function OverviewTab({ name }: { name: string }) {

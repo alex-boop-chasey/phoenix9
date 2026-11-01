@@ -14,6 +14,8 @@ export interface Info {
     available: boolean
     can_install: boolean
     reason: string
+    /** Paths (under api/) the server offers; a button shows only when its path is listed. */
+    endpoints?: { install?: string; rollback?: string }
   }
   github: { connected: boolean; accounts: string[] }
   services: { supported: boolean }
@@ -308,12 +310,22 @@ export interface GlobalView {
   github: { connected: boolean; accounts: string[] }
   default_models: Record<string, { model: string; fallback_models: string[] }>
   telegram: { connected: boolean }
-  supported: { services: boolean; update: boolean; secrets: boolean }
+  supported: { services: boolean; update: boolean; secrets: boolean; github_connect?: boolean }
+  /** Paths (under api/) the server offers for global writes. */
+  endpoints?: { github_connect?: string }
+}
+
+export interface ServiceStatus {
+  name: string
+  title: string
+  connected: boolean
+  /** Paths (under api/) for this service's keys; the keys form uses them once the server lists them. */
+  endpoints?: Record<string, string>
 }
 
 export interface ServicesView {
   supported: boolean
-  services: unknown[]
+  services: ServiceStatus[]
 }
 
 export interface GithubRepos {

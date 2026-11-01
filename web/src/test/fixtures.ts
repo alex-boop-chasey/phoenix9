@@ -1,5 +1,5 @@
 // Test data matching the demo seed (docs/api.md "Demo data").
-import type { BuildRow, Gate, Info, ProjectRow } from "@/lib/types"
+import type { BuildRow, Gate, GlobalView, Info, ProjectRow } from "@/lib/types"
 
 export const info: Info = {
   version: "0.9.0",
@@ -52,3 +52,16 @@ export const builds: BuildRow[] = [
     finished: "2026-10-20T09:14:00Z", duration: "14 min", cost: "$1.23", tasks_failed: 0,
   },
 ]
+
+export const globalView: GlobalView = {
+  values: {},
+  github: { connected: true, accounts: ["rebirth-wd", "alex-boop-chasey"] },
+  default_models: {
+    planner: { model: "opus", fallback_models: ["sonnet"] },
+    builder: { model: "sonnet", fallback_models: [] },
+    "check-writer": { model: "sonnet", fallback_models: ["haiku"] },
+    reviewer: { model: "opus", fallback_models: [] },
+  },
+  telegram: { connected: false },
+  supported: { services: false, update: false, secrets: false },
+}

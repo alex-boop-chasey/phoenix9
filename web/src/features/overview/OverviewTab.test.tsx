@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react"
 
 import { OverviewTab } from "@/features/overview/OverviewTab"
-import { builds, gate, projects } from "@/test/fixtures"
+import { builds, gate, info, projects } from "@/test/fixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
@@ -55,5 +55,16 @@ describe("OverviewTab", () => {
     expect(await screen.findByText("No build running.")).toBeInTheDocument()
     expect(await screen.findByText("No changes recorded yet.")).toBeInTheDocument()
     expect(screen.queryByText(/Needs you/)).toBeNull()
+  })
+
+  it("update panel only on phoenix9", async () => {
+    mockApi(routes("phoenix9", { "GET /api/gates": [], "GET /api/info": info }))
+    const { unmount } = renderWithProviders(<OverviewTab name="phoenix9" />)
+    expect(await screen.findByText("Phoenix updates")).toBeInTheDocument()
+    unmount()
+    mockApi(routes("tiny-tool", { "GET /api/gates": [], "GET /api/info": info }))
+    renderWithProviders(<OverviewTab name="tiny-tool" />)
+    await screen.findByText("Current build")
+    expect(screen.queryByText("Phoenix updates")).toBeNull()
   })
 })

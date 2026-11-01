@@ -107,17 +107,57 @@ class FakeChat:
 
 
 class FakeDocker:
-    """Skeleton docker: records calls and returns scripted results (step 08 will add the real method names)."""
+    """Fake docker runner: records argv, returns scripted exit codes, writes scripted output files."""
 
     def __init__(self):
-        """Start with no calls and a default exit code of 0."""
+        """Start with no calls, a default exit code of 0 and nothing running."""
         self.calls: list[tuple[str, tuple, dict]] = []
+        self.argvs: list[list[str]] = []
         self.exit_codes: list[int] = []
+        self.outputs: list[str] = []
+        self.orphans: list[str] = []
+        self.removed: list[str] = []
+        self.volumes: list[str] = []
+
+    def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
+        """Record the argv; write the next scripted output to stdout_path; return the next exit code."""
+        self.calls.append(("run", (list(argv), stdout_path, stderr_path, timeout_s, name), {}))
+        self.argvs.append(list(argv))
+        if stdout_path:
+            text = self.outputs.pop(0) if self.outputs else ""
+            with open(stdout_path, "a" if append_stdout else "w") as f:
+                f.write(text)
+        return self.exit_codes.pop(0) if self.exit_codes else 0
 
     def run_step(self, *args, **kwargs):
         """Record a step container run; return the next scripted exit code (default 0)."""
         self.calls.append(("run_step", args, kwargs))
         return self.exit_codes.pop(0) if self.exit_codes else 0
+
+    def rm(self, name):
+        """Record a container removal."""
+        self.calls.append(("rm", (name,), {}))
+        self.removed.append(name)
+
+    def ps_ids(self, label):
+        """Return the scripted leftover container ids."""
+        self.calls.append(("ps_ids", (label,), {}))
+        return list(self.orphans)
+
+    def volume_create(self, name, labels):
+        """Record a volume creation."""
+        self.calls.append(("volume_create", (name, list(labels)), {}))
+        self.volumes.append(name)
+
+    def volume_rm(self, name):
+        """Record a volume removal."""
+        self.calls.append(("volume_rm", (name,), {}))
+        if name in self.volumes:
+            self.volumes.remove(name)
+
+    def chown(self, path, uid, gid):
+        """Record a chown."""
+        self.calls.append(("chown", (str(path), uid, gid), {}))
 
 
 class FakeClaude:

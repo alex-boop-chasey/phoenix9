@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from phoenix9.docker import DockerRunner
+
 NOTIFY_MAX = 600
 DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 
@@ -90,14 +92,6 @@ class Chat:
         raise NotImplementedError("chat delegate is built in phase 2")
 
 
-class Docker:
-    """Real docker adapter; filled in by step 08."""
-
-    def __getattr__(self, name: str):
-        """Methods not written yet raise NotImplementedError."""
-        raise NotImplementedError(f"docker.{name} is not written yet")
-
-
 class Claude:
     """Real claude adapter; filled in by step 09."""
 
@@ -130,5 +124,5 @@ class Adapters:
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
-    return Adapters(docker=Docker(), claude=Claude(), git=Git(), host=Host(), http=Http(),
+    return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
                     clock=Clock(), notify=Notify(), chat=Chat())

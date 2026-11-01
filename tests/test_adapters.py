@@ -41,6 +41,6 @@ def test_real_builds_without_touching_system():
     a = ad.real()
     assert isinstance(a.host, ad.Host) and isinstance(a.clock, ad.Clock)
     with pytest.raises(NotImplementedError):
-        a.docker.run_step()
+        a.claude.run_session()
     with pytest.raises(NotImplementedError):
         a.chat.delegate()

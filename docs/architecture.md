@@ -14,7 +14,10 @@ this file records a deliberate simplification (section 12).
 - Python: system `python3` (3.14 on the server; code must run on 3.12+). **Standard library only.**
   pytest is the only dev dependency and is already installed system-wide for root and the grunt user.
 - Front end (phase 3 on): `web/`, React + TypeScript + Vite + Tailwind + shadcn/ui, Vitest, Playwright.
-  Node 24, pnpm 12 (corepack). Versions pinned in `web/package.json` + `pnpm-lock.yaml`.
+  Node 24, pnpm 12 (corepack). Versions pinned in `web/package.json` + `pnpm-lock.yaml`. The
+  `@playwright/test` version must equal the browser build installed in `/opt/pw-browsers`
+  (`PLAYWRIGHT_BROWSERS_PATH`). check.sh installs packages only when `node_modules` is missing, so a
+  step that adds a package runs `pnpm -C web install` itself.
 - One check command for every step of every phase: `./check.sh` (repo root). It runs
   `python3 -m pytest -q` and, when `web/package.json` exists, `pnpm -C web install --frozen-lockfile`
   (only if `web/node_modules` is missing) then `pnpm -C web test` (Vitest, no browser) and
@@ -34,9 +37,11 @@ docs/architecture.md           this file
 phoenix9/                      the Python package
   __main__.py                  CLI entry (argparse); one sub-module per command group in phoenix9/cli/
   cli/                         project.py run.py gate.py settings.py global_.py services.py keys.py
-                               steps.py update.py doctor.py deploy.py  (thin: parse args, call ops, print)
+                               steps.py update.py doctor.py deploy.py api.py runner.py  (thin: parse args, call ops, print)
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
-                               else. Every function returns plain dicts/lists (JSON-able).
+                               else. Every function returns plain dicts/lists (JSON-able). Modules:
+                               common runs gates settings library projects keys logs (phases 1-3),
+                               global_ services update deploy doctor (phase 4). Errors: OpsError.
   paths.py                     where things live (section 3)
   tomlw.py                     small TOML writer (stdlib has no writer); round-trips what we use
   atomic.py                    write_json/write_text atomically (tmp file + os.replace), read_json
@@ -63,7 +68,7 @@ steps/<name>/                  step library: step.toml + prompt.md (ai) and/or r
 steps/_things.toml             every "thing" a step can need/produce, with its fallback
 presets/<name>.toml            simple, quick, full (custom = no file; it is "start from a preset")
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
-services/<name>/service.toml   phase 4 (+ recipe.py)
+services/<name>/service.toml   expected project keys + hosts (phase 2); recipes, proxy rules (phase 4)
 deployers/<name>/deployer.toml phase 4 (+ deploy.py)
 templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
@@ -85,6 +90,7 @@ reference/                     READ-ONLY copies of V8, proj and the project-sele
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
 | work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed when the run ends; the branch stays) |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
+| cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
 | projects | `/srv/projects` | `PHOENIX_PROJECTS` | one folder per project |
 | install | `/opt/phoenix9` | `PHOENIX_INSTALL` | the installed copy (updater only) |
@@ -111,6 +117,7 @@ produces = ["diff"]
 safety = false
 default = "always"               # "always" (cannot be switched off) | "on" | "off"
 only_with = []                   # step names that must be on for this one to be on (red-check: ["check-writer"])
+proxy = []                       # phase 4: services whose key proxy runs for this step (e.g. ["github"])
 
 [settings]                       # the step's own options and their defaults (validated by type)
 max_tries = 3
@@ -139,6 +146,8 @@ model = "claude-sonnet-5-5"
 [baseline]    fallback = "not-run"        # main's test result before the run (Branch)
 [diff]        fallback = ""               # no fallback: something must produce it (Builder)
 [exit-codes]  fallback = ""               # Acceptance's results (always on)
+[commit]      fallback = ""               # the task's commit sha (Commit)
+[merged]      fallback = "not-merged"     # merge result (Merge)
 [test-report] fallback = "exit-codes-only"
 [verdict]     fallback = "pass-if-checks-passed"
 ```
@@ -174,6 +183,14 @@ settings incl. ai block), `task` (or None at run level), `attempt` (int), `workt
 clock, notify; real or fake), `emit(type, **data)` (writes an event), `log(text)` (scrubbed log line
 into the run folder).
 
+### 4.5 Profile folder: `profiles/<name>/profile.toml`
+
+`title`, `image` (step image tag), `allowed_domains` (list), `diff_allow_extra` (list),
+`screenshots` (bool), `suggested_deployer`, and a `[test]` block: `cmd` (full suite command),
+`task_cmd` (optional, a single task's checks), `report` (`pytest-junit | vitest-json | playwright-json
+| exit-code`), `report_path`. Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
+The profile's container image files live in `profiles/<name>/image/`.
+
 ## 5. Settings
 
 ### 5.1 Layering (lowest first)
@@ -188,7 +205,7 @@ every value, which layer set it (for `explain`).
 preset = "quick"              # simple | quick | full | custom
 profile = "python-script"
 merge = "auto"                # auto | ask
-max_tries = 3                 # retries per task (harness spec 13)
+max_tries = 3                 # tries per task (harness spec 13); the one place this is set
 on_failure = "pause"          # continue | pause | delegate
 services = []                 # e.g. ["supabase", "resend"]
 safety_files = []             # paths flagged "changes safety code" on merge requests (updates spec 4)
@@ -267,18 +284,33 @@ Done when:
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.rolledback deploy.finished command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held command`.
 - Every `phoenix` command that changes something writes a `command` event and one line to
   HOME/logs/commands.jsonl `{ts, who, command, project}`; `who` = `--who` flag, else
   `$PHOENIX_WHO`, else `cli`. The API passes `dashboard`. It also appends a plain line to the
   project's `notes/changelog.md` for project changes (control spec section 2).
 - Gate file `gates/<gate-id>.json`: `{id, run, project, kind, title, why, task, step, links: [{label,
   url}], actions, flags, created, answered: false}`. `kind`: `merge | plan | human-task | escalation |
-  deploy | step`. `actions`: `["approve","back","skip","stop"]` or `["acknowledged"]` (escalations).
+  deploy | step`. `actions`: `["approve","back","skip","stop"]`, or for escalations see below.
   `flags`: e.g. `["changes safety code"]`.
+  Escalation actions are `["acknowledged", "skip", "stop"]` (acknowledged = rerun the task once).
+- `back` always needs a note (it is fed to the step that runs again).
 - Answer file `gates/<gate-id>.answer.json`: `{action, note, who, at}`. Written only by
   `gates.answer()` (CLI `phoenix gate answer`, API, Home chat through the CLI). The runner polls for it.
   Gate ids: `<run-id>.<n>`.
+
+## 8.5 The API (phoenix-api, phase 3)
+
+- Stdlib `ThreadingHTTPServer` on 127.0.0.1 (port 8090 once installed). JSON under `/api/...`, the
+  event stream at `/api/events` (server-sent events; each event's id = its line number in
+  HOME/events.jsonl, so `Last-Event-ID` resumes), everything else = static files from `web/dist`.
+- Writes (POST/PUT/DELETE) need header `X-Phoenix: 1` and an `Origin` in `PHOENIX_API_ORIGINS`
+  (comma list; default the code-server address). Revealing a key is a POST for that reason.
+- The web app uses hash routes (`#/`, `#/new`, `#/p/<name>/<tab>`, `#/settings`) and relative asset
+  and API paths, so it works behind code-server's `/proxy/<port>/` prefix.
+- Endpoints and the ops function behind each are listed in `docs/api.md` (written in phase 3 step 1).
+- The wizard's "remember these" writes its answers into the project's phoenix.toml (preset, steps
+  on/off, per-step ai settings, max_tries, on_failure, merge, deploy); "notifications" = `steps.notify.on`.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
@@ -291,6 +323,8 @@ Done when:
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
+| `proxy` | phase 4: start/stop the per-step key proxy (phoenix9/proxy.py) | in-process fake forwarder |
+| `chat` | delegate mode: starts a detached headless `claude -p` in the project folder (section 11, rule 1 exception) | records the request, scripted outcome |
 `phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
 `subprocess` for these tools directly.
 
@@ -300,14 +334,20 @@ Done when:
   repo or notes/. Non-secret keys are also written to `code/.env.example` (names and values; secret ones
   as `NAME=` with no value). Secret values are added to the scrub list of every run of that project.
 - Global secrets: `HOME/secrets/<name>.env` (0600), read only by the host process that needs them.
+- The dashboard's Reveal button (behind the code-server login) is the only way to see a saved
+  secret value; the CLI has no reveal.
 - Values are never printed by any command (`phoenix keys` shows `••••••`), never passed on a command
   line (read from stdin or a file), never logged. `scrub.py` redacts every known secret value.
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 
-1. No AI runs in Phoenix's own processes. Claude only runs inside step containers.
+1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. One recorded
+   exception: the `delegate` failure mode starts a headless Claude session in the project folder with
+   the same permissions as the project's own chat (Alex's decision: the project chat agent handles it).
+   It is a separate process, never imported or driven step-by-step by the runner.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
-   They get the Claude token, the project's secret keys as env vars, and the proxy address (phase 4).
+   They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
+   per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
 3. Phoenix trusts only exit codes, files it wrote, reports it read itself and git objects in its own
    worktrees. Nothing a session *says* counts.
 4. The spec is mounted read-only; locked checks are fingerprinted (when Check-writer is on).
@@ -324,10 +364,20 @@ Done when:
   directly is that fallback, always. The guarantee that matters holds: the dashboard and the CLI call
   the same ops functions, so neither can do something the other cannot.
 - **Runner and API are two host services; AI steps only in Docker** (decision 2026-11-01).
-- **Merge uses the host `gh` login** through the `host` adapter in phase 2; phase 4's key proxy is for
+- **Merge uses the host `gh` login** (the key proxy replaces V8's credential helper for anything a
+  container or service recipe needs; the host Merge step never needed the helper) through the `host` adapter in phase 2; phase 4's key proxy is for
   step containers and service setup. The Merge step is a script step on the host, so no container ever
   holds the GitHub token either way.
 - **Chat link**: a project records `chat_session_url` when known (`phoenix project set-chat`) and always
   knows the environment link parsed from `journalctl -u claude-rc@<name>`
   (`https://claude.ai/code?environment=env_...`). The Projects page shows the session link if recorded,
   else the environment link.
+
+## 13. Formats defined in later phases
+
+Phase 4's sheets define these, and the phase 4 review step adds them here: `services/<name>/service.toml`,
+`deployers/<name>/deployer.toml`, `HOME/config/services.toml`, global update settings and the
+`HOME/update/` files, `[deploy.settings]` in phoenix.toml, `.phoenix/deploys.jsonl` and
+`services_done` in `.phoenix/project.json`, the run state's `held` field, and the `phoenix images` CLI
+group. phoenix9's own `phoenix.toml` (holding `safety_files` and `merge = "ask"`) lives outside code/,
+so the repo carries a template (`deploy/self-project.toml`) that the chat copies into place.

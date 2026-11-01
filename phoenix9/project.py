@@ -4,10 +4,11 @@ import os
 import re
 import shlex
 import shutil
+import threading
 import tomllib
 from pathlib import Path
 
-from phoenix9 import atomic, events, git, keys, paths, project_services, services, settings, templates
+from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, services, settings, templates
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -17,6 +18,11 @@ OWNER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
 NOTES_SUBFOLDERS = ("research", "specs", "plans", "sessions")
 RECIPE_TIMEOUT = 1800
 START_CHECKS = 6
+SIZE_MAX_AGE = 300
+SIZE_WAIT = 1.0
+ENV_URL_RE = re.compile(r"https://claude\.ai/code\?environment=env_[A-Za-z0-9]+")
+SESSION_URL_RE = re.compile(r"^https://claude\.ai/code/[A-Za-z0-9_-]+$")
+HOME_PROJECT = "home"
 SAFE = git.SAFE
 
 
@@ -428,3 +434,371 @@ def create(opts: dict, adapters, who: str, progress=None) -> dict:
     return {"name": name, "path": str(folder), "source": facts["source"], "profile": facts["profile"],
             "template": opts.get("template") if facts["source"] == "template" else None,
             "repo": result["repo"] or None, "services": list(opts.get("services") or []), "steps": steps}
+
+
+# ----------------------------------------------------------------------------- reading a project
+def _meta_file(folder: Path) -> Path:
+    return folder / ".phoenix" / "project.json"
+
+
+def _meta(folder: Path) -> dict:
+    """The project's .phoenix/project.json as a dict ({} when missing or broken)."""
+    try:
+        data = json.loads(_meta_file(folder).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_meta(folder: Path, **fields) -> None:
+    """Merge fields into project.json."""
+    atomic.write_json(_meta_file(folder), {**_meta(folder), **fields})
+
+
+def _description_block(text: str):
+    """(index, lines) of the description paragraph of a CLAUDE.md split on blank lines, or None."""
+    blocks = text.split("\n\n")
+    for i, block in enumerate(blocks):
+        lines = [x.strip() for x in block.splitlines() if x.strip() and not x.lstrip().startswith("#")]
+        if lines:
+            return blocks, i, lines
+    return None
+
+
+def description(folder: Path) -> str:
+    """The first paragraph of the project's CLAUDE.md (heading lines skipped)."""
+    try:
+        text = (folder / "CLAUDE.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    found = _description_block(text)
+    return " ".join(found[2]) if found else ""
+
+
+def repo_of(folder: Path) -> str:
+    """The repo from project.json, else the git remote of code/, else ''."""
+    recorded = _meta(folder).get("repo")
+    if recorded:
+        return str(recorded)
+    code = folder / "code"
+    return git.remote_url(code) if code.is_dir() else ""
+
+
+def split_repo(repo: str) -> dict:
+    """{owner, name} from OWNER/NAME or a GitHub URL; both None when it is not a GitHub repo."""
+    m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", repo or "")
+    if not m and REPO_RE.match(repo or ""):
+        m = re.match(r"([^/]+)/([^/]+?)(?:\.git)?$", repo)
+    return {"owner": m.group(1), "name": m.group(2)} if m else {"owner": None, "name": None}
+
+
+def profile_of(folder: Path) -> str:
+    """The project's profile (phoenix.toml, else project.json)."""
+    try:
+        own = settings.load_project(folder).get("profile")
+    except settings.SettingsError:
+        own = None
+    return str(own or _meta(folder).get("profile") or "")
+
+
+def _services_of(folder: Path) -> list:
+    try:
+        return list(settings.load_project(folder).get("services", []))
+    except settings.SettingsError:
+        return []
+
+
+# ----------------------------------------------------------------------------- size
+def _read_sizes() -> dict:
+    data = atomic.read_json(paths.cache() / "sizes.json", {})
+    return data if isinstance(data, dict) else {}
+
+
+def cached_size(name: str, now: float | None = None, max_age: float | None = None):
+    """The cached size in bytes, or None when missing (or older than max_age when given)."""
+    entry = _read_sizes().get(name)
+    if not isinstance(entry, dict) or not isinstance(entry.get("bytes"), int):
+        return None
+    if max_age is not None and (now or 0) - float(entry.get("at", 0)) > max_age:
+        return None
+    return entry["bytes"]
+
+
+def size(name: str, adapters) -> int:
+    """The project's folder size in bytes: the cache when under 5 minutes old, else measured with du."""
+    now = adapters.clock.now()
+    fresh = cached_size(name, now, SIZE_MAX_AGE)
+    if fresh is not None:
+        return fresh
+    value = adapters.host.du_bytes(paths.projects() / name)
+    sizes = _read_sizes()
+    sizes[name] = {"bytes": value, "at": now}
+    atomic.write_json(paths.cache() / "sizes.json", sizes)
+    return value
+
+
+# ----------------------------------------------------------------------------- chat link
+def chat_link(name: str, adapters) -> dict:
+    """{kind: session|environment|none, url}: the saved chat session, else the chat server's environment."""
+    folder = paths.projects() / name
+    meta = _meta(folder)
+    if meta.get("chat_session_url"):
+        return {"kind": "session", "url": meta["chat_session_url"]}
+    if meta.get("environment_id"):
+        return {"kind": "environment", "url": f"https://claude.ai/code?environment={meta['environment_id']}"}
+    rc, out, _ = adapters.host.run(["journalctl", "-u", f"claude-rc@{name}", "-o", "cat", "--no-pager", "-n", "500"])
+    found = ENV_URL_RE.findall(out) if rc == 0 else []
+    if not found:
+        return {"kind": "none", "url": None}
+    url = found[-1]
+    if folder.is_dir():
+        _save_meta(folder, environment_id=url.split("environment=", 1)[1])
+    return {"kind": "environment", "url": url}
+
+
+# ----------------------------------------------------------------------------- chat server state
+def is_on(host, name: str) -> bool:
+    """True when the project's chat server is running."""
+    return host.systemctl("is-active", "-q", unit(name))[0] == 0
+
+
+def chats_open(host, name: str) -> int:
+    """How many chats are open: processes in the service's control group with --sdk-url in their command line."""
+    rc, out, _ = host.systemctl("show", "-p", "ControlGroup", "--value", unit(name))
+    group = out.strip() if rc == 0 else ""
+    if not group:
+        return 0
+    try:
+        pids = host.read_text(f"/sys/fs/cgroup{group}/cgroup.procs").split()
+    except (OSError, UnicodeDecodeError):
+        return 0
+    count = 0
+    for pid in pids:
+        try:
+            if "--sdk-url" in host.read_text(f"/proc/{pid}/cmdline").replace("\0", " "):
+                count += 1
+        except (OSError, UnicodeDecodeError):
+            continue
+    return count
+
+
+def _used_file(name: str) -> Path:
+    return paths.projects() / name / ".phoenix" / "last-used"
+
+
+def mark_used(name: str) -> None:
+    """Remember that the project was switched on just now."""
+    path = _used_file(name)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+
+def last_used(name: str, now: float):
+    """(seconds-since-epoch or None, '3h ago' style words or 'never')."""
+    path = _used_file(name)
+    if not path.exists():
+        return None, "never"
+    at = path.stat().st_mtime
+    secs = max(0, int(now - at))
+    if secs < 3600:
+        words = f"{secs // 60}m ago"
+    elif secs < 172800:
+        words = f"{secs // 3600}h ago"
+    else:
+        words = f"{secs // 86400}d ago"
+    return at, words
+
+
+def harness_status(name: str) -> str:
+    """idle, 'running task N of M', 'needs you' (open gate) or queued, from the newest run."""
+    if gates.list_gates(name):
+        return "needs you"
+    found = runs.list_runs(name)
+    if not found:
+        return "idle"
+    newest = found[0]
+    if newest["status"] == "queued":
+        return "queued"
+    if newest["status"] == "running":
+        current = (newest.get("current") or {}).get("task")
+        number = current if current else newest["tasks_passed"] + 1
+        return f"running task {number} of {newest['tasks_total']}"
+    return "idle"
+
+
+# ----------------------------------------------------------------------------- info and list
+def info(name: str, adapters, size_wait: bool = True) -> dict:
+    """Everything known about one project; size is measured (or cached) unless size_wait is False."""
+    folder = paths.projects() / name
+    host = adapters.host
+    repo = repo_of(folder)
+    on = is_on(host, name)
+    at, words = last_used(name, adapters.clock.now())
+    nbytes = size(name, adapters) if size_wait else cached_size(name)
+    return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
+            "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
+            "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
+            "chat": chat_link(name, adapters), "vscode_url": f"{paths.VSCODE_URL}?folder={folder}",
+            "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
+            "last_used": words, "last_used_at": at, "harness": harness_status(name),
+            "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
+
+
+def project_names() -> list:
+    """Every folder in the projects folder that has a CLAUDE.md (proj's rule), by name."""
+    root = paths.projects()
+    if not root.is_dir():
+        return []
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "CLAUDE.md").is_file())
+
+
+def _refresh_sizes(names: list, adapters) -> None:
+    for n in names:
+        size(n, adapters)
+
+
+def list_projects(adapters, wait: float = SIZE_WAIT) -> list:
+    """info for every project; sizes come from the cache and stale or missing ones refresh in the background."""
+    names = project_names()
+    now = adapters.clock.now()
+    stale = [n for n in names if cached_size(n, now, SIZE_MAX_AGE) is None]
+    if stale:
+        worker = threading.Thread(target=_refresh_sizes, args=(stale, adapters), daemon=True)
+        worker.start()
+        worker.join(wait)
+    return [info(n, adapters, size_wait=False) for n in names]
+
+
+def show_project(name: str, adapters) -> dict:
+    """info plus the last changelog lines and the open gates."""
+    data = info(name, adapters)
+    try:
+        lines = (paths.projects() / name / "notes" / "changelog.md").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+    data["changelog"] = [x for x in lines if x.startswith("- ")][-10:]
+    data["gates"] = [{"id": g["id"], "kind": g.get("kind"), "title": g.get("title")} for g in gates.list_gates(name)]
+    return data
+
+
+# ----------------------------------------------------------------------------- edit
+def _set_line(text: str, label: str, value: str) -> str:
+    """Replace a '- Label: value' line of CLAUDE.md when it exists."""
+    return re.sub(rf"(?m)^- {label}: .*$", lambda _m: f"- {label}: {value}", text, count=1)
+
+
+def _rewrite_description(folder: Path, text: str) -> None:
+    """Replace only the description paragraph of CLAUDE.md."""
+    path = folder / "CLAUDE.md"
+    old = path.read_text(encoding="utf-8")
+    found = _description_block(old)
+    if found:
+        blocks, i, _ = found
+        keep = [x for x in blocks[i].splitlines() if x.lstrip().startswith("#")]
+        blocks[i] = "\n".join([*keep, text.strip()])
+    else:
+        blocks = [old.rstrip("\n"), text.strip() + "\n"]
+    atomic.write_text(path, "\n\n".join(blocks))
+
+
+def _set_origin(host, folder: Path, repo: str) -> None:
+    """Point origin in code/ at the GitHub repo (add it when there is none)."""
+    code = folder / "code"
+    if not code.is_dir():
+        return
+    url = f"https://github.com/{repo}.git"
+    has = host.run(["git", *SAFE, "-C", str(code), "remote", "get-url", "origin"])[0] == 0
+    verb = ["remote", "set-url", "origin"] if has else ["remote", "add", "origin"]
+    _run(host, "Could not set origin", ["git", *SAFE, "-C", str(code), *verb, url])
+
+
+def edit(name: str, adapters, who: str, description_text=None, profile=None, repo=None) -> dict:
+    """Change a project's description, profile or repo; checks everything before changing anything."""
+    folder = paths.projects() / name
+    if description_text is None and profile is None and repo is None:
+        raise OpsError("Nothing to change: give --description, --profile or --repo.")
+    if description_text is not None and not description_text.strip():
+        raise OpsError("The description cannot be empty.")
+    if profile is not None:
+        _profile({"profile": profile}, None)
+    if repo is not None:
+        if not REPO_RE.match(repo):
+            raise OpsError(f"'{repo}' should look like OWNER/NAME.")
+        rc, out, err = adapters.host.gh("repo", "view", repo, "--json", "name")
+        if rc != 0:
+            raise OpsError(f"Cannot see {repo} on GitHub: {_first_error(rc, out, err)}")
+    changed = []
+    if description_text is not None:
+        _rewrite_description(folder, description_text)
+        changed.append("description")
+    if profile is not None:
+        data = settings.load_project(folder)
+        data["profile"] = profile
+        settings.save_project(folder, data)
+        _save_meta(folder, profile=profile)
+        _edit_line(folder, "Profile", profile)
+        changed.append(f"profile to {profile}")
+    if repo is not None:
+        _set_origin(adapters.host, folder, repo)
+        _save_meta(folder, repo=repo)
+        _edit_line(folder, "Repo", repo)
+        changed.append(f"repo to {repo}")
+    events.emit("project.changed", project=name, who=who, what="edit", fields=changed)
+    common.record_command(who, f"project edit {name}", name, change=f"changed {', '.join(changed)}")
+    return {"project": name, "changed": changed}
+
+
+def _edit_line(folder: Path, label: str, value: str) -> None:
+    path = folder / "CLAUDE.md"
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+        new = _set_line(text, label, value)
+        if new != text:
+            atomic.write_text(path, new)
+
+
+# ----------------------------------------------------------------------------- open, close, set-chat
+def open_project(name: str, adapters, who: str) -> dict:
+    """Switch the project's chat server on (enable, trust, start, watch the journal) and mark it used."""
+    folder = paths.projects() / name
+    host = adapters.host
+    if is_on(host, name):
+        host.systemctl("enable", "-q", unit(name))
+        mark_used(name)
+        result = {"project": name, "state": "on", "already": True}
+    else:
+        switch_on(host, adapters.clock, name, folder, [])
+        mark_used(name)
+        result = {"project": name, "state": "on", "already": False}
+    common.record_command(who, f"project open {name}", name)
+    return result
+
+
+def close_project(name: str, adapters, who: str, force: bool = False) -> dict:
+    """Switch the project's chat server off and stop it starting at boot; home and open chats need force."""
+    host = adapters.host
+    if name == HOME_PROJECT and not force:
+        raise OpsError("home is the front door and stays on (use --force to close it anyway).")
+    if not is_on(host, name):
+        host.systemctl("disable", "-q", unit(name))
+        result = {"project": name, "state": "off", "already": True}
+    else:
+        n = chats_open(host, name)
+        if n and not force:
+            raise OpsError(f"{name} has {n} chat(s) open. Close them first, or use --force.")
+        rc, out, err = host.systemctl("disable", "-q", "--now", unit(name))
+        if rc != 0:
+            raise OpsError(f"Could not switch {name} off: {_first_error(rc, out, err)}")
+        result = {"project": name, "state": "off", "already": False}
+    common.record_command(who, f"project close {name}", name)
+    return result
+
+
+def set_chat(name: str, url: str, who: str) -> dict:
+    """Save the chat session link (https://claude.ai/code/<session>) for the project."""
+    if not SESSION_URL_RE.match(url or ""):
+        raise OpsError("That is not a chat link. It should look like https://claude.ai/code/SESSION_ID.")
+    _save_meta(paths.projects() / name, chat_session_url=url)
+    events.emit("project.changed", project=name, who=who, what="chat")
+    common.record_command(who, f"project set-chat {name}", name, change="chat link set")
+    return {"project": name, "chat": {"kind": "session", "url": url}}

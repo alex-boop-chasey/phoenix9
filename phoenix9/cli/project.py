@@ -1,4 +1,4 @@
-"""Commands for `phoenix project`: list, show, keys and services."""
+"""Commands for `phoenix project`: list, show, edit, open, close, set-chat, new, templates, keys and services."""
 import sys
 
 from phoenix9 import project_services
@@ -14,6 +14,24 @@ def add(sub, common) -> None:
     p = group.add_parser("show", parents=[common], help="show one project")
     p.add_argument("name")
     p.set_defaults(func=show_)
+    p = group.add_parser("edit", parents=[common], help="change a project's description, profile or repo")
+    p.add_argument("name")
+    p.add_argument("--description", metavar="TEXT")
+    p.add_argument("--profile")
+    p.add_argument("--repo", metavar="O/N")
+    p.set_defaults(func=edit_)
+    p = group.add_parser("open", parents=[common], help="switch the project's chat on")
+    p.add_argument("name")
+    p.set_defaults(func=open_)
+    p = group.add_parser("close", parents=[common], help="switch the project's chat off")
+    p.add_argument("name")
+    p.add_argument("--force", action="store_true", help="close even home or a project with chats open")
+    p.add_argument("--yes", action="store_true", help="really switch it off")
+    p.set_defaults(func=close_)
+    p = group.add_parser("set-chat", parents=[common], help="save the chat link (https://claude.ai/code/<id>)")
+    p.add_argument("name")
+    p.add_argument("url")
+    p.set_defaults(func=set_chat_)
     p = group.add_parser("new", parents=[common], help="create a project")
     p.add_argument("name")
     p.add_argument("--description", default="", metavar="TEXT")
@@ -41,20 +59,67 @@ def add(sub, common) -> None:
     p.set_defaults(func=services_)
 
 
+def _size(n) -> str:
+    """Bytes in short words; '…' when not measured yet."""
+    if n is None:
+        return "…"
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+
+
 def list_(args) -> int:
     """List projects."""
     found = projects.list()
-    text = table([[p["name"], "yes" if p["has_phoenix_toml"] else "no", p["description"][:60]] for p in found],
-                 ["project", "phoenix.toml", "about"]) if found else "No projects yet."
+    text = table([[p["name"], p["state"], p["chats"], p["harness"], _size(p["size"]), p["last_used"]] for p in found],
+                 ["project", "state", "chats", "harness", "size", "last used"]) if found else "No projects yet."
     return show(args, found, text)
 
 
 def show_(args) -> int:
     """Show one project."""
     p = projects.show(args.name)
-    text = (f"{p['name']}\n  path: {p['path']}\n  about: {p['description'] or '(none)'}\n"
-            f"  repo: {p['repo'] or '(none)'}\n  phoenix.toml: {'yes' if p['has_phoenix_toml'] else 'no'}")
-    return show(args, p, text)
+    chat = p["chat"]
+    lines = [p["name"], f"  path: {p['path']}", f"  about: {p['description'] or '(none)'}",
+             f"  repo: {p['repo'] or '(none)'}", f"  profile: {p['profile'] or '(none)'}",
+             f"  services: {', '.join(p['services']) or '(none)'}", f"  size: {_size(p['size'])}",
+             f"  chat server: {p['state']} ({p['chats']} chats open), last used {p['last_used']}",
+             f"  chat link: {chat['url'] or '(none yet)'}", f"  harness: {p['harness']}",
+             f"  VS Code: {p['vscode_url']}"]
+    if p["gates"]:
+        lines += ["  needs you:"] + [f"    {g['id']}: {g['title']}" for g in p["gates"]]
+    if p["changelog"]:
+        lines += ["  recent changes:"] + [f"    {x}" for x in p["changelog"]]
+    return show(args, p, "\n".join(lines))
+
+
+def edit_(args) -> int:
+    """Change a project's description, profile or repo."""
+    r = projects.edit(args.name, args.who, args.description, args.profile, args.repo)
+    return show(args, r, f"Changed {', '.join(r['changed'])} for {args.name}.")
+
+
+def open_(args) -> int:
+    """Switch a project's chat on."""
+    r = projects.open_(args.name, args.who)
+    return show(args, r, f"{args.name} is already on." if r["already"] else
+                f"{args.name} is on. It shows up in the Claude app in a few seconds; start a chat there.")
+
+
+def close_(args) -> int:
+    """Switch a project's chat off (needs --yes)."""
+    if not args.yes:
+        return problem(args, f"This switches {args.name}'s chat off. Run it again with --yes to do it.")
+    r = projects.close(args.name, args.who, args.force)
+    return show(args, r, f"{args.name} is already off." if r["already"] else
+                f"{args.name} is off. It won't start at boot; phoenix project open {args.name} turns it back on.")
+
+
+def set_chat_(args) -> int:
+    """Save the project's chat link."""
+    r = projects.set_chat(args.name, args.url, args.who)
+    return show(args, r, f"Saved the chat link for {args.name}.")
 
 
 def new_(args) -> int:

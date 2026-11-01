@@ -226,6 +226,20 @@ def outside_fix_commit(adapters, run_dir, worktree, task_no: int, who: str) -> s
                                skip_env=True)
 
 
+def stop_delegate(runner, st: dict, task_no: int, answer: dict) -> None:
+    """If someone other than the project chat answered, stop the chat session first so it cannot keep
+    editing the worktree while the task runs again."""
+    record = st["tasks"][str(task_no)].get("delegate") or {}
+    if record.get("handle") and answer.get("who") != chat_who():
+        runner.adapters.chat.stop(record["handle"])
+
+
+def chat_who() -> str:
+    """The name the delegate session answers gates with."""
+    from phoenix9 import chat
+    return chat.WHO
+
+
 def acknowledge(runner, run_dir, task_no: int, answer: dict) -> None:
     """An escalation was acknowledged: commit any outside fix, set attempt_base to the worktree's
     HEAD (always, so a crash after the fix commit still keeps it), count the escalation, add the
@@ -234,6 +248,7 @@ def acknowledge(runner, run_dir, task_no: int, answer: dict) -> None:
     run_dir = Path(run_dir)
     st = state.load(run_dir)
     worktree = paths.work(st["project"], st["run_id"])
+    stop_delegate(runner, st, task_no, answer)
     outside_fix_commit(runner.adapters, run_dir, worktree, task_no, answer.get("who", "cli"))
     sha = runner.adapters.git.head(worktree) if worktree.is_dir() else None
     note = (answer.get("note") or "").strip()

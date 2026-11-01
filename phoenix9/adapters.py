@@ -97,6 +97,11 @@ class Chat:
         from phoenix9 import chat
         return chat.status(handle)
 
+    def stop(self, handle):
+        """Stop a delegate session that is still running (e.g. Alex answered first)."""
+        from phoenix9 import chat
+        chat.stop(handle)
+
 
 class Claude:
     """Real claude adapter; filled in by step 09."""

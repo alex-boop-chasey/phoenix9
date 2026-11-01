@@ -568,3 +568,28 @@ def test_gate_opened_but_not_held_is_adopted(tmp_path, runner, holder):
         assert state.load(run_dir)["status"] == "done" and len(calls("acceptance")) == 1
     else:
         assert attempts("builder") == [1, 2]
+
+
+
+def test_alex_answering_first_stops_the_delegate(tmp_path, runner, adapters):
+    adapters.chat.mode = "run"
+    on("builder", 1, 1, fail("flaky network"))
+    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
+    assert runner.drive(run_dir) == "waiting"
+    gate_id = state.load(run_dir)["current"]["gate"]
+    handle = state.load(run_dir)["tasks"]["1"]["delegate"]["handle"]
+    assert adapters.chat.status(handle) == "running"
+    gates.answer(gate_id, "skip", who="dashboard")
+    runner.drive(run_dir)
+    assert adapters.chat.status(handle) == "exited"
+    assert adapters.chat.stopped == [handle]
+
+
+def test_real_chat_reaps_finished_sessions(tmp_path):
+    from phoenix9 import chat
+    proc = __import__("subprocess").Popen(["true"])
+    chat._started[str(proc.pid)] = proc
+    proc.wait()
+    chat._started[str(proc.pid)] = proc
+    assert chat.status(str(proc.pid)) == "exited"
+    assert str(proc.pid) not in chat._started

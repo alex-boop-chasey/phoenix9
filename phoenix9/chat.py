@@ -8,6 +8,7 @@ the escalation gate itself (`phoenix gate answer <id> acknowledged --who chat:de
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -36,12 +37,32 @@ def delegate(project: str, project_dir, gate: str, prompt: str, log_path) -> dic
     return {"started": True, "handle": handle, "error": ""}
 
 
+def reap() -> None:
+    """Collect every finished session this process started, so none lingers as a zombie process."""
+    for handle, proc in list(_started.items()):
+        if proc.poll() is not None:
+            del _started[handle]
+
+
+def stop(handle: str) -> None:
+    """Stop a still-running session (its whole process group); quiet if it already ended."""
+    reap()
+    proc = _started.get(str(handle))
+    try:
+        pid = proc.pid if proc is not None else int(handle)
+        if status(handle) == "running":
+            os.killpg(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        pass
+
+
 def status(handle: str) -> str:
     """"running" or "exited". A handle this process does not know (e.g. after a restart) is looked up
     by process id; if no such process is alive it counts as exited."""
+    reap()
     proc = _started.get(str(handle))
     if proc is not None:
-        return "running" if proc.poll() is None else "exited"
+        return "running"
     try:
         stat = Path(f"/proc/{int(handle)}/stat").read_text()
     except (OSError, ValueError):

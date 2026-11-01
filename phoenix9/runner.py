@@ -253,6 +253,7 @@ class Runner:
         if move == "rerun":
             failmodes.acknowledge(self, run_dir, n, answer)
             return "rerun"
+        failmodes.stop_delegate(self, state.load(run_dir), n, answer)
         state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
         if move == "passed":
             failmodes._finish_task(run_dir, n, "passed", note=f"done by {who}")

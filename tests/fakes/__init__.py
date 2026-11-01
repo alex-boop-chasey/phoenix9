@@ -112,6 +112,7 @@ class FakeChat:
         self.fix = None
         self.log: list[str] = []
         self.running: dict[str, bool] = {}
+        self.stopped: list[str] = []
 
     def delegate(self, *args, **kwargs):
         """Record the request and act out the scripted mode."""
@@ -138,6 +139,11 @@ class FakeChat:
     def status(self, handle):
         """running while scripted to run; unknown handles (lost in a restart) count as exited."""
         return "running" if self.running.get(handle) else "exited"
+
+    def stop(self, handle):
+        """Record the stop and mark the pretend session as ended."""
+        self.stopped.append(handle)
+        self.running[handle] = False
 
 
 class FakeDocker:

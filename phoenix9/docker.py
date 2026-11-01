@@ -253,14 +253,15 @@ def log_path(project: str, run_id: str, task: int | str, attempt: int, role: str
 def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: str, image: str,
                workspace: Path, prompt_file: Path, cmd: list[str], env_files: list[Path] = (),
                domains_file: Path | None = None, spec_dir: Path | None = None, scrub_env: bool = False,
-               pnpm_store: Path | None = None, mounts=()) -> Run:
+               pnpm_store: Path | None = None, mounts=(), workspace_ro: bool = False) -> Run:
     """Describe the container for one Claude session (only the transcript folder is created).
 
-    The spec folder, when given, is mounted read-only (hard rule 4). `cmd` is the claude command line.
+    The spec folder, when given, is mounted read-only (hard rule 4); so is the workspace when `workspace_ro`.
+    `cmd` is the claude command line.
     """
     tdir = transcript_dir(project, run_id, task, attempt, role)
     tdir.mkdir(parents=True, exist_ok=True)
-    all_mounts = [Mount(Path(workspace), "/workspace", ro=False), Mount(Path(prompt_file), PROMPT_MOUNT),
+    all_mounts = [Mount(Path(workspace), "/workspace", ro=workspace_ro), Mount(Path(prompt_file), PROMPT_MOUNT),
                   Mount(tdir, "/home/node/.claude/projects", ro=False)]
     if spec_dir:
         all_mounts.append(Mount(Path(spec_dir), SPEC_MOUNT, ro=True))
@@ -277,14 +278,15 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
                          image: str, workspace: Path, prompt_file: Path, cmd: list[str],
                          timeout_min: float, *, env_files: list[Path] = (), domains_file: Path | None = None,
                          spec_dir: Path | None = None, scrub_env: bool = False, limits: dict | None = None,
-                         pnpm_store: Path | None = None, mounts=()) -> tuple[int, Path]:
+                         pnpm_store: Path | None = None, mounts=(),
+                         workspace_ro: bool = False) -> tuple[int, Path]:
     """Run one Claude session in a fresh firewalled container. Returns (exit code, log file).
 
     The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl with secret values
     scrubbed out afterwards. The claude port (step 9) builds `cmd` and reads the log.
     """
     r = claude_run(project, run_id, task, attempt, role, image, workspace, prompt_file, cmd, env_files,
-                   domains_file, spec_dir, scrub_env, pnpm_store, mounts)
+                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro)
     argv = build_argv(r, limits)
     out = log_path(project, run_id, task, attempt, role, "jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)

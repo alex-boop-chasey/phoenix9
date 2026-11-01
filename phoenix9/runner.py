@@ -594,11 +594,13 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     mount_dir.mkdir(exist_ok=True)
     if not (mount_dir / "spec.md").exists():
         atomic.write_text(mount_dir / "spec.md", (ctx.run.folder / "spec.md").read_text(encoding="utf-8"), mode=0o444)
+    extra = code.mounts(ctx) if code is not None and hasattr(code, "mounts") else {}
     session = ctx.adapters.claude.launch(
         ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
         attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
         prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
-        domains_file=domains)
+        domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
+        extra_mounts=list(extra.get("extra_mounts") or []))
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     ctx.log(f"session ended: {session.kind}")
     if session.kind == "rate_limited":

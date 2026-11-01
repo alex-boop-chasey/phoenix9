@@ -231,7 +231,13 @@ class FakeClaude:
         self.calls.append(("launch", (), kwargs))
         session = self.sessions.pop(0) if self.sessions else {}
         for name, text in (session.get("files") or {}).items():
-            path = Path(kwargs["workspace"]) / name
+            if name.startswith("/"):       # an absolute name is written through the mount that has this dst
+                mount = [m for m in kwargs.get("extra_mounts", ()) if m.dst == str(Path(name).parent)][0]
+                path = Path(mount.src) / Path(name).name
+            elif kwargs.get("workspace_ro"):
+                raise PermissionError(f"the workspace is read-only: cannot write {name}")
+            else:
+                path = Path(kwargs["workspace"]) / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
         return Result(kind=session.get("kind", "ok"), text=session.get("text", ""),

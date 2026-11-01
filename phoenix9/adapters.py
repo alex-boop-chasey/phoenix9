@@ -108,18 +108,18 @@ class Claude:
 
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
-               domains_file=None, env_files=()):
+               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=()):
         """Run one Claude session in a step container (trying fallback models) and return its Result."""
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
-        mounts = cl.session_mounts(ai, step_dir, project_dir)
+        mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
 
         def one(model: str):
             cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace")
             rc, log = dk.run_claude_container(
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
-                spec_dir=spec_dir, mounts=mounts)
+                spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro)
             return cl.parse(log, rc)
         return cl.run_with_fallback(ai, one)
 

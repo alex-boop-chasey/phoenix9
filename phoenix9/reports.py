@@ -325,3 +325,11 @@ def fallback_report(ctx) -> dict:
 
 
 FALLBACK_VALUES = {"test-report": fallback_report}
+
+
+def fallback_verdict(ctx) -> dict:
+    """The verdict used when the Reviewer is off: a plain pass (the checks already gated the attempt)."""
+    return {"verdict": "pass", "reasons": [], "source": "fallback"}
+
+
+FALLBACK_VALUES["verdict"] = fallback_verdict

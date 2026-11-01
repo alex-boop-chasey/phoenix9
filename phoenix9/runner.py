@@ -31,6 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
+from phoenix9 import reports
 from phoenix9.aistep import checks_text, render_prompt, task_text
 from phoenix9 import docker as docker_mod
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
@@ -495,12 +496,16 @@ class Runner:
             with open(logfile, "a", encoding="utf-8") as f:
                 f.write(scrub.scrub(text).rstrip("\n") + "\n")
 
-        return StepContext(
+        ctx = StepContext(
             project=info, run=RunInfo(id=run_id, folder=run_dir, spec=spec_data),
             step=StepInfo(name=step.name, kind=step.kind, folder=step.folder, settings=own, ai=ai,
                           produces=step.produces),
             task=task, attempt=attempt, worktree=worktree, things=visible, adapters=self.adapters,
             emit=emit, log=log, answer=answer)
+        for need, source in setup["plan"]["sources"].get(step.name, {}).items():
+            if source.startswith("fallback:") and need in reports.FALLBACK_VALUES:
+                ctx.things[need] = reports.FALLBACK_VALUES[need](ctx)    # fallback-value hook
+        return ctx
 
 
 # ---------------------------------------------------------------------- gates held by the run

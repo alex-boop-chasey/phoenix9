@@ -178,6 +178,22 @@ def remove_worktree(code_dir: Path, work_dir: Path) -> None:
     git(code_dir, "worktree", "prune")
 
 
+def fresh_checkout(worktree: Path, dest: Path) -> Path:
+    """Make a clean detached checkout of the worktree's HEAD at `dest`, with its uncommitted changes applied."""
+    worktree, dest = Path(worktree), Path(dest)
+    patch = diff_text(worktree, "HEAD", binary=True)
+    git(worktree, "worktree", "add", "-q", "--detach", "--", str(dest), "HEAD")
+    if patch.strip():
+        git(dest, "apply", "--whitespace=nowarn", input=patch.encode())
+    return dest
+
+
+def remove_checkout(worktree: Path, dest: Path) -> None:
+    """Delete a checkout made by fresh_checkout and forget it."""
+    rmtree(Path(dest))
+    git(Path(worktree), "worktree", "prune")
+
+
 # ------------------------------------------------------------- changes
 def _stage_all(worktree: Path) -> None:
     """Stage everything in the worktree so new files show up in the diff."""

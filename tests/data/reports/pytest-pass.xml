@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" tests="1">
+<testcase classname="t" name="test_ok" file="tests/phoenix/task-1/test_1.py"/>
+</testsuite></testsuites>

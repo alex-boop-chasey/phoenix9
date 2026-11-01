@@ -88,7 +88,8 @@ def run_git(cwd: Path, *args: str, check: bool = True, input: bytes | None = Non
             timeout: int = 600) -> subprocess.CompletedProcess:
     """Run one git command in `cwd` with the safety flags. Raise GitError on failure when `check`."""
     try:
-        p = subprocess.run(git_argv(*args), cwd=str(cwd), capture_output=True, env=git_env(),
+        trust = ("-c", f"safe.directory={Path(cwd).resolve()}")  # worktrees are handed to the agent uid
+        p = subprocess.run(["git", *SAFE, *trust, *args], cwd=str(cwd), capture_output=True, env=git_env(),
                            input=input, timeout=timeout)
     except subprocess.TimeoutExpired as e:
         raise GitError(f"git {' '.join(args)} in {cwd}: timed out after {timeout}s") from e

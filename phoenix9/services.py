@@ -1,7 +1,8 @@
 """The services library: services/<name>/service.toml (which project keys and hosts each service needs)."""
 import re
+import tomllib
 
-from phoenix9 import library, paths, proxy
+from phoenix9 import atomic, library, paths, proxy, tomlw
 from phoenix9.library import Field
 
 SUPPORTS = ("store-and-wire", "keys-only")
@@ -82,3 +83,22 @@ def load_problems() -> list[str]:
 def get(name: str) -> dict | None:
     """One service, or None when the library has none by that name."""
     return load_library().get(name)
+
+
+# ---------- registry: HOME/config/services.toml (which account services are connected; never values) ----------
+def registry_path():
+    """HOME/config/services.toml."""
+    return paths.config() / "services.toml"
+
+
+def read_registry() -> dict:
+    """The registry as {service name: table}; empty when there is no file or it is unreadable."""
+    try:
+        return tomllib.loads(registry_path().read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def write_registry(data: dict) -> None:
+    """Write the registry (names, times and check results only)."""
+    atomic.write_text(registry_path(), tomlw.dumps(data, header="connected services; names only, never keys"))

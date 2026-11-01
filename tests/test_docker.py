@@ -169,7 +169,8 @@ def test_run_check_container_uses_runner_and_scrubs(files, adapters):
     assert out == paths.runs("shop") / "abcd" / "logs" / "3-1-check.txt"
     argv = d.argvs[0]
     assert pairs(argv, "--name") == ["phoenix9-shop-abcd-3-1-check"]
-    assert d.calls[0][0] == "rm" and d.calls[-1] == ("volume_rm", ("phoenix9-shop-abcd-3-1-check-pnpm",), {})
+    calls = [c for c in d.calls if c[0] != "chown"]  # chown only happens when the tests run as root
+    assert calls[0][0] == "rm" and calls[-1] == ("volume_rm", ("phoenix9-shop-abcd-3-1-check-pnpm",), {})
     assert d.volumes == []
 
 
@@ -227,3 +228,13 @@ def test_write_domains_file():
     assert path == paths.home() / "cache" / "domains" / "shop.domains"
     assert path.read_text().splitlines() == ["api.anthropic.com", "registry.npmjs.org", "api.stripe.com"]
     assert docker.write_domains_file("blog").read_text().splitlines() == list(docker.BUILTIN_DOMAINS)
+
+
+def test_hand_to_agent_chowns_only_as_root(adapters, tmp_path, monkeypatch):
+    d = adapters.docker
+    monkeypatch.setattr(docker.os, "getuid", lambda: 1000)
+    docker.hand_to_agent(d, tmp_path)
+    assert not [c for c in d.calls if c[0] == "chown"]
+    monkeypatch.setattr(docker.os, "getuid", lambda: 0)
+    docker.hand_to_agent(d, tmp_path)
+    assert [c for c in d.calls if c[0] == "chown"]

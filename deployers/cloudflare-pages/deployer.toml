@@ -1,0 +1,7 @@
+name = "cloudflare-pages"
+title = "Cloudflare Pages"
+description = "Publishes a static site to Cloudflare Pages."
+supported = false
+proxy_service = ""
+preview = true
+for_profiles = ["web"]

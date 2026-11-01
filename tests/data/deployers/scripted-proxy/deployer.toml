@@ -1,0 +1,14 @@
+name = "scripted-proxy"
+title = "Scripted scripted-proxy"
+supported = true
+proxy_service = "github"
+preview = true
+required_settings = ["live_port"]
+
+[settings]
+live_port = 0
+label = "x"
+
+[health]
+timeout_s = 10
+tries = 5

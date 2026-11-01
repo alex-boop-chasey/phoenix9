@@ -3,7 +3,7 @@ image = "phoenix9-step-web:1"
 allowed_domains = ["registry.npmjs.org", "registry.yarnpkg.com"]
 diff_allow_extra = ["pnpm-lock.yaml"]
 screenshots = true
-suggested_deployer = "supabase"
+suggested_deployer = "vps-docker"
 
 [test]
 cmd = "pnpm test"

@@ -23,7 +23,7 @@ PRESET_META = ("title", "description")  # allowed in a preset file, ignored by s
 HEADER = "Phoenix 9 project settings. Change them with `phoenix settings`, or edit by hand."
 KEY_ORDER = ["preset", "based_on", "profile", "merge", "max_tries", "on_failure", "services",
              "safety_files", "home_chat_may_answer", "diff", "domains", "steps", "deploy",
-             "allow_extra", "deny_extra", "allow", "on", "model", "with", "mode", "preview"]
+             "allow_extra", "deny_extra", "allow", "on", "model", "with", "mode", "preview", "settings"]
 
 
 class SettingsError(Exception):
@@ -155,6 +155,8 @@ def validate(data: dict, specs: dict[str, Spec], where: str) -> list[str]:
     problems: list[str] = []
     prefixes = {p.rsplit(".", i)[0] for p in specs for i in range(1, p.count(".") + 1)}
     for path, value in _flatten(data).items():
+        if path == "deploy.settings" or path.startswith("deploy.settings."):
+            continue    # checked against the chosen deployer by check()
         if path in specs:
             problems += _leaf_problems(path, value, specs[path], where)
         elif path in prefixes:
@@ -225,8 +227,9 @@ def check(project_dir, lib: Library | None = None) -> list[str]:
         data = load_project(project_dir)
     except SettingsError as err:
         return [str(err)]
+    from phoenix9 import deploy    # here, not at the top: deploy.py imports settings
     return (validate(data, all_specs(_lib_or_default(lib)), "phoenix.toml")
-            + self_project_problems(Path(project_dir).name, data))
+            + deploy.settings_problems(data) + self_project_problems(Path(project_dir).name, data))
 
 
 def _prune(data: dict) -> dict:

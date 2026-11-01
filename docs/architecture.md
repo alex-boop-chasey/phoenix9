@@ -308,6 +308,35 @@ instructions for the Builder: package names per profile, where config goes, env 
 and an optional `recipe.py` (`def wire(ctx, service, proxy) -> dict`). Services with account API access
 list no `hosts` for that API: account calls go only through the proxy (github, sentry have none).
 
+### 4.7 Deployer folder: `deployers/<name>/deployer.toml` (+ `deploy.py`)
+
+```toml
+name = "vps-docker"
+title = "This VPS (Docker)"
+description = "..."
+supported = true              # false = stub: "<title> is not yet supported"
+proxy_service = ""            # service whose account key a deploy needs (github-release: "github")
+preview = true                # can deploy a branch preview
+for_profiles = ["web", "platform"]
+required_settings = ["live_port"]   # [settings] keys a project must set (default value alone is not enough)
+[settings]                    # defaults; a project overrides them in [deploy.settings]
+live_port = 0
+[health]
+timeout_s = 60
+tries = 5
+```
+`deploy.py` has `deploy(dctx) -> {target, url, version, details}` (raises `DeployError(reason)`),
+`health(dctx, result) -> (bool, words)`, `rollback(dctx, result, previous) -> dict`, and optionally
+`preview(dctx)` and `stop_preview(dctx, record)`. A deployer without `health` and `rollback` is refused
+(except `none`, which needs no deploy.py). `phoenix9/deploy.py` runs them: starts the `proxy_service` proxy
+on 127.0.0.1, gives the deployer a `DeployContext` (project, settings, source_dir, commit, run_id, adapters,
+proxy `{url, token}`, a 0600 `env_file` of the project's keys, a scrubbing `log`), then runs `health` up to
+`tries` times spaced `timeout_s / tries` on the clock adapter; unhealthy or failed deploys roll back to the
+last good record. Every attempt is a line in `<project>/.phoenix/deploys.jsonl` (`at, deployer, commit,
+version, url, ok, rolled_back, reason, who, run, kind: deploy|preview`), a `deploy.finished` event, a
+changelog line and a notify message. Commands: `phoenix deploy now <project> --yes`,
+`phoenix deploy status <project>`, `phoenix deployers list`. Profiles' `suggested_deployer` names a deployer.
+
 ## 5. Settings
 
 ### 5.1 Layering (lowest first)
@@ -343,6 +372,9 @@ on = true
 with = "none"                 # deployer name
 mode = "off"                  # on-merge | button | off
 preview = false
+
+[deploy.settings]             # keys the chosen deployer's [settings] declares, typed like its defaults
+live_port = 8080              # unknown keys are an error; `required_settings` of the deployer must be set
 ```
 `tomlw.py` writes it back with keys in this order and a one-line comment header.
 For the project named in global.toml `[update] project` (phoenix9) `merge` must be `ask` and `[deploy] with`

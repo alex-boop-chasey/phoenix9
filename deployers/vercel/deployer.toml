@@ -1,0 +1,7 @@
+name = "vercel"
+title = "Vercel"
+description = "Publishes the app to Vercel."
+supported = false
+proxy_service = ""
+preview = true
+for_profiles = ["web"]

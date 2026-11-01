@@ -3,7 +3,7 @@ image = "phoenix9-step-mobile:1"
 allowed_domains = ["registry.npmjs.org"]
 diff_allow_extra = ["pnpm-lock.yaml"]
 screenshots = true
-suggested_deployer = "expo"
+suggested_deployer = "expo-eas"
 
 [test]
 cmd = "pnpm test"

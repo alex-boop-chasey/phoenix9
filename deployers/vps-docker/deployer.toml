@@ -1,0 +1,15 @@
+name = "vps-docker"
+title = "This VPS (Docker)"
+description = "Builds the project's Dockerfile and runs it on this server behind the tunnel."
+supported = false
+proxy_service = ""
+preview = true
+for_profiles = ["web", "platform"]
+required_settings = ["live_port"]
+
+[settings]
+live_port = 0                    # 0 = must be set by the project
+
+[health]
+timeout_s = 60
+tries = 5

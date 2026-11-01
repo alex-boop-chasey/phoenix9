@@ -12,6 +12,7 @@ import base64
 import gzip
 import hmac
 import http.client
+import ipaddress
 import json
 import os
 import secrets
@@ -44,7 +45,9 @@ LOOPBACK_HOSTS = ("127.0.0.1", "localhost")
 # The only raw characters a request path may carry (no ;, #, ?, space, quotes, non-ASCII, ...).
 SAFE_PATH_CHARS = frozenset(string.ascii_letters + string.digits + "-._~%:@!$&'()*+,=/")
 PROXY_FIELDS = {"upstream", "auth_header", "auth_format", "key", "extra_headers", "allow"}
-PUBLIC_BINDS = ("0.0.0.0", "::", "")
+# The reply codings the proxy can undo to look for the key; anything else (or more than one) is a 502.
+REPLY_CODINGS = ("identity", "gzip", "x-gzip", "deflate")
+MAX_IN_FLIGHT = 8   # forwarded requests at once per proxy; more get 503 straight away
 
 
 @dataclass(frozen=True)
@@ -252,6 +255,8 @@ def decide(spec: ProxySpec, token: str, method: str, target: str, headers, *, ma
     query = "?" + query if "?" in target else ""
     if not _token_ok(token, headers.get_all(TOKEN_HEADER) or []):
         return Decision(False, 401, "bad token", path=path, query=query)
+    if any("\r" in n or "\n" in n or "\r" in v or "\n" in v for n, v in headers.items()):
+        return Decision(False, 400, "folded or broken header", path=path, query=query)
     if method not in METHODS:
         return Decision(False, 405, f"method {method[:20]} not allowed", path=path, query=query)
     if not target.startswith("/"):
@@ -366,7 +371,8 @@ def _decode_body(body: bytes, encoding: str) -> bytes | None:
         else:
             return None
         out = d.decompress(body, MAX_RESPONSE + 1)
-        return None if len(out) > MAX_RESPONSE or d.unconsumed_tail else out
+        # unused_data: a second gzip member (or junk) after the first, which would go out undecoded
+        return None if len(out) > MAX_RESPONSE or d.unconsumed_tail or d.unused_data else out
     except (zlib.error, gzip.BadGzipFile):
         return None
 
@@ -404,9 +410,20 @@ def forward(spec: ProxySpec, key: str, decision: Decision, method: str, caller_h
     return _reply_from_upstream(status, raw_headers, data, key, method)
 
 
+def reply_coding(values: list[str]) -> str | None:
+    """The one content coding named by all Content-Encoding headers together ("" = none), or None when
+    they name an unknown coding, more than one coding, or nothing at all in a non-empty header."""
+    codings = [c.strip().lower() for v in values for c in v.split(",") if c.strip()]
+    if not codings:
+        return None if any(v.strip() for v in values) else ""
+    if len(codings) != 1 or codings[0] not in REPLY_CODINGS:
+        return None
+    return "" if codings[0] == "identity" else codings[0]
+
+
 def _reply_from_upstream(status: int, raw_headers, data: bytes, key: str, method: str) -> Reply:
     """Copy the upstream reply minus hop-by-hop headers, with every form of the key hidden."""
-    encoding = ""
+    encodings = []
     headers = []
     upstream_length = ""
     for name, value in raw_headers:
@@ -417,14 +434,17 @@ def _reply_from_upstream(status: int, raw_headers, data: bytes, key: str, method
             upstream_length = value
             continue
         if low == "content-encoding":
-            encoding = value.strip().lower()
+            encodings.append(value)   # every one: keeping only the last let gzip + gzip through undecoded
             continue
         headers.append((name, value))
-    if encoding and encoding != "identity" and data:
+    encoding = reply_coding(encodings)
+    if encoding is None:
+        return _plain(502, "upstream reply encoding not supported")
+    if encoding and data:
         data = _decode_body(data, encoding)
         if data is None:
             return _plain(502, "upstream reply encoding not supported")
-    elif encoding and encoding != "identity":
+    elif encoding:
         headers.append(("Content-Encoding", encoding))
     data = redact(data, key)
     headers = [(redact(n.encode("latin-1", "replace"), key).decode("latin-1"),
@@ -493,10 +513,15 @@ class _Handler(BaseHTTPRequestHandler):
         d = Decision(False, 502, "proxy error", path=target.partition("?")[0], query="")
         try:
             d = decide(owner.spec, owner.token, self.command, target, self.headers, max_body=owner.max_body)
+            if d.allowed and not owner._slots.acquire(blocking=False):
+                d = Decision(False, 503, "too busy", path=d.path, query=d.query)
             if not d.allowed:
                 reply = _plain(d.status, f"refused: {d.reason}")
             else:
-                reply = self._forward(owner, d)
+                try:
+                    reply = self._forward(owner, d)
+                finally:
+                    owner._slots.release()
         except Exception:   # never let an error (and its message) reach the caller or stderr
             reply = _plain(502, "proxy error")
         decision = "forwarded" if d.allowed else "refused"
@@ -524,7 +549,8 @@ class RunningProxy:
     """A started proxy: .url, .token, .port for the caller, .stop() when the step ends (safe to call twice)."""
 
     def __init__(self, spec: ProxySpec, key: str, log: LogWriter, server: _Server, *, bind: str,
-                 upstream_timeout: float, max_body: int, allow_plain_http: bool):
+                 upstream_timeout: float, max_body: int, allow_plain_http: bool,
+                 max_in_flight: int = MAX_IN_FLIGHT):
         """Hold the running server; use serve() to make one."""
         self.spec = spec
         self.token = secrets.token_urlsafe(32)
@@ -533,6 +559,7 @@ class RunningProxy:
         self.upstream_timeout = upstream_timeout
         self.max_body = max_body
         self.allow_plain_http = allow_plain_http
+        self._slots = threading.BoundedSemaphore(max_in_flight)   # caps forwarded requests (and their memory)
         self._server = server
         self.port = server.server_address[1]
         self.url = f"http://{bind}:{self.port}"
@@ -580,13 +607,26 @@ def _check_key(key) -> None:
         raise ValueError("the account key has spaces or characters that cannot go in a header")
 
 
+def _check_bind(bind) -> None:
+    """Raise ValueError unless bind is one IP address literal that is not 'every address' (0.0.0.0, ::)."""
+    if not isinstance(bind, str):
+        raise ValueError("the proxy's listen address must be text like 127.0.0.1")
+    try:
+        addr = ipaddress.ip_address(bind)
+    except ValueError:
+        raise ValueError(f"the proxy must listen on an IP address like 127.0.0.1, not {bind!r}") from None
+    if addr.is_unspecified:
+        raise ValueError(f"the proxy must not listen on every address ({bind}); use 127.0.0.1")
+
+
 def serve(spec: ProxySpec, key: str, *, log_path: Path, step: str, bind: str = "127.0.0.1", port: int = 0,
           upstream_timeout: float = 30.0, max_body: int = 10_000_000,
-          allow_plain_http_upstream: bool = False) -> RunningProxy:
+          allow_plain_http_upstream: bool = False, max_in_flight: int = MAX_IN_FLIGHT) -> RunningProxy:
     """Start a proxy for one service and one step; returns the running handle (address, token, stop)."""
     _check_key(key)
-    if bind in PUBLIC_BINDS:
-        raise ValueError(f"the proxy must not listen on every address ({bind or 'empty'}); use 127.0.0.1")
+    _check_bind(bind)
+    if not isinstance(max_in_flight, int) or max_in_flight < 1:
+        raise ValueError("max_in_flight must be a whole number of at least 1")
     _check_upstream(spec.upstream, allow_plain_http=allow_plain_http_upstream)
     for rule in spec.rules:
         if rule.upstream:
@@ -596,7 +636,8 @@ def serve(spec: ProxySpec, key: str, *, log_path: Path, step: str, bind: str = "
     log = LogWriter(log_path, spec.service, step, key)
     server = _Server((bind, port), _Handler)
     return RunningProxy(spec, key, log, server, bind=bind, upstream_timeout=upstream_timeout,
-                        max_body=max_body, allow_plain_http=allow_plain_http_upstream)
+                        max_body=max_body, allow_plain_http=allow_plain_http_upstream,
+                        max_in_flight=max_in_flight)
 
 
 @contextmanager

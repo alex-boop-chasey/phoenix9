@@ -521,7 +521,8 @@ parse_rules(items: list[dict]) -> list[Rule]           # ValueError in plain Eng
 ProxySpec(service, upstream, auth_header, auth_format, rules, extra_headers=())
 spec_from_service(service: dict) -> ProxySpec          # from service.toml's [proxy] block (see below)
 serve(spec, key, *, log_path, step, bind="127.0.0.1", port=0, upstream_timeout=30.0,
-      max_body=10_000_000, allow_plain_http_upstream=False) -> RunningProxy   # .url .token .port .stop()
+      max_body=10_000_000, allow_plain_http_upstream=False, max_in_flight=8) -> RunningProxy
+                                         # .url .token .port .stop()
 serving(spec, key, **kw)                 # context manager; stop() guaranteed
 decide(spec, token, method, target, headers, *, max_body) -> Decision         # pure: the whole yes/no
 pattern_matches(pattern, path), path_is_safe(path), find_rule(rules, method, path)   # pure, public
@@ -540,14 +541,16 @@ env_names(service) -> ("PHOENIX_PROXY_<SERVICE>", "PHOENIX_PROXY_TOKEN_<SERVICE>
   headers, Host, Content-Length, Cookie, Accept-Encoding or the token header.
 - **Request target**: taken raw from the request line (`requestline.split()[1]`), not `self.path`
   (which collapses a leading `//`).
-- **Order of checks** (first failure wins): token (401), method in the vocabulary (405; CONNECT,
+- **Order of checks** (first failure wins): token (401), any caller header name or value holding `\r`
+  or `\n` (a folded, obs-fold header: 400 `folded or broken header`), method in the vocabulary (405; CONNECT,
   OPTIONS, TRACE, lower case and anything else), origin-form path (403), path safety (403
   `unsafe path`: the raw path may only hold `A-Z a-z 0-9 - . _ ~ % : @ ! $ & ' ( ) * + , = /` (so no
   `;`, `#`, space, quotes or non-ASCII); before or after one percent-decode, no `.`/`..` part, `//`,
   backslash, control character, `%2e %2f %5c %00` in any case, or invalid UTF-8 encoding; a control
   character in the query is refused the same way), a matching rule (403
   `not a declared call`), body (chunked/any Transfer-Encoding 411, bad or repeated Content-Length 400,
-  over `max_body` 413).
+  over `max_body` 413). Then the in-flight cap: at most `max_in_flight` (default 8) forwarded requests
+  at once; one more gets 503 `too busy` straight away (logged `refused`; the body is never read).
 - **Matching**: on the raw path without the query; split on `/`; `*` = one non-empty part, `**` (last
   only) = one or more parts, anything else literal and case-sensitive. `HEAD` is not implied by `GET`.
   Rules reject: unknown or lower-case methods, no leading `/`, `**` not last, empty parts (incl. a
@@ -559,12 +562,17 @@ env_names(service) -> ("PHOENIX_PROXY_<SERVICE>", "PHOENIX_PROXY_TOKEN_<SERVICE>
   the token header, Content-Length (recomputed), Expect, Accept-Encoding (always sent as `identity`),
   the spec's auth header and any header the spec's `extra_headers` set. Then `auth_header:
   auth_format.replace("{key}", key)` (other braces stay literal) and `extra_headers` are added.
-- **Listening**: `bind` defaults to `127.0.0.1`; `0.0.0.0`, `::` (and empty) raise ValueError. The key is
+- **Listening**: `bind` defaults to `127.0.0.1` and must be an IP literal (`ipaddress.ip_address`), so
+  hostnames like `localhost`, `"0"`, `""` and non-text raise ValueError; so does any unspecified address
+  (`0.0.0.0`, `::`). The key is
   checked first (no spaces, line breaks or non-ASCII; the error never contains it). Handler timeout 120 s.
 - **Upstreams**: https with the default SSL context. Plain http only with
   `allow_plain_http_upstream=True` and host `127.0.0.1`/`localhost` (tests); the real adapter never sets it.
 - **Replies**: status and headers copied minus hop-by-hop; body read fully (over 50 MB: 502); a gzip or
-  deflate reply is decoded first (other or multiple encodings: 502), so the key can always be found; the key
+  deflate reply is decoded first, so the key can always be found. Every Content-Encoding header is
+  read and split on commas (empty items ignored): exactly one of `identity gzip x-gzip deflate` is
+  accepted; anything else (unknown, more than one coding even `gzip` + `identity`, or none in a
+  non-empty header) is 502, as is a gzip body with data after its first member (multi-member); the key
   (as is, base64, unpadded and url-safe base64, percent-encoded, JSON-escaped incl. `/` as `\/`) is replaced by `[redacted]` in the body and every header; Content-Length recomputed.
   Upstream unreachable 502, timeout 504. Proxy-made replies are short plain text (`refused: <reason>`); no
   error text or traceback ever reaches the caller or stderr.

@@ -40,7 +40,8 @@ class Upstream:
                 if r["echo"]:
                     data = json.dumps(dict(self.headers.items())).encode()
                 self.send_response(r["status"])
-                for k, v in r["headers"].items():
+                pairs = r["headers"].items() if isinstance(r["headers"], dict) else r["headers"]
+                for k, v in pairs:   # a list of pairs can repeat a header
                     self.send_header(k, v)
                 if r["echo"]:
                     self.send_header("X-Echo-Auth", self.headers.get("Authorization", ""))
@@ -335,7 +336,7 @@ def test_concurrent_requests(upstream, log_path):
     upstream.reply["sleep"] = 0.05
     results = []
     with proxy.serving(make_spec(upstream.url), KEY, log_path=log_path, step="build",
-                       allow_plain_http_upstream=True) as p:
+                       allow_plain_http_upstream=True, max_in_flight=20) as p:
         threads = [threading.Thread(target=lambda: results.append(call(p, "GET", "/v1/projects")[0]))
                    for _ in range(20)]
         for t in threads:
@@ -570,7 +571,7 @@ def test_br_reply_is_502(upstream, log_path):
     assert status == 502 and KEY.encode() not in body
 
 
-@pytest.mark.parametrize("bind", ["0.0.0.0", "::"])
+@pytest.mark.parametrize("bind", ["0.0.0.0", "::", "0", "localhost", "", "0x0", None])
 def test_public_bind_refused(log_path, bind):
     with pytest.raises(ValueError):
         proxy.serve(make_spec("https://api.example.com"), KEY, log_path=log_path, step="s", bind=bind)
@@ -595,3 +596,85 @@ def test_redact_percent_and_json_forms():
     data = ("q=" + "sk%2Fa%2Bb%3Dc" + ' j="sk\\/a+b=c"').encode()
     assert key.encode() not in proxy.redact(data, key)
     assert proxy.redact(data, key) == b'q=[redacted] j="[redacted]"'
+
+
+# ---------- review fixes ----------
+
+def _gz(data: bytes) -> bytes:
+    import gzip
+    return gzip.compress(data)
+
+
+@pytest.mark.parametrize("encodings", [
+    [("Content-Encoding", "gzip"), ("Content-Encoding", "gzip")],
+    [("Content-Encoding", "gzip"), ("Content-Encoding", "identity")],
+    [("Content-Encoding", "identity"), ("Content-Encoding", "gzip")],
+    [("Content-Encoding", "gzip, gzip")],
+    [("Content-Encoding", "gzip, br")],
+    [("Content-Encoding", ",")],
+])
+def test_repeated_reply_encodings_are_502_never_a_leak(upstream, log_path, encodings):
+    upstream.reply.update(body=_gz(_gz(b"token=" + KEY.encode())), headers=encodings)
+    with proxy.serving(make_spec(upstream.url), KEY, log_path=log_path, step="build",
+                       allow_plain_http_upstream=True) as p:
+        status, _, body = call(p, "GET", "/v1/projects")
+    assert status == 502 and KEY.encode() not in body
+
+
+def test_reply_coding_rules():
+    assert proxy.reply_coding([]) == "" and proxy.reply_coding([""]) == ""
+    assert proxy.reply_coding(["identity"]) == "" and proxy.reply_coding([" GZIP "]) == "gzip"
+    assert proxy.reply_coding(["gzip,"]) == "gzip" and proxy.reply_coding(["", "deflate"]) == "deflate"
+    for bad in (["gzip", "gzip"], ["gzip", "identity"], ["identity, identity"], ["br"], [" , "]):
+        assert proxy.reply_coding(bad) is None
+
+
+def test_multi_member_gzip_reply_is_502(upstream, log_path):
+    upstream.reply.update(body=_gz(b"first ") + _gz(b"token=" + KEY.encode()),
+                          headers={"Content-Encoding": "gzip"})
+    with proxy.serving(make_spec(upstream.url), KEY, log_path=log_path, step="build",
+                       allow_plain_http_upstream=True) as p:
+        status, _, body = call(p, "GET", "/v1/projects")
+    assert status == 502 and KEY.encode() not in body
+
+
+def test_folded_caller_header_refused_400_and_logged(upstream, log_path):
+    with proxy.serving(make_spec(upstream.url), KEY, log_path=log_path, step="build",
+                       allow_plain_http_upstream=True) as p:
+        reply = raw_with_token(p, "GET /v1/projects HTTP/1.1", "X-Note: one\r\n two\r\n")
+    assert reply.split(b" ")[1] == b"400" and upstream.requests == []
+    line = log_lines(log_path)[0]
+    assert line["decision"] == "refused" and line["status"] == 400
+
+
+def test_bind_must_be_a_specific_ip_literal(log_path):
+    p = proxy.serve(make_spec("https://api.example.com"), KEY, log_path=log_path, step="s", bind="127.0.0.1")
+    try:
+        assert p.url.startswith("http://127.0.0.1:")
+    finally:
+        p.stop()
+
+
+def test_concurrency_cap_refuses_extra_requests_503(upstream, log_path):
+    upstream.reply["sleep"] = 1.5
+    results = []
+    lock = threading.Lock()
+
+    def one():
+        status = call(p, "GET", "/v1/projects")[0]
+        with lock:
+            results.append(status)
+
+    with proxy.serving(make_spec(upstream.url), KEY, log_path=log_path, step="build",
+                       allow_plain_http_upstream=True) as p:
+        threads = [threading.Thread(target=one) for _ in range(proxy.MAX_IN_FLIGHT + 4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(30)
+        assert sorted(results) == [200] * proxy.MAX_IN_FLIGHT + [503] * 4
+        upstream.reply["sleep"] = 0
+        assert call(p, "GET", "/v1/projects")[0] == 200   # slots come back
+    busy = [ln for ln in log_lines(log_path) if ln["status"] == 503]
+    assert len(busy) == 4 and all(ln["decision"] == "refused" and ln["reason"] == "too busy" for ln in busy)
+    assert len(upstream.requests) == proxy.MAX_IN_FLIGHT + 1

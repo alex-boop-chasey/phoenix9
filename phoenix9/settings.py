@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import tomllib
 
 from . import paths, tomlw
 from .library import Library, _is_type, _type_name, load_library, read_toml
@@ -188,13 +189,44 @@ def _lib_or_default(lib: Library | None) -> Library:
     return lib if lib is not None else load_library(paths.library())
 
 
+UPDATE_DEFAULTS = {"project": "phoenix9", "repo": "alex-boop-chasey/phoenix9", "tag_prefix": "v9."}
+
+
+def read_global() -> dict:
+    """HOME/config/global.toml as a dict ({} when missing or broken)."""
+    try:
+        return tomllib.loads((paths.config() / "global.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def update_settings() -> dict:
+    """The [update] table of global.toml (project, repo, tag_prefix) with defaults filled in."""
+    table = read_global().get("update")
+    table = table if isinstance(table, dict) else {}
+    return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
+
+
+def self_project_problems(name: str, data: dict) -> list[str]:
+    """Extra rules for the project that is Phoenix 9 itself: merge fixed to ask, no deployer."""
+    if name != update_settings()["project"]:
+        return []
+    problems = []
+    if data.get("merge", PROJECT_SCHEMA["merge"].default) != "ask":
+        problems.append("phoenix.toml: phoenix9's merge mode is fixed to ask (updates spec 3.2)")
+    if data.get("deploy", {}).get("with", PROJECT_SCHEMA["deploy.with"].default) != "none":
+        problems.append("phoenix.toml: phoenix9 installs itself through the updater, so [deploy] with must be none")
+    return problems
+
+
 def check(project_dir, lib: Library | None = None) -> list[str]:
     """Every problem in the project's phoenix.toml (not just the first); empty when it is fine."""
     try:
         data = load_project(project_dir)
     except SettingsError as err:
         return [str(err)]
-    return validate(data, all_specs(_lib_or_default(lib)), "phoenix.toml")
+    return (validate(data, all_specs(_lib_or_default(lib)), "phoenix.toml")
+            + self_project_problems(Path(project_dir).name, data))
 
 
 def _prune(data: dict) -> dict:

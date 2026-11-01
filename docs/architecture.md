@@ -98,7 +98,7 @@ reference/                     READ-ONLY copies of V8, proj and the project-sele
 | Name | Default | Env override | Holds |
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
-| config | HOME/config | | `global.toml` (non-secret global settings), `services.toml` |
+| config | HOME/config | | `global.toml` (non-secret global settings; `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
@@ -345,6 +345,9 @@ mode = "off"                  # on-merge | button | off
 preview = false
 ```
 `tomlw.py` writes it back with keys in this order and a one-line comment header.
+For the project named in global.toml `[update] project` (phoenix9) `merge` must be `ask` and `[deploy] with`
+must be `none` (`settings.self_project_problems`). `deploy/self-project.toml` is its phoenix.toml.
+A merge of that project tags the merge commit as the next `v9.<n>` release (`phoenix9/release.py`).
 
 ### 5.3 The ai block (any ai step; harness spec section 5)
 `model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),

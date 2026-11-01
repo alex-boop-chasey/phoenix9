@@ -3,7 +3,7 @@ import fnmatch
 import json
 import re
 
-from phoenix9 import atomic, git as gitmod, state
+from phoenix9 import atomic, git as gitmod, release, settings, state
 from phoenix9.stepctx import StepResult
 
 MR_FILE = "merge-request.txt"
@@ -89,13 +89,26 @@ def _local_merge(ctx, branch) -> str:
     return git.head(code)
 
 
+def _tag_release(ctx, sha) -> tuple[str, str]:
+    """Tag a merge of Phoenix 9 itself as the next release; return (tag, note). Other projects: ("", "")."""
+    if ctx.project.name != settings.update_settings()["project"]:
+        return "", ""
+    try:
+        return release.tag_release(ctx.adapters, sha, who="runner")["tag"], ""
+    except release.ReleaseError as err:
+        ctx.adapters.notify.send("Phoenix 9 was merged but not tagged: run `phoenix update release`")
+        return "", f"merged but not tagged ({err}): run `phoenix update release`"
+
+
 def _auto(ctx, branch) -> StepResult:
     """Merge in code/ and push main and the branch when there is an origin."""
     sha = _local_merge(ctx, branch)
     if not ctx.adapters.git.remote_url(ctx.project.code_dir):
         return StepResult("pass", ["local only (no GitHub repo)"], produces={"merged": sha})
     _push(ctx, ctx.adapters.git.default_branch(ctx.project.code_dir), branch)
-    return StepResult("pass", produces={"merged": sha})
+    tag, note = _tag_release(ctx, sha)
+    reasons = [f"release: {tag}"] if tag else [note] if note else []
+    return StepResult("pass", reasons, produces={"merged": sha})
 
 
 def _open_request(ctx, branch) -> str:
@@ -194,4 +207,20 @@ def on_approved(ctx, produces) -> dict:
     else:
         extra["note"] = "code/ was not updated: it has local changes"
     extra["merged"] = git.head(code)
+    if ctx.project.name == settings.update_settings()["project"]:
+        extra = _release_after_ask(ctx, mr.read_text().strip(), extra)
     return _remember_merged(ctx, extra)
+
+
+def _release_after_ask(ctx, url, extra) -> dict:
+    """Tag the merge commit GitHub reports for the merged request; a failure only adds a note."""
+    rc, out, err = ctx.adapters.host.gh("pr", "view", url, "--json", "mergeCommit", "--jq", ".mergeCommit.oid")
+    sha = out.strip()
+    if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        ctx.adapters.notify.send("Phoenix 9 was merged but not tagged: run `phoenix update release`")
+        note = f"merged but not tagged (could not read the merge commit: {_first_line(err or out)}): run `phoenix update release`"
+        return {**extra, "note": "; ".join(x for x in (extra.get("note"), note) if x)}
+    tag, note = _tag_release(ctx, sha)
+    if tag:
+        return {**extra, "release": tag}
+    return {**extra, "note": "; ".join(x for x in (extra.get("note"), note) if x)}

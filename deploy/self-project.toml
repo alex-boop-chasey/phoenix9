@@ -1,0 +1,26 @@
+# Settings for the phoenix9 project (copy to /srv/projects/phoenix9/phoenix.toml).
+preset = "quick"
+profile = "platform"
+merge = "ask"
+max_tries = 3
+on_failure = "pause"
+services = ["github"]
+safety_files = [
+  "image/init-firewall.sh",
+  "image/entry.sh",
+  "phoenix9/docker.py",
+  "phoenix9/git.py",
+  "phoenix9/scrub.py",
+  "phoenix9/keys.py",
+  "phoenix9/proxy.py",
+  "phoenix9/updater.py",
+  "phoenix9/hold.py",
+  "deploy/update.sh",
+  "deploy/phoenix9-update.service",
+  "steps/diff-rules/run.py",
+  "steps/secret-scan/run.py",
+]
+
+[deploy]
+with = "none"
+mode = "off"

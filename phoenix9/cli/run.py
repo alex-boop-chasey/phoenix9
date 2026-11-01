@@ -27,6 +27,7 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--step")
     p.add_argument("--task", type=int)
+    p.add_argument("--summary", action="store_true", help="print the run's summary.md")
     p.set_defaults(func=log)
     p = group.add_parser("stop", parents=[common], help="stop a run and remove its containers")
     p.add_argument("run_id")
@@ -94,7 +95,10 @@ def list_(args) -> int:
 
 
 def log(args) -> int:
-    """Show a run's events and step logs."""
+    """Show a run's events and step logs, or with --summary the run's summary.md."""
+    if args.summary:
+        r = runs.summary(args.run_id)
+        return show(args, r, r["summary"])
     r = runs.log(args.run_id, args.step, args.task)
     text = "\n".join(_event_line(e) for e in r["events"]) or "No events."
     for name, body in r["logs"].items():

@@ -72,6 +72,14 @@ def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
     return {"run_id": run_id, "events": found, "logs": logs}
 
 
+def summary(run_id: str) -> dict:
+    """The text of the run's summary.md."""
+    path = _run_folder(run_id) / "summary.md"
+    if not path.exists():
+        raise OpsError(f"Run {run_id} has no summary yet.")
+    return {"run_id": run_id, "summary": path.read_text(encoding="utf-8", errors="replace")}
+
+
 def stop(run_id: str, who: str = "cli") -> dict:
     """Mark the run stopped and remove its containers."""
     folder = _run_folder(run_id)

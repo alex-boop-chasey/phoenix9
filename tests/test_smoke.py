@@ -39,7 +39,11 @@ class RealCheckDocker(FakeDocker):
         self.argvs.append(list(argv))
         mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
         workspace = next(m.split("src=")[1].split(",")[0] for m in mounts if "dst=/workspace" in m)
-        p = subprocess.run(["bash", "-c", argv[-1]], cwd=workspace, capture_output=True, text=True)
+        command = argv[-1]
+        for m in mounts:   # a mounted /out is really a host folder here
+            if "dst=/out" in m:
+                command = command.replace("/out/", m.split("src=")[1].split(",")[0] + "/")
+        p = subprocess.run(["bash", "-c", command], cwd=workspace, capture_output=True, text=True)
         Path(stdout_path).write_text(p.stdout + p.stderr)
         return p.returncode
 
@@ -103,7 +107,7 @@ def test_smoke_run_builds_commits_and_merges(smoke):
         for line in [x for x in st["steps"] if x["group"] == group]:
             kinds = [e["type"] for e in seen if e.get("step") == line["step"] and e.get("task") == line["task"]]
             assert "run.step.started" in kinds and "run.step.finished" in kinds, line
-    assert smoke["adapters"].notify.messages and "3 of 3" in smoke["adapters"].notify.messages[0]
+    assert smoke["adapters"].notify.messages and "3 passed, 0 failed, 0 skipped" in smoke["adapters"].notify.messages[0]
 
 
 def test_smoke_env_file_fails_task_and_main_stays(smoke):

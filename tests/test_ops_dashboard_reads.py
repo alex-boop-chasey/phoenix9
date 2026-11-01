@@ -51,7 +51,7 @@ def test_info_reports_version_and_no_update_support(env):
     assert data["version"] == phoenix9.__version__
     assert data["update"]["supported"] is False and data["update"]["available"] is False
     assert data["github"] == {"connected": False, "accounts": []}
-    assert data["services"] == {"supported": False}
+    assert data["services"] == {"supported": True}
 
 
 def test_rows_have_every_documented_field(env):

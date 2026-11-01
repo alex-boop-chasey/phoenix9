@@ -2,7 +2,7 @@
 import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
   Info, Job, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, SettingsView,
+  Profile, Project, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template,
 } from "@/lib/types"
 
@@ -98,6 +98,7 @@ export const api = {
   githubRepos: () => get<GithubRepos>("github/repos"),
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),
+  keysAudit: () => get<KeysAudit>("keys/audit"),
   job: (id: string) => get<Job>(`jobs/${e(id)}`),
   eventsRecent: (params: { project?: string; after?: number; limit?: number }) =>
     get<EventsRecent>("events/recent", params),

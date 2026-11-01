@@ -321,9 +321,31 @@ export interface GlobalView {
 export interface ServiceStatus {
   name: string
   title: string
+  description?: string
+  support?: "store-and-wire" | "keys-only"
   connected: boolean
-  /** Paths (under api/) for this service's keys; the keys form uses them once the server lists them. */
-  endpoints?: Record<string, string>
+  /** Shown instead of a badge, e.g. "no account connection needed". */
+  note?: string
+  /** Fixed names of the account keys the connect form asks for. */
+  account_keys?: string[]
+  checked?: string
+  checked_at?: string
+  used_by?: string[]
+  /** Paths (under api/) for this service: connect and disconnect. */
+  endpoints?: { connect?: string; disconnect?: string }
+}
+
+export interface ConnectResult {
+  name: string
+  connected: boolean
+  checked: string
+  message: string
+}
+
+export interface KeysAudit {
+  global: { file: string; names: string[]; used_by: string; modified: string; mode: string; mode_ok: boolean }[]
+  projects: { project: string; name: string; secret: boolean; set: boolean; used: string; last_touched: string; service: string }[]
+  problems: string[]
 }
 
 export interface ServicesView {

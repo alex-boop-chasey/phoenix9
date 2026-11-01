@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, gates, github, keys, library, logs, projects, runs, settings
+from phoenix9.ops import app, common, gates, github, keys, library, logs, projects, runs, services, settings
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -207,8 +207,17 @@ def get_global(req):
 
 
 def get_services(req):
-    """Reply with the services view."""
-    return app.services_view()
+    """Reply with every service and its connection state."""
+    rows = services.list_()
+    for row in rows:
+        row["endpoints"] = {"connect": f"services/{row['name']}/connect",
+                            "disconnect": f"services/{row['name']}/disconnect"}
+    return {"supported": True, "services": rows}
+
+
+def get_keys_audit(req):
+    """Reply with the keys audit (names and problems only)."""
+    return keys.audit()
 
 
 # ---- POST handlers: check the shape of the body, call one ops function ----
@@ -434,6 +443,22 @@ def post_gate_answer(req, gate_id):
         return gates.answer(gate_id, action, note, who=WHO)
 
 
+def post_service_connect(req, name):
+    """Save a service's account keys; the values are never logged or echoed."""
+    values = body_dict(req, "values")
+    if not all(isinstance(v, str) for v in values.values()):
+        raise BadRequest("'values' should map key names to text.")
+    scrub.add_secrets(v for v in values.values() if v)
+    with req.server.write_lock:
+        return services.connect(check_name(name), values, who=WHO)
+
+
+def post_service_disconnect(req, name):
+    """Remove a service's account keys (needs yes)."""
+    with req.server.write_lock:
+        return services.disconnect(check_name(name), who=WHO, yes=req.body.get("yes") is True)
+
+
 NAME = r"(?P<name>[^/]+)"
 ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/info", get_info),
@@ -459,8 +484,11 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/github/repos", get_repos),
     ("GET", r"/api/global", get_global),
     ("GET", r"/api/services", get_services),
+    ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/projects", post_create),
+    ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
+    ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),

@@ -1,5 +1,9 @@
-"""Ops for a project's keys: list (masked), set from a value read elsewhere, remove."""
-from phoenix9 import keys
+"""Ops for a project's keys: list (masked), set from a value read elsewhere, remove; and the keys audit."""
+import os
+import stat
+from datetime import datetime, timezone
+
+from phoenix9 import keys, paths, services, settings
 from phoenix9.ops import common
 
 
@@ -94,3 +98,111 @@ def reveal(project: str, name: str, who: str) -> dict:
         raise common.NotFound(f"{project} has no key called {name}.")
     common.record_command(who, f"project keys {project} reveal {name}", project)
     return {"name": name, "value": value}
+
+
+# ---------- keys audit: names, modes and problems; never a value ----------
+FIXED_USES = {"claude.env": "step containers' Claude token",
+              "github.env": "github service; Merge's host login note",
+              "telegram.env": "notify (Telegram)"}
+
+
+def _iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, timezone.utc).isoformat(timespec="seconds")
+
+
+def _mode(path) -> int:
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
+def _file_use(file_name: str, library: dict) -> tuple[str, str | None]:
+    """(what reads this secrets file, the unknown service name or None)."""
+    if file_name in FIXED_USES:
+        return FIXED_USES[file_name], None
+    if file_name.startswith("service-"):
+        svc = file_name[len("service-"):-len(".env")]
+        for name, entry in library.items():
+            if entry["secrets_file"] == file_name:
+                return f"{name} service proxy", None
+        return f"{svc} service proxy", svc
+    return "nothing known", None
+
+
+def _global_rows(library: dict, problems: list) -> list:
+    """One row per secrets file."""
+    rows = []
+    for item in keys.secret_files():
+        use, unknown = _file_use(item["file"], library)
+        mode = _mode(paths.secrets() / item["file"])
+        if mode & 0o077:
+            problems.append(f"{item['file']} can be read by other users (mode {mode:o}); run chmod 600 on it.")
+        if unknown is not None:
+            problems.append(f"{item['file']} is for '{unknown}', which is not in the services library.")
+        rows.append({"file": item["file"], "names": item["names"], "used_by": use,
+                     "modified": _iso(item["modified"]), "mode": f"{mode:04o}", "mode_ok": mode == 0o600})
+    return rows
+
+
+def _project_services(project: str) -> list:
+    try:
+        return list(settings.load_project(paths.projects() / project).get("services", []))
+    except (settings.SettingsError, OSError):
+        return []
+
+
+def _expected(project: str, library: dict) -> dict:
+    """{key name: service name} for the keys the project's services expect."""
+    out = {}
+    for name in _project_services(project):
+        for k in (library.get(name) or {}).get("project_keys", []):
+            out.setdefault(k["name"], name)
+    return out
+
+
+def _project_rows(library: dict, problems: list) -> list:
+    """One row per key in each project keys file; missing expected service keys become problems."""
+    rows = []
+    folder = paths.keys()
+    for path in sorted(folder.glob("*.toml")) if folder.is_dir() else []:
+        project = path.stem
+        mode = _mode(path)
+        if mode & 0o077:
+            problems.append(f"The keys file for {project} can be read by other users (mode {mode:o}); run chmod 600 on it.")
+        touched = _iso(path.stat().st_mtime)
+        expected = _expected(project, library)
+        have = {}
+        for k in keys.list_keys(project):
+            have[k["name"]] = k["has_value"]
+            use = "step containers as env var" + ("" if k["secret"] else ", .env.example")
+            rows.append({"project": project, "name": k["name"], "secret": k["secret"], "set": k["has_value"],
+                         "used": use, "last_touched": touched, "service": expected.get(k["name"], "")})
+        for name, svc in expected.items():
+            if not have.get(name):
+                problems.append(f"{project}: {svc} expects {name}, which has no value.")
+    for project in sorted(d.name for d in (paths.projects().iterdir() if paths.projects().is_dir() else [])):
+        if not (folder / f"{project}.toml").is_file():
+            for name, svc in _expected(project, library).items():
+                problems.append(f"{project}: {svc} expects {name}, which has no value.")
+    return rows
+
+
+def _account_problems(library: dict, global_rows: list, problems: list) -> None:
+    """A connected service whose secrets file lacks one of its account keys."""
+    by_file = {r["file"]: r for r in global_rows}
+    for name, entry in services.read_registry().items():
+        svc = library.get(name)
+        if svc is None or not entry.get("connected"):
+            continue
+        row = by_file.get(svc["secrets_file"])
+        have = row["names"] if row else []
+        for key in svc["account_keys"]:
+            if key not in have:
+                problems.append(f"{svc['title']} is connected but {svc['secrets_file']} has no {key}.")
+
+
+def audit() -> dict:
+    """Every secrets file and project key (names, modes, times) plus problems; never a value."""
+    library = services.load_library()
+    problems: list = []
+    global_rows = _global_rows(library, problems)
+    _account_problems(library, global_rows, problems)
+    return {"global": global_rows, "projects": _project_rows(library, problems), "problems": problems}

@@ -74,6 +74,8 @@ export const useChangelog = (name: string, limit = 20) =>
 export const useLogs = (project: string, filter: { run?: string; task?: number; step?: string; kind?: string } = {}) =>
   useQuery({ queryKey: [...keys.logs(project), filter], queryFn: () => api.logs({ project, ...filter }), enabled: !!project })
 export const useGlobal = () => useQuery({ queryKey: keys.global(), queryFn: api.global })
+export const useKeysAudit = (enabled = true) =>
+  useQuery({ queryKey: ["keys-audit"], queryFn: api.keysAudit, enabled })
 export const useServices = () => useQuery({ queryKey: keys.services(), queryFn: api.services })
 export const useGithubRepos = (enabled = true) =>
   useQuery({ queryKey: keys.github(), queryFn: api.githubRepos, enabled })

@@ -4,10 +4,10 @@ import os
 import sys
 
 from phoenix9 import __version__
-from phoenix9.cli import api, doctor, gate, library, output, project, run, runner, services, settings
+from phoenix9.cli import api, doctor, gate, keys, library, output, project, run, runner, services, settings
 from phoenix9.ops.common import OpsError
 
-GROUPS = (run, gate, settings, library, project, doctor, api, services)
+GROUPS = (run, gate, settings, library, project, doctor, api, services, keys)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -19,7 +19,7 @@ def info() -> dict:
             "update": {"supported": _update_supported(), "installed": phoenix9.__version__, "newest": None,
                        "available": False, "can_install": False,
                        "reason": "" if _update_supported() else "Updates arrive in a later version."},
-            "github": gh, "services": {"supported": False}}
+            "github": gh, "services": {"supported": True}}
 
 
 def _default_models() -> dict:
@@ -41,9 +41,4 @@ def global_view() -> dict:
         values = {}
     return {"values": values, "github": github.status(), "default_models": _default_models(),
             "telegram": {"connected": (paths.secrets() / "telegram.env").is_file()},
-            "supported": {"services": False, "update": _update_supported(), "secrets": False}}
-
-
-def services_view() -> dict:
-    """The services registry; not built until phase 4."""
-    return {"supported": False, "services": []}
+            "supported": {"services": True, "update": _update_supported(), "secrets": False}}

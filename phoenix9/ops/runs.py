@@ -1,7 +1,8 @@
 """Ops for runs: start, status, list, log and stop."""
+import secrets
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events, gates as gates_core, resolve, runs as core, settings, spec, state
+from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -45,6 +46,66 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
 
 
+def plan(project: str, overrides: dict | None = None) -> dict:
+    """The step plan for the project's settings plus these overrides (a wrong override is reported in `errors`)."""
+    lib = common.library()
+    folder = common.project_dir(project)
+    errors = []
+    try:
+        eff = settings.effective(folder, lib, overrides or None)
+        found = resolve.resolve(lib, settings.enabled_map(eff))
+    except (settings.SettingsError, resolve.ResolveError) as err:
+        errors = [*err.problems] if isinstance(err, resolve.ResolveError) else [str(err)]
+        try:
+            eff = settings.effective(folder, lib)
+            found = resolve.resolve(lib, settings.enabled_map(eff))
+        except (settings.SettingsError, resolve.ResolveError) as own:
+            return {"groups": {g: [] for g in resolve.GROUPS}, "steps": [], "errors": errors + [str(own)],
+                    "settings": {}}
+    data = found.to_json()
+    ai_keys = settings.AI_SCHEMA
+    steps = []
+    for row in data["steps"]:
+        table = eff.values.get("steps", {}).get(row["name"], {})
+        ai = {k: settings._nested(table, k.split("."), None) for k in ai_keys} if row["kind"] == "ai" else None
+        steps.append({**row, "ai": ai})
+    keys = ("preset", "based_on", "max_tries", "on_failure", "merge", "deploy")
+    return {"groups": data["groups"], "steps": steps, "errors": errors,
+            "settings": {k: eff.values.get(k) for k in keys}}
+
+
+def _spec_inside_notes(folder: Path, spec_path: str) -> Path:
+    """The spec file named relative to notes/, which must sit inside notes/specs or notes/plans."""
+    if not isinstance(spec_path, str) or not spec_path:
+        raise OpsError("Say which spec to build.")
+    notes = (folder / "notes").resolve()
+    target = (notes / spec_path).resolve()
+    if not any(target.is_relative_to(notes / sub) for sub in ("specs", "plans")) or not target.is_file():
+        raise OpsError("The spec has to be a file in the project's notes/specs or notes/plans folder.")
+    return target
+
+
+def start_from_notes(project: str, spec: str | None = None, brief: str | None = None,
+                     overrides: dict | None = None, who: str = "cli") -> dict:
+    """Start a run from a spec in the project's notes, or from a short brief (needs the Planner on)."""
+    folder = common.project_dir(project)
+    if bool(spec) == bool(brief and brief.strip()):
+        raise OpsError("Give either a spec or a brief, not both and not neither.")
+    if spec:
+        return start(project, _spec_inside_notes(folder, spec), overrides=overrides, who=who)
+    if "planner" not in plan(project, overrides)["groups"].get("run-start", []):
+        raise OpsError("A brief needs the Planner step on.")
+    first = brief.strip().splitlines()[0][:80]
+    cache = paths.cache()
+    cache.mkdir(parents=True, exist_ok=True)
+    temp = cache / f"brief-{secrets.token_hex(6)}.md"
+    atomic.write_text(temp, f"# {first}\n\nProject: {project}\n\n## About\n{brief.strip()}\n")
+    try:
+        return start(project, temp, overrides=overrides, who=who)
+    finally:
+        temp.unlink(missing_ok=True)
+
+
 def status(run_id: str) -> dict:
     """The run's state plus its open questions and last few events."""
     folder = _run_folder(run_id)
@@ -82,9 +143,11 @@ def summary(run_id: str) -> dict:
     return {"run_id": run_id, "summary": path.read_text(encoding="utf-8", errors="replace")}
 
 
-def stop(run_id: str, who: str = "cli") -> dict:
-    """Mark the run stopped and remove its containers."""
+def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
+    """Mark the run stopped and remove its containers (`project`, when given, must own the run)."""
     folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
     st = state.load(folder)
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")

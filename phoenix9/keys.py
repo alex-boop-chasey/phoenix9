@@ -88,6 +88,25 @@ def set_key(project: str, name: str, value: str, secret: bool = True) -> None:
     _changed(project, "key set", name)
 
 
+def set_secret_flag(project: str, name: str, secret: bool) -> bool:
+    """Change whether a saved key is secret, keeping its value; False when there is no such key."""
+    rows = _load(project)
+    row = next((r for r in rows if r["name"] == name), None)
+    if row is None:
+        return False
+    if row["secret"] != secret:
+        row["secret"] = secret
+        _save(project, rows)
+        _changed(project, "key changed", name)
+    return True
+
+
+def get_value(project: str, name: str) -> str | None:
+    """The saved value of a key (None when there is no such key); only the reveal endpoint may show it."""
+    row = next((r for r in _load(project) if r["name"] == name), None)
+    return None if row is None else row["value"]
+
+
 def add_empty(project: str, name: str, secret: bool = True) -> bool:
     """Add a row waiting for a value; an existing key is left alone. Returns True when a row was added."""
     _check_name(name)

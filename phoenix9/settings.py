@@ -436,6 +436,35 @@ def set_value(project_dir, dotted_key: str, raw_value: str, lib: Library | None 
     save_project(project_dir, data)
 
 
+def flat_problems(flat: dict, lib: Library | None = None) -> list[str]:
+    """Every problem with typed values keyed by dotted path (unknown keys, wrong types, values not allowed)."""
+    specs = all_specs(_lib_or_default(lib))
+    problems = []
+    for key, value in flat.items():
+        if key not in specs:
+            problems.append(f"phoenix.toml: unknown key '{key}'")
+        else:
+            problems += _leaf_problems(key, value, specs[key], "phoenix.toml")
+    return problems
+
+
+def set_values(project_dir, flat: dict, lib: Library | None = None) -> None:
+    """Set many typed values keyed by dotted path; every problem is reported and nothing is written unless all pass."""
+    problems = flat_problems(flat, lib)
+    if problems:
+        raise SettingsError("; ".join(problems))
+    data = load_project(project_dir)
+    for key, value in flat.items():
+        node = data
+        *parents, last = key.split(".")
+        for part in parents:
+            if not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[last] = value
+    save_project(project_dir, data)
+
+
 def apply_preset(project_dir, name: str, lib: Library | None = None) -> None:
     """Choose a preset: set `preset` and drop every per-step `on`; other step settings stay."""
     if name not in PRESETS:

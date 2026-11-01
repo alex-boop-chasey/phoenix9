@@ -3,6 +3,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import threading
 import time
 import traceback
@@ -25,8 +26,17 @@ RUN_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+$")
 GATE_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+\.\d+$")  # <run-id>.<n> (used by the gate routes in step 03)
 
 
+JOB_KEEP_SECONDS = 3600
+CREATE_BUSY = "Another project is being created; try again in a moment."
+WHO = "dashboard"
+
+
 class BadRequest(Exception):
     """The request itself is wrong (answered 400 before any ops call)."""
+
+
+class NeedsConfirm(Exception):
+    """A change that needs `"confirm": true` in the body (answered 409 with needs_confirm)."""
 
 
 def allowed_origins() -> list[str]:
@@ -154,6 +164,215 @@ def get_services(req):
     return app.services_view()
 
 
+# ---- POST handlers: check the shape of the body, call one ops function ----
+
+def body_dict(req, key: str, default=None) -> dict:
+    """An object field of the body (BadRequest when it is something else)."""
+    value = req.body.get(key, default if default is not None else {})
+    if not isinstance(value, dict):
+        raise BadRequest(f"'{key}' should be an object.")
+    return value
+
+
+def body_text(req, key: str, required: bool = True):
+    """A text field of the body (None when absent and not required)."""
+    value = req.body.get(key)
+    if value is None and not required:
+        return None
+    if not isinstance(value, str) or (required and not value.strip()):
+        raise BadRequest(f"'{key}' should be text" + (" and not empty." if required else "."))
+    return value
+
+
+def create_opts(body: dict) -> dict:
+    """Map the create form onto the opts dict ops.projects.new takes (shapes only; ops checks the rules)."""
+    name = body.get("name")
+    if not isinstance(name, str) or not name:
+        raise BadRequest("The form needs a project name.")
+    description = body.get("description", "")
+    profile = body.get("profile")
+    source = body.get("source") or {"kind": "empty"}
+    new_repo = body.get("new_repo") or {"on": False}
+    services = body.get("services") or []
+    key_rows = body.get("keys") or []
+    if not isinstance(description, str):
+        raise BadRequest("'description' should be text.")
+    if profile is not None and not isinstance(profile, str):
+        raise BadRequest("'profile' should be text.")
+    if not isinstance(source, dict) or source.get("kind") not in ("empty", "repo", "template", "code"):
+        raise BadRequest("'source.kind' should be empty, repo, template or code.")
+    if not isinstance(new_repo, dict):
+        raise BadRequest("'new_repo' should be an object.")
+    if not isinstance(services, list) or not all(isinstance(x, str) for x in services):
+        raise BadRequest("'services' should be a list of names.")
+    if not isinstance(key_rows, list) or not all(
+            isinstance(r, dict) and isinstance(r.get("name"), str) and isinstance(r.get("value"), str)
+            and isinstance(r.get("secret", True), bool) for r in key_rows):
+        raise BadRequest("'keys' should be a list of {name, value, secret}.")
+    kind = source["kind"]
+    field = {"repo": "repo", "template": "template", "code": "path"}.get(kind)
+    if field and (not isinstance(source.get(field), str) or not source[field]):
+        raise BadRequest(f"'source.{field}' should be text.")
+    owner = new_repo.get("owner") if new_repo.get("on") else None
+    if new_repo.get("on") and (not isinstance(owner, str) or not owner):
+        raise BadRequest("'new_repo.owner' should be text.")
+    opts = {"name": name, "description": description, "profile": profile or None, "services": services,
+            "keys": [{"name": r["name"], "value": r["value"], "secret": r.get("secret", True)} for r in key_rows],
+            "new_repo": owner, "no_new_repo": not new_repo.get("on")}
+    if field:
+        opts["code" if kind == "code" else kind] = source[field]
+    return opts
+
+
+def purge_jobs(jobs: dict) -> None:
+    """Forget jobs that finished more than an hour ago."""
+    now = time.time()
+    for key in [k for k, j in jobs.items() if j["status"] != "running" and now - j["finished_at"] > JOB_KEEP_SECONDS]:
+        del jobs[key]
+
+
+def run_create_job(httpd, job: dict, opts: dict) -> None:
+    """Background thread: create the project, turning progress lines into job steps."""
+    def progress(line):
+        with httpd.jobs_lock:
+            if job["steps"]:
+                job["steps"][-1]["status"] = "done"
+            job["steps"].append({"label": line, "status": "running"})
+
+    try:
+        with httpd.write_lock:
+            projects.new(opts, WHO, progress=progress)
+        status, message = "done", ""
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        if job["steps"]:
+            job["steps"][-1]["status"] = "done" if status == "done" else "failed"
+        job["message"], job["finished_at"], job["status"] = message, time.time(), status
+
+
+def post_create(req):
+    opts = create_opts(req.body)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" for j in httpd.jobs.values()):
+            raise common.Conflict(CREATE_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "create", "project": opts["name"], "status": "running",
+               "steps": [], "message": "", "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_create_job, args=(httpd, job, opts), daemon=True).start()
+    return {"job": job_id}
+
+
+def get_job(req, job_id):
+    with req.server.jobs_lock:
+        purge_jobs(req.server.jobs)
+        job = req.server.jobs.get(job_id)
+        if job is None:
+            raise common.NotFound("There is no job with that id.")
+        return {k: (list(map(dict, v)) if k == "steps" else v) for k, v in job.items() if k != "finished_at"}
+
+
+def post_edit(req, name):
+    check_name(name)
+    body = req.body
+    fields = {}
+    for key in ("description", "repo", "profile"):
+        if body.get(key) is not None:
+            fields[key] = body_text(req, key)
+    services = body.get("services")
+    if services is not None and (not isinstance(services, list) or not all(isinstance(x, str) for x in services)):
+        raise BadRequest("'services' should be a list of names.")
+    if ("repo" in fields or "profile" in fields) and body.get("confirm") is not True:
+        raise NeedsConfirm()
+    with req.server.write_lock:
+        if fields or services is None:
+            projects.edit(name, WHO, description=fields.get("description"), profile=fields.get("profile"),
+                          repo=fields.get("repo"))
+        if services is not None:
+            projects.set_services(name, services, WHO)
+    return get_project(req, name)
+
+
+def post_keys_save(req, name):
+    rows = req.body.get("rows")
+    if not isinstance(rows, list):
+        raise BadRequest("'rows' should be a list.")
+    with req.server.write_lock:
+        return keys.save(check_name(name), rows, WHO)
+
+
+def post_keys_reveal(req, name):
+    key = body_text(req, "name")
+    with req.server.write_lock:
+        return keys.reveal(check_name(name), key, WHO)
+
+
+def post_keys_remove(req, name):
+    key = body_text(req, "name")
+    with req.server.write_lock:
+        keys.remove(check_name(name), key, WHO)
+    return keys.rows(name)
+
+
+def post_settings(req, name):
+    values = body_dict(req, "set")
+    with req.server.write_lock:
+        settings.set_many(check_name(name), values, WHO)
+    return settings.show(name)
+
+
+def post_preset(req, name):
+    preset = body_text(req, "preset")
+    with req.server.write_lock:
+        settings.preset(check_name(name), preset, who=WHO)
+    return settings.show(name)
+
+
+def post_settings_check(req, name):
+    with req.server.write_lock:
+        settings.check(check_name(name))
+    return settings.show(name)
+
+
+def post_plan(req, name):
+    return runs.plan(check_name(name), body_dict(req, "overrides"))
+
+
+def post_defaults(req, name):
+    with req.server.write_lock:
+        return settings.save_defaults(check_name(name), body_dict(req, "overrides"), WHO)
+
+
+def post_run_start(req, name):
+    spec, brief = body_text(req, "spec", False), body_text(req, "brief", False)
+    overrides = body_dict(req, "overrides")
+    with req.server.write_lock:
+        started = runs.start_from_notes(check_name(name), spec=spec, brief=brief, overrides=overrides, who=WHO)
+    return {k: started[k] for k in ("run_id", "project", "status")}
+
+
+def post_run_stop(req, project, run_id):
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Stopping a run needs confirmation.")
+    with req.server.write_lock:
+        return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
+
+
+def post_gate_answer(req, gate_id):
+    if not GATE_ID_RE.match(gate_id):
+        raise BadRequest("That isn't a valid gate id.")
+    action = body_text(req, "action")
+    note = body_text(req, "note", False) or ""
+    with req.server.write_lock:
+        return gates.answer(gate_id, action, note, who=WHO)
+
+
 NAME = r"(?P<name>[^/]+)"
 ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/info", get_info),
@@ -176,6 +395,20 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/github/repos", get_repos),
     ("GET", r"/api/global", get_global),
     ("GET", r"/api/services", get_services),
+    ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
+    ("POST", r"/api/projects", post_create),
+    ("POST", rf"/api/projects/{NAME}/edit", post_edit),
+    ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
+    ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),
+    ("POST", rf"/api/projects/{NAME}/keys/remove", post_keys_remove),
+    ("POST", rf"/api/projects/{NAME}/settings", post_settings),
+    ("POST", rf"/api/projects/{NAME}/settings/preset", post_preset),
+    ("POST", rf"/api/projects/{NAME}/settings/check", post_settings_check),
+    ("POST", rf"/api/projects/{NAME}/plan", post_plan),
+    ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
+    ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]
 
@@ -250,6 +483,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, {"ok": True, "data": handler(self, **params)})
         except BadRequest as err:
             self.fail(400, str(err))
+        except NeedsConfirm:
+            self.send_json(409, {"ok": False, "message": "Changing the repo or profile needs confirmation.",
+                                 "needs_confirm": True})
         except common.NotFound as err:
             self.fail(404, str(err))
         except common.Conflict as err:
@@ -313,8 +549,9 @@ def make_server(port: int, host: str = "127.0.0.1", web_dist=None) -> ThreadingH
         raise ValueError("The API only listens on 127.0.0.1.")
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
-    httpd.write_lock = threading.Lock()   # one write at a time (step 03)
+    httpd.write_lock = threading.Lock()   # one write at a time
     httpd.stopping = threading.Event()
-    httpd.jobs = {}                       # background jobs by id (step 03)
+    httpd.jobs_lock = threading.Lock()
+    httpd.jobs = {}                       # background jobs by id
     httpd.web_dist = Path(web_dist) if web_dist else paths.library() / "web" / "dist"
     return httpd

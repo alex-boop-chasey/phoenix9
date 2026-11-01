@@ -47,22 +47,22 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/github/repos` | `ops.github.repos` | | `{connected, repos: [{full_name, owner, private}]}` | |
 | GET | `/api/global` | `ops.app.global_view` | | Global view | |
 | GET | `/api/services` | `ops.app.services_view` (phase 4 repoints this at `ops.services.list`) | | `{supported: false, services: []}` | |
-| GET | `/api/jobs/<id>` | none (held by the API; step 03) | | `{id, state, lines, result, error}` | 404 |
+| GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (step 04) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback (step 04) | | list of events | |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` (step 04) | | list of log entries | 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` (step 04) | | `{id, text}` | 404 |
-| POST | `/api/projects` | `ops.projects.new` (step 03) | create form | `{job}` | 400 |
-| POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (step 03) | `{description?, repo?, profile?, services?}` | edited project | 400, 404 |
-| POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (step 03) | `{name, value, secret}` | `{project, name, secret}` | 400, 404 |
-| POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (step 03) | `{name}` | `{name, value}` | 400, 404 |
-| POST | `/api/projects/<name>/keys/remove` | `ops.keys.remove` | `{name}` | `{project, name, removed}` | 400, 404 |
-| POST | `/api/projects/<name>/settings` | `ops.settings.set_many` (step 03) | `{"set": {"steps.builder.model": "..."}}` | `{project, set}` | 400, 404 |
-| POST | `/api/projects/<name>/settings/preset` | `ops.settings.preset` | `{name}` | `{project, preset}` | 400, 404 |
-| POST | `/api/projects/<name>/settings/check` | `ops.settings.check` | `{}` | `{project, ok, problems}` | 404 |
-| POST | `/api/projects/<name>/plan` | `ops.runs.plan` (step 03) | `{overrides}` | plan (see Run detail) | 400, 404 |
-| POST | `/api/projects/<name>/defaults` | `ops.settings.save_defaults` (step 03) | `{overrides}` | `{project}` | 400, 404 |
-| POST | `/api/projects/<name>/runs` | `ops.runs.start_from_notes` (step 03) | `{spec \| brief, overrides}` | `{run_id, project, status}` | 400, 404 |
+| POST | `/api/projects` | `ops.projects.new` (in a background thread) | create form | `{job}` | 400, 409 |
+| POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
+| POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
+| POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |
+| POST | `/api/projects/<name>/keys/remove` | `ops.keys.remove` | `{name}` | masked key rows | 400, 404 |
+| POST | `/api/projects/<name>/settings` | `ops.settings.set_many` (added in step 03) | `{"set": {"steps.builder.model": "..."}}` | fresh settings data | 400, 404 |
+| POST | `/api/projects/<name>/settings/preset` | `ops.settings.preset` | `{preset}` | fresh settings data | 400, 404 |
+| POST | `/api/projects/<name>/settings/check` | `ops.settings.check` | `{}` | fresh settings data | 404 |
+| POST | `/api/projects/<name>/plan` | `ops.runs.plan` (added in step 03) | `{overrides}` | Plan (see Shapes) | 400, 404 |
+| POST | `/api/projects/<name>/defaults` | `ops.settings.save_defaults` (added in step 03) | `{overrides}` | `{project}` | 400, 404 |
+| POST | `/api/projects/<name>/runs` | `ops.runs.start_from_notes` (added in step 03) | `{spec \| brief, overrides}` | `{run_id, project, status}` | 400, 404 |
 | POST | `/api/runs/<project>/<run_id>/stop` | `ops.runs.stop` | `{"confirm": true}` | `{run_id, status, containers_removed}` | 400, 404 |
 | POST | `/api/gates/<gate_id>/answer` | `ops.gates.answer` | `{action, note}` | `{gate, action, note, who, at}` | 400, 404, 409 |
 
@@ -98,6 +98,27 @@ not started and `plan` is a preview from its overrides), `title`, `preset`, `max
 
 **Settings** (`ops.settings.show`): `values` nested with every key filled; `source` maps a flat dotted key
 to `"library"`, `"profile:<p>"`, `"preset:<p>"`, `"project"` or `"run"`.
+
+**Create form** (`POST /api/projects`): `{name, description, source: {kind: "empty"|"repo"|"template"|"code",
+repo?, template?, path?}, profile, new_repo: {on, owner}, services: [], keys: [{name, value, secret}]}`.
+The reply is `{job}` at once; ops runs in the background (one create at a time, else 409). Key values go
+straight to the keys store (`opts["keys"]`), never to a file.
+
+**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create", project, status: "running"|"done"|"failed",
+steps: [{label, status: "running"|"done"|"failed"}], message}`. Each progress line from ops starts a step and
+marks the previous one done; `message` is the ops error on failure (empty otherwise).
+
+**Plan** (`POST .../plan`): `{groups: {"run-start": [...], "task": [...], "run-finish": [...]}, steps: [{name,
+title, group, order, kind: "script"|"ai"|"gate", safety, default, on, reason, sources, ai}], errors: [plain
+English], settings: {preset, based_on, max_tries, on_failure, merge, deploy}}`. `ai` is the step's effective
+ai block for ai steps, else null. Bad overrides are not an HTTP error: `errors` is filled and `steps` come
+from the project's own settings.
+
+**Edit**: changing `repo` or `profile` needs `"confirm": true`, else 409
+`{ok: false, message, needs_confirm: true}`. **Keys**: a row without `value` keeps its saved value; every bad
+row is named in one 400. **Settings**: `set` values are typed JSON by dotted key; one bad key means nothing is
+written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
+(needs the Planner on); `overrides` are frozen into the run.
 
 ## Overrides shape (wizard and defaults)
 

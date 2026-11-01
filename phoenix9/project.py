@@ -128,6 +128,9 @@ def validate(opts: dict, host) -> dict:
         raise OpsError("--new-repo only applies to an empty project or a template.")
     if opts.get("keys_file"):
         _read_keys_file(opts["keys_file"])
+    for row in opts.get("keys") or []:
+        if not (isinstance(row, dict) and isinstance(row.get("name"), str) and isinstance(row.get("value"), str)):
+            raise OpsError("Each key needs a name and a value.")
     return {"source": source, "template": tpl, "profile": profile, "new_repo": new_repo}
 
 
@@ -267,6 +270,16 @@ def _save_keys(name: str, keys_file: str, made: list) -> None:
             raise OpsError(f"Keys file: {err}") from None
 
 
+def _save_key_rows(name: str, rows: list, made: list) -> None:
+    """Store {name, value, secret} rows from the form as the project's keys (values never printed)."""
+    made.append(("keys", name))
+    for row in rows:
+        try:
+            keys.set_key(name, row["name"], row["value"], bool(row.get("secret", True)))
+        except keys.KeyError_ as err:
+            raise OpsError(f"Keys: {err}") from None
+
+
 def _vscode_task(folder: Path, name: str) -> None:
     task = {"version": "2.0.0", "tasks": [{
         "label": f"Make sure {name} is on for the Claude app", "type": "shell",
@@ -377,9 +390,12 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
     settings.save_project(folder, {"preset": "quick", "profile": facts["profile"]})
     if opts.get("services"):
         project_services.set_services(name, list(opts["services"]), who)
-    if opts.get("keys_file"):
+    if opts.get("keys_file") or opts.get("keys"):
         say("Saving keys")
-        _save_keys(name, opts["keys_file"], made)
+        if opts.get("keys_file"):
+            _save_keys(name, opts["keys_file"], made)
+        if opts.get("keys"):
+            _save_key_rows(name, opts["keys"], made)
         keys.write_env_example(name)
     say("Recording project facts")
     tpl_name = opts["template"] if facts["source"] == "template" else None

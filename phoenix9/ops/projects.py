@@ -27,6 +27,13 @@ def edit(name: str, who: str, description=None, profile=None, repo=None) -> dict
     return project.edit(name, common.make_adapters(), who, description, profile, repo)
 
 
+def set_services(name: str, names: list, who: str) -> dict:
+    """Choose a project's services (adds empty key rows and allowed hosts)."""
+    from phoenix9 import project_services
+    common.project_dir(name)
+    return project_services.set_services(name, names, who)
+
+
 def open_(name: str, who: str) -> dict:
     """Switch a project's chat server on."""
     from phoenix9 import project

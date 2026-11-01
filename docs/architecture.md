@@ -435,7 +435,7 @@ Done when:
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
-| `proxy` | phase 4: start/stop the per-step key proxy (phoenix9/proxy.py) | in-process fake forwarder |
+| `proxy` | `Proxy.start(spec, key, *, log_path, step, bind)` starts the per-step key proxy (`proxy.serve`, section 14) and returns its handle | `FakeProxyFactory`: forwards nothing and listens nowhere; records `(service, rules, step, bind, key_len, key_seen)` (never the key), returns a handle with `url = http://proxy.fake/<service>`, a fixed token and a recorded `stop()`; `.started`, `.stopped`, `.running()`. Tests script `FakeHttp` at that url |
 | `chat` | delegate mode (`phoenix9/chat.py`): `delegate(project, project_dir, gate_id, prompt, log_path) -> {started, handle, error}` starts a detached headless `claude -p <prompt> --permission-mode bypassPermissions --output-format text` in the project folder (own session, output to the log, env `PHOENIX_WHO=chat:delegate`, never `--bare`); `status(handle) -> running \| exited` (section 11, rule 1 exception) | `FakeChat.mode`: answer (acknowledges as chat:delegate) / exit / run / fail |
 `phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
 `subprocess` for these tools directly.
@@ -508,3 +508,75 @@ Phase 4's sheets define these, and the phase 4 review step adds them here: `serv
 `services_done` in `.phoenix/project.json`, the run state's `held` field, and the `phoenix images` CLI
 group. phoenix9's own `phoenix.toml` (holding `safety_files` and `merge = "ask"`) lives outside code/,
 so the repo carries a template (`deploy/self-project.toml`) that the chat copies into place.
+
+## 14. Key proxy (`phoenix9/proxy.py`, phase 4)
+
+A small HTTP forwarder Phoenix starts on the host for one step and one service. It holds that service's
+account key, forwards only the declared calls, adds the key on the way out, refuses and logs everything
+else, and stops with the step. The caller gets an address and a per-step token, never the key.
+
+```python
+Rule(method, path, upstream="")          # method: GET POST PUT PATCH DELETE HEAD; upstream "" = the spec's
+parse_rules(items: list[dict]) -> list[Rule]           # ValueError in plain English
+ProxySpec(service, upstream, auth_header, auth_format, rules, extra_headers=())
+spec_from_service(service: dict) -> ProxySpec          # from service.toml's [proxy] block (see below)
+serve(spec, key, *, log_path, step, bind="127.0.0.1", port=0, upstream_timeout=30.0,
+      max_body=10_000_000, allow_plain_http_upstream=False) -> RunningProxy   # .url .token .port .stop()
+serving(spec, key, **kw)                 # context manager; stop() guaranteed
+decide(spec, token, method, target, headers, *, max_body) -> Decision         # pure: the whole yes/no
+pattern_matches(pattern, path), path_is_safe(path), find_rule(rules, method, path)   # pure, public
+env_names(service) -> ("PHOENIX_PROXY_<SERVICE>", "PHOENIX_PROXY_TOKEN_<SERVICE>")
+```
+
+- **Structure**: everything that decides is pure (`decide`, the matcher, path safety, `outgoing_headers`,
+  `redact`); I/O is `forward` (http.client, no redirects followed), `LogWriter`, the request handler and
+  `RunningProxy`. Tests check the pure parts exhaustively and the I/O against a real local server.
+- **Token**: every request carries `X-Phoenix-Proxy-Token: <token>` (`secrets.token_urlsafe(32)`, compared
+  with `hmac.compare_digest`; exactly one such header). Missing, wrong or repeated: 401 `bad token`.
+- **service.toml `[proxy]`**: fields `upstream`, `auth_header`, `auth_format`, `key`, `allow` (all
+  required, no defaults) and `extra_headers` (optional table `name = "value"`, default `{}`). Any other
+  field is an error; `allow` needs at least one `{method, path, upstream?}` entry. `key` names the key
+  (spec_from_service only checks it is text). `extra_headers` may not set the auth header, hop-by-hop
+  headers, Host, Content-Length, Cookie, Accept-Encoding or the token header.
+- **Request target**: taken raw from the request line (`requestline.split()[1]`), not `self.path`
+  (which collapses a leading `//`).
+- **Order of checks** (first failure wins): token (401), method in the vocabulary (405; CONNECT,
+  OPTIONS, TRACE, lower case and anything else), origin-form path (403), path safety (403
+  `unsafe path`: the raw path may only hold `A-Z a-z 0-9 - . _ ~ % : @ ! $ & ' ( ) * + , = /` (so no
+  `;`, `#`, space, quotes or non-ASCII); before or after one percent-decode, no `.`/`..` part, `//`,
+  backslash, control character, `%2e %2f %5c %00` in any case, or invalid UTF-8 encoding; a control
+  character in the query is refused the same way), a matching rule (403
+  `not a declared call`), body (chunked/any Transfer-Encoding 411, bad or repeated Content-Length 400,
+  over `max_body` 413).
+- **Matching**: on the raw path without the query; split on `/`; `*` = one non-empty part, `**` (last
+  only) = one or more parts, anything else literal and case-sensitive. `HEAD` is not implied by `GET`.
+  Rules reject: unknown or lower-case methods, no leading `/`, `**` not last, empty parts (incl. a
+  trailing `/`), `.`/`..`, `*`, `%`, `\`, `?`, `#` or `;` inside a part, a rule upstream that is not https.
+  Accepted gap: `*` matches a part holding an allowed percent-code (e.g. `%23` or `%3B`); upstreams
+  decode it as data inside that one part, so it cannot reach another path.
+- **Forwarding**: upstream (rule's, else spec's, keeping its base path) + path + query unchanged.
+  Caller headers dropped: hop-by-hop (and any named in `Connection`), Host, Authorization, Cookie,
+  the token header, Content-Length (recomputed), Expect, Accept-Encoding (always sent as `identity`),
+  the spec's auth header and any header the spec's `extra_headers` set. Then `auth_header:
+  auth_format.replace("{key}", key)` (other braces stay literal) and `extra_headers` are added.
+- **Listening**: `bind` defaults to `127.0.0.1`; `0.0.0.0`, `::` (and empty) raise ValueError. The key is
+  checked first (no spaces, line breaks or non-ASCII; the error never contains it). Handler timeout 120 s.
+- **Upstreams**: https with the default SSL context. Plain http only with
+  `allow_plain_http_upstream=True` and host `127.0.0.1`/`localhost` (tests); the real adapter never sets it.
+- **Replies**: status and headers copied minus hop-by-hop; body read fully (over 50 MB: 502); a gzip or
+  deflate reply is decoded first (other or multiple encodings: 502), so the key can always be found; the key
+  (as is, base64, unpadded and url-safe base64, percent-encoded, JSON-escaped incl. `/` as `\/`) is replaced by `[redacted]` in the body and every header; Content-Length recomputed.
+  Upstream unreachable 502, timeout 504. Proxy-made replies are short plain text (`refused: <reason>`); no
+  error text or traceback ever reaches the caller or stderr.
+- **Log** (`log_path`, created 0600, folders made, appended under a lock), one JSON line per request,
+  written before the reply is sent (a failed write is not caught: the connection closes with no reply):
+  `{"ts", "service", "step", "method", "path", "query": true|false, "decision": "forwarded"|"refused",
+  "reason", "status", "ms"}`. `path` has no query; no query values, headers or bodies ever. Each line
+  goes through `scrub.Scrubber([key]).text()` then `scrub.scrub()`. Upstream failures are `forwarded`
+  with reason `upstream unreachable` / `upstream timeout`. Where: steps `<run>/logs/proxy-<service>.jsonl`;
+  `phoenix services connect` `HOME/logs/proxy-services.jsonl`.
+- **Stop**: `stop()` shuts the server down, closes the socket, joins the thread (5 s), drops the key
+  (`_key = None`, log scrubber emptied) and is safe to call twice. HTTP/1.0, one request per connection.
+- **Container use** (wired in grunt step 04): `PHOENIX_PROXY_<SERVICE>` (url) and
+  `PHOENIX_PROXY_TOKEN_<SERVICE>` (token), `<SERVICE>` = name upper-cased with `-` as `_`. The token is
+  per step and useless after `stop()`.

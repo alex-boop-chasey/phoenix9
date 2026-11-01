@@ -1,4 +1,4 @@
-"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat) behind one object."""
+"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import os
 import subprocess
 import time
@@ -149,6 +149,15 @@ class Git:
         return getattr(git_module, name)
 
 
+class Proxy:
+    """Starts the per-step key proxy (phoenix9/proxy.py) on this host."""
+
+    def start(self, spec, key: str, *, log_path, step: str, bind: str = "127.0.0.1"):
+        """Start a proxy for one service and step; returns the running handle (.url, .token, .stop())."""
+        from phoenix9 import proxy
+        return proxy.serve(spec, key, log_path=Path(log_path), step=step, bind=bind)
+
+
 @dataclass
 class Adapters:
     """Everything outside Phoenix, in one place; tests swap in fakes."""
@@ -161,9 +170,10 @@ class Adapters:
     clock: Any
     notify: Any
     chat: Any
+    proxy: Any = None
 
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
     return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
-                    clock=Clock(), notify=Notify(), chat=Chat())
+                    clock=Clock(), notify=Notify(), chat=Chat(), proxy=Proxy())

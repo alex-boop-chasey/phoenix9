@@ -14,7 +14,7 @@ for folder in (HERE.parent, HERE):
         sys.path.insert(0, str(folder))
 
 import seed_demo  # noqa: E402
-from fakes import FakeChat, FakeDocker, FakeHost, FakeHttp, FakeNotify  # noqa: E402
+from fakes import FakeChat, FakeDocker, FakeHost, FakeHttp, FakeNotify, FakeProxyFactory  # noqa: E402
 from fakes import FakeClaude  # noqa: E402
 
 from phoenix9 import paths  # noqa: E402
@@ -59,7 +59,7 @@ def demo_host() -> FakeHost:
 def demo_adapters() -> Adapters:
     """The adapter set the demo server uses: fakes everywhere, a real clock and local git only."""
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=demo_host(), http=FakeHttp(),
-                    clock=Clock(), notify=FakeNotify(), chat=FakeChat())
+                    clock=Clock(), notify=FakeNotify(), chat=FakeChat(), proxy=FakeProxyFactory())
 
 
 def build_server(home: Path, projects: Path, port: int):

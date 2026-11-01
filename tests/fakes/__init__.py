@@ -340,7 +340,56 @@ class FakeClaude:
                       cost_usd=session.get("cost_usd", 0.0), model=kwargs["ai"].get("model", ""))
 
 
+class FakeProxyHandle:
+    """What FakeProxyFactory.start returns: a fake address and token, and a stop() that is recorded."""
+
+    def __init__(self, factory: "FakeProxyFactory", service: str):
+        """Point at http://proxy.fake/<service> with the factory's fixed token."""
+        self._factory = factory
+        self.service = service
+        self.url = f"http://proxy.fake/{service}"
+        self.token = FakeProxyFactory.TOKEN
+        self.port = 0
+        self.stopped = False
+
+    def stop(self):
+        """Record the stop (safe to call twice; only the first is recorded)."""
+        if not self.stopped:
+            self.stopped = True
+            self._factory.stopped.append(self.service)
+
+
+class FakeProxyFactory:
+    """Fake proxy adapter: records each start (never the key itself: only its length) and each stop.
+
+    Nothing listens anywhere; tests script the fake http adapter at the returned url, e.g.
+    `adapters.http.script("GET", "http://proxy.fake/supabase/v1/projects", 200, body=b"[]")`.
+    """
+
+    TOKEN = "fake-proxy-token"
+
+    def __init__(self):
+        """Start with nothing started or stopped."""
+        self.started: list[dict] = []
+        self.stopped: list[str] = []
+        self.handles: list[FakeProxyHandle] = []
+
+    def start(self, spec, key, *, log_path=None, step="", bind="127.0.0.1"):
+        """Record (service, rules, step, bind, key length) and return a fake handle."""
+        self.started.append({"service": spec.service, "rules": tuple(spec.rules), "step": step, "bind": bind,
+                             "log_path": str(log_path) if log_path else None,
+                             "key_len": len(key or ""), "key_seen": bool(key)})
+        handle = FakeProxyHandle(self, spec.service)
+        self.handles.append(handle)
+        return handle
+
+    def running(self) -> list[str]:
+        """Services whose fake proxy was started and not yet stopped."""
+        return [h.service for h in self.handles if not h.stopped]
+
+
 def fake_adapters(tmp_path) -> Adapters:
     """Build the full fake set. Git is the real git adapter (real git runs on temp repos)."""
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=FakeHost(),
-                    http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(), chat=FakeChat())
+                    http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(), chat=FakeChat(),
+                    proxy=FakeProxyFactory())

@@ -12,7 +12,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
-from phoenix9.ops import app, common, gates, github, keys, library, projects, runs, settings
+from phoenix9.api import stream
+from phoenix9.ops import app, common, gates, github, keys, library, logs, projects, runs, settings
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -130,6 +131,29 @@ def get_run(req, project, run_id):
 def get_gates(req):
     name = req.query.get("project")
     return gates.list_(check_name(name) if name else None)
+
+
+def get_events_recent(req):
+    after = req.query.get("after")
+    limit = min(max(int_param(req, "limit", 200), 1), 1000)
+    project = req.query.get("project")
+    return stream.recent(check_name(project) if project else None, int_param(req, "after", 0) if after else None, limit)
+
+
+def need_project(req) -> str:
+    """The project query parameter (required, valid name)."""
+    return check_name(req.query.get("project") or "")
+
+
+def get_logs(req):
+    task = req.query.get("task")
+    return logs.list_(need_project(req), run=req.query.get("run") or None,
+                      task=int_param(req, "task", 0) if task not in (None, "") else None,
+                      step=req.query.get("step") or None, kind=req.query.get("kind") or None)
+
+
+def get_logs_read(req):
+    return logs.read(need_project(req), req.query.get("id") or "")
 
 
 def get_steps(req):
@@ -386,6 +410,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
+    ("GET", r"/api/events/recent", get_events_recent),
+    ("GET", r"/api/logs", get_logs),
+    ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/gates", get_gates),
     ("GET", r"/api/library/steps", get_steps),
     ("GET", r"/api/library/profiles", get_profiles),
@@ -460,12 +487,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             self.dispatch(method)
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            self.log_done(method, started)
         except Exception:
             api_log(traceback.format_exc())
+            self.status = 500
+            self.log_done(method, started)  # logged before the reply so a fast reader sees it
             self.fail(500, SERVER_ERROR)
-        finally:
-            api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
+        else:
+            self.log_done(method, started)
+
+    def log_done(self, method, started):
+        """Write the one-line request record to api.log."""
+        api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
 
     def dispatch(self, method):
         if method == "POST":
@@ -473,6 +506,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.fail(403, "Refused: this request didn't come from the Phoenix dashboard.")
             if self.read_body() is None:
                 return
+        if method == "GET" and self.path_only.rstrip("/") == "/api/events":
+            return stream.serve(self)
         route = find_route(method, self.path_only)
         if route is None:
             if method == "GET" and not self.path_only.startswith("/api/"):
@@ -553,5 +588,7 @@ def make_server(port: int, host: str = "127.0.0.1", web_dist=None) -> ThreadingH
     httpd.stopping = threading.Event()
     httpd.jobs_lock = threading.Lock()
     httpd.jobs = {}                       # background jobs by id
+    httpd.streams_lock = threading.Lock()
+    httpd.streams = 0                     # open live event streams
     httpd.web_dist = Path(web_dist) if web_dist else paths.library() / "web" / "dist"
     return httpd

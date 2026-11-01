@@ -269,4 +269,4 @@ def test_only_ops_imported():
     for line in re.findall(r"^from phoenix9(?:\.(\w+))? import (.+)$", source, re.M):
         pkg, names = line
         imported |= {pkg} if pkg else {n.strip() for n in names.split(",")}
-    assert imported <= {"ops", "paths", "scrub", "atomic"}
+    assert imported <= {"ops", "paths", "scrub", "atomic", "api"}  # api = its own stream helper

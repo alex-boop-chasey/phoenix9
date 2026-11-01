@@ -48,10 +48,10 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/global` | `ops.app.global_view` | | Global view | |
 | GET | `/api/services` | `ops.app.services_view` (phase 4 repoints this at `ops.services.list`) | | `{supported: false, services: []}` | |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
-| GET | `/api/events` | server-sent events (step 04) | | stream | |
-| GET | `/api/events/recent?project=&after=&limit=` | polling fallback (step 04) | | list of events | |
-| GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` (step 04) | | list of log entries | 404 |
-| GET | `/api/logs/read?project=&id=` | `ops.logs.read` (step 04) | | `{id, text}` | 404 |
+| GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
+| GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
+| GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
+| GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
 | POST | `/api/projects` | `ops.projects.new` (in a background thread) | create form | `{job}` | 400, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
@@ -135,7 +135,30 @@ run_overrides=)` validates, for example:
 ## Events
 
 One event line is `{ts, type, project, run, task, step, data}` (architecture section 8). Server-sent
-event ids are line numbers in `HOME/events.jsonl` (architecture 8.5); step 04 fills in the details.
+event ids are line numbers in `HOME/events.jsonl` (architecture 8.5).
+
+`GET /api/events?project=` is a server-sent stream (no write guard): it starts after the `Last-Event-ID` line,
+else at the end of the file; polls every `PHOENIX_API_TAIL_SECONDS` (0.5); sends `: ping` every
+`PHOENIX_API_PING_SECONDS` (15); at most 20 open streams (the 21st gets 503). Frames are
+`id: <line>\nevent: <type>\ndata: <line>`. If the file shrinks the stream restarts at line 0.
+`GET /api/events/recent?project=&after=&limit=` is the polling fallback.
+
+## Logs
+
+Log ids are paths: `<run id>/<path inside the run folder>` or `logs/<file>` (inside HOME). Anything else is
+refused (400). Kinds: `session`, `check`, `diff`, `step`, `gate`, `command`, `service`.
+
+## Demo data
+
+`python3 tests/seed_demo.py <home> <projects>` writes it; `python3 tests/demo_server.py <home> <projects> --port N`
+serves it on fake adapters (no systemd, GitHub, Docker or Claude). Fixed times.
+
+| Project | Repo | Runs |
+|---|---|---|
+| `demo-site` | `rebirth-wd/demo-site` (profile web, preset full; keys `RESEND_API_KEY` secret, `PUBLIC_SITE_URL`) | `20261020-090000-contact-form` done ($1.23, 14 min); `20261022-140000-blog-section` failed (task 2); `20261031-100000-pricing-page` waiting, open escalation gate `20261031-100000-pricing-page.1` |
+| `tiny-tool` | `alex-boop-chasey/tiny-tool` (python-script, simple) | `20261101-080000-add-json-output` running (task 2 of 4) |
+| `notes-only` | none (research) | none |
+| `phoenix9` | `alex-boop-chasey/phoenix9` (platform) | `20261031-110000-api-and-dashboard` waiting, open merge gate `20261031-110000-api-and-dashboard.1` |
 
 ## Not yet (phase 4)
 

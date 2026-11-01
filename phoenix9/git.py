@@ -354,3 +354,13 @@ def scan_secrets(diff_text: str) -> list[str]:
                 if msg not in found:
                     found.append(msg)
     return found
+
+
+def remote_url(code_dir: Path) -> str:
+    """The URL of the `origin` remote of a repo, or '' when there is none."""
+    try:
+        done = subprocess.run(["git", *SAFE, "-C", str(code_dir), "remote", "get-url", "origin"],
+                              capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""

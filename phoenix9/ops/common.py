@@ -2,7 +2,7 @@
 import json
 from datetime import datetime, timezone
 
-from phoenix9 import adapters as adapters_mod, events, paths
+from phoenix9 import adapters as adapters_mod, events, paths, scrub
 from phoenix9.library import Library, load_library
 
 
@@ -42,7 +42,7 @@ def _append_changelog(project: str, who: str, change: str) -> None:
     notes = folder / "notes"
     notes.mkdir(exist_ok=True)
     with open(notes / "changelog.md", "a", encoding="utf-8") as f:
-        f.write(f"- {_today()} · {who} · {change}\n")
+        f.write(scrub.scrub(f"- {_today()} · {who} · {change}\n"))
 
 
 def record_command(who: str, command: str, project: str | None = None, change: str | None = None) -> None:
@@ -52,6 +52,6 @@ def record_command(who: str, command: str, project: str | None = None, change: s
             "command": command, "project": project}
     paths.logs().mkdir(parents=True, exist_ok=True)
     with open(paths.logs() / "commands.jsonl", "a", encoding="utf-8") as f:
-        f.write(json.dumps(line) + "\n")
+        f.write(scrub.scrub(json.dumps(line)) + "\n")
     if change and project:
         _append_changelog(project, who, change)

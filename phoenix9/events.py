@@ -3,7 +3,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import paths
+from . import paths, scrub
 
 # Allowed event types (docs/architecture.md section 8).
 EVENT_TYPES = frozenset("""
@@ -17,7 +17,7 @@ def _append(path: Path, line: str) -> None:
     """Append one line to a file with a single write."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8") as f:
-        f.write(line)
+        f.write(scrub.scrub(line))
         f.flush()
 
 

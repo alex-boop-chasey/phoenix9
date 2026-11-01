@@ -1,8 +1,7 @@
 """Ops for projects (read-only for now): list them and show one."""
 import json
-import subprocess
 
-from phoenix9 import paths
+from phoenix9 import git, paths
 from phoenix9.ops import common
 
 
@@ -30,13 +29,7 @@ def _repo(folder) -> str:
     code = folder / "code"
     if not code.is_dir():
         return ""
-    try:
-        done = subprocess.run(["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-                               "-C", str(code), "remote", "get-url", "origin"],
-                              capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
-        return ""
-    return done.stdout.strip() if done.returncode == 0 else ""
+    return git.remote_url(code)
 
 
 def _facts(folder) -> dict:

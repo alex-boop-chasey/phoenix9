@@ -137,21 +137,34 @@ model = "claude-sonnet-5-5"
 ### 4.2 Things: `steps/_things.toml`
 
 ```toml
-[spec]        provided = "run"            # always available, from Pick-up
-[task]        provided = "task"           # the current task (task-level only)
-[worktree]    provided = "run"            # from Branch
-[failures]    provided = "task"           # earlier attempts' failure reasons (may be empty)
-[plan]        fallback = "spec-as-written"
-[checks]      fallback = "spec-done-when"
-[baseline]    fallback = "not-run"        # main's test result before the run (Branch)
-[diff]        fallback = ""               # no fallback: something must produce it (Builder)
-[exit-codes]  fallback = ""               # Acceptance's results (always on)
-[commit]      fallback = ""               # the task's commit sha (Commit)
-[merged]      fallback = "not-merged"     # merge result (Merge)
-[test-report] fallback = "exit-codes-only"
-[verdict]     fallback = "pass-if-checks-passed"
+[spec]  # always available, from Pick-up
+provided = "run"
+[task]  # the current task (task-level only)
+provided = "task"
+[worktree]  # from Branch
+provided = "run"
+[failures]  # earlier attempts' failure reasons (may be empty)
+provided = "task"
+[plan]
+fallback = "spec-as-written"
+[checks]
+fallback = "spec-done-when"
+[baseline]  # main's test result before the run (Branch)
+fallback = "not-run"
+[diff]  # no fallback: something must produce it (Builder)
+fallback = ""
+[exit-codes]  # Acceptance's results (always on)
+fallback = ""
+[commit]  # the task's commit sha (Commit)
+fallback = ""
+[merged]  # merge result (Merge)
+fallback = "not-merged"
+[test-report]
+fallback = "exit-codes-only"
+[verdict]
+fallback = "pass-if-checks-passed"
 ```
-`provided` things never need a producer. A thing with an empty fallback must be produced by an
+One key per line under each `[name]` (valid TOML). `provided` things never need a producer. A thing with an empty fallback must be produced by an
 enabled earlier step.
 
 ### 4.3 The resolver (`phoenix9/resolve.py`)

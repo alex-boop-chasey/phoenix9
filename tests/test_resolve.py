@@ -132,7 +132,8 @@ def test_run_start_need_never_from_task_step(lib):
 def test_task_provided_thing_not_available_at_run_level(tmp_path):
     lib = library_with(tmp_path, "early-run", 'name = "early-run"\ntitle = "Early run"\n'
                        'kind = "script"\nlevel = "run"\nphase = "start"\norder = 20\nneeds = ["task"]\n')
-    with pytest.raises(ResolveError, match=r"Early run \(early-run\) needs task"):
+    with pytest.raises(ResolveError, match=r"Early run \(early-run\) needs task, but Phoenix only "
+                                           r"provides task to task-level steps"):
         resolve(lib, {})
 
 

@@ -99,6 +99,8 @@ def read_toml(path: Path, where: str) -> tuple[dict | None, str | None]:
         return None, f"{where}: file is missing"
     except tomllib.TOMLDecodeError as err:
         return None, f"{where}: not valid TOML ({err})"
+    except UnicodeDecodeError:
+        return None, f"{where}: is not UTF-8 text"
     except OSError as err:
         return None, f"{where}: cannot be read ({err.strerror})"
 

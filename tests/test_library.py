@@ -174,6 +174,16 @@ def test_broken_things_file(tmp_path):
     assert "[neither]: needs 'provided' or 'fallback'" in text
 
 
+def test_non_utf8_files_reported_not_raised(tmp_path):
+    root = copy_library(tmp_path)
+    (root / "steps" / "_things.toml").write_bytes(b'[spec]\nprovided = "\xff\xfe"\n')
+    add_step(root, "bad-bytes", "")
+    (root / "steps" / "bad-bytes" / "step.toml").write_bytes(b'name = "\xff"\n')
+    text = "\n".join(load_library(root).problems)
+    assert "_things.toml: is not UTF-8 text" in text
+    assert "bad-bytes" in text and "is not UTF-8 text" in text
+
+
 def test_missing_steps_folder_never_raises(tmp_path):
     lib = load_library(tmp_path / "empty")
     assert lib.steps == [] and len(lib.problems) == 2

@@ -183,6 +183,10 @@ def _source_for(lib: Library, active: list[Step], step: Step, need: str) -> str 
 def _unmet(lib: Library, step: Step, need: str, off: dict[str, str]) -> str:
     """Plain-English reason a need cannot be met, naming the off or later steps that make it."""
     makers = [s for s in lib.steps if need in s.produces and s.name != step.name]
+    thing = lib.things[need]
+    if thing.provided and not thing.provided_for(step.group):
+        return (f"{step.title} ({step.name}) needs {need}, but Phoenix only provides {need} "
+                f"to {thing.provided}-level steps.")
     head = f"{step.title} ({step.name}) needs {need}, and {need} has no fallback"
     off_makers = [s for s in makers if s.sort_key < step.sort_key]
     later = [s for s in makers if s.sort_key > step.sort_key]

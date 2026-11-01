@@ -12,15 +12,18 @@ class FakeHost:
         self.calls: list[list[str]] = []
         self.responses: list[tuple[list[str], tuple[int, str, str]]] = []
         self.sizes: dict[str, int] = {}
+        self.files: dict[str, str] = {}      # host files (read_text / write_text), by path
+        self.cwds: list = []                 # the cwd of each run() call, in step with .calls
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
         self.responses.append((list(prefix), (rc, out, err)))
 
-    def run(self, argv, timeout=60):
+    def run(self, argv, timeout=60, cwd=None):
         """Record the call and return the scripted answer (default: success, no output)."""
         argv = list(argv)
         self.calls.append(argv)
+        self.cwds.append(str(cwd) if cwd else None)
         for prefix, answer in reversed(self.responses):
             if argv[:len(prefix)] == prefix:
                 return answer
@@ -38,9 +41,20 @@ class FakeHost:
         """Same as run(['gh', ...])."""
         return self.run(["gh", *args])
 
+    def read_text(self, path):
+        """Return a text file set in .files (FileNotFoundError when absent)."""
+        if str(path) not in self.files:
+            raise FileNotFoundError(str(path))
+        return self.files[str(path)]
+
+    def write_text(self, path, text, mode=0o600):
+        """Keep the text in .files."""
+        self.files[str(path)] = text
+
     def du_bytes(self, path):
         """Return the size set in .sizes (default 0)."""
         self.calls.append(["du_bytes", str(path)])
+        self.cwds.append(None)
         return self.sizes.get(str(path), 0)
 
 

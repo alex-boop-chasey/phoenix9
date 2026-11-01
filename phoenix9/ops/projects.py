@@ -51,3 +51,15 @@ def show(name: str) -> dict:
 
 
 list = list_
+
+
+def new(opts: dict, who: str, progress=None) -> dict:
+    """Create a project from the form; `progress` gets one plain line per creation step."""
+    from phoenix9 import project
+    return project.create(opts, common.make_adapters(), who, progress)
+
+
+def templates_menu() -> list:
+    """The templates a new project can start from."""
+    from phoenix9 import templates
+    return [{k: t[k] for k in ("name", "title", "profile", "kind", "check")} for t in templates.load_menu()]

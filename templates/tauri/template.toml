@@ -1,0 +1,6 @@
+name = "tauri"
+title = "Tauri desktop app"
+profile = "desktop"
+kind = "recipe"
+run = ["pnpm create tauri-app@4.5.9 . --template vanilla-ts --manager pnpm --yes"]
+check = "pnpm build"

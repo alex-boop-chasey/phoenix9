@@ -17,10 +17,11 @@ DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 class Host:
     """The real host: systemctl, journalctl, gh, du and plain commands."""
 
-    def run(self, argv: list[str], timeout: float = 60) -> tuple[int, str, str]:
-        """Run a command and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
+    def run(self, argv: list[str], timeout: float = 60, cwd=None) -> tuple[int, str, str]:
+        """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
         try:
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                               cwd=cwd)
         except subprocess.TimeoutExpired:
             return 124, "", f"timed out after {timeout}s"
         except FileNotFoundError:
@@ -39,6 +40,15 @@ class Host:
     def gh(self, *args: str) -> tuple[int, str, str]:
         """Run the GitHub command line tool with the given arguments."""
         return self.run(["gh", *args], timeout=120)
+
+    def read_text(self, path) -> str:
+        """Read a text file on the host (FileNotFoundError when it is not there)."""
+        return Path(path).read_text(encoding="utf-8")
+
+    def write_text(self, path, text: str, mode: int = 0o600) -> None:
+        """Write a text file on the host in one swap, keeping it owner-only by default."""
+        from phoenix9 import atomic
+        atomic.write_text(Path(path), text, mode)
 
     def du_bytes(self, path) -> int:
         """Return the size of a folder in bytes (0 if it cannot be measured)."""

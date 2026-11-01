@@ -1,0 +1,6 @@
+name = "expo"
+title = "Expo (React Native)"
+profile = "mobile"
+kind = "recipe"
+run = ["pnpm create expo-app@3.2.0 . --template blank-typescript --no-install --yes"]
+check = "pnpm exec tsc --noEmit"

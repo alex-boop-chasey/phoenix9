@@ -1,0 +1,5 @@
+name = "python-cli"
+title = "Python CLI"
+profile = "python-script"
+kind = "files"
+check = "python3 -m pytest -q"

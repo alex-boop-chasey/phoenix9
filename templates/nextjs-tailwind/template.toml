@@ -1,0 +1,6 @@
+name = "nextjs-tailwind"
+title = "Next.js + Tailwind"
+profile = "web"
+kind = "recipe"
+run = ["pnpm create next-app@15.1.0 . --ts --tailwind --eslint --app --use-pnpm --skip-install --yes"]
+check = "pnpm build"

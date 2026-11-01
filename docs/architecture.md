@@ -249,6 +249,48 @@ when Alex sent this step back with `back` and the runner calls it again).
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
+### 4.6 Service folder: `services/<name>/service.toml`
+
+```toml
+name = "supabase"                 # = folder name
+title = "Supabase"
+description = "Postgres database, auth and file storage."
+support = "store-and-wire"        # "store-and-wire" | "keys-only"
+docs = "https://supabase.com/docs"
+account_keys = ["SUPABASE_ACCESS_TOKEN"]   # names stored in HOME/secrets/<secrets_file>
+secrets_file = "service-supabase.env"      # default "service-<name>.env"; github: "github.env"
+hosts = ["supabase.co"]           # added to a project's allowed domains (bare names, suffix match)
+
+[[project_keys]]                  # rows pre-filled in the project keys form
+name = "SUPABASE_URL"
+secret = false
+
+[proxy]                           # store-and-wire only: the account API, through the key proxy
+upstream = "https://api.supabase.com"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "SUPABASE_ACCESS_TOKEN"     # which account key the proxy adds (must be in account_keys)
+extra_headers = {}
+[[proxy.allow]]
+method = "GET"
+path = "/v1/projects"             # optional per-rule: upstream = "https://other.host"
+
+[check]                           # how `phoenix services connect` tests a pasted key
+method = "GET"
+path = "/v1/projects"             # must match one proxy.allow rule
+expect = [200]
+```
+
+Rules (checked by `phoenix9/services.py`; a broken folder is reported and skipped, never a crash):
+name = folder name; `support` is one of the two values; `account_keys` match `^[A-Z][A-Z0-9_]*$`;
+`[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
+`account_keys`; `[proxy]` is checked by `proxy.spec_from_service` (so rules by `proxy.parse_rules`: no
+trailing `/` in a path); `hosts` are bare domain names (no scheme, port, path or `*`; subdomains match by
+suffix, and each name must resolve on its own). Beside it: `install.md` (store-and-wire: plain
+instructions for the Builder: package names per profile, where config goes, env var names, never values)
+and an optional `recipe.py` (`def wire(ctx, service, proxy) -> dict`). Services with account API access
+list no `hosts` for that API: account calls go only through the proxy (github, sentry have none).
+
 ## 5. Settings
 
 ### 5.1 Layering (lowest first)

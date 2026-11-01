@@ -1,4 +1,31 @@
 name = "openrouter"
 title = "OpenRouter"
-project_keys = [ {name = "OPENROUTER_API_KEY", secret = true} ]
+description = "One API for many AI models."
+support = "store-and-wire"
+docs = "https://openrouter.ai/docs"
+account_keys = ["OPENROUTER_API_KEY"]
 hosts = ["openrouter.ai"]
+
+[[project_keys]]
+name = "OPENROUTER_API_KEY"
+secret = true
+
+[proxy]
+upstream = "https://openrouter.ai/api/v1"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "OPENROUTER_API_KEY"
+extra_headers = {}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/key"
+[[proxy.allow]]
+method = "GET"
+path = "/models"
+
+[check]
+method = "GET"
+path = "/key"
+expect = [200]

@@ -1,4 +1,54 @@
 name = "github"
 title = "GitHub"
-project_keys = []
-hosts = ["github.com", "api.github.com"]
+description = "Code hosting: repositories, releases and tags."
+support = "store-and-wire"
+docs = "https://docs.github.com/en/rest"
+account_keys = ["GH_TOKEN"]
+secrets_file = "github.env"
+# No hosts: GitHub account calls go only through the key proxy, never straight from a step container.
+hosts = []
+
+[proxy]
+upstream = "https://api.github.com"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "GH_TOKEN"
+extra_headers = {"Accept" = "application/vnd.github+json", "X-GitHub-Api-Version" = "2022-11-28"}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/user"
+[[proxy.allow]]
+method = "GET"
+path = "/user/repos"
+[[proxy.allow]]
+method = "GET"
+path = "/repos/*/*"
+[[proxy.allow]]
+method = "GET"
+path = "/repos/*/*/git/matching-refs/tags/*"
+[[proxy.allow]]
+method = "GET"
+path = "/repos/*/*/releases/tags/*"
+[[proxy.allow]]
+method = "POST"
+path = "/repos/*/*/releases"
+[[proxy.allow]]
+method = "DELETE"
+path = "/repos/*/*/releases/*"
+[[proxy.allow]]
+method = "POST"
+path = "/repos/*/*/git/refs"
+[[proxy.allow]]
+method = "DELETE"
+path = "/repos/*/*/git/refs/tags/*"
+[[proxy.allow]]
+method = "POST"
+path = "/repos/*/*/releases/*/assets"
+upstream = "https://uploads.github.com"
+
+[check]
+method = "GET"
+path = "/user"
+expect = [200]

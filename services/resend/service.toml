@@ -1,4 +1,35 @@
 name = "resend"
 title = "Resend"
-project_keys = [ {name = "RESEND_API_KEY", secret = true} ]
+description = "Sending email from your app."
+support = "store-and-wire"
+docs = "https://resend.com/docs"
+account_keys = ["RESEND_API_KEY"]
 hosts = ["api.resend.com"]
+
+[[project_keys]]
+name = "RESEND_API_KEY"
+secret = true
+
+[[project_keys]]
+name = "RESEND_FROM"
+secret = false
+
+[proxy]
+upstream = "https://api.resend.com"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "RESEND_API_KEY"
+extra_headers = {}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/domains"
+[[proxy.allow]]
+method = "GET"
+path = "/domains/*"
+
+[check]
+method = "GET"
+path = "/domains"
+expect = [200]

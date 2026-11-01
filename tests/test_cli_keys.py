@@ -52,7 +52,7 @@ def test_cli_json(capsys, demo):
     code, out, _ = run_cmd(capsys, "project", "services", "demo", "--set", "resend", "--json", "--who", "tester")
     assert json.loads(out)["services"] == ["resend"]
     code, out, _ = run_cmd(capsys, "project", "services", "demo", "--json")
-    assert json.loads(out)["chosen"] == ["resend"] and len(json.loads(out)["available"]) == 5
+    assert json.loads(out)["chosen"] == ["resend"] and len(json.loads(out)["available"]) == 9
     code, out, err = run_cmd(capsys, "project", "services", "demo", "--set", "bogus")
     assert code == 1 and "Unknown service" in err
 

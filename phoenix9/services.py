@@ -1,10 +1,55 @@
 """The services library: services/<name>/service.toml (which project keys and hosts each service needs)."""
-from phoenix9 import library, paths
+import re
+
+from phoenix9 import library, paths, proxy
 from phoenix9.library import Field
 
+SUPPORTS = ("store-and-wire", "keys-only")
+KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
+HOST_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
-          Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str)]
+          Field("description", str, default=""), Field("support", str, default="keys-only", choices=SUPPORTS),
+          Field("docs", str, default=""), Field("account_keys", list, default=[], list_of=str),
+          Field("secrets_file", str, default=""),
+          Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
+          Field("proxy", dict, default=None), Field("check", dict, default=None)]
 KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=True)]
+CHECK_FIELDS = [Field("method", str, required=True), Field("path", str, required=True),
+                Field("expect", list, default=[200], list_of=int)]
+
+
+def _check_names(values: dict, where: str) -> list[str]:
+    """Problems with account key names and hosts."""
+    problems = [f"{where}: account key '{k}' must be CAPITAL_LETTERS_AND_UNDERSCORES"
+                for k in values["account_keys"] if not KEY_NAME.match(k)]
+    for host in values["hosts"]:
+        if not HOST_NAME.match(host):
+            problems.append(f"{where}: host '{host}' must be a bare domain name like example.com "
+                            "(no scheme, port, path or *)")
+    return problems
+
+
+def _check_proxy(values: dict, where: str) -> list[str]:
+    """Problems with the [proxy] and [check] blocks (needed for store-and-wire, forbidden for keys-only)."""
+    proxy_block, check = values["proxy"], values["check"]
+    if values["support"] == "keys-only":
+        return [f"{where}: a keys-only service must not have a [{b}] block"
+                for b, v in (("proxy", proxy_block), ("check", check)) if v is not None]
+    if proxy_block is None:
+        return [f"{where}: a store-and-wire service needs a [proxy] block"]
+    try:
+        spec = proxy.spec_from_service({"name": values["name"], "proxy": proxy_block})
+    except ValueError as err:
+        return [f"{where}: {err}"]
+    problems = []
+    if proxy_block["key"] not in values["account_keys"]:
+        problems.append(f"{where}: [proxy] key '{proxy_block['key']}' is not listed in account_keys")
+    if check is None:
+        return problems + [f"{where}: a store-and-wire service needs a [check] block"]
+    got, bad = library.check_fields(check, CHECK_FIELDS, f"{where} [check]")
+    if not bad and proxy.find_rule(spec.rules, got["method"], got["path"]) is None:
+        bad = [f"{where}: the [check] call {got['method']} {got['path']} is not one of the allowed calls"]
+    return problems + bad
 
 
 def _parse(data: dict, folder, where: str):
@@ -18,7 +63,9 @@ def _parse(data: dict, folder, where: str):
             key, bad = library.check_fields(item, KEY_FIELDS, f"{where} project_keys")
             problems += bad
             keys.append(key)
+        problems += _check_names(values, where) + _check_proxy(values, where)
     values["project_keys"] = keys
+    values["secrets_file"] = values["secrets_file"] or f"service-{values['name']}.env"
     return (None if problems else values), problems
 
 

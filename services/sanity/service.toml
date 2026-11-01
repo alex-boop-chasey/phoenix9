@@ -1,0 +1,19 @@
+name = "sanity"
+title = "Sanity"
+description = "Content management."
+support = "keys-only"
+docs = "https://www.sanity.io/docs"
+account_keys = []
+hosts = ["sanity.io"]
+
+[[project_keys]]
+name = "SANITY_PROJECT_ID"
+secret = false
+
+[[project_keys]]
+name = "SANITY_DATASET"
+secret = false
+
+[[project_keys]]
+name = "SANITY_API_TOKEN"
+secret = true

@@ -131,7 +131,7 @@ def test_services_and_keys_file(env, tmp_path):
     assert rows["RESEND_API_KEY"]["secret"] and rows["SUPABASE_URL"]["value_if_not_secret"] == "https://x.supabase.co"
     assert "SUPABASE_ANON_KEY" in rows
     allow = settings.load_project(folder)["domains"]["allow"]
-    assert "api.resend.com" in allow and "*.supabase.co" in allow
+    assert "api.resend.com" in allow and "supabase.co" in allow
     example = (folder / "code/.env.example").read_text()
     assert "RESEND_API_KEY=\n" in example and secret not in example
     for f in folder.rglob("*"):

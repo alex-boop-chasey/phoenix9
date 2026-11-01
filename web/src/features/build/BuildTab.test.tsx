@@ -20,13 +20,17 @@ const routes = (over: Record<string, unknown> = {}) => ({
 })
 const show = (route = "/p/demo-site/build") => renderWithProviders(<BuildTab name="demo-site" />, { route })
 
-test("start new build disabled with tooltip", async () => {
-  mockApi(routes())
-  show()
-  const button = screen.getByRole("button", { name: "Start new build" })
-  expect(button).toBeDisabled()
-  await userEvent.hover(button.parentElement!)
-  expect((await screen.findAllByText("The build wizard is coming next.")).length).toBeGreaterThan(0)
+test("start new build opens the wizard", async () => {
+  mockApi(routes({
+    "GET /api/projects/demo-site/settings": { project: "demo-site", values: {}, source: {} },
+    "GET /api/library/presets": { presets: [] },
+    "GET /api/library/steps": { steps: [], problems: [] },
+    "GET /api/projects/demo-site/specs": [],
+    "POST /api/projects/demo-site/plan": { groups: {}, steps: [], errors: [], settings: {} },
+  }))
+  show("/p/demo-site/build?list=1")
+  await userEvent.click(screen.getByRole("button", { name: "Start new build" }))
+  expect(await screen.findByText("Step 1 of 7")).toBeInTheDocument()
 })
 
 test("run detail links to its logs", async () => {
@@ -34,7 +38,7 @@ test("run detail links to its logs", async () => {
   show("/p/demo-site/build?run=r-wait")
   const link = await screen.findByRole("link", { name: "See this build's logs" })
   expect(link).toHaveAttribute("href", "/p/demo-site/logs?run=r-wait")
-  expect(screen.getByRole("link", { name: "← All builds" })).toHaveAttribute("href", "/p/demo-site/build")
+  expect(screen.getByRole("link", { name: "← All builds" })).toHaveAttribute("href", "/p/demo-site/build?list=1")
 })
 
 test("run detail shows open gates", async () => {

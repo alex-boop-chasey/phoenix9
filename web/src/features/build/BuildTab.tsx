@@ -1,41 +1,64 @@
-import { useSearchParams } from "react-router"
+// The Build tab in three modes: the list of builds, the wizard (?new=1), or one build live (?run=<id>).
+import { useEffect } from "react"
+import { useLocation, useNavigate, useSearchParams } from "react-router"
 
 import { ErrorState } from "@/components/ErrorState"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { useLiveEvents } from "@/lib/live"
 import { useBuilds } from "@/lib/queries"
 
 import { BuildList } from "./BuildList"
-import { RunDetail } from "./RunDetail"
+import { RunningView } from "./RunningView"
+import { activeRun } from "./useRunLive"
+import { Wizard } from "./wizard/Wizard"
 
-/** The Build tab: previous builds, or one build's step list when `run` is in the address. */
+type Mode = { kind: "list" } | { kind: "wizard" } | { kind: "run"; runId: string }
+
+/** Which mode the address asks for (a bare address is the list, unless a run is active). */
+export function modeFrom(params: URLSearchParams): Mode | null {
+  if (params.get("new") === "1") return { kind: "wizard" }
+  const run = params.get("run")
+  if (run) return { kind: "run", runId: run }
+  if (params.get("list") === "1") return { kind: "list" }
+  return null
+}
+
+/** The Build tab. A project with a queued, running or waiting build opens on that build. */
 export function BuildTab({ name }: { name: string }) {
   const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const onBuildTab = useLocation().pathname.endsWith("/build")
   const builds = useBuilds(name)
-  useLiveEvents(name)
-  const runId = params.get("run")
-  if (runId) return <RunDetail name={name} runId={runId} />
+  const live = useLiveEvents(name)
+  const base = `/p/${encodeURIComponent(name)}/build`
+  const asked = modeFrom(params)
+  const active = builds.data ? activeRun(builds.data) : undefined
+
+  useEffect(() => {
+    // Only while the address is this tab: a closing tab must not pull the page back here.
+    if (onBuildTab && !asked && active) void navigate(`${base}?run=${encodeURIComponent(active.run_id)}`, { replace: true })
+  }, [onBuildTab, asked, active, base, navigate])
+
+  if (asked?.kind === "wizard") {
+    return (
+      <Wizard
+        name={name} onCancel={() => void navigate(`${base}?list=1`)}
+        onStarted={(id) => void navigate(`${base}?run=${encodeURIComponent(id)}`, { replace: true })}
+      />
+    )
+  }
+  if (asked?.kind === "run") return <RunningView key={asked.runId} name={name} runId={asked.runId} mode={live.mode} />
 
   return (
     <section className="flex flex-col gap-4" data-project={name}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Builds</h2>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
-                <Button disabled>Start new build</Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>The build wizard is coming next.</TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
+        <Button onClick={() => void navigate(`${base}?new=1`)}>Start new build</Button>
       </div>
       {builds.error ? (
         <ErrorState error={builds.error} onRetry={() => void builds.refetch()} />
-      ) : builds.data ? (
+      ) : builds.data && !(!asked && active) ? (
         <BuildList name={name} rows={builds.data} />
       ) : (
         <Skeleton className="h-24 w-full" />

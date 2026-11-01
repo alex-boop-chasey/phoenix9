@@ -18,12 +18,12 @@ import { getPath, sameValue } from "@/features/settings/dotted"
 import { useLibraryPresets, usePlanRows, useSetPreset, useSetSettings, useSettings } from "@/lib/queries"
 import type { PlanStep } from "@/lib/types"
 
-const ON_FAILURE = [
+export const ON_FAILURE = [
   { value: "continue", label: "Continue", help: "Move on to tasks that don't depend on the failed one, and flag it." },
   { value: "pause", label: "Pause for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
   { value: "delegate", label: "Delegate to the project chat", help: "The project's chat tries to fix it and only alerts you if it can't." },
 ]
-const MERGE = [
+export const MERGE = [
   { value: "auto", label: "Merge automatically", help: "Merge when the checks pass." },
   { value: "ask", label: "Ask me first", help: "Wait for you to approve each merge." },
 ]

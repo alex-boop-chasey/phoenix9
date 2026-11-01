@@ -41,7 +41,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/gates?project=` | `ops.gates.list_` | | list of gate objects (architecture section 7) | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |
-| GET | `/api/library/presets` | `ops.library.presets` | | `{presets: [{name, title, has_file, description}]}` | |
+| GET | `/api/library/presets` | `ops.library.presets` | | `{presets: [{name, title, has_file, description, steps}]}` (`title` and `description` come from the preset file; `steps` = `{step: on}` the preset file sets; the wizard needs it because a project's own `steps.<name>.on` sits above the preset layer in `/plan`) | |
 | GET | `/api/library/templates` | `ops.projects.templates_menu` | | list of `{name, title, profile, kind, check}` | |
 | GET | `/api/library/services` | `ops.library.services` | | `{services: [{name, title, project_keys}], problems}` | |
 | GET | `/api/github/repos` | `ops.github.repos` | | `{connected, repos: [{full_name, owner, private}]}` | |

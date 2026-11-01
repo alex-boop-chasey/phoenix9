@@ -154,6 +154,13 @@ def test_library_endpoints(api):
     assert "connected" in api("/api/github/repos")[1]["data"]
 
 
+def test_library_presets_list_their_step_switches(api):
+    rows = {p["name"]: p for p in api("/api/library/presets")[1]["data"]["presets"]}
+    assert rows["full"]["steps"]["reviewer"] is True
+    assert rows["quick"]["steps"] == {"planner": False, "check-writer": False, "verify": True, "reviewer": False}
+    assert rows["custom"]["steps"] == {}
+
+
 def test_post_without_header_403(api):
     status, body = api("/api/anything", "POST", {"Origin": ORIGIN}, {})
     assert status == 403 and body["ok"] is False and "Phoenix dashboard" in body["message"]

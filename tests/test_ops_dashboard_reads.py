@@ -200,3 +200,12 @@ def test_api_md_mentions_every_ops_function_it_names_exists():
             assert callable(getattr(mod, func)), f"ops.{module}.{func}"
             checked += 1
     assert checked >= 15
+
+
+def test_library_presets_have_titles_and_descriptions(env):
+    from phoenix9.ops import library
+    rows = {r["name"]: r for r in library.presets()["presets"]}
+    assert rows["quick"]["title"] == "Quick"
+    assert rows["quick"]["has_file"] is True
+    assert rows["quick"]["description"].startswith("Simple, plus")
+    assert rows["custom"] == {"name": "custom", "title": "Custom", "has_file": False, "description": "", "steps": {}}

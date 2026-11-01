@@ -32,16 +32,25 @@ def profiles() -> dict:
     return {"profiles": rows, "problems": problems}
 
 
+def _preset_steps(data: dict | None) -> dict:
+    """{step name: on} for every step the preset file switches on or off."""
+    tables = (data or {}).get("steps", {})
+    return {name: bool(t["on"]) for name, t in tables.items() if isinstance(t, dict) and "on" in t}
+
+
 def presets() -> dict:
-    """The presets a project can choose, with their titles."""
+    """The presets a project can choose, with their titles, one-line descriptions and the steps each switches on or off."""
     rows = []
     for name in settings.PRESETS:
-        try:
-            data = settings.load_preset(paths.library(), name)
-        except settings.SettingsError:
-            data = None
-        rows.append({"name": name, "title": (data or {}).get("title", name), "has_file": data is not None,
-                     "description": (data or {}).get("description", "")})
+        data = None
+        if name != "custom":
+            try:
+                data = settings._read_layer(paths.library() / "presets" / f"{name}.toml", f"presets/{name}.toml")
+            except settings.SettingsError:
+                data = None
+        rows.append({"name": name, "title": (data or {}).get("title", name.capitalize()),
+                     "has_file": data is not None, "description": (data or {}).get("description", ""),
+                     "steps": _preset_steps(data)})
     return {"presets": rows}
 
 

@@ -1,8 +1,8 @@
 import { expect, expectNoHorizontalScroll, expectNoRawOutput, test } from "./fixtures"
 
 test("demo-site lists builds and opens the waiting one", async ({ page }) => {
-  await page.goto("/#/p/demo-site/build")
-  await expect(page.getByRole("button", { name: "Start new build" })).toBeDisabled()
+  await page.goto("/#/p/demo-site/build?list=1")
+  await expect(page.getByRole("button", { name: "Start new build" })).toBeEnabled()
   await expect(page.getByText(/pricing/i).first()).toBeVisible()
   await expect(page.getByText(/contact/i).first()).toBeVisible()
   await expect(page.getByText(/blog/i).first()).toBeVisible()

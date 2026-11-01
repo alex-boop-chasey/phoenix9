@@ -193,7 +193,8 @@ export interface PlanView {
     max_tries?: number
     on_failure?: string
     merge?: string
-    deploy?: string
+    /** The effective [deploy] table (older fixtures use a plain string). */
+    deploy?: string | { with?: string; mode?: string; preview?: boolean }
   }
 }
 
@@ -289,6 +290,8 @@ export interface Preset {
   title: string
   has_file: boolean
   description: string
+  /** {step: on} the preset file sets (empty for custom). */
+  steps?: Record<string, boolean>
 }
 
 export interface Template {

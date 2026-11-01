@@ -14,3 +14,10 @@ def phoenix_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOENIX_INSTALL", str(tmp_path / "install"))
     monkeypatch.setenv("PHOENIX_NOTIFY_FILE", str(tmp_path / "notify.msg"))
     return {"home": home, "projects": projects}
+
+
+@pytest.fixture
+def adapters(tmp_path):
+    """The fake adapter set (fake host, clock, notify, http, docker, claude, chat)."""
+    from fakes import fake_adapters
+    return fake_adapters(tmp_path)

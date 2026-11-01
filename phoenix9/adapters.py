@@ -101,11 +101,14 @@ class Claude:
 
 
 class Git:
-    """Real git adapter; filled in by step 10."""
+    """Real git adapter: every public function of phoenix9.git, as a method."""
 
     def __getattr__(self, name: str):
-        """Methods not written yet raise NotImplementedError."""
-        raise NotImplementedError(f"git.{name} is not written yet")
+        """Look the function up in phoenix9.git."""
+        from phoenix9 import git as git_module
+        if name.startswith("_") or not hasattr(git_module, name):
+            raise AttributeError(f"git.{name} does not exist")
+        return getattr(git_module, name)
 
 
 @dataclass

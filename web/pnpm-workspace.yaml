@@ -1,0 +1,4 @@
+minimumReleaseAgeExclude:
+  - '@tanstack/query-core@5.105.1'
+  - '@tanstack/react-query@5.105.1'
+storeDir: node_modules/.pnpm-store

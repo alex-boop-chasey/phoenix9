@@ -84,6 +84,7 @@ templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        systemd units, install.sh, update.sh (phase 4)
 web/                           React app (phase 3)
+                               src/pages, src/features/<area>, src/components/ui (shadcn), src/lib (api client, types, theme), e2e/ (Playwright)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
 reference/                     READ-ONLY copies of V8, proj and the project-selector. Never imported,
                                never edited. Deleted at the end of phase 4.

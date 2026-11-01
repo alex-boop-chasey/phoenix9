@@ -17,6 +17,7 @@ export const keys = {
   gates: (project?: string) => (project ? (["gates", project] as const) : (["gates"] as const)),
   settings: (name: string) => ["settings", name] as const,
   explain: (name: string) => ["explain", name] as const,
+  plan: (name: string) => ["plan", name] as const,
   keyRows: (name: string) => ["keys", name] as const,
   specs: (name: string) => ["specs", name] as const,
   changelog: (name: string) => ["changelog", name] as const,
@@ -32,7 +33,7 @@ export const keys = {
 export function invalidateProject(qc: QueryClient, name: string) {
   for (const key of [
     keys.projects(), keys.project(name), keys.builds(name), keys.gates(), keys.settings(name),
-    keys.explain(name), keys.keyRows(name), keys.specs(name), keys.changelog(name),
+    keys.explain(name), keys.plan(name), keys.keyRows(name), keys.specs(name), keys.changelog(name),
   ]) {
     void qc.invalidateQueries({ queryKey: key })
   }
@@ -53,6 +54,8 @@ export const useSettings = (name: string) =>
   useQuery({ queryKey: keys.settings(name), queryFn: () => api.settings(name), enabled: !!name })
 export const useExplain = (name: string, enabled = true) =>
   useQuery({ queryKey: keys.explain(name), queryFn: () => api.explain(name), enabled: !!name && enabled })
+export const usePlanRows = (name: string) =>
+  useQuery({ queryKey: keys.plan(name), queryFn: () => api.plan(name, {}), enabled: !!name })
 export const useKeyRows = (name: string) =>
   useQuery({ queryKey: keys.keyRows(name), queryFn: () => api.keys(name), enabled: !!name })
 export const useSpecs = (name: string) =>

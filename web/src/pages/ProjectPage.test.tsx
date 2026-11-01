@@ -56,7 +56,6 @@ describe("ProjectPage", () => {
     api()
     renderAt("/p/demo-site/settings")
     expect(await screen.findByRole("tab", { name: "settings" })).toHaveAttribute("aria-selected", "true")
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument()
   })
 
   it("unknown project shows not found", async () => {

@@ -1,8 +1,12 @@
-/** Placeholder for the Settings tab (a later step fills it in). */
+/** The Settings tab: the Project section and the Build section, each with its own Save. */
+import { BuildSection } from "@/features/settings/BuildSection"
+import { ProjectSection } from "@/features/settings/ProjectSection"
+
 export function SettingsTab({ name }: { name: string }) {
   return (
-    <section data-project={name}>
-      <h2 className="text-lg font-semibold">Settings</h2>
+    <section data-project={name} className="space-y-6">
+      <ProjectSection name={name} />
+      <BuildSection name={name} />
     </section>
   )
 }

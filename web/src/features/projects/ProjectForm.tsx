@@ -128,7 +128,13 @@ export function ProjectForm({
             ))}
           </RadioGroup>
         ) : (
-          <p className="text-sm">{sourceText ?? "—"}</p>
+          <div className="space-y-1">
+            <Input
+              aria-label="GitHub repo" placeholder="owner/name" value={value.repo} autoComplete="off"
+              onChange={(e) => set({ repo: e.target.value })}
+            />
+            {sourceText && <p className="text-xs text-muted-foreground">{sourceText}</p>}
+          </div>
         )}
       </div>
 

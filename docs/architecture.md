@@ -206,9 +206,15 @@ when Alex sent this step back with `back` and the runner calls it again).
 ### 4.5 Profile folder: `profiles/<name>/profile.toml`
 
 `title`, `image` (step image tag), `allowed_domains` (list), `diff_allow_extra` (list),
-`screenshots` (bool), `suggested_deployer`, and a `[test]` block: `cmd` (full suite command),
-`task_cmd` (optional, a single task's checks), `report` (`pytest-junit | vitest-json | playwright-json
-| exit-code`), `report_path`. Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
+`screenshots` (bool), `suggested_deployer`, and a `[test]` block:
+- `cmd` (full suite command, = `{{suite_command}}`), `task_cmd` (optional, a single task's checks);
+- `report`: one of `pytest-junit | vitest-json | playwright-json | exit-code`, or a list of them
+  (e.g. `["vitest-json", "playwright-json"]`), and `report_path`;
+- `checks_dir` (where locked task checks live in the repo), `check_files` (glob(s), space-separated, the
+  check writer must use), `check_command` (runs given check files; `{files}` = space-joined paths) and
+  `report_args` (appended so the report reader finds its file in `/out`).
+
+Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
 ## 5. Settings

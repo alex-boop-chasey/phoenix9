@@ -4,7 +4,7 @@ description = "Writes the code for one task."
 kind = "ai"
 level = "task"
 order = 30
-needs = ["task", "worktree", "failures", "plan"]
+needs = ["task", "worktree", "failures", "plan", "checks"]
 produces = ["diff"]
 default = "always"
 

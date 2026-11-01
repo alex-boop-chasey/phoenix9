@@ -212,10 +212,11 @@ def diff_changes(worktree: Path, base: str) -> list[Change]:
     return changes
 
 
-def diff_text(worktree: Path, base: str) -> str:
-    """Return the full text diff of the worktree against `base`."""
+def diff_text(worktree: Path, base: str, binary: bool = False) -> str:
+    """Return the full text diff of the worktree against `base` (binary=True: a patch that applies binary files too)."""
     _stage_all(Path(worktree))
-    return git(Path(worktree), "diff", "--cached", "-M", base)
+    extra = ["--binary"] if binary else []
+    return git(Path(worktree), "diff", "--cached", "-M", *extra, base)
 
 
 def reset_attempt(worktree: Path, base: str) -> None:

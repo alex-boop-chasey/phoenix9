@@ -25,13 +25,13 @@ where it stopped):
 """
 from __future__ import annotations
 
-import re
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
+from phoenix9.aistep import checks_text, render_prompt, task_text
 from phoenix9 import docker as docker_mod
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
 from phoenix9.resolve import resolve
@@ -563,28 +563,6 @@ def _ctx_answer(line: dict | None) -> dict | None:
 
 
 # ---------------------------------------------------------------------- AI steps
-def _task_text(task: dict | None) -> str:
-    """The task as plain text for a prompt."""
-    if not task:
-        return ""
-    lines = [f"Task {task['number']}: {task['title']}", "", task.get("goal", "")]
-    return "\n".join(lines).strip()
-
-
-def _checks_text(ctx: StepContext) -> str:
-    """The 'Done when' bullets of the task (or the produced checks) as a list."""
-    checks = ctx.things.get("checks")
-    if checks and checks != "spec-done-when":
-        return str(checks)
-    done = (ctx.task or {}).get("done_when", [])
-    return "\n".join(f"- {c['text']}" for c in done)
-
-
-def render_prompt(template: str, values: dict) -> str:
-    """Fill {{placeholders}} in a prompt; names that are not known stay as written."""
-    return re.sub(r"\{\{\s*([\w-]+)\s*\}\}", lambda m: str(values[m.group(1)]) if m.group(1) in values else m.group(0), template)
-
-
 def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     """Run one AI step: fill the prompt, run a Claude session in a container, then judge it from files."""
     if ctx.worktree is None:
@@ -595,7 +573,7 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
         return StepResult("fail", [f"{ctx.step.name} has no prompt.md."])
     values = {k: (v if isinstance(v, str) else ("\n".join(map(str, v)) if isinstance(v, list) else str(v)))
               for k, v in ctx.things.items() if v is not None}
-    values.update({"task": _task_text(ctx.task), "checks": _checks_text(ctx),
+    values.update({"task": task_text(ctx.task), "checks": checks_text(ctx),
                    "spec_title": ctx.run.spec.get("title", "")})
     if code is not None and hasattr(code, "before"):
         values.update({k: str(v) for k, v in (code.before(ctx) or {}).items()})

@@ -263,7 +263,31 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "test.task_cmd": _spec(""),
     "test.report": _spec("exit-code", PROFILE_REPORTS),
     "test.report_path": _spec(""),
+    "test.checks_dir": _spec(""),
+    "test.check_files": _spec(""),
+    "test.check_command": _spec(""),
+    "test.report_args": _spec(""),
 }
+
+
+def _without_report_list(own: dict) -> dict:
+    """The profile's own keys, minus test.report when it is a list (checked on its own)."""
+    test = own.get("test")
+    if isinstance(test, dict) and isinstance(test.get("report"), list):
+        return {**own, "test": {k: v for k, v in test.items() if k != "report"}}
+    return own
+
+
+def _report_list_problems(own: dict, where: str) -> list[str]:
+    """Problems with a list-form test.report: it needs names from PROFILE_REPORTS."""
+    test = own.get("test")
+    report = test.get("report") if isinstance(test, dict) else None
+    if not isinstance(report, list):
+        return []
+    bad = [r for r in report if r not in PROFILE_REPORTS]
+    if not report:
+        return [f"{where}: 'test.report' must not be an empty list"]
+    return [f"{where}: 'test.report' has unknown report '{r}' (use {', '.join(PROFILE_REPORTS)})" for r in bad]
 
 
 def check_profile(lib_root, name: str, lib: Library | None = None) -> list[str]:
@@ -275,7 +299,8 @@ def check_profile(lib_root, name: str, lib: Library | None = None) -> list[str]:
         return [str(err)]
     lib = lib if lib is not None else load_library(lib_root)
     own = {k: v for k, v in data.items() if k != "steps"}
-    problems = validate(own, PROFILE_SCHEMA, where)
+    problems = validate(_without_report_list(own), PROFILE_SCHEMA, where)
+    problems += _report_list_problems(own, where)
     if data.get("steps"):
         problems += validate({"steps": data["steps"]}, step_specs(lib), where)
     if not own.get("image"):

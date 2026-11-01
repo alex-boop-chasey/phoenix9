@@ -1,0 +1,15 @@
+title = "Quick"
+description = "Simple, plus the project's tests run after each task."
+
+[steps.planner]
+on = false
+
+[steps.check-writer]
+on = false
+
+[steps.verify]
+on = true
+scope = "task"
+
+[steps.reviewer]
+on = false

@@ -249,6 +249,42 @@ def load_profile(lib_root, name: str) -> dict:
     return _read_layer(Path(lib_root) / "profiles" / name / "profile.toml", f"profiles/{name}/profile.toml")
 
 
+PROFILE_REPORTS = ("pytest-junit", "vitest-json", "playwright-json", "exit-code")
+
+# Keys of a profile.toml outside [steps.*] (architecture 4.5).
+PROFILE_SCHEMA: dict[str, Spec] = {
+    "title": _spec(""),
+    "image": _spec(""),
+    "allowed_domains": _spec([], item_type=str),
+    "diff_allow_extra": _spec([], item_type=str),
+    "screenshots": _spec(False),
+    "suggested_deployer": _spec("none"),
+    "test.cmd": _spec(""),
+    "test.task_cmd": _spec(""),
+    "test.report": _spec("exit-code", PROFILE_REPORTS),
+    "test.report_path": _spec(""),
+}
+
+
+def check_profile(lib_root, name: str, lib: Library | None = None) -> list[str]:
+    """Every problem in profiles/<name>/profile.toml (its own keys and its [steps.*] overrides)."""
+    where = f"profiles/{name}/profile.toml"
+    try:
+        data = load_profile(lib_root, name)
+    except SettingsError as err:
+        return [str(err)]
+    lib = lib if lib is not None else load_library(lib_root)
+    own = {k: v for k, v in data.items() if k != "steps"}
+    problems = validate(own, PROFILE_SCHEMA, where)
+    if data.get("steps"):
+        problems += validate({"steps": data["steps"]}, step_specs(lib), where)
+    if not own.get("image"):
+        problems.append(f"{where}: missing 'image'")
+    if not own.get("test", {}).get("cmd"):
+        problems.append(f"{where}: missing 'test.cmd'")
+    return problems
+
+
 def preset_name(project: dict) -> str:
     """The preset file that applies: the project's preset, or its based_on when preset is custom."""
     preset = project.get("preset", PROJECT_SCHEMA["preset"].default)

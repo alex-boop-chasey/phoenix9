@@ -1,0 +1,26 @@
+[spec]  # always available, from Pick-up
+provided = "run"
+[task]  # the current task (task-level only)
+provided = "task"
+[worktree]  # from Branch
+provided = "run"
+[failures]  # earlier attempts' failure reasons (may be empty)
+provided = "task"
+[plan]
+fallback = "spec-as-written"
+[checks]
+fallback = "spec-done-when"
+[baseline]  # main's test result before the run (Branch)
+fallback = "not-run"
+[diff]  # no fallback: something must produce it (Builder)
+fallback = ""
+[exit-codes]  # Acceptance's results (always on)
+fallback = ""
+[commit]  # the task's commit sha (Commit)
+fallback = ""
+[merged]  # merge result (Merge)
+fallback = "not-merged"
+[test-report]
+fallback = "exit-codes-only"
+[verdict]
+fallback = "pass-if-checks-passed"

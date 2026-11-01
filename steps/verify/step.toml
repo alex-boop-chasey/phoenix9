@@ -1,0 +1,13 @@
+name = "verify"
+title = "Verify"
+description = "Runs the project's tests and builds the test report."
+kind = "script"
+level = "task"
+order = 70
+needs = ["worktree"]
+produces = ["test-report"]
+safety = true
+default = "on"
+
+[settings]
+scope = "task"

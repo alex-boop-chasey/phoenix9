@@ -1,0 +1,12 @@
+title = "Desktop app"
+image = "phoenix9-step-desktop:1"
+allowed_domains = ["registry.npmjs.org", "crates.io", "static.crates.io"]
+diff_allow_extra = ["pnpm-lock.yaml", "Cargo.lock"]
+screenshots = true
+suggested_deployer = "none"
+
+[test]
+cmd = "pnpm test"
+task_cmd = "pnpm test"
+report = "vitest-json"
+report_path = "test-report.json"

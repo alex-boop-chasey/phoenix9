@@ -1,0 +1,11 @@
+name = "red-check"
+title = "Red check"
+description = "Proves the new checks fail before the code is written."
+kind = "script"
+level = "task"
+order = 20
+needs = ["checks"]
+produces = []
+safety = true
+default = "on"
+only_with = ["check-writer"]

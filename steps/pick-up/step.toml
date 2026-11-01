@@ -1,0 +1,10 @@
+name = "pick-up"
+title = "Pick up"
+description = "Reads the spec file the run was started from."
+kind = "script"
+level = "run"
+phase = "start"
+order = 10
+needs = ["spec"]
+produces = []
+default = "always"

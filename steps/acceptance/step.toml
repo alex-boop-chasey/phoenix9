@@ -1,0 +1,9 @@
+name = "acceptance"
+title = "Acceptance"
+description = "Runs the task's checks and records the exit codes."
+kind = "script"
+level = "task"
+order = 60
+needs = ["checks", "worktree"]
+produces = ["exit-codes"]
+default = "always"

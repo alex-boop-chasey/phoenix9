@@ -1,0 +1,26 @@
+name = "reviewer"
+title = "Reviewer"
+description = "A fresh reader checks the change and gives a verdict."
+kind = "ai"
+level = "task"
+order = 80
+needs = ["worktree", "test-report"]
+produces = ["verdict"]
+default = "off"
+
+[ai]
+model = "claude-sonnet-5-5"
+fallback_models = ["claude-opus-5-5"]
+tools = []
+tools_denied = []
+mcp_servers = []
+claude_md = "library"
+skills = []
+max_turns = 200
+timeout = 60
+
+[ai.advisor]
+on = false
+model = "claude-opus-5-5"
+when = ["blocked"]
+instructions = ""

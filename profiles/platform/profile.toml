@@ -1,0 +1,11 @@
+title = "Platform"
+image = "phoenix9-step-platform:1"
+allowed_domains = ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org"]
+diff_allow_extra = ["pnpm-lock.yaml"]
+screenshots = false
+suggested_deployer = "none"
+
+[test]
+cmd = "./check.sh"
+task_cmd = "./check.sh"
+report = "exit-code"

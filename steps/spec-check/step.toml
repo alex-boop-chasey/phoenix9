@@ -1,0 +1,10 @@
+name = "spec-check"
+title = "Spec check"
+description = "Checks the spec is complete and makes sense before any work starts."
+kind = "script"
+level = "run"
+phase = "start"
+order = 20
+needs = ["spec"]
+produces = []
+default = "always"

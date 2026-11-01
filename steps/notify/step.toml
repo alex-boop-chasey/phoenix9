@@ -1,0 +1,10 @@
+name = "notify"
+title = "Notify"
+description = "Tells Alex the run has finished."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 50
+needs = ["spec"]
+produces = []
+default = "on"

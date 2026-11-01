@@ -1,0 +1,9 @@
+name = "commit"
+title = "Commit"
+description = "Commits the task's change if everything passed."
+kind = "script"
+level = "task"
+order = 90
+needs = ["diff", "verdict", "exit-codes"]
+produces = ["commit"]
+default = "always"

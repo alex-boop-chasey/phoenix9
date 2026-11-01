@@ -1,0 +1,10 @@
+name = "secret-scan"
+title = "Secret scan"
+description = "Looks for keys and passwords in the change."
+kind = "script"
+level = "task"
+order = 50
+needs = ["diff"]
+produces = []
+safety = true
+default = "on"

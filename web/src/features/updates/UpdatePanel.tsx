@@ -1,6 +1,6 @@
-// The updates panel: installed and newest version, Install update, Roll back and a link to the update log.
+// The updates panel: installed, previous and newest version, Install update, Roll back, progress and the update log.
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -8,22 +8,44 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { api, post } from "@/lib/api"
-import { useInfo } from "@/lib/queries"
+import { useInfo, useUpdate } from "@/lib/queries"
+import type { UpdateStatus } from "@/lib/types"
 
-const POLL_MS = 2000
-const GIVE_UP_MS = 3 * 60 * 1000
+const POLL_MS = 3000
+const GIVE_UP_MS = 10 * 60 * 1000
+const WORKED = ["installed", "already-installed", "recovered", "rolled-back-manual"]
+const ROLLED_BACK = ["rolled-back", "rolled-back-unhealthy"]
 
-/** Installed/newest version with Install update and Roll back, driven by /api/info `update`. */
+type Action = "install" | "rollback"
+
+interface Wait {
+  action: Action
+  /** Plain words for the waiting state. */
+  text: string
+  /** Plain words once it is over (empty while waiting). */
+  result: string
+  failed: boolean
+}
+
+/** What the finished status says happened, in plain words. */
+export function outcome(st: UpdateStatus): { text: string; failed: boolean } {
+  const last = st.last
+  if (!last) return { text: `Now ${st.installed?.tag ?? "updated"}`, failed: false }
+  if (WORKED.includes(last.result)) return { text: `Now ${st.installed?.tag ?? last.tag ?? "updated"}`, failed: false }
+  if (ROLLED_BACK.includes(last.result)) return { text: `Rolled back: ${last.reason || last.result}`, failed: true }
+  return { text: `The update did not go ahead: ${last.reason || last.result}`, failed: true }
+}
+
+/** Installed/previous/newest version with Install update and Roll back, driven by GET /api/update. */
 export function UpdatePanel({ bare = false }: { bare?: boolean }) {
-  const { data: info, refetch } = useInfo()
-  const update = info?.update
-  const [restarting, setRestarting] = useState(false)
-  const [failed, setFailed] = useState("")
-  const [rollback, setRollback] = useState(false)
+  const { data: info } = useInfo()
+  const supported = !!info?.update.supported
+  const { data: st } = useUpdate(supported)
+  const qc = useQueryClient()
+  const [confirm, setConfirm] = useState<Action | null>(null)
   const [busy, setBusy] = useState(false)
-  const from = useRef("")
+  const [wait, setWait] = useState<Wait | null>(null)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
-  const started = useRef(0)
 
   const stop = () => {
     if (timer.current) clearInterval(timer.current)
@@ -31,93 +53,122 @@ export function UpdatePanel({ bare = false }: { bare?: boolean }) {
   }
   useEffect(() => stop, [])
 
-  /** Poll /api/info every 2 s until the version changes or 3 minutes pass. */
-  function watch(before: string) {
-    from.current = before
-    started.current = Date.now()
-    setRestarting(true)
-    setFailed("")
+  /** Poll GET /api/update every 3 s (failed polls are normal: the API restarts) until the result is in. */
+  function watch(action: Action, before: UpdateStatus) {
+    const started = Date.now()
+    const fromTag = before.installed?.tag ?? ""
+    const fromAt = before.last?.at ?? ""
+    const verb = action === "install" ? "Installing…" : "Rolling back…"
+    setWait({ action, text: verb, result: "", failed: false })
     stop()
     timer.current = setInterval(() => {
-      void api.info().then(
+      void api.update().then(
         (now) => {
-          if (now.update.installed !== from.current || now.version !== from.current) {
+          const changed = (now.installed?.tag ?? "") !== fromTag || (now.last?.at ?? "") !== fromAt
+          if (!now.running && changed) {
             stop()
-            setRestarting(false)
-            void refetch()
+            const done = outcome(now)
+            setWait({ action, text: "", result: done.text, failed: done.failed })
+            qc.setQueryData(["update"], now)
+            void qc.invalidateQueries({ queryKey: ["info"] })
+            return
           }
+          setWait({ action, text: now.running ? `${verb}${now.waiting ? ` ${now.waiting}` : ""}` : verb, result: "", failed: false })
         },
-        () => undefined, // the dashboard is down during the swap
+        () => setWait({ action, text: "Restarting…", result: "", failed: false }),
       )
-      if (Date.now() - started.current >= GIVE_UP_MS) {
+      if (Date.now() - started >= GIVE_UP_MS) {
         stop()
-        setRestarting(false)
-        setFailed("Phoenix did not come back after 3 minutes. Check the Logs tab of phoenix9 for the update log.")
+        setWait({
+          action, text: "", failed: true,
+          result: "Phoenix did not come back after 10 minutes. Open the update log below, or run `phoenix update status` on the server.",
+        })
       }
     }, POLL_MS)
   }
 
-  async function run(path: string, label: string) {
-    if (!update) return
+  async function run(action: Action) {
+    const path = info?.update.endpoints?.[action]
+    if (!st || !path) return
     setBusy(true)
     try {
-      await post(path, {})
-      watch(update.installed)
+      await post(path, action === "install" ? { yes: true, tag: st.newest ?? undefined } : { yes: true })
+      watch(action, st)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : `${label} did not start.`)
+      toast.error(e instanceof Error ? e.message : "That did not start.")
     } finally {
       setBusy(false)
     }
   }
 
-  const body = !update ? (
+  async function check() {
+    try {
+      qc.setQueryData(["update"], await api.update(true))
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not check for updates.")
+    }
+  }
+
+  const waiting = wait !== null && wait.result === ""
+  const noInstallWhy = !st ? "" : st.busy ? st.busy_reason || "A build is busy" : st.running ? "An update is running"
+    : !st.update_available ? "Phoenix is up to date" : ""
+  const installOff = !st || waiting || busy || !!noInstallWhy
+  const endpoints = info?.update.endpoints
+
+  const body = !info || (supported && !st) ? (
     <p className="text-sm text-muted-foreground">Loading…</p>
-  ) : !update.supported ? (
+  ) : !supported || !st ? (
     <p className="text-sm">
-      Installed: v{update.installed || info?.version}. Installing updates from the dashboard comes in a later update.
+      Installed: v{info.update.installed || info.version}. Installing updates from the dashboard comes in a later update.
     </p>
   ) : (
     <div className="flex flex-col gap-3 text-sm">
       <div className="flex flex-wrap gap-x-6 gap-y-1">
-        <span>Installed: v{update.installed}</span>
-        <span>Newest: v{update.newest}</span>
+        <span>Installed: {st.installed?.tag ?? "not installed yet"}</span>
+        <span>Previous: {st.previous?.tag ?? "none"}</span>
+        <span>Newest: {st.newest ?? "unknown"}</span>
       </div>
-      {restarting && <p role="status">Phoenix is restarting; this page reconnects by itself.</p>}
-      {failed && (
-        <Alert variant="destructive"><AlertDescription>{failed}</AlertDescription></Alert>
+      {wait && wait.result === "" && <p role="status">{wait.text}</p>}
+      {wait && wait.result !== "" && (
+        wait.failed ? (
+          <Alert variant="destructive"><AlertDescription>{wait.result}</AlertDescription></Alert>
+        ) : (
+          <p role="status">{wait.result}</p>
+        )
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {update.endpoints?.install && (
-          <Button
-            disabled={!update.can_install || restarting || busy}
-            onClick={() => void run(update.endpoints!.install!, "The update")}
-          >
-            Install update v{update.newest}
+        {endpoints?.install && (
+          <Button disabled={installOff} onClick={() => setConfirm("install")}>
+            Install update {st.newest ?? ""}
           </Button>
         )}
-        {update.endpoints?.rollback && (
-          <Button variant="outline" disabled={restarting || busy} onClick={() => setRollback(true)}>
-            Roll back
+        {endpoints?.rollback && (
+          <Button variant="outline" disabled={!st.can_rollback || waiting || busy} onClick={() => setConfirm("rollback")}>
+            Roll back{st.previous ? ` to ${st.previous.tag}` : ""}
           </Button>
         )}
-        <Link to="/p/phoenix9/logs?kind=service" className="text-primary underline-offset-4 hover:underline">
-          Last update log
-        </Link>
+        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => void check()}>
+          Check for updates
+        </button>
       </div>
-      {update.endpoints?.install && !update.can_install && update.reason && (
-        <p className="text-muted-foreground">{update.reason}</p>
-      )}
-      <p className="text-muted-foreground">The dashboard is down for a few seconds while the update is swapped in.</p>
+      {endpoints?.install && noInstallWhy && <p className="text-muted-foreground">{noInstallWhy}</p>}
+      <details>
+        <summary className="cursor-pointer">Last update log</summary>
+        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+          {st.log_tail.length ? st.log_tail.join("\n") : "Nothing logged yet."}
+        </pre>
+      </details>
       <ConfirmDialog
-        open={rollback}
-        onOpenChange={setRollback}
-        title="Roll back Phoenix?"
-        body="Phoenix goes back to the previous installed version. The dashboard is down for a few seconds."
-        confirmLabel="Roll back"
-        destructive
+        open={confirm !== null}
+        onOpenChange={(open) => !open && setConfirm(null)}
+        title={confirm === "rollback" ? "Roll back Phoenix?" : `Install ${st.newest ?? "the update"}?`}
+        body="Phoenix will restart; the dashboard is away for a few seconds."
+        confirmLabel={confirm === "rollback" ? "Roll back" : "Install"}
+        destructive={confirm === "rollback"}
         onConfirm={() => {
-          setRollback(false)
-          if (update.endpoints?.rollback) void run(update.endpoints.rollback, "The roll back")
+          const action = confirm
+          setConfirm(null)
+          if (action) void run(action)
         }}
       />
     </div>

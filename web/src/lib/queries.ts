@@ -40,6 +40,10 @@ export function invalidateProject(qc: QueryClient, name: string) {
 }
 
 export const useInfo = () => useQuery({ queryKey: keys.info(), queryFn: api.info, staleTime: 60_000 })
+export const useUpdate = (enabled = true) =>
+  useQuery({ queryKey: ["update"], queryFn: () => api.update(), enabled })
+export const useDeploys = (name: string, enabled = true) =>
+  useQuery({ queryKey: ["deploys", name], queryFn: () => api.deploys(name), enabled: !!name && enabled })
 export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
 export const useProject = (name: string) =>

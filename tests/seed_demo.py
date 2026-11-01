@@ -26,6 +26,7 @@ PUBLIC_URL = "https://demo-site.example.test"
 
 PROJECTS = {
     "demo-site": {"repo": "rebirth-wd/demo-site", "profile": "web", "preset": "full", "merge": "ask",
+                  "deploy": "vps-docker",
                   "about": "A small marketing site for a pretend bakery: home, menu, contact form.",
                   "chat": {"chat_session_url": "https://claude.ai/code/session_demo_site"},
                   "spec": ("Contact form", [
@@ -153,6 +154,8 @@ def _write_project(name: str, data: dict) -> Path:
         toml["preset"] = data["preset"]
     if data.get("merge"):
         toml["merge"] = data["merge"]
+    if data.get("deploy"):
+        toml["deploy"] = {"with": data["deploy"]}
     settings.save_project(folder, toml)
     meta = {"profile": data["profile"], **data["chat"]}
     if data["repo"]:
@@ -396,12 +399,43 @@ def _write_logs(all_events: list) -> None:
     atomic.write_text(paths.logs() / "api.log", "GET /api/projects 200 12ms\nGET /api/gates 200 4ms\n")
 
 
+def _seed_install(home: Path) -> None:
+    """A fake installed Phoenix (v9.1), its rollback copy (v9.0) and a cached newest tag (v9.2)."""
+    for suffix, tag in (("", "v9.1"), ("-prev", "v9.0")):
+        folder = home / f"phoenix9-install{suffix}"
+        folder.mkdir()
+        (folder / "VERSION").write_text(tag + "\n")
+        for args in (("init", "-q", "-b", "main"), ("add", "-A"),
+                     ("-c", "user.name=demo", "-c", "user.email=demo@example.com", "commit", "-q", "-m", tag),
+                     ("tag", tag)):
+            git.git(folder, *args)
+    atomic.write_json(home / "update" / "status.json", {
+        "newest": "v9.2", "checked": "2026-10-31T09:00:00+00:00",
+        "last": {"action": "install", "tag": "v9.1", "result": "installed", "reason": "", "at": "2026-10-20T08:00:00+00:00"}})
+    atomic.write_text(home / "logs" / "updater.log", "2026-10-20T08:00:00 install v9.1\n2026-10-20T08:02:10 installed v9.1\n")
+
+
+def _seed_deploys(project: str) -> None:
+    """A short deploy history: one good deploy, then one that was rolled back."""
+    rows = [
+        {"at": "2026-10-25T10:00:00+00:00", "deployer": "vps-docker", "commit": "a1b2c3d4e5f6", "version": "v1",
+         "url": "https://demo-site.example.com", "ok": True, "rolled_back": False, "reason": "", "who": "alex",
+         "run": None, "kind": "deploy"},
+        {"at": "2026-10-28T15:30:00+00:00", "deployer": "vps-docker", "commit": "f6e5d4c3b2a1", "version": "v2",
+         "url": "", "ok": False, "rolled_back": True, "reason": "the health check got a 502", "who": "alex",
+         "run": None, "kind": "deploy"}]
+    path = paths.projects() / project / ".phoenix" / "deploys.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+
 def seed(home: Path, projects: Path) -> None:
     """Empty the two folders (only if they are empty or demo folders) and fill them with the demo data."""
     home, projects = Path(home), Path(projects)
     _check_folder(home, "the Phoenix home")
     _check_folder(projects, "the projects folder")
     os.environ["PHOENIX_HOME"], os.environ["PHOENIX_PROJECTS"] = str(home), str(projects)
+    os.environ["PHOENIX_INSTALL"] = str(home / "phoenix9-install")
     _empty(home)
     _empty(projects)
     (home / MARKER).write_text("demo data; safe to empty\n")
@@ -410,6 +444,8 @@ def seed(home: Path, projects: Path) -> None:
         _write_project(name, data)
     keys.set_key("demo-site", "RESEND_API_KEY", SECRET_KEY_VALUE, secret=True)
     keys.set_key("demo-site", "PUBLIC_SITE_URL", PUBLIC_URL, secret=False)
+    _seed_install(home)
+    _seed_deploys("demo-site")
     all_events = []
     for run in RUNS:
         all_events += _write_run(json.loads(json.dumps(run)))

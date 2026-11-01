@@ -24,3 +24,25 @@ test("phoenix9 shows the merge card and Send back needs a note", async ({ page }
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
+
+test("phoenix9 shows the update panel with versions and a disabled Install while a build runs", async ({ page }) => {
+  await page.goto("/#/p/phoenix9/overview")
+  await expect(page.getByText("Installed: v9.1")).toBeVisible()
+  await expect(page.getByText("Previous: v9.0")).toBeVisible()
+  await expect(page.getByText("Newest: v9.2")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Install update v9.2" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Roll back to v9.0" })).toBeEnabled()
+  await page.getByText("Last update log").click()
+  await expect(page.getByText("installed v9.1")).toBeVisible()
+  await expectNoHorizontalScroll(page)
+  await expectNoRawOutput(page)
+})
+
+test("demo-site shows the Deploy card with its last deploy", async ({ page }) => {
+  await page.goto("/#/p/demo-site/overview")
+  await expect(page.getByRole("button", { name: "Deploy now" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "https://demo-site.example.com" })).toBeVisible()
+  await expect(page.getByText(/rolled back: the health check got a 502/)).toBeVisible()
+  await expectNoHorizontalScroll(page)
+  await expectNoRawOutput(page)
+})

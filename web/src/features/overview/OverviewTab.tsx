@@ -8,6 +8,7 @@ import { ChatLink, RepoLink } from "@/features/projects/parts"
 import { runText } from "@/features/projects/rows"
 import { useBuilds, useChangelog, useGates, useProject } from "@/lib/queries"
 import { useLiveEvents } from "@/lib/live"
+import { DeployCard } from "@/features/deploy/DeployCard"
 import { UpdatePanel } from "@/features/updates/UpdatePanel"
 
 /** The Overview tab: open questions, about, current build and recent changes. */
@@ -81,6 +82,7 @@ export function OverviewTab({ name }: { name: string }) {
           )}
         </CardContent>
       </Card>
+      <DeployCard name={name} />
       {name === "phoenix9" && <UpdatePanel />}
     </div>
   )

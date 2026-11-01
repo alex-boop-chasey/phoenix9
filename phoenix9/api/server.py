@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, gates, github, keys, library, logs, projects, runs, services, settings
+from phoenix9.ops import app, common, deploy, gates, github, keys, library, logs, projects, runs, services, settings, update
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -29,6 +29,7 @@ GATE_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+\.\d+$")  # <run-id>.<n> (used 
 
 JOB_KEEP_SECONDS = 3600
 CREATE_BUSY = "Another project is being created; try again in a moment."
+DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 WHO = "dashboard"
 
 
@@ -86,6 +87,27 @@ def int_param(req, key: str, default: int) -> int:
 def get_info(req):
     """Reply with the app info."""
     return app.info()
+
+
+def get_health(req):
+    """Reply that the server is up (version and tag only; no ops call that can fail)."""
+    import phoenix9
+    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag}
+
+
+def get_update(req):
+    """Reply with the updater status; ?refresh=1 asks GitHub for the newest tag first."""
+    return update.status(refresh=req.query.get("refresh") in ("1", "true"))
+
+
+def get_update_log(req):
+    """Reply with the tail of the updater log."""
+    return update.log(min(max(int_param(req, "lines", 200), 1), 2000))
+
+
+def get_deploys(req, name):
+    """Reply with a project's recent deploys and live address."""
+    return deploy.status(check_name(name))
 
 
 def get_projects(req):
@@ -316,7 +338,7 @@ def post_create(req):
     httpd = req.server
     with httpd.jobs_lock:
         purge_jobs(httpd.jobs)
-        if any(j["status"] == "running" for j in httpd.jobs.values()):
+        if any(j["status"] == "running" and j["kind"] == "create" for j in httpd.jobs.values()):
             raise common.Conflict(CREATE_BUSY)
         job_id = secrets.token_hex(6)
         job = {"id": job_id, "kind": "create", "project": opts["name"], "status": "running",
@@ -324,6 +346,54 @@ def post_create(req):
         httpd.jobs[job_id] = job
     threading.Thread(target=run_create_job, args=(httpd, job, opts), daemon=True).start()
     return {"job": job_id}
+
+
+def run_deploy_job(httpd, job: dict, project: str) -> None:
+    """Background thread: deploy the project now and keep the result on the job."""
+    result, status, message = None, "done", ""
+    try:
+        result = deploy.now(project, who=WHO, yes=True)
+        if not result.get("ok"):
+            status, message = "failed", result.get("message", "")
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message, time.time(), status
+
+
+def post_deploy(req, name):
+    """Start a deploy in the background (needs yes) and reply with the job id; one deploy job at a time."""
+    check_name(name)
+    if req.body.get("yes") is not True:
+        raise BadRequest("Deploying needs confirmation.")
+    common.project_dir(name)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "deploy" for j in httpd.jobs.values()):
+            raise common.Conflict(DEPLOY_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "deploy", "project": name, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_deploy_job, args=(httpd, job, name), daemon=True).start()
+    return {"job": job_id}
+
+
+def post_update_install(req):
+    """Queue an install of the given (or newest) tag; the updater runs as its own unit."""
+    tag = body_text(req, "tag", False)
+    out = update.install(tag, WHO, req.body.get("yes") is True)
+    return {"ok": True, "queued": bool(out.get("queued")), "tag": out.get("tag")}
+
+
+def post_update_rollback(req):
+    """Queue a rollback to the previous version."""
+    out = update.rollback(WHO, req.body.get("yes") is True)
+    return {"ok": True, "queued": bool(out.get("queued"))}
 
 
 def get_job(req, job_id):
@@ -462,6 +532,10 @@ def post_service_disconnect(req, name):
 NAME = r"(?P<name>[^/]+)"
 ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/info", get_info),
+    ("GET", r"/api/health", get_health),
+    ("GET", r"/api/update", get_update),
+    ("GET", r"/api/update/log", get_update_log),
+    ("GET", rf"/api/projects/{NAME}/deploys", get_deploys),
     ("GET", r"/api/projects", get_projects),
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
@@ -487,6 +561,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/projects", post_create),
+    ("POST", r"/api/update/install", post_update_install),
+    ("POST", r"/api/update/rollback", post_update_rollback),
+    ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
@@ -653,6 +730,7 @@ def make_server(port: int, host: str = "127.0.0.1", web_dist=None) -> ThreadingH
     httpd.stopping = threading.Event()
     httpd.jobs_lock = threading.Lock()
     httpd.jobs = {}                       # background jobs by id
+    httpd.tag = app.release_tag()             # the running copy's release tag, read once
     httpd.streams_lock = threading.Lock()
     httpd.streams = 0                     # open live event streams
     httpd.web_dist = Path(web_dist) if web_dist else paths.library() / "web" / "dist"

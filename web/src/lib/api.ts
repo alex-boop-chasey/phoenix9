@@ -1,7 +1,7 @@
 // The only place the web app talks to the server. Paths are relative to the page (path-prefix safe).
 import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
-  Info, Job, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
+  DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template,
 } from "@/lib/types"
@@ -99,6 +99,8 @@ export const api = {
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),
   keysAudit: () => get<KeysAudit>("keys/audit"),
+  update: (refresh = false) => get<UpdateStatus>("update", { refresh: refresh ? 1 : undefined }),
+  deploys: (name: string) => get<DeployStatus>(`projects/${e(name)}/deploys`),
   job: (id: string) => get<Job>(`jobs/${e(id)}`),
   eventsRecent: (params: { project?: string; after?: number; limit?: number }) =>
     get<EventsRecent>("events/recent", params),

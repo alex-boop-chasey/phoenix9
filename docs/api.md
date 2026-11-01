@@ -48,6 +48,13 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/global` | `ops.app.global_view` | | Global view | |
 | GET | `/api/services` | `ops.services.list_` | | `{supported: true, services: [row + endpoints {connect, disconnect}]}`; row = `{name, title, description, support, connected, note, account_keys, checked, checked_at, project_keys, hosts, used_by}` | |
 | GET | `/api/keys/audit` | `ops.keys.audit` | | `{global: [{file, names, used_by, modified, mode, mode_ok}], projects: [{project, name, secret, set, used, last_touched, service}], problems: [text]}` (never a value) | |
+| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag}`; `tag` is the running copy's release tag, `""` when unknown | |
+| GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line]}`; `refresh=1` asks GitHub for the newest tag | |
+| GET | `/api/update/log?lines=200` | `ops.update.log` | | `{lines, checks_file}` | |
+| GET | `/api/projects/<name>/deploys` | `ops.deploy.status` | | `{project, deployer {name, title, supported}, recent (newest first), live_url, last_good_commit, last_good_at}` | 404 |
+| POST | `/api/update/install` | `ops.update.install` (queues the updater unit; never runs it) | `{tag?, yes: true}` | `{ok, queued, tag}` | 400 |
+| POST | `/api/update/rollback` | `ops.update.rollback` | `{yes: true}` | `{ok, queued}` | 400 |
+| POST | `/api/projects/<name>/deploy` | `ops.deploy.now` (in a background thread) | `{yes: true}` | `{job}` | 400, 404, 409 |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
@@ -85,7 +92,7 @@ plus:
 `vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
 
 **Info** (`/api/info`): `version` (`phoenix9.__version__`), `update {supported, installed, newest,
-available, can_install, reason}`, `github {connected, accounts}`, `services {supported}` (true).
+available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true).
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,
 tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished` (ISO or `""`),
@@ -107,9 +114,9 @@ repo?, template?, path?}, profile, new_repo: {on, owner}, services: [], keys: [{
 The reply is `{job}` at once; ops runs in the background (one create at a time, else 409). Key values go
 straight to the keys store (`opts["keys"]`), never to a file.
 
-**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create", project, status: "running"|"done"|"failed",
+**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy", project, status: "running"|"done"|"failed",
 steps: [{label, status: "running"|"done"|"failed"}], message}`. Each progress line from ops starts a step and
-marks the previous one done; `message` is the ops error on failure (empty otherwise).
+marks the previous one done; `message` is the ops error on failure (empty otherwise). Deploy jobs have no steps and add `result` (the `ops.deploy.now` result, `null` while running). One job per kind at a time: a second create while one creates, or a second deploy while one deploys, is 409; a create and a deploy may run together.
 
 **Plan** (`POST .../plan`): `{groups: {"run-start": [...], "task": [...], "run-finish": [...]}, steps: [{name,
 title, group, order, kind: "script"|"ai"|"gate", safety, default, on, reason, sources, ai}], errors: [plain

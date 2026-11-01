@@ -54,10 +54,24 @@ def _words(result: dict) -> str:
     return f"Deploy failed: {result.get('reason', '')}"
 
 
+def _deployer_facts(project: str) -> dict:
+    """{name, title, supported} of the project's deployer ('none' when unset or unreadable)."""
+    from phoenix9 import settings
+    try:
+        name = settings.load_project(paths.projects() / project).get("deploy", {}).get(
+            "with", settings.PROJECT_SCHEMA["deploy.with"].default)
+    except settings.SettingsError:
+        name = "none"
+    found = deploy.get(name) if name != deploy.NONE else None
+    if found is None:
+        return {"name": name, "title": name if name != deploy.NONE else "None", "supported": name == deploy.NONE}
+    return {"name": name, "title": found["title"], "supported": bool(found["supported"])}
+
+
 def status(project: str) -> dict:
-    """The last few deploys, the live address and the last good commit."""
+    """The deployer, the last few deploys, the live address and the last good commit."""
     common.project_dir(project)
     records = [r for r in deploy.read_records(project) if r.get("kind") == "deploy"]
     good = deploy.last_good(project)
-    return {"project": project, "recent": records[-RECENT:][::-1], "live_url": (good or {}).get("url", ""),
+    return {"project": project, "deployer": _deployer_facts(project), "recent": records[-RECENT:][::-1], "live_url": (good or {}).get("url", ""),
             "last_good_commit": (good or {}).get("commit", ""), "last_good_at": (good or {}).get("at", "")}

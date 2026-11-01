@@ -69,6 +69,7 @@ def build_server(home: Path, projects: Path, port: int):
     if seed_demo.is_empty(home) and seed_demo.is_empty(projects):
         seed_demo.seed(home, projects)
     os.environ["PHOENIX_HOME"], os.environ["PHOENIX_PROJECTS"] = str(home), str(projects)
+    os.environ["PHOENIX_INSTALL"] = str(Path(home) / "phoenix9-install")
     os.environ.setdefault("PHOENIX_CLAUDE_JSON", str(Path(home) / "claude.json"))
     adapters = demo_adapters()
     adapters.host.files[os.environ["PHOENIX_CLAUDE_JSON"]] = '{"projects": {}}'

@@ -228,11 +228,70 @@ export interface JobStep {
 
 export interface Job {
   id: string
-  kind: "create"
+  kind: "create" | "deploy"
   project: string
   status: "running" | "done" | "failed"
   steps: JobStep[]
   message: string
+  /** Deploy jobs: the deploy result once it has finished. */
+  result?: DeployResult | null
+}
+
+/** One installed copy of Phoenix. */
+export interface UpdateVersion {
+  tag: string
+  commit: string
+}
+
+/** GET /api/update: the updater's status. */
+export interface UpdateStatus {
+  supported: boolean
+  installed: UpdateVersion | null
+  previous: UpdateVersion | null
+  newest: string | null
+  update_available: boolean
+  can_rollback: boolean
+  busy: boolean
+  busy_reason: string
+  running: boolean
+  waiting: string
+  phase: string | null
+  interrupted: boolean
+  last: { action: string; tag: string | null; result: string; reason: string; at?: string } | null
+  log_tail: string[]
+}
+
+/** The result of a deploy (a deploy record, or a skip / refusal). */
+export interface DeployResult {
+  ok: boolean
+  message?: string
+  reason?: string
+  url?: string
+  rolled_back?: boolean
+  skipped?: string
+}
+
+/** One line of a project's deploy history. */
+export interface DeployRecord {
+  at: string
+  commit: string
+  version: string
+  url: string
+  ok: boolean
+  rolled_back: boolean
+  reason: string
+  who: string
+  deployer: string
+}
+
+/** GET /api/projects/<name>/deploys. */
+export interface DeployStatus {
+  project: string
+  deployer: { name: string; title: string; supported: boolean }
+  recent: DeployRecord[]
+  live_url: string
+  last_good_commit: string
+  last_good_at: string
 }
 
 export interface LogEntry {

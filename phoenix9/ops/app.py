@@ -2,7 +2,7 @@
 import importlib.util
 
 import phoenix9
-from phoenix9 import paths, settings
+from phoenix9 import git, paths, settings
 from phoenix9.ops import common, github
 
 
@@ -25,7 +25,16 @@ def _update_info() -> dict:
         reason = "An update is running"
     return {"supported": True, "installed": installed or phoenix9.__version__, "newest": st.get("newest"),
             "available": available, "can_install": bool(available and installed and not st.get("running")),
-            "reason": reason}
+            "reason": reason, "endpoints": {"install": "update/install", "rollback": "update/rollback"}}
+
+
+def release_tag() -> str:
+    """The release tag of the running copy ('' when it has none or git cannot say)."""
+    try:
+        done = git.run_git(paths.library(), "describe", "--tags", "--exact-match", check=False, timeout=10)
+        return done.stdout.decode(errors="replace").strip() if done.returncode == 0 else ""
+    except Exception:
+        return ""
 
 
 def info() -> dict:

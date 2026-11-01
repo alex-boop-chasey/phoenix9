@@ -470,6 +470,7 @@ class Runner:
         if move == "passed":
             produces = line.get("produces") or {}
             extra = self._on_approved(run_dir, setup, things, name, number, produces)
+            things.update(atomic.read_json(run_dir / "things.json", {}))   # a hook (Merge) may have recorded a thing
             self._record(run_dir, things, index, number, name, "passed", [], produces, **extra)
             state.set_step_line(run_dir, index, note=f"approved by {who}")
             return Outcome("passed")

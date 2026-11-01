@@ -32,7 +32,7 @@ PASS = json.dumps({"verdict": "pass", "reasons": []})
 DONE = "I wrote the code.\nSTEP DONE"
 QUICK_LINES = (["pick-up", "spec-check", "branch", "service-setup"]
                + [s for _ in (1, 2, 3) for s in ("builder", "diff-rules", "secret-scan", "acceptance", "verify", "commit")]
-               + ["full-suite", "summary", "merge", "notify"])
+               + ["full-suite", "summary", "preview", "merge", "deploy", "notify"])
 
 
 class E2E:
@@ -152,7 +152,9 @@ def test_quick_run_done(e2e):
     st = e2e.state(run_id)
     assert st["status"] == "done", st
     assert e2e.steps(st) == QUICK_LINES
-    assert all(x["status"] == "passed" for x in st["steps"]), [x for x in st["steps"] if x["status"] != "passed"]
+    off = ("preview", "deploy")    # both skip themselves unless [deploy] says otherwise
+    assert all(x["status"] == "passed" for x in st["steps"] if x["step"] not in off), [x for x in st["steps"] if x["status"] != "passed"]
+    assert all(x["status"] == "skipped" for x in st["steps"] if x["step"] in off)
     commits = trailers(e2e, run_id)
     assert len(commits) == 3
     for n in (1, 2, 3):
@@ -346,3 +348,31 @@ def test_runner_restart_mid_merge_gate_e2e(e2e):
     assert st["status"] == "done", st
     e2e.git("merge-base", "--is-ancestor", f"phoenix/{run_id}", "main")
     assert len(e2e.adapters.notify.messages) == 1
+
+
+def test_quick_run_deploys_on_merge(e2e, tmp_path, monkeypatch):
+    """A Quick run of a project with the test deployer on-merge ends done with a deploy event and record."""
+    import sys
+    from types import SimpleNamespace
+    from phoenix9 import deploy, events, paths
+    root = tmp_path / "deploy-lib"
+    root.mkdir()
+    for item in ROOT.iterdir():
+        if item.name != "deployers" and not item.name.startswith("."):
+            (root / item.name).symlink_to(item)
+    (root / "deployers").symlink_to(ROOT / "tests" / "data" / "deployers")
+    monkeypatch.setenv("PHOENIX_LIBRARY", str(root))
+    sys.modules["deploy_script"] = SimpleNamespace(
+        deploy=lambda dctx: {"url": "https://e2e.example", "version": "v1"}, health=lambda d, r: (True, "ok"),
+        rollback=lambda d, r, p: {}, preview=lambda d: {}, stop_preview=lambda d, r: None)
+    toml = paths.projects() / "e2e" / "phoenix.toml"
+    toml.write_text(toml.read_text() + '\n[deploy]\nwith = "scripted"\nmode = "on-merge"\n\n[deploy.settings]\nlive_port = 8080\n')
+    e2e.script_builders()
+    run_id = e2e.start()
+    e2e.settle()
+    st = e2e.state(run_id)
+    sys.modules.pop("deploy_script", None)
+    assert st["status"] == "done", st
+    assert [x["status"] for x in st["steps"] if x["step"] == "deploy"] == ["passed"]
+    assert [r["ok"] for r in deploy.read_records("e2e")] == [True]
+    assert any(e["type"] == "deploy.finished" for e in events.tail(paths.events(), 200))

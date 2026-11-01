@@ -404,3 +404,14 @@ def stop_preview(adapters, project: str, *, who: str, run_id: str) -> dict:
     record = {**found[-1], "at": _now(), "ok": False, "reason": "preview stopped", "who": who}
     _write_record(project, record)
     return {"ok": True, "stopped": True, "run": run_id}
+
+
+def try_stop_preview(adapters, project: str, run_id: str) -> str:
+    """Stop a run's preview if one is running; never raises; returns one plain line for the step log."""
+    try:
+        result = stop_preview(adapters, project, who="runner", run_id=run_id)
+    except Exception as err:
+        return f"stopping the preview did not work: {_reason(err)}"
+    if result.get("stopped"):
+        return "preview stopped"
+    return f"preview not stopped: {result.get('reason') or result.get('skipped') or 'nothing to stop'}"

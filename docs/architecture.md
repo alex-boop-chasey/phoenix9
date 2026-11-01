@@ -474,7 +474,12 @@ Done when:
   steps: it is a `human-task` gate. A usage limit is not a try (the same attempt goes on afterwards).
   Run-level steps have no retries and no `on_failure`: a failed start step fails the run, a failed
   finish step makes it `failed` while the other finish steps still run; a run-level step that needs
-  Alex returns a gate (for a failure: kind `escalation`). Run end: `done` unless a task or a run-level
+  Alex returns a gate (for a failure: kind `escalation`). Deploy (finish, order 40) does exactly this
+  when a deploy fails and rolls back: escalation gate, flag "deploy rolled back", actions `acknowledged`
+  (the step stays failed, so the run ends `failed`; Notify still runs), `skip`, `stop`, plus one notify
+  message. With `[deploy] mode = "button"` Deploy opens a `deploy` gate (`deploy | skip | stop`) and
+  deploys when called again with the `deploy` answer. Preview (finish, order 25) never fails a run.
+  Run end: `done` unless a task or a run-level
   step failed (`failed`) or Alex stopped it (`stopped`).
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart

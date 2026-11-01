@@ -1,5 +1,5 @@
 """Notify: sends Alex one message about how the run ended (also when the run was stopped)."""
-from phoenix9 import atomic, scrub, state
+from phoenix9 import atomic, deploy, scrub, state
 from phoenix9.stepctx import StepResult
 
 STOPPED_NOTE = "the run was stopped"
@@ -36,7 +36,14 @@ def message(ctx) -> str:
     return text + (f". Summary: {path}" if path.exists() else ".")
 
 
+def _stop_preview(ctx) -> None:
+    """A stopped run leaves no preview running (best effort)."""
+    if str(ctx.things.get("preview-url") or "").startswith("http") and _outcome(state.load(ctx.run.folder)) == "stopped":
+        ctx.log(deploy.try_stop_preview(ctx.adapters, ctx.project.name, ctx.run.id))
+
+
 def run(ctx):
-    """Send the message through the notify adapter."""
+    """Send the message through the notify adapter (and stop a stopped run's preview)."""
+    _stop_preview(ctx)
     ctx.adapters.notify.send(scrub.scrub(message(ctx)))
     return StepResult("pass")

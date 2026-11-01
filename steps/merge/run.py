@@ -3,7 +3,7 @@ import fnmatch
 import json
 import re
 
-from phoenix9 import atomic, git as gitmod, release, settings, state
+from phoenix9 import atomic, deploy, git as gitmod, release, settings, state
 from phoenix9.stepctx import StepResult
 
 MR_FILE = "merge-request.txt"
@@ -100,15 +100,29 @@ def _tag_release(ctx, sha) -> tuple[str, str]:
         return "", f"merged but not tagged ({err}): run `phoenix update release`"
 
 
+def _preview_url(ctx) -> str:
+    """The run's preview address, or "" when Preview did not make one."""
+    url = str(ctx.things.get("preview-url") or "")
+    return url if url.startswith("http") else ""
+
+
+def _stop_preview(ctx) -> None:
+    """Stop the run's preview after the merge was decided (best effort, logged)."""
+    if _preview_url(ctx):
+        ctx.log(deploy.try_stop_preview(ctx.adapters, ctx.project.name, ctx.run.id))
+
+
 def _auto(ctx, branch) -> StepResult:
     """Merge in code/ and push main and the branch when there is an origin."""
     sha = _local_merge(ctx, branch)
+    preview = [f"preview was at {_preview_url(ctx)}"] if _preview_url(ctx) else []
+    _stop_preview(ctx)
     if not ctx.adapters.git.remote_url(ctx.project.code_dir):
-        return StepResult("pass", ["local only (no GitHub repo)"], produces={"merged": sha})
+        return StepResult("pass", ["local only (no GitHub repo)", *preview], produces={"merged": sha})
     _push(ctx, ctx.adapters.git.default_branch(ctx.project.code_dir), branch)
     tag, note = _tag_release(ctx, sha)
     reasons = [f"release: {tag}"] if tag else [note] if note else []
-    return StepResult("pass", reasons, produces={"merged": sha})
+    return StepResult("pass", [*reasons, *preview], produces={"merged": sha})
 
 
 def _open_request(ctx, branch) -> str:
@@ -135,6 +149,8 @@ def _ask(ctx, branch, flags, why) -> StepResult:
         text = "; ".join(why)
     else:
         text = "local only: approve merges into code/ main; " + "; ".join(why)
+    if _preview_url(ctx):
+        links.append({"label": "Preview", "url": _preview_url(ctx)})
     links.append({"label": "Summary", "url": str(ctx.run.folder / "summary.md")})
     gate = {"kind": "merge", "title": f"Merge {_title(ctx)}?", "why": text, "links": links,
             "actions": ["approve", "back", "skip", "stop"], "flags": flags}
@@ -143,6 +159,7 @@ def _ask(ctx, branch, flags, why) -> StepResult:
 
 def _sent_back(ctx) -> StepResult:
     """Alex sent the merge back: keep the note, comment on the merge request, pass."""
+    _stop_preview(ctx)
     note = (ctx.answer.get("note") or "").strip() or "no note"
     (ctx.run.folder / NOTE_FILE).write_text(f"# Merge sent back\n\n{note}\n")
     mr = ctx.run.folder / MR_FILE
@@ -188,6 +205,13 @@ def _remember_merged(ctx, extra) -> dict:
 
 def on_approved(ctx, produces) -> dict:
     """Alex approved: merge the request on GitHub (or locally for a local-only project) and update code/."""
+    extra = _approved(ctx)
+    _stop_preview(ctx)
+    return extra
+
+
+def _approved(ctx) -> dict:
+    """Do the approved merge and return the event data."""
     git, code = ctx.adapters.git, ctx.project.code_dir
     on_main, clean = _code_state(ctx)
     mr = ctx.run.folder / MR_FILE

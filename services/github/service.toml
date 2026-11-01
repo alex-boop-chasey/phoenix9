@@ -1,0 +1,4 @@
+name = "github"
+title = "GitHub"
+project_keys = []
+hosts = ["github.com", "api.github.com"]

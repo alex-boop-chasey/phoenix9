@@ -1,0 +1,4 @@
+name = "openrouter"
+title = "OpenRouter"
+project_keys = [ {name = "OPENROUTER_API_KEY", secret = true} ]
+hosts = ["openrouter.ai"]

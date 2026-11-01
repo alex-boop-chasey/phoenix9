@@ -22,6 +22,11 @@ def render_prompt(template: str, values: dict) -> str:
     return _PLACEHOLDER.sub(lambda m: str(values[m.group(1)]) if m.group(1) in values else m.group(0), template)
 
 
+def project_domains(ctx) -> list:
+    """The hosts the project itself allows ([domains] allow in phoenix.toml)."""
+    return list((ctx.project.settings.get("domains") or {}).get("allow") or [])
+
+
 def last_line(text: str) -> str:
     """The last non-empty line of the text (cut to 300 characters)."""
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]

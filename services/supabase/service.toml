@@ -1,0 +1,5 @@
+name = "supabase"
+title = "Supabase"
+project_keys = [ {name = "SUPABASE_URL", secret = false}, {name = "SUPABASE_ANON_KEY", secret = false},
+                 {name = "SUPABASE_SERVICE_ROLE_KEY", secret = true} ]
+hosts = ["*.supabase.co"]

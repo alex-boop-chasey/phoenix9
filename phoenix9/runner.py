@@ -32,7 +32,8 @@ from pathlib import Path
 from phoenix9 import atomic, events, failmodes, gates, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import reports
-from phoenix9.aistep import checks_text, render_prompt, task_text
+from phoenix9 import keys as keys_mod
+from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
 from phoenix9.resolve import resolve
@@ -494,6 +495,7 @@ class Runner:
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
         info: ProjectInfo = setup["project"]
+        scrub.add_secrets(keys_mod.secret_values(project))    # project keys never reach a log
         work = paths.work(project, run_id)
         worktree = work if work.is_dir() else None
         spec_data = self._spec_data(run_dir, save=False)
@@ -615,18 +617,19 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     out_prompt.write_text(render_prompt(prompt_file.read_text(encoding="utf-8"), values), encoding="utf-8")
     profile = ctx.project.profile
     domains = docker_mod.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()),
-                                            ctx.project.settings.get("allowed_domains", ()))
+                                            project_domains(ctx))
     mount_dir = ctx.run.folder / "spec-mount"
     mount_dir.mkdir(exist_ok=True)
     if not (mount_dir / "spec.md").exists():
         atomic.write_text(mount_dir / "spec.md", (ctx.run.folder / "spec.md").read_text(encoding="utf-8"), mode=0o444)
     extra = code.mounts(ctx) if code is not None and hasattr(code, "mounts") else {}
-    session = ctx.adapters.claude.launch(
-        ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
-        attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
-        prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
-        domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
-        extra_mounts=list(extra.get("extra_mounts") or []))
+    with keys_mod.env_file(ctx.project.name) as key_file:
+        session = ctx.adapters.claude.launch(
+            ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
+            attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
+            prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
+            domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
+            extra_mounts=list(extra.get("extra_mounts") or []), env_files=[key_file] if key_file else [])
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     ctx.log(f"session ended: {session.kind}")
     if session.kind == "rate_limited":

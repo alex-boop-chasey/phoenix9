@@ -1,0 +1,4 @@
+name = "sentry"
+title = "Sentry"
+project_keys = [ {name = "SENTRY_DSN", secret = false} ]
+hosts = ["*.sentry.io", "*.ingest.sentry.io"]

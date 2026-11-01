@@ -1,6 +1,6 @@
 """Red check: the new checks must FAIL before anything is built; passing now means they prove nothing."""
-from phoenix9 import atomic, docker, scrub
-from phoenix9.aistep import profile_test
+from phoenix9 import atomic, docker, keys, scrub
+from phoenix9.aistep import profile_test, project_domains
 from phoenix9.stepctx import StepResult
 
 
@@ -14,11 +14,12 @@ def run(ctx):
     folder.mkdir(parents=True, exist_ok=True)
     out = folder / "red-check.txt"
     profile = ctx.project.profile
-    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()))
-    rc, _ = docker.run_check_container(
-        ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
-        ctx.worktree, command, None, domains, 30, stdout_path=out, role="red-check",
-        mounts=[docker.Mount(folder, "/out", ro=False)])
+    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()), project_domains(ctx))
+    with keys.env_file(ctx.project.name) as env_file:
+        rc, _ = docker.run_check_container(
+            ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
+            ctx.worktree, command, env_file, domains, 30, stdout_path=out, role="red-check",
+            mounts=[docker.Mount(folder, "/out", ro=False)])
     if out.exists():
         atomic.write_text(out, scrub.scrub(out.read_text(errors="replace")))
     ctx.log(f"{command} -> exit {rc}")

@@ -1,7 +1,5 @@
 """Secret scan: fails the task if the change writes a secret value or key into the code."""
-import importlib
-
-from phoenix9 import paths, scrub, state
+from phoenix9 import keys, paths, scrub, state
 from phoenix9.stepctx import StepResult
 
 MAX_NEW_FILE = 5_000_000
@@ -9,11 +7,7 @@ MAX_NEW_FILE = 5_000_000
 
 def _values(ctx) -> list[str]:
     """Every secret value to look for: project keys, the global secret files, the scrubber's values."""
-    try:
-        keys = importlib.import_module("phoenix9.keys")   # added by the project-keys step
-        project_values = list(keys.secret_values(ctx.project))
-    except ImportError:
-        project_values = []
+    project_values = keys.secret_values(ctx.project.name)
     env_files = sorted(paths.secrets().glob("*.env")) if paths.secrets().is_dir() else []
     return [*project_values, *scrub.secrets_from(env_files), *scrub.known_secrets()]
 

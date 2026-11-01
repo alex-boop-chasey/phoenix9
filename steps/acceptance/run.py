@@ -1,22 +1,11 @@
 """Acceptance: runs the task's checks in check containers; exit codes are the gate."""
-import importlib
 import time
 
-from phoenix9 import atomic, checklock, docker, scrub
-from phoenix9.aistep import profile_test
+from phoenix9 import atomic, checklock, docker, keys, scrub
+from phoenix9.aistep import profile_test, project_domains
 from phoenix9.stepctx import StepResult
 
 TAIL_LINES = 60
-
-
-def _env_file(ctx):
-    """The project's keys file for check containers, or None (project keys arrive in a later step)."""
-    try:
-        keys = importlib.import_module("phoenix9.keys")
-    except ImportError:
-        return None
-    fn = getattr(keys, "container_env", None)
-    return fn(ctx.project) if fn else None
 
 
 def _commands(ctx, test):
@@ -54,17 +43,17 @@ def run(ctx):
     if not commands:
         return StepResult("fail", [f"Task {n} has nothing Phoenix can run to check it"])
     profile = ctx.project.profile
-    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()))
-    env_file = _env_file(ctx)
+    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()), project_domains(ctx))
     folder = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}"
     folder.mkdir(parents=True, exist_ok=True)
     codes, failed, report = [], [], []
     for i, command in enumerate(commands, 1):
         out_path = ctx.run.folder / "logs" / f"acceptance-{n}-{i}.txt"
         started = time.monotonic()
-        rc, _ = docker.run_check_container(
-            ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
-            ctx.worktree, command, env_file, domains, 30, stdout_path=out_path, role=f"acceptance-{i}")
+        with keys.env_file(ctx.project.name) as env_file:
+            rc, _ = docker.run_check_container(
+                ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
+                ctx.worktree, command, env_file, domains, 30, stdout_path=out_path, role=f"acceptance-{i}")
         seconds = round(time.monotonic() - started, 1)
         tail = _tail(out_path)
         codes.append({"command": command, "exit_code": rc, "duration": seconds, "output": tail})

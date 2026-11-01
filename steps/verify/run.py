@@ -1,22 +1,12 @@
 """Verify: runs the task's checks (and in full scope the whole suite) in a fresh container and writes the test report."""
-import importlib
 import shutil
 
-from phoenix9 import atomic, checklock, docker, git, reports, scrub, settings
-from phoenix9.aistep import profile_test
+from phoenix9 import atomic, checklock, docker, git, keys, reports, scrub, settings
+from phoenix9.aistep import profile_test, project_domains
 from phoenix9.stepctx import StepResult
 
 DEFAULT_ARGS = {"pytest-junit": "--junitxml=/out/pytest.xml",
                 "vitest-json": "--reporter=json --outputFile=/out/vitest.json"}
-
-
-def _keys(ctx, name):
-    """Call phoenix9.keys.<name>(project) if that module and function exist (project keys arrive in a later step)."""
-    try:
-        fn = getattr(importlib.import_module("phoenix9.keys"), name, None)
-    except ImportError:
-        return None
-    return fn(ctx.project) if fn else None
 
 
 def _readers(test) -> list:
@@ -99,16 +89,16 @@ def run(ctx):
 def _run_jobs(ctx, jobs, checkout, out_dir, n, log_dir=None):
     """Run each job in its own check container; return (the reports, the log files). Logs go to log_dir/<i>.txt when given."""
     profile = ctx.project.profile
-    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()))
-    env_file = _keys(ctx, "container_env")
-    secrets = list(_keys(ctx, "secret_values") or [])
+    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()), project_domains(ctx))
+    secrets = keys.secret_values(ctx.project.name)
     parts, logs = [], []
     for i, (label, command, readers, expected) in enumerate(jobs, 1):
         log = log_dir / f"{i}.txt" if log_dir else ctx.run.folder / "logs" / f"verify-{n}-{i}.txt"
-        rc, _ = docker.run_check_container(
-            ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
-            checkout, command, env_file, domains, 30, stdout_path=log, role=f"verify-{i}",
-            mounts=[docker.Mount(out_dir, "/out", ro=False)])
+        with keys.env_file(ctx.project.name) as env_file:
+            rc, _ = docker.run_check_container(
+                ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
+                checkout, command, env_file, domains, 30, stdout_path=log, role=f"verify-{i}",
+                mounts=[docker.Mount(out_dir, "/out", ro=False)])
         if "exit-code" in readers:
             atomic.write_text(out_dir / reports.REPORT_FILES["exit-code"], f"{rc}\n")   # Phoenix writes this itself
         reports.redact_reports(out_dir, secrets)

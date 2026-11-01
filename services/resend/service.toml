@@ -1,0 +1,4 @@
+name = "resend"
+title = "Resend"
+project_keys = [ {name = "RESEND_API_KEY", secret = true} ]
+hosts = ["api.resend.com"]

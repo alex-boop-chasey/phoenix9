@@ -39,12 +39,12 @@ docs/architecture.md           this file
 phoenix9/                      the Python package
   __main__.py                  CLI entry (argparse); one sub-module per command group in phoenix9/cli/
   cli/                         project.py (also `project keys` and `project services`) run.py gate.py
-                               settings.py library.py runner.py output.py doctor.py api.py (thin: parse args,
+                               settings.py library.py runner.py output.py doctor.py images.py api.py (thin: parse args,
                                call ops, print); phase 4 adds global_.py update.py deploy.py
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
                                common runs gates settings library projects keys (phases 1-2), logs app github (phase 3),
-                               global_ services update deploy doctor (phase 4). Errors: OpsError.
+                               global_ services update deploy doctor images (phase 4). Errors: OpsError.
   paths.py                     where things live (section 3)
   tomlw.py                     small TOML writer (stdlib has no writer); round-trips what we use
   atomic.py                    write_json/write_text atomically (tmp file + os.replace), read_json
@@ -74,7 +74,8 @@ phoenix9/                      the Python package
   updater.py                   install / roll back a release tag, with recovery (phase 4, section 15)
   hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
-  doctor.py                    phoenix doctor (phase 4; stub in phase 1)
+  doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
+  images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
 steps/<name>/                  step library: step.toml + prompt.md (ai) and/or run.py (script)
 steps/_delegate/               delegate-mode prompt (a `_` folder: not a step, the loader skips it)
@@ -820,3 +821,28 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   (install, rollback, recover, request, run_request, status) loads the global secret env files into
   the scrubber first. Imports: stdlib plus `phoenix9.{paths, atomic,
   adapters, events, scrub, hold}`, all at module top (a test checks).
+
+### Doctor checks (`phoenix9/doctor.py`, `phoenix doctor [--quick | --for-update] [--json]`)
+
+`run_checks(adapters, mode) -> {ok, checks: [{name, ok, detail, fix}]}`; one failing (or crashing) check
+never stops the others; exit 0 only when all pass. Details name files and modes, never values.
+
+| Check | What it tests | quick | for-update | full |
+| --- | --- | --- | --- | --- |
+| `python`, `library` | Python 3.12+; the step library loads | | | yes |
+| `services` | `systemctl is-active phoenix-api phoenix-runner` (host adapter) | yes | yes | yes |
+| `api` | GET `127.0.0.1:<PHOENIX_API_PORT from HOME/config/api.env, default 8095>/api/health` is 200; in `for-update` its `tag` is one of the `v9.<n>` tags at the installed copy's HEAD | yes | yes (tag) | yes |
+| `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
+| `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
+| `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |
+| `firewall` | `docker.probe_firewall` with a temporary proxy on the bridge gateway (no rules, dummy key, stopped in `finally`) | | yes | yes |
+| `claude` | one tiny session (`max_turns` 1, firewall on) exits 0 with a result event | | | yes |
+| `advisor` | writes `HOME/config/doctor.json` `{advisor_available, checked_at, claude_version}` from the session's `system/init` event; `claude.session_mounts` skips the advisor mounts (and the launcher adds one prompt line) when it says false or `skills/advisor` is missing | | | yes |
+| `disk` | free space on HOME and `/var/lib/docker` (`df` via host adapter): fail under 5 GB, "getting low" under 15 GB | yes | | yes |
+| `updater` | `update/status.json` readable; no hold file older than 3 h without a running update; `systemctl cat phoenix9-update.service` works | | | yes |
+
+`phoenix images build [--profile P ...] [--all] [--changed] [--json]`: `docker build -f
+profiles/<p>/image/Dockerfile -t <profile.toml image> --label phoenix9.commit=<HEAD> <library root>`;
+the base image (`phoenix9-step:base`, context `image/`) only with `--profile base` or `--all`. Default =
+profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
+`image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.

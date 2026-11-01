@@ -184,6 +184,27 @@ class FakeDocker:
         self.orphans: list[str] = []
         self.removed: list[str] = []
         self.volumes: list[str] = []
+        self.images: dict[str, dict] = {}        # tag -> labels (an image that "exists")
+        self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
+
+    def image_exists(self, tag):
+        """True when the tag is in .images."""
+        self.calls.append(("image_exists", (tag,), {}))
+        return tag in self.images
+
+    def image_label(self, tag, label):
+        """The label set on a fake image ('' when absent)."""
+        return str(self.images.get(tag, {}).get(label, ""))
+
+    def build(self, dockerfile, tag, context, labels, log_path, timeout_s=0):
+        """Record a build; on success the tag exists with these labels."""
+        self.calls.append(("build", (str(dockerfile), tag, str(context), dict(labels)), {}))
+        rc = self.build_codes.pop(0) if self.build_codes else 0
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(log_path).write_text(f"fake build of {tag}: exit {rc}\n")
+        if rc == 0:
+            self.images[tag] = dict(labels)
+        return rc
 
     def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
         """Record the argv; write the next scripted output to stdout_path; return the next exit code."""

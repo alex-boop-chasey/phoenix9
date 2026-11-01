@@ -26,6 +26,7 @@ STORE_MOUNT = "/pnpm-store"
 LABEL = "phoenix9"
 FALLBACK_UID = 1000                                 # entry.sh refuses uid 0; the image's `node` user
 TIMEOUT_RC = 124
+BUILD_TIMEOUT_S = 3600                              # one image build
 FORBIDDEN_ENV_FILES = ("github.env", "telegram.env")              # hard rule 2: never inside a step container
 FORBIDDEN_ENV_PATTERNS = ("service-*.env",)         # hard rule 2: account service keys
 BUILTIN_DOMAINS = ("api.anthropic.com",)            # init-firewall.sh also allows registry.npmjs.org itself
@@ -95,6 +96,28 @@ class DockerRunner:
     def chown(self, path: Path, uid: int, gid: int) -> None:
         """Hand a host folder to a uid/gid (only used when Phoenix runs as root)."""
         subprocess.run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
+
+    def image_exists(self, tag: str) -> bool:
+        """True when an image with this tag is on this machine."""
+        p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return p.returncode == 0
+
+    def image_label(self, tag: str, label: str) -> str:
+        """One label of an image ('' when the image or the label is missing)."""
+        p = subprocess.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
+                           capture_output=True, text=True)
+        out = p.stdout.strip()
+        return "" if p.returncode != 0 or out == "<no value>" else out
+
+    def build(self, dockerfile: Path, tag: str, context: Path, labels: dict, log_path: Path,
+              timeout_s: float = BUILD_TIMEOUT_S) -> int:
+        """Build an image (output to log_path) and return docker's exit code (124 on timeout)."""
+        argv = [DOCKER, "build", "-f", str(dockerfile), "-t", tag]
+        for key, value in labels.items():
+            argv += ["--label", f"{key}={value}"]
+        argv.append(str(context))
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        return self.run(argv, Path(log_path), Path(log_path), timeout_s, f"phoenix9-build-{os.getpid()}")
 
 
 # ------------------------------------------------------------- argv building

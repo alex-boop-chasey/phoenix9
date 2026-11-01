@@ -123,6 +123,11 @@ class Claude:
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
         mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
+        note = cl.advisor_note(ai)
+        if note:
+            text = Path(prompt_file).read_text(encoding="utf-8")
+            if note not in text:
+                Path(prompt_file).write_text(f"{text.rstrip()}\n\n{note}\n", encoding="utf-8")
 
         def one(model: str):
             cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace")

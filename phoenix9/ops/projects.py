@@ -78,6 +78,15 @@ def rows() -> list:
     return out
 
 
+def row(name: str) -> dict:
+    """One Projects page row (as `rows`) for an existing project."""
+    common.project_dir(name)
+    found = next((r for r in rows() if r["name"] == name), None)
+    if found is None:
+        raise common.NotFound(f"There is no project called '{name}'.")
+    return found
+
+
 def check_name(name: str) -> dict:
     """Say whether a new project name is usable: {ok, message}."""
     from phoenix9 import paths, project

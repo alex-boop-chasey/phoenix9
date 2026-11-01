@@ -37,8 +37,8 @@ docs/architecture.md           this file
 phoenix9/                      the Python package
   __main__.py                  CLI entry (argparse); one sub-module per command group in phoenix9/cli/
   cli/                         project.py (also `project keys` and `project services`) run.py gate.py
-                               settings.py library.py runner.py output.py doctor.py (thin: parse args,
-                               call ops, print); phase 4 adds global_.py update.py deploy.py api.py
+                               settings.py library.py runner.py output.py doctor.py api.py (thin: parse args,
+                               call ops, print); phase 4 adds global_.py update.py deploy.py
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
                                common runs gates settings library projects keys (phases 1-2), logs app github (phase 3),

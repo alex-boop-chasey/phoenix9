@@ -170,6 +170,58 @@ def test_firewall_proxy_stopped_even_when_probe_fails(healthy):
     assert healthy.proxy.running() == []
 
 
+UFW_ON = ("Status: active\n\nTo                         Action      From\n--                         ------      ----\n"
+          "22/tcp                     ALLOW       Anywhere\n")
+UFW_RULE = "172.17.0.1 47100:47199/tcp on docker0 ALLOW       172.17.0.0/16              # phoenix9 key proxy\n"
+EXPECTED_RULE = ("ufw allow in on docker0 from 172.17.0.0/16 to 172.17.0.1 port 47100:47199 proto tcp "
+                 "comment 'phoenix9 key proxy'")
+
+
+def test_proxy_unreachable_fix_gives_the_ufw_rule_and_lists_only_failures(healthy):
+    healthy.docker.outputs[0] = PROBE_OK.replace("proxy-reachable", "PROXY-UNREACHABLE")
+    fw = by_name(doctor.run_checks(healthy, "for-update"))["firewall"]
+    assert fw["detail"] == "failed checks: the allowed key proxy address is reachable"
+    assert EXPECTED_RULE in fw["fix"] and "Rebuild" not in fw["fix"]
+
+
+def test_probe_container_stopped_early_is_reported_plainly(healthy):
+    healthy.docker.outputs[0] = ("hands: firewall setup failed:\nResolving api.anthropic.com\n"
+                                 "ERROR: Firewall verification failed - unable to reach the key proxy at "
+                                 "172.17.0.1:47100\n")
+    healthy.docker.exit_codes[:] = [90]
+    fw = by_name(doctor.run_checks(healthy, "for-update"))["firewall"]
+    assert fw["detail"] == ("the probe container stopped early (exit 90): ERROR: Firewall verification failed - "
+                            "unable to reach the key proxy at 172.17.0.1:47100")
+    assert "egress blocked" not in fw["detail"] and EXPECTED_RULE in fw["fix"]
+
+
+def test_other_firewall_failures_keep_the_rebuild_fix(healthy):
+    healthy.docker.outputs[0] = PROBE_OK.replace("host-blocked", "LEAK-HOST")
+    fw = by_name(doctor.run_checks(healthy, "for-update"))["firewall"]
+    assert fw["detail"] == "failed checks: egress blocked to the host (default gateway)"
+    assert "Rebuild" in fw["fix"]
+
+
+def test_proxy_rule_check(healthy):
+    def rule():
+        return by_name(doctor.run_checks(healthy, "for-update"))["proxy-rule"]
+    healthy.docker.outputs[:] = []
+    r = rule()                                    # FakeHost default: ufw prints nothing -> not active
+    assert r["ok"] and "not active" in r["detail"]
+    healthy.host.script(["ufw", "status"], 0, UFW_ON)
+    r = rule()
+    assert not r["ok"] and r["detail"].startswith("firewall rule for the key proxy is missing")
+    assert EXPECTED_RULE in r["fix"]
+    healthy.host.script(["ufw", "status"], 0, UFW_ON + UFW_RULE)
+    r = rule()
+    assert r["ok"] and r["detail"].startswith("firewall rule for the key proxy is in place")
+    healthy.host.script(["ufw", "status"], 127, "", "not found: ufw")
+    assert rule()["ok"]
+    healthy.host.script(["ufw", "status"], 1, "", "need root")
+    assert not rule()["ok"]
+    assert ["ufw", "status"] in healthy.host.calls
+
+
 def test_advisor_detected_from_init_event(healthy):
     assert by_name(doctor.run_checks(healthy, "full"))["advisor"]["ok"]
     info = json.loads((paths.config() / "doctor.json").read_text())

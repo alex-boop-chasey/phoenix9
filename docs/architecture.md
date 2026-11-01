@@ -111,7 +111,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | Name | Default | Env override | Holds |
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
-| config | HOME/config | | `global.toml` (non-secret global settings; `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
+| config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
@@ -688,9 +688,10 @@ Rule(method, path, upstream="")          # method: GET POST PUT PATCH DELETE HEA
 parse_rules(items: list[dict]) -> list[Rule]           # ValueError in plain English
 ProxySpec(service, upstream, auth_header, auth_format, rules, extra_headers=())
 spec_from_service(service: dict) -> ProxySpec          # from service.toml's [proxy] block (see below)
-serve(spec, key, *, log_path, step, bind="127.0.0.1", port=0, upstream_timeout=30.0,
+serve(spec, key, *, log_path, step, bind="127.0.0.1", port=0, ports=None, upstream_timeout=30.0,
       max_body=10_000_000, allow_plain_http_upstream=False, max_in_flight=8) -> RunningProxy
-                                         # .url .token .port .stop()
+                                         # .url .token .port .stop(); ports=(lo, hi): first free port
+                                         # of that range, else NoFreePort (names the range)
 serving(spec, key, **kw)                 # context manager; stop() guaranteed
 decide(spec, token, method, target, headers, *, max_body) -> Decision         # pure: the whole yes/no
 pattern_matches(pattern, path), path_is_safe(path), find_rule(rules, method, path)   # pure, public
@@ -734,6 +735,21 @@ env_names(service) -> ("PHOENIX_PROXY_<SERVICE>", "PHOENIX_PROXY_TOKEN_<SERVICE>
   hostnames like `localhost`, `"0"`, `""` and non-text raise ValueError; so does any unspecified address
   (`0.0.0.0`, `::`). The key is
   checked first (no spaces, line breaks or non-ASCII; the error never contains it). Handler timeout 120 s.
+- **Port range**: the real adapter (`adapters.Proxy.start`) always listens on the first free port of
+  the fixed range `HOME/config/global.toml` `proxy_ports = "47100-47199"` (the default when absent;
+  `settings.proxy_ports()`, ValueError naming the setting when it is not `LO-HI` with
+  1024 <= LO <= HI <= 65535). It tries each port in turn and moves on only on EADDRINUSE; when all are
+  taken it raises `proxy.NoFreePort` naming the range. A fixed range is what lets one host firewall
+  rule name the proxy (`port=0`, any free port, is for tests only).
+- **Host firewall (ufw)**: with ufw active (default INPUT drop), step containers cannot reach the
+  bridge gateway at all, so `deploy/install.sh` adds ONE rule: TCP from the docker bridge subnet to the
+  bridge gateway, on the proxy range only, in on the bridge interface. On this server:
+  `ufw allow in on docker0 from 172.16.0.0/24 to 172.16.0.1 port 47100:47199 proto tcp comment 'phoenix9 key proxy'`.
+  Subnet, gateway and interface come from `docker network inspect bridge`, the range from global.toml;
+  `phoenix9/hostfw.py` builds the same text for doctor (a test checks the two agree). install.sh prints
+  the rule and asks (`--yes` skips the question), skips it when `ufw status` already lists it and does
+  nothing when ufw is off or not installed; `install.sh --firewall-only` runs just this step on an
+  installed server and `--dry-run` only prints it. Changing `proxy_ports` needs the rule changed to match.
 - **Upstreams**: https with the default SSL context. Plain http only with
   `allow_plain_http_upstream=True` and host `127.0.0.1`/`localhost` (tests); the real adapter never sets it.
 - **Replies**: status and headers copied minus hop-by-hop; body read fully (over 50 MB: 502); a gzip or
@@ -873,7 +889,8 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
 | `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
 | `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |
-| `firewall` | `docker.probe_firewall` with a temporary proxy on the bridge gateway (no rules, dummy key, stopped in `finally`) | | yes | yes |
+| `proxy-rule` | "firewall rule for the key proxy": `ufw status` (host adapter) lists the section 14 rule; OK when ufw is not installed or not active; the fix is the exact `ufw allow ...` line | | yes | yes |
+| `firewall` | `docker.probe_firewall` with a temporary proxy on the bridge gateway (no rules, dummy key, stopped in `finally`). The detail lists only the FAILED checks (`failed checks: ...`), or `the probe container stopped early (exit N): <last error line>` when the entrypoint stopped it before the probe ran; when the key proxy is unreachable the fix is the exact ufw rule | | yes | yes |
 | `claude` | one tiny session (`max_turns` 1, firewall on) exits 0 with a result event | | | yes |
 | `advisor` | writes `HOME/config/doctor.json` `{advisor_available, checked_at, claude_version}` from the session's `system/init` event; `claude.session_mounts` skips the advisor mounts (and the launcher adds one prompt line) when it says false or `skills/advisor` is missing | | | yes |
 | `disk` | free space on HOME and `/var/lib/docker` (`df` via host adapter): fail under 5 GB, "getting low" under 15 GB | yes | | yes |

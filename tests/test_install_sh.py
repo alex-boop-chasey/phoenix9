@@ -49,6 +49,8 @@ def box(tmp_path, origin):
     (tools / "systemctl").write_text(f'#!/bin/sh\necho "$@" >> {log}\n')
     for name in ("gh", "pnpm"):
         (tools / name).write_text("#!/bin/sh\nexit 0\n")
+    # never the real firewall: ufw is a fake that says it is off (fake_firewall() turns it on)
+    (tools / "ufw").write_text("#!/bin/sh\necho 'Status: inactive'\n")
     for f in tools.iterdir():
         f.chmod(0o755)
     v8 = tmp_path / "v8"
@@ -67,10 +69,11 @@ def box(tmp_path, origin):
     return {"root": tmp_path, "env": env, "args": args, "log": log, "v8": v8, "tele": tele}
 
 
-def install(box, extra=(), args=None):
+def install(box, extra=(), args=None, stdin_text=None):
     """Run install.sh; return the finished process."""
     return subprocess.run(["bash", str(SCRIPT), *(args or box["args"]), *extra], env=box["env"],
-                          capture_output=True, text=True, timeout=120)
+                          capture_output=True, text=True, timeout=120,
+                          input=stdin_text if stdin_text is not None else "")
 
 
 def mode(path: Path) -> int:
@@ -171,3 +174,79 @@ def test_bin_link_created(box):
     link = box["root"] / "phoenix-link"
     assert link.is_symlink()
     assert os.readlink(link) == str(box["root"] / "opt" / "bin" / "phoenix")
+
+
+# ---------- host firewall (ufw) step for the key proxy ----------
+
+UFW_HEADER = "Status: active\n\nTo                         Action      From\n--                         ------      ----\n" \
+             "22/tcp                     ALLOW       Anywhere\n"
+RULE_LINE = "172.16.0.1 47100:47199/tcp on docker0 ALLOW       172.16.0.0/24              # phoenix9 key proxy\n"
+
+
+def fake_firewall(box, status=UFW_HEADER, bridge="172.16.0.1 172.16.0.0/24 docker0"):
+    """Fake ufw (active, given status; logs every other call) and fake docker (bridge inspect) on PATH."""
+    tools, log = box["root"] / "tools", box["root"] / "ufw.log"
+    (box["root"] / "ufw-status.txt").write_text(status)
+    (tools / "ufw").write_text(f'#!/bin/sh\nif [ "$1" = status ]; then cat {box["root"] / "ufw-status.txt"}; '
+                               f'exit 0; fi\necho "$@" >> {log}\n')
+    (tools / "docker").write_text(f'#!/bin/sh\necho "{bridge}"\n')
+    for name in ("ufw", "docker"):
+        (tools / name).chmod(0o755)
+    return log
+
+
+def test_dry_run_prints_the_rule_and_changes_nothing(box):
+    from phoenix9 import hostfw
+    log = fake_firewall(box)
+    p = install(box, args=["--dry-run"])
+    assert p.returncode == 0, p.stderr
+    expected = hostfw.ufw_rule_text("docker0", "172.16.0.0/24", "172.16.0.1", (47100, 47199))
+    assert expected == ("ufw allow in on docker0 from 172.16.0.0/24 to 172.16.0.1 port 47100:47199 "
+                        "proto tcp comment 'phoenix9 key proxy'")
+    assert f"    {expected}\n" in p.stdout and "Dry run: nothing changed" in p.stdout
+    assert not log.exists() and not (box["root"] / "opt").exists()
+
+
+def test_dry_run_reads_range_and_bridge_from_config_and_docker(box):
+    conf = box["root"] / "home" / "config"
+    conf.mkdir(parents=True)
+    (conf / "global.toml").write_text('proxy_ports = "48000-48009"\n\n[update]\nproject = "phoenix9"\n')
+    fake_firewall(box, bridge="172.17.0.1 172.17.0.0/16 br0")
+    p = install(box, args=["--dry-run"])
+    assert ("ufw allow in on br0 from 172.17.0.0/16 to 172.17.0.1 port 48000:48009 proto tcp "
+            "comment 'phoenix9 key proxy'") in p.stdout
+
+
+def test_firewall_step_skips_when_rule_present_or_ufw_off(box):
+    log = fake_firewall(box, status=UFW_HEADER + RULE_LINE)
+    p = install(box, args=["--firewall-only", "--yes"])
+    assert p.returncode == 0 and "already lets step containers reach" in p.stdout and not log.exists()
+    fake_firewall(box, status="Status: inactive\n")
+    p = install(box, args=["--firewall-only", "--yes"])
+    assert p.returncode == 0 and "ufw is not active" in p.stdout and not log.exists()
+
+
+def test_firewall_step_asks_and_adds_once_confirmed(box):
+    log = fake_firewall(box)
+    p = install(box, args=["--firewall-only"], stdin_text="n\n")
+    assert p.returncode == 0 and "not added" in p.stderr and not log.exists()
+    p = install(box, args=["--firewall-only"], stdin_text="y\n")
+    assert p.returncode == 0, p.stderr
+    assert log.read_text() == ("allow in on docker0 from 172.16.0.0/24 to 172.16.0.1 port 47100:47199 "
+                               "proto tcp comment phoenix9 key proxy\n")
+
+
+def test_full_install_adds_rule_with_yes(box):
+    log = fake_firewall(box)
+    p = install(box, extra=["--yes"])
+    assert p.returncode == 0, p.stderr
+    assert log.read_text().startswith("allow in on docker0 from 172.16.0.0/24 to 172.16.0.1 port 47100:47199")
+
+
+def test_bad_proxy_ports_refused(box):
+    conf = box["root"] / "home" / "config"
+    conf.mkdir(parents=True)
+    (conf / "global.toml").write_text('proxy_ports = "80-90"\n')
+    fake_firewall(box)
+    p = install(box, args=["--dry-run"])
+    assert p.returncode != 0 and "proxy_ports" in p.stderr

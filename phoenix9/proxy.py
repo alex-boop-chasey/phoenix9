@@ -9,6 +9,7 @@ Layout: the rules and the yes/no decision are pure functions (`parse_rules`, `pa
 the request handler and `RunningProxy`.
 """
 import base64
+import errno
 import gzip
 import hmac
 import http.client
@@ -619,10 +620,35 @@ def _check_bind(bind) -> None:
         raise ValueError(f"the proxy must not listen on every address ({bind}); use 127.0.0.1")
 
 
+class NoFreePort(RuntimeError):
+    """Every port in the key proxy's range is taken."""
+
+
+def _bind_server(bind: str, port: int, ports: tuple[int, int] | None) -> "_Server":
+    """Listen on `port`, or on the first free port of the range `ports` (lo, hi) when given."""
+    if ports is None:
+        return _Server((bind, port), _Handler)
+    lo, hi = int(ports[0]), int(ports[1])
+    if not 1 <= lo <= hi <= 65535:
+        raise ValueError(f"the key proxy port range {lo}-{hi} is not valid")
+    for candidate in range(lo, hi + 1):
+        try:
+            return _Server((bind, candidate), _Handler)
+        except OSError as err:
+            if err.errno != errno.EADDRINUSE:
+                raise
+    raise NoFreePort(f"no free port for the key proxy on {bind}: all of {lo}-{hi} are in use "
+                     f"(widen proxy_ports in global.toml and the matching ufw rule, or stop old runs)")
+
+
 def serve(spec: ProxySpec, key: str, *, log_path: Path, step: str, bind: str = "127.0.0.1", port: int = 0,
+          ports: tuple[int, int] | None = None,
           upstream_timeout: float = 30.0, max_body: int = 10_000_000,
           allow_plain_http_upstream: bool = False, max_in_flight: int = MAX_IN_FLIGHT) -> RunningProxy:
-    """Start a proxy for one service and one step; returns the running handle (address, token, stop)."""
+    """Start a proxy for one service and one step; returns the running handle (address, token, stop).
+
+    `ports` = (lo, hi) makes it listen on the first free port of that fixed range (the host firewall
+    only lets containers reach those ports); without it, `port` is used (0 = any free port, tests)."""
     _check_key(key)
     _check_bind(bind)
     if not isinstance(max_in_flight, int) or max_in_flight < 1:
@@ -633,8 +659,12 @@ def serve(spec: ProxySpec, key: str, *, log_path: Path, step: str, bind: str = "
             _check_upstream(rule.upstream, allow_plain_http=allow_plain_http_upstream)
     if spec.auth_format.count("{key}") != 1:
         raise ValueError("auth_format must contain {key} exactly once")
-    log = LogWriter(log_path, spec.service, step, key)
-    server = _Server((bind, port), _Handler)
+    server = _bind_server(bind, port, ports)
+    try:
+        log = LogWriter(log_path, spec.service, step, key)
+    except BaseException:
+        server.server_close()
+        raise
     return RunningProxy(spec, key, log, server, bind=bind, upstream_timeout=upstream_timeout,
                         max_body=max_body, allow_plain_http=allow_plain_http_upstream,
                         max_in_flight=max_in_flight)

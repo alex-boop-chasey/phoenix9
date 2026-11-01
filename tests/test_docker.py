@@ -238,3 +238,12 @@ def test_hand_to_agent_chowns_only_as_root(adapters, tmp_path, monkeypatch):
     monkeypatch.setattr(docker.os, "getuid", lambda: 0)
     docker.hand_to_agent(d, tmp_path)
     assert [c for c in d.calls if c[0] == "chown"]
+
+
+def test_probe_that_never_ran_reports_one_stopped_early_line(adapters):
+    d = adapters.docker
+    d.outputs, d.exit_codes = ["hands: firewall setup failed:\nERROR: bad proxy line\nsomething else\n"], [90]
+    assert docker.probe_firewall(d, IMAGE) == [
+        "the probe container stopped early (exit 90): ERROR: bad proxy line"]
+    d.outputs, d.exit_codes = [""], [125]
+    assert docker.probe_firewall(d, IMAGE) == ["the probe container stopped early (exit 125): no output"]

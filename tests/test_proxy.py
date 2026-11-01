@@ -678,3 +678,64 @@ def test_concurrency_cap_refuses_extra_requests_503(upstream, log_path):
     busy = [ln for ln in log_lines(log_path) if ln["status"] == 503]
     assert len(busy) == 4 and all(ln["decision"] == "refused" and ln["reason"] == "too busy" for ln in busy)
     assert len(upstream.requests) == proxy.MAX_IN_FLIGHT + 1
+
+
+# ---------- fixed port range (host firewall opens only these) ----------
+
+def _free_block(n=3):
+    """n consecutive ports that are free on 127.0.0.1 right now."""
+    for base in range(41000, 46000, 7):
+        socks = []
+        try:
+            for p in range(base, base + n):
+                s = socket.socket()
+                s.bind(("127.0.0.1", p))
+                socks.append(s)
+            return base
+        except OSError:
+            continue
+        finally:
+            for s in socks:
+                s.close()
+    pytest.skip("no free block of ports")
+
+
+def test_proxy_takes_first_free_port_in_range_and_skips_busy_ones(log_path):
+    base = _free_block()
+    busy = socket.socket()
+    busy.bind(("127.0.0.1", base))
+    busy.listen()
+    spec = make_spec("https://api.example.com")
+    try:
+        a = proxy.serve(spec, KEY, log_path=log_path, step="s", ports=(base, base + 2))
+        b = proxy.serve(spec, KEY, log_path=log_path, step="s", ports=(base, base + 2))
+        try:
+            assert (a.port, b.port) == (base + 1, base + 2)
+            assert a.url == f"http://127.0.0.1:{base + 1}"
+            with pytest.raises(proxy.NoFreePort, match=f"{base}-{base + 2}"):
+                proxy.serve(spec, KEY, log_path=log_path, step="s", ports=(base, base + 2))
+        finally:
+            a.stop()
+            b.stop()
+        c = proxy.serve(spec, KEY, log_path=log_path, step="s", ports=(base, base + 2))
+        assert c.port == base + 1          # a stopped proxy's port is free again
+        c.stop()
+    finally:
+        busy.close()
+
+
+def test_real_adapter_uses_the_configured_range(log_path, phoenix_env):
+    from phoenix9.adapters import Proxy
+    base = _free_block(2)
+    (phoenix_env["home"] / "config").mkdir(parents=True, exist_ok=True)
+    (phoenix_env["home"] / "config" / "global.toml").write_text(f'proxy_ports = "{base}-{base + 1}"\n')
+    p = Proxy().start(make_spec("https://api.supabase.com"), KEY, log_path=log_path, step="s")
+    try:
+        assert p.port == base
+    finally:
+        p.stop()
+
+
+def test_bad_range_refused(log_path):
+    with pytest.raises(ValueError):
+        proxy.serve(make_spec("https://api.example.com"), KEY, log_path=log_path, step="s", ports=(5000, 4000))

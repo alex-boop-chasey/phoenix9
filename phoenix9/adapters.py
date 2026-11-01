@@ -157,10 +157,12 @@ class Git:
 class Proxy:
     """Starts the per-step key proxy (phoenix9/proxy.py) on this host."""
 
-    def start(self, spec, key: str, *, log_path, step: str, bind: str = "127.0.0.1"):
-        """Start a proxy for one service and step; returns the running handle (.url, .token, .stop())."""
-        from phoenix9 import proxy
-        return proxy.serve(spec, key, log_path=Path(log_path), step=step, bind=bind)
+    def start(self, spec, key: str, *, log_path, step: str, bind: str = "127.0.0.1", ports=None):
+        """Start a proxy for one service and step on the first free port of the fixed range
+        (global.toml `proxy_ports`, default 47100-47199); returns the handle (.url, .token, .port, .stop())."""
+        from phoenix9 import proxy, settings
+        return proxy.serve(spec, key, log_path=Path(log_path), step=step, bind=bind,
+                           ports=tuple(ports) if ports else settings.proxy_ports())
 
 
 @dataclass

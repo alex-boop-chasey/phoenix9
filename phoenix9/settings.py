@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import re
 import tomllib
 
 from . import paths, tomlw
@@ -207,6 +208,24 @@ def update_settings() -> dict:
     table = read_global().get("update")
     table = table if isinstance(table, dict) else {}
     return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
+
+
+PROXY_PORTS_DEFAULT = "47100-47199"
+
+
+def parse_port_range(text) -> tuple[int, int]:
+    """'47100-47199' -> (47100, 47199); ValueError naming the setting when it is not a usable range."""
+    m = re.fullmatch(r"\s*(\d{1,5})\s*-\s*(\d{1,5})\s*", text) if isinstance(text, str) else None
+    lo, hi = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    if not m or not 1024 <= lo <= hi <= 65535:
+        raise ValueError(f"global.toml: proxy_ports must look like \"{PROXY_PORTS_DEFAULT}\" "
+                         f"(two ports from 1024 to 65535, low first), not {text!r}")
+    return lo, hi
+
+
+def proxy_ports() -> tuple[int, int]:
+    """The key proxy's fixed port range from global.toml `proxy_ports` (default 47100-47199)."""
+    return parse_port_range(read_global().get("proxy_ports", PROXY_PORTS_DEFAULT))
 
 
 def self_project_problems(name: str, data: dict) -> list[str]:

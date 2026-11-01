@@ -40,6 +40,9 @@ Use the release number you want instead of `v9.1`. The installer:
 2. downloads that release into `/opt/phoenix9`,
 3. creates the data folders,
 4. copies the Claude and Telegram keys from the old Phoenix V8 set-up (file to file; they are never shown),
+   and, when the ufw firewall is on, shows the one rule that lets step containers reach the key proxy
+   (Docker bridge to its gateway, ports 47100-47199 only) and asks before adding it (`--yes` adds it
+   without asking; `--dry-run` only prints it; `--firewall-only` runs just this part on an installed server),
 5. builds the dashboard and runs the checks,
 6. installs and starts the two services, and links the `phoenix` command.
 

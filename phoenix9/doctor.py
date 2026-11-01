@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, claude, docker, hold, paths, project, proxy, scrub
+from phoenix9 import atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
 from phoenix9.library import read_toml
 
 MODES = ("full", "for-update", "quick")
@@ -22,9 +22,9 @@ CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
     "quick": ("services", "api", "home", "secrets", "disk"),
-    "for-update": ("services", "api", "home", "images", "firewall"),
-    "full": ("python", "library", "services", "api", "home", "secrets", "images", "firewall", "claude",
-             "advisor", "disk", "updater"),
+    "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
+    "full": ("python", "library", "services", "api", "home", "secrets", "images", "proxy-rule", "firewall",
+             "claude", "advisor", "disk", "updater"),
 }
 
 
@@ -179,6 +179,32 @@ def _probe_image(ctx) -> str:
     return tag if tag and ctx.ad.docker.image_exists(tag) else ""
 
 
+def proxy_rule(ctx) -> tuple[dict, tuple[int, int], str]:
+    """(bridge info, proxy port range, the exact ufw command) for the key proxy rule; install.sh adds the same."""
+    info = ctx.ad.docker.bridge_info()
+    ports = settings.proxy_ports()
+    return info, ports, hostfw.ufw_rule_text(info["interface"], info["subnet"], info["gateway"], ports)
+
+
+def check_proxy_rule(ctx):
+    """When ufw is on, it has the one rule that lets step containers reach the key proxy's port range."""
+    rc, out, err = ctx.ad.host.run(["ufw", "status"])
+    if rc == 127:
+        return _result(True, "firewall rule for the key proxy: not needed (ufw is not installed)")
+    if rc != 0:
+        return _result(False, f"firewall rule for the key proxy: could not read `ufw status` (exit {rc})",
+                       "Run `phoenix doctor` as root.")
+    if not hostfw.ufw_active(out):
+        return _result(True, "firewall rule for the key proxy: not needed (ufw is not active)")
+    info, ports, rule = proxy_rule(ctx)
+    if hostfw.rule_present(out, info["interface"], info["subnet"], info["gateway"], ports):
+        return _result(True, f"firewall rule for the key proxy is in place ({info['subnet']} -> "
+                             f"{info['gateway']} ports {ports[0]}-{ports[1]})")
+    return _result(False, "firewall rule for the key proxy is missing: ufw is on, so step containers "
+                          f"cannot reach the proxy on {info['gateway']} ports {ports[0]}-{ports[1]}",
+                   f"Add it as root: {rule}   (or run deploy/install.sh --firewall-only)")
+
+
 def check_firewall(ctx):
     """The container firewall blocks what it should and lets the key proxy through."""
     image = _probe_image(ctx)
@@ -193,8 +219,19 @@ def check_firewall(ctx):
         failures = docker.probe_firewall(ctx.ad.docker, image, proxy=(gateway, handle.port))
     finally:
         handle.stop()
-    return _result(not failures, "firewall probe passed" if not failures else "; ".join(failures)[:600],
-                   "Rebuild the images with `phoenix images build --all` and check Docker's network rules.")
+    if not failures:
+        return _result(True, "firewall probe passed")
+    if len(failures) == 1 and failures[0].startswith(docker.STOPPED_EARLY):
+        detail = failures[0]
+    else:
+        detail = "failed checks: " + "; ".join(failures)
+    if any("key proxy" in f for f in failures):
+        _, _, rule = proxy_rule(ctx)
+        fix = (f"Step containers cannot reach the key proxy. If ufw is on, add this rule as root: {rule}   "
+               "(or run deploy/install.sh --firewall-only)")
+    else:
+        fix = "Rebuild the images with `phoenix images build --all` and check Docker's network rules."
+    return _result(False, detail[:600], fix + " Full probe output: HOME/cache/doctor/firewall-probe.txt")
 
 
 def _stream_info(log: Path) -> tuple[bool, str]:
@@ -299,8 +336,8 @@ def check_updater(ctx):
 
 
 CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
-          "home": check_home, "secrets": check_secrets, "images": check_images, "firewall": check_firewall,
-          "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater}
+          "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
+          "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

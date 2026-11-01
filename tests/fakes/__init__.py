@@ -226,6 +226,11 @@ class FakeDocker:
         self.calls.append(("bridge_gateway", (), {}))
         return "172.17.0.1"
 
+    def bridge_info(self):
+        """The fake Docker bridge: gateway, subnet and interface."""
+        self.calls.append(("bridge_info", (), {}))
+        return {"gateway": "172.17.0.1", "subnet": "172.17.0.0/16", "interface": "docker0"}
+
     def rm(self, name):
         """Record a container removal."""
         self.calls.append(("rm", (name,), {}))

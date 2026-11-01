@@ -45,6 +45,17 @@ class DockerRunner:
         ipaddress.IPv4Address(out)          # refuse anything that is not a plain IPv4 address
         return out
 
+    def bridge_info(self) -> dict:
+        """The default bridge's {gateway, subnet, interface}, e.g. 172.17.0.1, 172.17.0.0/16, docker0."""
+        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
+                              "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
+                              "{{index .Options \"com.docker.network.bridge.name\"}}"],
+                             capture_output=True, text=True, timeout=30, check=True).stdout.split()
+        gateway, subnet = out[0], out[1]
+        ipaddress.IPv4Address(gateway)
+        ipaddress.IPv4Network(subnet, strict=False)
+        return {"gateway": gateway, "subnet": subnet, "interface": out[2] if len(out) > 2 else "docker0"}
+
     def run(self, argv: list[str], stdout_path: Path | None, stderr_path: Path | None,
             timeout_s: float, name: str, append_stdout: bool = False) -> int:
         """Run a container to the end and return its exit code (124 if it ran out of time)."""
@@ -477,7 +488,8 @@ def firewall_checks(out: str, proxy: tuple | None = None) -> list[tuple[bool, st
 
 def probe_firewall(runner, image: str, limits: dict | None = None, timeout_min: float = 3,
                    proxy: tuple[str, int] | None = None) -> list[str]:
-    """Start a firewalled container and test it. Returns the failures ([] means all good).
+    """Start a firewalled container and test it. Returns the labels of the FAILED checks only ([] means
+    all good), or one "the probe container stopped early (exit N): <last error line>" when it never ran.
 
     With `proxy` = (ip, port) the probe also opens that one address (like a step with a key proxy) and
     checks it answers while the host's other ports stay blocked."""
@@ -493,12 +505,26 @@ def probe_firewall(runner, image: str, limits: dict | None = None, timeout_min: 
     r = Run("doctor", "doctor", 0, 0, "probe", image, ["bash", "-c", script], mounts=mounts)
     rc = runner.run(build_argv(r, limits), out, out, timeout_min * 60, r.name)
     text = out.read_text(errors="replace") if out.exists() else ""
+    if rc != 0 and not set(text.split()) & FIRST_MARKERS:
+        return [f"{STOPPED_EARLY} (exit {rc}): {last_error_line(text)}"]
     failures = [label for ok, label in firewall_checks(text, proxy) if not ok]
     if rc != 0 and not failures:
         failures.append(f"probe container exited with {rc}")
-    if failures and rc != 0:
-        failures.append(f"container output (exit {rc}):\n{text[-2000:]}")
     return failures
+
+
+STOPPED_EARLY = "the probe container stopped early"
+# Markers of the probe's first commands: when none is in the output, the probe never ran (the
+# container's entrypoint, e.g. init-firewall.sh, stopped it first).
+FIRST_MARKERS = {"blocked", "LEAK", "proxy-reachable", "PROXY-UNREACHABLE"}
+
+
+def last_error_line(text: str) -> str:
+    """The last line starting with ERROR (else the last non-empty line) of a container's output."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    errors = [l for l in lines if l.upper().startswith("ERROR")]
+    pick = errors[-1] if errors else (lines[-1] if lines else "no output")
+    return pick[:300]
 
 
 # ------------------------------------------------------------- allowed domains

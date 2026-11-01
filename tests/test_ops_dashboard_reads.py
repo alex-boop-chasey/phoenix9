@@ -208,4 +208,4 @@ def test_library_presets_have_titles_and_descriptions(env):
     assert rows["quick"]["title"] == "Quick"
     assert rows["quick"]["has_file"] is True
     assert rows["quick"]["description"].startswith("Simple, plus")
-    assert rows["custom"] == {"name": "custom", "title": "Custom", "has_file": False, "description": "", "steps": {}}
+    assert rows["custom"] == {"name": "custom", "title": "Custom", "has_file": False, "description": library.CUSTOM_DESCRIPTION, "steps": {}}

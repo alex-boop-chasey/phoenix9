@@ -38,7 +38,8 @@ export function RunningView({ name, runId, mode }: Props) {
     </Link>
   )
 
-  if (run.error) return <div className="flex flex-col gap-3">{allBuilds}<ErrorState error={run.error} onRetry={() => void run.refetch()} /></div>
+  // A failed background refresh keeps the last good view; the error box is only for "never loaded".
+  if (run.error && !run.data) return <div className="flex flex-col gap-3">{allBuilds}<ErrorState error={run.error} onRetry={() => void run.refetch()} /></div>
   const d = run.data
   if (!d) return <div className="flex flex-col gap-3">{allBuilds}<Skeleton className="h-24 w-full" /></div>
 
@@ -49,6 +50,7 @@ export function RunningView({ name, runId, mode }: Props) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {allBuilds}
+      {run.error && <p role="status" className="text-sm text-muted-foreground">Can't reach Phoenix right now; showing the last update.</p>}
       <header className="flex flex-col gap-2">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <h2 className="min-w-0 break-words text-xl font-semibold">{d.title || d.run_id}</h2>

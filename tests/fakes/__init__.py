@@ -200,6 +200,11 @@ class FakeDocker:
         self.calls.append(("run_step", args, kwargs))
         return self.exit_codes.pop(0) if self.exit_codes else 0
 
+    def bridge_gateway(self):
+        """The fake Docker bridge gateway address."""
+        self.calls.append(("bridge_gateway", (), {}))
+        return "172.17.0.1"
+
     def rm(self, name):
         """Record a container removal."""
         self.calls.append(("rm", (name,), {}))
@@ -355,7 +360,7 @@ class FakeProxyHandle:
         self.service = service
         self.url = f"http://proxy.fake/{service}"
         self.token = FakeProxyFactory.TOKEN
-        self.port = 0
+        self.port = 40000 + len(factory.handles)
         self.stopped = False
 
     def stop(self):

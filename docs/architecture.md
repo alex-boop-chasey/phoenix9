@@ -140,7 +140,13 @@ produces = ["diff"]
 safety = false
 default = "always"               # "always" (cannot be switched off) | "on" | "off"
 only_with = []                   # step names that must be on for this one to be on (red-check: ["check-writer"])
-proxy = []                       # phase 4: services whose key proxy runs for this step (e.g. ["github"])
+proxy = []                       # service names whose key proxy runs for this step (e.g. ["supabase"]), or
+                                 # "@project" = every connected store-and-wire service in the project's
+                                 # `services` (unconnected ones are left out and logged). An unknown name is a
+                                 # library problem. Script steps get the proxy on 127.0.0.1; ai and check
+                                 # containers on the Docker bridge gateway, with env PHOENIX_PROXY_<SERVICE> and
+                                 # PHOENIX_PROXY_TOKEN_<SERVICE> and the firewall opened for that IP:port only
+                                 # (file mounted at /etc/hands/allowed-proxy). Deploys start their own proxy.
 
 [settings]                       # the step's own options and their defaults (validated by type)
 once = false                     # example: a task step that runs until it has passed once

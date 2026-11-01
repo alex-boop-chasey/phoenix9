@@ -158,6 +158,7 @@ def test_ai_block_only_on_ai_steps(tmp_path):
 
 def test_proxy_key_accepted(tmp_path):
     root = copy_library(tmp_path)
+    shutil.copytree(Path(__file__).resolve().parent.parent / "services", root / "services")
     add_step(root, "pusher", GOOD.format(name="pusher", order=99) + 'proxy = ["github"]\n')
     lib = load_library(root)
     assert lib.problems == [] and lib.step("pusher").proxy == ("github",)

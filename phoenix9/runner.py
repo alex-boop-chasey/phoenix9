@@ -34,7 +34,8 @@ from phoenix9 import claude as claude_mod
 from phoenix9 import reports, summary
 from phoenix9 import keys as keys_mod
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
-from phoenix9 import docker as docker_mod
+from phoenix9 import docker as docker_mod, stepproxy
+from phoenix9.ops.common import OpsError
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
 from phoenix9.resolve import resolve
 from phoenix9.stepctx import ProjectInfo, RunInfo, StepContext, StepInfo, StepResult, UsageLimit
@@ -390,7 +391,7 @@ class Runner:
         events.emit("run.step.started", project=project, run=run_id, task=number, step=name, group=group)
         step = self.lib.step(name)
         ctx = self._context(run_dir, setup, things, step, task, attempt or 1, _ctx_answer(line))
-        result = self._call(ctx, step)
+        result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
             return self._open_step_gate(run_dir, index, step, number, result)
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
@@ -480,6 +481,17 @@ class Runner:
         if move == "stopped":
             return Outcome("stopped")
         return Outcome("dropped" if number is not None else "skipped")
+
+    def _call_with_proxies(self, ctx: StepContext, step: Step) -> StepResult:
+        """Run the step with the key proxies its step.toml asks for; they are always stopped afterwards."""
+        if not step.proxy:
+            return self._call(ctx, step)
+        bind = self.adapters.docker.bridge_gateway() if step.kind == "ai" else stepproxy.HOST_BIND
+        try:
+            with stepproxy.step_proxies(ctx, step, bind):
+                return self._call(ctx, step)
+        except OpsError as err:
+            return StepResult("fail", [str(err)])
 
     def _call(self, ctx: StepContext, step: Step) -> StepResult:
         """Call the step's code, turning any crash or broken import into a failed result."""
@@ -639,13 +651,18 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     if not (mount_dir / "spec.md").exists():
         atomic.write_text(mount_dir / "spec.md", (ctx.run.folder / "spec.md").read_text(encoding="utf-8"), mode=0o444)
     extra = code.mounts(ctx) if code is not None and hasattr(code, "mounts") else {}
+    extra_mounts = list(extra.get("extra_mounts") or [])
+    allow_file = stepproxy.write_allow_file(ctx, ctx.proxies)
+    if allow_file:
+        extra_mounts.append(docker_mod.Mount(allow_file, docker_mod.ALLOWED_PROXY_MOUNT))
     with keys_mod.env_file(ctx.project.name) as key_file:
         session = ctx.adapters.claude.launch(
             ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
             attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
             prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
             domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
-            extra_mounts=list(extra.get("extra_mounts") or []), env_files=[key_file] if key_file else [])
+            extra_mounts=extra_mounts, env_files=[key_file] if key_file else [],
+            extra_env=stepproxy.container_env(ctx.proxies))
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     ctx.log(f"session ended: {session.kind}")
     if session.kind == "rate_limited":

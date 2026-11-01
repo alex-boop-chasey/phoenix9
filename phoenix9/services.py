@@ -1,5 +1,6 @@
 """The services library: services/<name>/service.toml (which project keys and hosts each service needs)."""
 import re
+from pathlib import Path
 import tomllib
 
 from phoenix9 import atomic, library, paths, proxy, tomlw
@@ -73,6 +74,12 @@ def _parse(data: dict, folder, where: str):
 def load_library() -> dict:
     """Every service by name; a broken service.toml is left out (see load_problems)."""
     return {s["name"]: s for s in library.load_folders(paths.library() / "services", "service.toml", _parse)[0]}
+
+
+def names_in(root) -> set[str]:
+    """Names of the valid services in a library folder (root/services)."""
+    found = library.load_folders(Path(root) / "services", "service.toml", _parse)[0]
+    return {s["name"] for s in found}
 
 
 def load_problems() -> list[str]:

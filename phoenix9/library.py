@@ -22,6 +22,7 @@ LEVELS = ("run", "task")
 PHASES = ("start", "finish")
 DEFAULTS = ("always", "on", "off")
 PROVIDED_SCOPES = ("run", "task")
+PROXY_PROJECT = "@project"      # in a step's proxy list: every connected store-and-wire service of the project
 
 
 # ---------------------------------------------------------------------------------------------
@@ -274,10 +275,19 @@ def parse_step(data: dict, folder: Path, where: str) -> tuple[Step | None, list[
     return Step(folder=folder, **values), []
 
 
-def _cross_check(steps: list[Step], things: dict[str, Thing]) -> tuple[list[Step], list[str]]:
-    """Checks that need the whole library: known things, no order ties, only_with names exist."""
+def _cross_check(steps: list[Step], things: dict[str, Thing], root: Path | None = None) -> tuple[list[Step], list[str]]:
+    """Checks that need the whole library: known things, no order ties, only_with names exist, proxy names."""
     problems: list[str] = []
     bad: set[str] = set()
+    if root is not None and any(s.proxy for s in steps):
+        from phoenix9 import services     # late import: services.py imports this module
+        known = services.names_in(root)
+        for s in steps:
+            for name in s.proxy:
+                if name != PROXY_PROJECT and name not in known:
+                    problems.append(f"steps/{s.name}/step.toml: proxy '{name}' is not a service "
+                                    f"(use a service name or \"{PROXY_PROJECT}\")")
+                    bad.add(s.name)
     for s in steps:
         for key in ("needs", "produces"):
             for thing in getattr(s, key):
@@ -350,7 +360,7 @@ def load_library(root: Path) -> Library:
     things, problems = load_things(root / "steps" / "_things.toml")
     steps, step_problems = load_folders(root / "steps", "step.toml", parse_step)
     problems += step_problems
-    steps, cross_problems = _cross_check(steps, things)
+    steps, cross_problems = _cross_check(steps, things, root)
     problems += cross_problems
     steps.sort(key=lambda s: s.sort_key)
     return Library(root=root, steps=steps, things=things, problems=problems)

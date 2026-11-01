@@ -247,11 +247,13 @@ def pending_paths(worktree: Path, skip_env: bool = False) -> list[str]:
     return [p for p in found if not (skip_env and is_env_file(p.rsplit("/", 1)[-1]))]
 
 
-def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False) -> str:
+def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False,
+           allow_empty: bool = True, author: str = "") -> str:
     """Commit everything in the worktree with trailers (`Key: value`). Return the new sha.
 
-    A commit with no changes is still made, so the step's pass is on record. skip_env=True leaves
-    .env-style files out of the commit (they stay in the worktree, uncommitted).
+    By default a commit with no changes is still made, so the step's pass is on record; allow_empty=False
+    raises GitError("Nothing to commit") instead. skip_env=True leaves .env-style files out of the commit
+    (they stay in the worktree, uncommitted). `author` is "Name <email>" (default: Phoenix).
     """
     lines = [ln for ln in message.strip().splitlines()]
     body = "\n".join(lines).strip() or "Phoenix step"
@@ -265,9 +267,31 @@ def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False)
         env = [p for p in staged if p and is_env_file(p.rsplit("/", 1)[-1])]
         if env:
             git(Path(worktree), "reset", "-q", "--", *env)
+    if not allow_empty and run_git(Path(worktree), "diff", "--cached", "--quiet", check=False).returncode == 0:
+        raise GitError("Nothing to commit")
     text = f"{body}\n\n{block}\n" if block else f"{body}\n"
-    git(worktree, *IDENT, "commit", "-q", "--allow-empty", "--no-verify", "-F", "-", input=text.encode())
+    ident = IDENT
+    if author:
+        name, _, email = author.partition("<")
+        ident = ("-c", f"user.name={name.strip()}", "-c", f"user.email={email.rstrip('> ').strip()}")
+    flags = ["--allow-empty"] if allow_empty else []
+    git(worktree, *ident, "commit", "-q", *flags, "--no-verify", "-F", "-", input=text.encode())
     return head(worktree)
+
+
+def passed_tasks(worktree: Path, base_sha: str) -> list[int]:
+    """Return the task numbers that have a Phoenix-Task trailer in `git log base..HEAD`, sorted."""
+    # ported from reference/v8/phoenix/git.py:679
+    if not re.fullmatch(r"[0-9a-f]{7,64}", base_sha or ""):
+        raise GitError(f"'{base_sha}' is not a commit sha")
+    out = git(Path(worktree), "log", "--format=%(trailers:key=Phoenix-Task,valueonly,separator=%x2C)%x1e",
+              f"{base_sha}..HEAD")
+    tasks: set[int] = set()
+    for record in out.split("\x1e"):
+        for value in record.strip().split(","):
+            if value.strip().isdigit():
+                tasks.add(int(value.strip()))
+    return sorted(tasks)
 
 
 # ------------------------------------------------------------- allow / deny

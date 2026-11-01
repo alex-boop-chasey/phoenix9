@@ -62,6 +62,10 @@ TASK_ANSWERS = {
 }
 
 
+class RunFailed(Exception):
+    """The run cannot go on; the message is the reason shown to Alex."""
+
+
 @dataclass
 class Outcome:
     """How one step call ended, as the walk sees it.
@@ -100,7 +104,11 @@ class Runner:
             return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
         things = atomic.read_json(run_dir / "things.json", {})
         while True:
-            outcome = self._walk(run_dir, setup, things)
+            try:
+                outcome = self._walk(run_dir, setup, things)
+            except RunFailed as err:
+                self._skip_all(run_dir, state.load(run_dir))
+                return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
             if outcome != "waiting" or gates.current_answer(run_dir) is None:
                 break
             state.set_status(run_dir, "running")   # answered at once (e.g. by the project chat)
@@ -188,6 +196,8 @@ class Runner:
                 self._skip_all(run_dir, state.load(run_dir))
                 return "failed"
         spec_data = self._spec_data(run_dir)
+        if not spec_data.get("tasks"):
+            raise RunFailed("No plan: the brief has no tasks and the plan was skipped")
         for task in spec_mod.order(spec_mod.from_json(spec_data)):
             outcome = self._run_task(run_dir, setup, things, spec_data, task)
             if outcome in ("waiting", "stopped"):
@@ -350,7 +360,7 @@ class Runner:
         if line and line["status"] in ("passed", "skipped"):
             return Outcome(line["status"])
         if line and line["status"] == "waiting":
-            out = self._handle_gate(run_dir, things, index, line, number)
+            out = self._handle_gate(run_dir, setup, things, index, line, number)
             if out is not None:
                 return out
             line = state.load(run_dir)["steps"][index]
@@ -370,8 +380,22 @@ class Runner:
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
         return Outcome(status, list(result.reasons))
 
+    def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
+        """Call the step's optional on_approved(ctx, produces) hook; its returned dict goes on the finished event."""
+        step = self.lib.step(name)
+        try:
+            code = load_code(self.lib, step)
+            if code is None or not hasattr(code, "on_approved"):
+                return {}
+            task = state.load(run_dir)["tasks"].get(str(number)) if number is not None else None
+            ctx = self._context(run_dir, setup, things, step, None if task is None else {"number": number, **task})
+            return dict(code.on_approved(ctx, produces) or {})
+        except Exception as err:     # a broken hook ends the run with a reason instead of crashing the runner
+            first = (str(err).strip().splitlines() or [""])[0]
+            raise RunFailed(f"{step.title} could not use the approved result: {type(err).__name__}: {first}")
+
     def _record(self, run_dir: Path, things: dict, index: int, number, name: str, status: str,
-                reasons, produces) -> None:
+                reasons, produces, **extra) -> None:
         """Write a finished step: things it produced, its state line, failures and the event."""
         st = state.load(run_dir)
         if status == "failed" and number is not None:
@@ -381,7 +405,7 @@ class Runner:
             atomic.write_json(run_dir / "things.json", things)
         state.set_step_line(run_dir, index, status=status, note=scrub.scrub("; ".join(reasons)))
         events.emit("run.step.finished", project=st["project"], run=st["run_id"], task=number, step=name,
-                    status=status, reasons=[scrub.scrub(r) for r in reasons])
+                    status=status, reasons=[scrub.scrub(r) for r in reasons], **extra)
 
     def _add_failures(self, run_dir: Path, n: int, reasons: list[str]) -> None:
         """Remember why a task step failed (fed to later attempts and shown to Alex)."""
@@ -402,7 +426,7 @@ class Runner:
                    flags=spec.get("flags", ()))
         return Outcome("waiting")
 
-    def _handle_gate(self, run_dir: Path, things: dict, index: int, line: dict, number) -> Outcome | None:
+    def _handle_gate(self, run_dir: Path, setup: dict, things: dict, index: int, line: dict, number) -> Outcome | None:
         """The step's gate: no answer yet = still waiting; else act on it (STEP_ANSWERS).
         Returns None when the step must be called again: `back`, or an action the table does not
         know (a new gate kind's own action), which re-calls the step with ctx.answer and adds
@@ -426,7 +450,9 @@ class Runner:
             return None
         name = line["step"]
         if move == "passed":
-            self._record(run_dir, things, index, number, name, "passed", [], line.get("produces") or {})
+            produces = line.get("produces") or {}
+            extra = self._on_approved(run_dir, setup, things, name, number, produces)
+            self._record(run_dir, things, index, number, name, "passed", [], produces, **extra)
             state.set_step_line(run_dir, index, note=f"approved by {who}")
             return Outcome("passed")
         if move == "failed":

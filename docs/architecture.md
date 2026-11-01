@@ -136,6 +136,15 @@ model = "claude-sonnet-5-5"
   for that task; after the once-steps the worktree's commit is the task's `attempt_base`.
   `after_stop = true` (finish step) still runs when Alex answers `stop` (Notify sets it); every other
   finish step is left out of a stopped run.
+- Optional step hook `on_approved(ctx, produces) -> dict | None`: when Alex answers `approve` on a gate
+  the step opened, the runner calls it before the step is recorded as passed. The returned dict is added
+  to the step's `run.step.finished` event data (Planner returns `{"plan_adopted": true}`). A crash in it
+  fails the run with a reason.
+- Planner is a run-start step at `order = 45`, after Branch (40): its session needs the run's worktree
+  (read-only) as context. Spec check (20) accepts a brief (title only, tasks optional, `"brief": true`
+  in spec.json) when Planner is on. The Planner writes the plan to `plan.md` in the run folder (never
+  `plan.json`, which is the resolver's step plan) and opens a `plan` gate; approve adopts its tasks
+  (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
 - Library loading imports `run.py` with `importlib.util.spec_from_file_location`; a broken folder is
   reported by `phoenix steps list` and skipped, it never crashes the runner.
 

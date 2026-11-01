@@ -83,3 +83,13 @@ def find_run(run_id: str) -> Path | None:
         if (d / "state.json").is_file():
             return d
     return None
+
+
+def adopt_plan(run_dir, plan_path) -> int:
+    """Use the approved plan's tasks: rewrite spec.json and reset state.json tasks to pending; returns the task count."""
+    run_dir = Path(run_dir)
+    parsed = spec_mod.parse(Path(plan_path).read_text(encoding="utf-8"))
+    atomic.write_json(run_dir / "spec.json", spec_mod.to_json(parsed))
+    tasks = _tasks_from_spec(parsed)
+    state.update(run_dir, lambda s: s.__setitem__("tasks", tasks))
+    return len(tasks)

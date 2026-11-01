@@ -97,7 +97,7 @@ def test_smoke_run_builds_commits_and_merges(smoke):
     assert len(commits) == 3
     for n in (1, 2, 3):
         assert any(f"Phoenix-Task: {n}" in c and f"Phoenix-Run: {st['run_id']}" in c for c in commits)
-    assert git(code, "rev-parse", "main") == git(code, "rev-parse", f"phoenix/{st['run_id']}")
+    git(code, "merge-base", "--is-ancestor", f"phoenix/{st['run_id']}", "main")   # merged with a merge commit
     assert (code / "hello.py").read_text() == HELLO_NAME
     summary = (run_dir / "summary.md").read_text()
     assert summary.count("passed") >= 3 and all(f"Task {n}:" in summary for n in (1, 2, 3))
@@ -116,10 +116,10 @@ def test_smoke_env_file_fails_task_and_main_stays(smoke):
         'preset = "simple"\nprofile = "python-script"\nmax_tries = 1\non_failure = "continue"\n')
     before = git(code, "rev-parse", "main")
     run_dir, st = play(smoke, [{"hello.py": HELLO}, {"tests/test_hello.py": TEST_HELLO, ".env": "KEY=1\n"}])
-    assert st["status"] == "failed"
+    assert st["status"] == "waiting"   # a failed task forces the merge to ask (step 9)
     assert [st["tasks"][n]["status"] for n in ("1", "2", "3")] == ["passed", "failed", "skipped"]
     diff_line = next(x for x in st["steps"] if x["step"] == "diff-rules" and x["task"] == 2)
     assert diff_line["status"] == "failed" and ".env" in diff_line["note"]
     assert git(code, "rev-parse", "main") == before
     assert not (code / "hello.py").exists()
-    assert smoke["adapters"].notify.messages
+    assert st["current"]["gate"]   # the merge gate is open; Notify runs after it is answered

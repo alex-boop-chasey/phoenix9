@@ -8,6 +8,3 @@ order = 30
 needs = ["worktree"]
 produces = ["merged"]
 default = "on"
-
-[settings]
-mode = "auto"

@@ -9,3 +9,6 @@ produces = []
 safety = true
 default = "on"
 only_with = ["check-writer"]
+
+[settings]
+once = true

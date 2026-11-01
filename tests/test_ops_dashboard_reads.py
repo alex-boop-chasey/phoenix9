@@ -203,6 +203,19 @@ def test_api_md_mentions_every_ops_function_it_names_exists():
     assert checked >= 15
 
 
+def test_api_doc_lists_every_route():
+    from phoenix9.api.server import ROUTES
+
+    def norm(path):
+        path = re.sub(r"\(\?P<\w+>[^)]*\)", "<>", path)
+        return re.sub(r"<\w+>", "<>", path.split("?")[0])
+
+    text = (Path(__file__).resolve().parent.parent / "docs" / "api.md").read_text()
+    documented = {(m, norm(p)) for m, p in re.findall(r"^\| (GET|POST) \| `([^`]+)`", text, re.M)}
+    for method, pattern, _ in ROUTES:
+        assert (method, norm(pattern)) in documented, f"{method} {pattern} is not in docs/api.md"
+
+
 def test_library_presets_have_titles_and_descriptions(env):
     from phoenix9.ops import library
     rows = {r["name"]: r for r in library.presets()["presets"]}

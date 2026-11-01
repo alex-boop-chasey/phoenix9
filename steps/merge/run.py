@@ -58,6 +58,11 @@ def _repo_args(ctx) -> list:
     return ["--repo", m.group(1)] if m else []
 
 
+def matches_safety(path, globs) -> bool:
+    """Say whether a changed path matches any of the project's safety file globs."""
+    return any(fnmatch.fnmatch(path, g) for g in globs)
+
+
 def _flags(ctx, tasks, base, branch):
     """Return (flags, why parts) saying why this merge needs Alex."""
     flags, why = [], []
@@ -75,7 +80,7 @@ def _flags(ctx, tasks, base, branch):
         why.append("the full suite passed")
     names = ctx.adapters.git.git(ctx.project.code_dir, "diff", "--name-only", f"{base}..{branch}").split("\n")
     globs = ctx.project.settings.get("safety_files") or []
-    hit = [n for n in names if n and any(fnmatch.fnmatch(n, g) for g in globs)]
+    hit = [n for n in names if n and matches_safety(n, globs)]
     if hit:
         flags.append("changes safety code")
         why.append("touches safety files: " + ", ".join(hit))

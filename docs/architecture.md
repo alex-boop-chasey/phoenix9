@@ -38,13 +38,15 @@ pyproject.toml                 name phoenix9, no runtime deps, pytest testpaths 
 docs/architecture.md           this file
 phoenix9/                      the Python package
   __main__.py                  CLI entry (argparse); one sub-module per command group in phoenix9/cli/
-  cli/                         project.py (also `project keys` and `project services`) run.py gate.py
-                               settings.py library.py runner.py output.py doctor.py images.py api.py (thin: parse args,
-                               call ops, print); phase 4 adds global_.py update.py deploy.py
+  cli/                         one module per command group (thin: parse args, call ops, print): project.py
+                               (also `project keys` and `project services`) run.py gate.py settings.py library.py
+                               (steps, profiles, presets) runner.py api.py output.py, and from phase 4 services.py
+                               keys.py update.py deploy.py (also `deployers`) images.py doctor.py
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
                                common runs gates settings library projects keys (phases 1-2), logs app github (phase 3),
-                               global_ services update deploy doctor images (phase 4). Errors: OpsError.
+                               services update deploy doctor images (phase 4; global settings live in app.py and
+                               settings.py, there is no global_ module). Errors: OpsError.
   paths.py                     where things live (section 3)
   tomlw.py                     small TOML writer (stdlib has no writer); round-trips what we use
   atomic.py                    write_json/write_text atomically (tmp file + os.replace), read_json
@@ -76,6 +78,7 @@ phoenix9/                      the Python package
   deploy.py                    deployers runner (phase 4)
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
   images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
+  stepproxy.py                 starts the key proxies a step's `proxy` key asks for (section 14)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
 steps/<name>/                  step library: step.toml + prompt.md (ai) and/or run.py (script)
 steps/_delegate/               delegate-mode prompt (a `_` folder: not a step, the loader skips it)
@@ -83,13 +86,22 @@ steps/_things.toml             every "thing" a step can need/produce, with its f
 presets/<name>.toml            simple, quick, full (custom = no file; it is "start from a preset")
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
 services/<name>/service.toml   expected project keys + hosts (phase 2); recipes, proxy rules (phase 4)
-deployers/<name>/deployer.toml phase 4 (+ deploy.py)
+deployers/<name>/deployer.toml deployers library, section 4.7 (+ deploy.py)
 templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
-deploy/                        systemd units, install.sh, update.sh (phase 4)
+deploy/                        phoenix-api.service, phoenix-runner.service, phoenix9-update.service, install.sh,
+                               update.sh, self-project.toml (section 15); README.md for the server owner
 web/                           React app (phase 3)
                                src/pages, src/features/<area>, src/components/ui (shadcn), src/lib (api client, types, theme), e2e/ (Playwright)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
+CLI groups (`phoenix <group> --help`; each writes a `command` event when it changes something):
+  run gate settings steps profiles presets project doctor api   phases 1-3
+  services list|connect|disconnect|recipes    account services and their keys (section 4.6)
+  keys audit                                  which keys exist, where used, problems (never a value)
+  update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
+  deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
+  images build                                build the step images, label `phoenix9.commit`
+  doctor [--quick|--for-update]               the checks in section 15
 reference/                     READ-ONLY copies of V8, proj and the project-selector. Never imported,
                                never edited. Deleted at the end of phase 4.
 ```
@@ -99,7 +111,7 @@ reference/                     READ-ONLY copies of V8, proj and the project-sele
 | Name | Default | Env override | Holds |
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
-| config | HOME/config | | `global.toml` (non-secret global settings; `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` |
+| config | HOME/config | | `global.toml` (non-secret global settings; `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
@@ -123,7 +135,8 @@ build output of one install).
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
 chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run}`; older
-files may hold plain name strings).
+files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
+fields in section 4.7).
 
 ## 4. The plug-in libraries
 
@@ -496,7 +509,8 @@ Done when:
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
   previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|
-  rolled-back-manual, reason?, who?}`. `run.held {why}` is a run event (project, run set) written when
+  rolled-back-manual, reason?, who?}`. `deploy.finished {ok, rolled_back, url, deployer, reason}` (project
+  set; run set when a run did it) is written for every deploy or preview attempt (section 4.7). `run.held {why}` is a run event (project, run set) written when
   a run stops at a task boundary for an update hold.
 - Every `phoenix` command that changes something writes a `command` event and one line to
   HOME/logs/commands.jsonl `{ts, who, command, project}`; `who` = `--who` flag, else
@@ -518,7 +532,9 @@ Done when:
 
   Service setup's "Paste keys" gate offers `done` (not in the table: the step is called again with
   `ctx.answer` and re-checks), `skip` and `stop`; the dashboard shows any action it does not know as a
-  plain button labelled with its name (`done` = "Done, keys pasted").
+  plain button labelled with its name (`done` = "Done, keys pasted"). The Deploy step's `deploy` gate
+  (kind `deploy`) offers `deploy`, `skip` and `stop`; `deploy` calls the step again with `ctx.answer`
+  and it deploys. Both are the "any other action" rule below; they need no runner change.
 
   Any other action a step's gate offers (a new gate kind's own action) calls the step again with
   `ctx.answer`, like back, but adds nothing to `failures`; the step decides what it means
@@ -584,6 +600,10 @@ Done when:
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
+   Container env (built by `Claude.launch` / `docker.py`): `PHOENIX_PROXY_<SERVICE>` (the proxy URL) and
+   `PHOENIX_PROXY_TOKEN_<SERVICE>`; `docker.py` refuses any other added name that does not start
+   `PHOENIX_PROXY_`. The firewall opens only the proxy's `IP PORT`, read from the file mounted at
+   `/etc/hands/allowed-proxy`; the proxy host is the Docker bridge gateway.
 3. Phoenix trusts only exit codes, files it wrote, reports it read itself and git objects in its own
    worktrees. Nothing a session *says* counts.
 4. The spec is mounted read-only; locked checks are fingerprinted (when Check-writer is on).
@@ -632,12 +652,30 @@ Done when:
 
 ## 13. Formats defined in later phases
 
-Phase 4's sheets define these, and the phase 4 review step adds them here: `services/<name>/service.toml`,
-`deployers/<name>/deployer.toml`, `HOME/config/services.toml`, global update settings and the
-`HOME/update/` files, `[deploy.settings]` in phoenix.toml, `.phoenix/deploys.jsonl` and
-`services_done` in `.phoenix/project.json`, the run state's `held` field, and the `phoenix images` CLI
-group. phoenix9's own `phoenix.toml` (holding `safety_files` and `merge = "ask"`) lives outside code/,
-so the repo carries a template (`deploy/self-project.toml`) that the chat copies into place.
+All phase 4 formats now live in the sections above. Where to look:
+
+| Format | Section |
+| --- | --- |
+| `services/<name>/service.toml` | 4.6 |
+| `deployers/<name>/deployer.toml`, `deploy.py`, `.phoenix/deploys.jsonl` | 4.7, 3 |
+| step.toml `proxy` key (incl. `@project`); Service setup, Deploy, Preview steps | 4.1 |
+| `[deploy]` and `[deploy.settings]` in phoenix.toml | 5.2 |
+| `HOME/update/` files, `HOME/config/global.toml [update]`, `services.toml`, `api.env`, `doctor.json` | 3, 15 |
+| `services_set_up` in `.phoenix/project.json` | 3, 4.1 |
+| run state `current.held`; the hold wait in `drive()` | 7, 12 |
+| gate actions `done` and `deploy`; events `run.held`, `update.*`, `deploy.finished` | 8 |
+| `proxy` adapter | 9 |
+| step container env and `/etc/hands/allowed-proxy` | 11 (rule 2), 14 |
+| key proxy | 14 |
+| updater, doctor checks | 15 |
+| CLI groups `services`, `keys audit`, `update`, `deploy`, `deployers`, `images`, `doctor` | 2 |
+
+phoenix9's own `phoenix.toml` (holding `safety_files` and `merge = "ask"`) lives outside code/, so the repo
+carries a template (`deploy/self-project.toml`) that the chat copies into place. `safety_files` entries are
+`fnmatch` globs matched against each changed path (`*` also crosses `/`; a bare folder name matches nothing
+inside it); Merge flags "changes safety code" for a match (`matches_safety` in `steps/merge/run.py`). The
+template lists the firewall and container launch files, the diff rules and secret scan, the secrets and key
+proxy modules, the updater and its units, and the check scripts, each with the reason beside it.
 
 ## 14. Key proxy (`phoenix9/proxy.py`, phase 4)
 

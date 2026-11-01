@@ -6,22 +6,38 @@ max_tries = 3
 on_failure = "pause"
 services = ["github"]
 safety_files = [
-  "image/init-firewall.sh",
-  "image/entry.sh",
-  "phoenix9/docker.py",
-  "phoenix9/git.py",
-  "phoenix9/scrub.py",
-  "phoenix9/keys.py",
-  "phoenix9/proxy.py",
-  "phoenix9/updater.py",
-  "phoenix9/hold.py",
-  "deploy/update.sh",
-  "deploy/phoenix9-update.service",
-  "deploy/install.sh",
-  "deploy/phoenix-api.service",
-  "deploy/phoenix-runner.service",
-  "steps/diff-rules/run.py",
-  "steps/secret-scan/run.py",
+  # Firewall and container launch
+  "image/init-firewall.sh",  # the firewall that seals step containers
+  "image/hands-dns-conf.sh",  # DNS allowlist the firewall calls
+  "image/entry.sh",  # container start-up; runs the firewall
+  "image/Dockerfile",  # base step image
+  "profiles/*/image/Dockerfile",  # profile step images
+  "phoenix9/docker.py",  # builds the docker run command (mounts, no socket)
+  # Diff rules and secret scan
+  "phoenix9/git.py",  # allow/deny diff rules and safe git calls
+  "phoenix9/checklock.py",  # fingerprints of locked checks
+  "steps/diff-rules/run.py",  # enforces the diff denylist
+  "steps/secret-scan/run.py",  # finds secrets in a diff
+  # Secrets
+  "phoenix9/scrub.py",  # removes secret values from output
+  "phoenix9/keys.py",  # stores and reads keys
+  # Key proxy
+  "phoenix9/proxy.py",  # the key proxy and its allowed calls
+  "phoenix9/stepproxy.py",  # starts proxies around a step
+  "phoenix9/adapters.py",  # Proxy adapter and Claude.launch container env
+  "phoenix9/runner.py",  # starts proxies around each step
+  "phoenix9/stepctx.py",  # what a step is handed
+  # Updater
+  "phoenix9/updater.py",  # installs and rolls back updates
+  "phoenix9/hold.py",  # holds runs during an update
+  "deploy/update.sh",  # the root update script
+  "deploy/phoenix9-update.service",  # runs the updater as root
+  "deploy/install.sh",  # first install
+  "deploy/phoenix-api.service",  # dashboard service unit
+  "deploy/phoenix-runner.service",  # runner service unit
+  # The checks themselves
+  "check.sh",  # the check command
+  "check-browser.sh",  # the browser check command
 ]
 
 [deploy]

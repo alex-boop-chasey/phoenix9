@@ -169,7 +169,3 @@ serves it on fake adapters (no systemd, GitHub, Docker or Claude). Fixed times.
 | `tiny-tool` | `alex-boop-chasey/tiny-tool` (python-script, simple) | `20261101-080000-add-json-output` running (task 2 of 4) |
 | `notes-only` | none (research) | none |
 | `phoenix9` | `alex-boop-chasey/phoenix9` (platform) | `20261031-110000-api-and-dashboard` waiting, open merge gate `20261031-110000-api-and-dashboard.1` |
-
-## Not yet (phase 4)
-
-Update install and rollback, services connect, global secret writes.

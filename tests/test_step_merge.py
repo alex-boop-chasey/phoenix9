@@ -113,6 +113,22 @@ def test_safety_file_switches_auto_to_ask_with_flag(world):
     assert "image/init-firewall.sh" in result.gate["why"]
 
 
+def test_merge_flags_safety_change_for_self_project(world):
+    import tomllib
+    from pathlib import Path
+    ctx, _, _ = world
+    config = tomllib.loads((Path(__file__).resolve().parents[1] / "deploy" / "self-project.toml").read_text())
+    (ctx.worktree / "phoenix9").mkdir()
+    (ctx.worktree / "phoenix9" / "proxy.py").write_text("x = 1\n")
+    git(ctx.worktree, "add", "-A")
+    git(ctx.worktree, "commit", "-q", "-m", "proxy")
+    ctx.project.settings["safety_files"] = config["safety_files"]
+    gh(ctx, ["pr", "create"], out=URL + "\n")
+    result = load("merge").run(ctx)
+    assert result.status == "gate" and "changes safety code" in result.gate["flags"]
+    assert "phoenix9/proxy.py" in result.gate["why"]
+
+
 def test_failed_task_forces_ask(world):
     ctx, _, _ = world
     state.set_task(ctx.run.folder, 1, status="failed")

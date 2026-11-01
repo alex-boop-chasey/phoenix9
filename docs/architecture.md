@@ -23,6 +23,8 @@ this file records a deliberate simplification (section 12).
   (only if `web/node_modules` is missing) then `pnpm -C web test` (Vitest, no browser) and
   `pnpm -C web build`. Playwright is **not** in check.sh (needs a browser); it has its own
   `./check-browser.sh` run by the phase 3 sheets that need it and by the chat between phases.
+  check-browser.sh seeds a demo HOME, starts `tests/demo_server.py` (fake adapters) and runs Playwright at phone and
+  desktop widths; it needs the shared browser at `/opt/pw-browsers`.
 - Tests never touch the real server: no real Docker, Claude, GitHub, systemd, journalctl, network or
   /srv/projects. Everything external goes through an **adapter** with a fake in `tests/fakes/`
   (section 9). Tests set `PHOENIX_HOME` and `PHOENIX_PROJECTS` to temp folders.

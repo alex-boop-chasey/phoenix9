@@ -105,7 +105,7 @@ export const api = {
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
 
-  createProject: (form: CreateForm) => post<{ job: Job }>("projects", form),
+  createProject: (form: CreateForm) => post<{ job: string }>("projects", form),
   editProject: (name: string, body: EditBody) => post<Project>(`projects/${e(name)}/edit`, body),
   saveKeys: (name: string, rows: KeyInput[]) => post<KeyRow[]>(`projects/${e(name)}/keys/save`, { rows }),
   revealKey: (name: string, key: string) =>

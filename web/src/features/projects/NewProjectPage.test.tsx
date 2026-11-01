@@ -183,7 +183,7 @@ const job = (over: object) => ({ id: "j1", kind: "create", project: "my-site", s
 
 test("create posts the documented body including keys", async () => {
   const { calls } = await fillAndCreate({
-    "POST /api/projects": { job: job({}) },
+    "POST /api/projects": { job: "j1" },
     "GET /api/jobs/j1": job({}),
   })
   await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true))
@@ -195,10 +195,19 @@ test("create posts the documented body including keys", async () => {
   })
 })
 
+test("the job id the server replies with (a plain string) is the one that gets polled", async () => {
+  const { calls } = await fillAndCreate({
+    "POST /api/projects": { job: "j1" },
+    "GET /api/jobs/j1": job({ steps: [{ label: "Making the folder", status: "running" }] }),
+  })
+  await screen.findByText("Making the folder")
+  expect(calls.some((c) => c.method === "GET" && c.path === "/api/jobs/j1")).toBe(true)
+})
+
 test("progress list updates from job polling", async () => {
   let n = 0
   mockApi(routes({
-    "POST /api/projects": { job: job({}) },
+    "POST /api/projects": { job: "j1" },
     "GET /api/jobs/j1": () => {
       n += 1
       return n < 2
@@ -217,7 +226,7 @@ test("progress list updates from job polling", async () => {
 
 test("done navigates to the project page", async () => {
   mockApi(routes({
-    "POST /api/projects": { job: job({}) },
+    "POST /api/projects": { job: "j1" },
     "GET /api/jobs/j1": job({ status: "done", steps: [{ label: "Done", status: "done" }] }),
   }))
   renderPage()
@@ -228,7 +237,7 @@ test("done navigates to the project page", async () => {
 
 test("failure shows message and back keeps values", async () => {
   mockApi(routes({
-    "POST /api/projects": { job: job({}) },
+    "POST /api/projects": { job: "j1" },
     "GET /api/jobs/j1": job({ status: "failed", message: "GitHub said no.", steps: [{ label: "Making the repo", status: "failed" }] }),
   }))
   renderPage()

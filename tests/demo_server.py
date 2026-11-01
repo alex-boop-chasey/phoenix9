@@ -24,12 +24,30 @@ CHAT_ON = ("demo-site", "phoenix9")
 GITHUB_ACCOUNTS = ("rebirth-wd", "alex-boop-chasey")
 
 
+class DemoHost(FakeHost):
+    """A fake host whose chat servers really turn on and off, so creating and stopping a project works."""
+
+    def __init__(self):
+        """Start with the chat servers of the demo projects on."""
+        super().__init__()
+        self.active = {f"claude-rc@{name}.service" for name in CHAT_ON}
+
+    def systemctl(self, *args):
+        """Answer is-active, start, stop and disable from the remembered set; the rest is scripted."""
+        if args[:1] == ("is-active",):
+            self.calls.append(["systemctl", *args])
+            self.cwds.append(None)
+            return (0 if args[-1] in self.active else 3), "", ""
+        if args[:1] == ("start",):
+            self.active.add(args[-1])
+        elif args[:1] == ("stop",) or (args[:1] == ("disable",) and "--now" in args):
+            self.active.discard(args[-1])
+        return super().systemctl(*args)
+
+
 def demo_host() -> FakeHost:
     """A scripted host: chat servers for two projects are on, GitHub is signed in, folders have sizes."""
-    host = FakeHost()
-    host.script(["systemctl", "is-active"], rc=3)
-    for name in CHAT_ON:
-        host.script(["systemctl", "is-active", "-q", f"claude-rc@{name}.service"], rc=0)
+    host = DemoHost()
     host.script(["gh", "auth", "status"], rc=0, out="Logged in to github.com")
     host.script(["gh", "api", "user", "--jq", ".login"], out=GITHUB_ACCOUNTS[1] + "\n")
     host.script(["gh", "api", "user/orgs", "--jq", ".[].login"], out=GITHUB_ACCOUNTS[0] + "\n")

@@ -44,7 +44,7 @@ export default function NewProjectPage() {
   function submit() {
     setError("")
     create.mutate(toCreateForm(values, keyRows, !!github.data?.connected), {
-      onSuccess: (r) => setJobId(r.job.id),
+      onSuccess: (r) => setJobId(r.job),
       onError: (e) => setError(e.message),
     })
   }

@@ -5,6 +5,7 @@ the choice is remembered in the browser). pnpm only.
 
 - Develop: `pnpm install`, then `pnpm dev` (proxies `/api` to `http://127.0.0.1:8090`).
 - Test: `pnpm test` (Vitest). Browser tests: `pnpm e2e` with `PHOENIX_E2E_URL` set (run by `check-browser.sh`).
+- `check-browser.sh` (repo root) seeds a demo HOME, starts `tests/demo_server.py` (fake adapters) and runs Playwright at phone (390x844) and desktop (1280x800); it needs the shared browser at `/opt/pw-browsers`.
 - Build: `pnpm build` -> `dist/` (relative asset paths; the app is served under `/proxy/<port>/`).
 - Routing is hash based, so it works under any path prefix.
 

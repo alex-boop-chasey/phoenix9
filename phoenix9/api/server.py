@@ -84,56 +84,69 @@ def int_param(req, key: str, default: int) -> int:
 # ---- GET handlers: parse, call one ops function, return the data ----
 
 def get_info(req):
+    """Reply with the app info."""
     return app.info()
 
 
 def get_projects(req):
+    """Reply with the project list rows."""
     return projects.rows()
 
 
 def get_check_name(req):
+    """Say whether a new project name is usable."""
     return projects.check_name(req.query.get("name", ""))
 
 
 def get_project(req, name):
+    """Reply with one project's details."""
     row = projects.row(check_name(name))
     return {**projects.show(name), **{k: row[k] for k in ("needs_you", "run", "repo_url")}}
 
 
 def get_changelog(req, name):
+    """Reply with a project's recent changelog lines."""
     return projects.changelog(check_name(name), limit=int_param(req, "limit", 20))
 
 
 def get_keys(req, name):
+    """Reply with a project's keys, values hidden."""
     return keys.rows(check_name(name))
 
 
 def get_settings(req, name):
+    """Reply with a project's settings."""
     return settings.show(check_name(name))
 
 
 def get_explain(req, name):
+    """Reply with the plain-words explanation of a project's settings."""
     return settings.explain(check_name(name))
 
 
 def get_specs(req, name):
+    """Reply with a project's spec files."""
     return projects.specs(check_name(name))
 
 
 def get_builds(req, name):
+    """Reply with a project's builds."""
     return runs.builds(check_name(name))
 
 
 def get_run(req, project, run_id):
+    """Reply with one run's detail."""
     return runs.detail(check_name(project), check_run_id(run_id))
 
 
 def get_gates(req):
+    """Reply with the open and answered gates."""
     name = req.query.get("project")
     return gates.list_(check_name(name) if name else None)
 
 
 def get_events_recent(req):
+    """Reply with recent events for polling."""
     after = req.query.get("after")
     limit = min(max(int_param(req, "limit", 200), 1), 1000)
     project = req.query.get("project")
@@ -146,6 +159,7 @@ def need_project(req) -> str:
 
 
 def get_logs(req):
+    """Reply with the list of log files."""
     task = req.query.get("task")
     return logs.list_(need_project(req), run=req.query.get("run") or None,
                       task=int_param(req, "task", 0) if task not in (None, "") else None,
@@ -153,38 +167,47 @@ def get_logs(req):
 
 
 def get_logs_read(req):
+    """Reply with one log's scrubbed text."""
     return logs.read(need_project(req), req.query.get("id") or "")
 
 
 def get_steps(req):
+    """Reply with the step library."""
     return library.steps()
 
 
 def get_profiles(req):
+    """Reply with the profile library."""
     return library.profiles()
 
 
 def get_presets(req):
+    """Reply with the preset library."""
     return library.presets()
 
 
 def get_templates(req):
+    """Reply with the templates menu."""
     return projects.templates_menu()
 
 
 def get_services_lib(req):
+    """Reply with the services library."""
     return library.services()
 
 
 def get_repos(req):
+    """Reply with the GitHub repos Phoenix can see."""
     return github.repos()
 
 
 def get_global(req):
+    """Reply with the global settings view."""
     return app.global_view()
 
 
 def get_services(req):
+    """Reply with the services view."""
     return app.services_view()
 
 
@@ -279,6 +302,7 @@ def run_create_job(httpd, job: dict, opts: dict) -> None:
 
 
 def post_create(req):
+    """Start creating a project in the background and reply with the job id."""
     opts = create_opts(req.body)
     httpd = req.server
     with httpd.jobs_lock:
@@ -294,6 +318,7 @@ def post_create(req):
 
 
 def get_job(req, job_id):
+    """Reply with a background job's progress."""
     with req.server.jobs_lock:
         purge_jobs(req.server.jobs)
         job = req.server.jobs.get(job_id)
@@ -303,6 +328,7 @@ def get_job(req, job_id):
 
 
 def post_edit(req, name):
+    """Edit a project's description, repo, profile or services."""
     check_name(name)
     body = req.body
     fields = {}
@@ -324,6 +350,7 @@ def post_edit(req, name):
 
 
 def post_keys_save(req, name):
+    """Save project keys."""
     rows = req.body.get("rows")
     if not isinstance(rows, list):
         raise BadRequest("'rows' should be a list.")
@@ -332,12 +359,14 @@ def post_keys_save(req, name):
 
 
 def post_keys_reveal(req, name):
+    """Reveal one key value."""
     key = body_text(req, "name")
     with req.server.write_lock:
         return keys.reveal(check_name(name), key, WHO)
 
 
 def post_keys_remove(req, name):
+    """Remove a project key."""
     key = body_text(req, "name")
     with req.server.write_lock:
         keys.remove(check_name(name), key, WHO)
@@ -345,6 +374,7 @@ def post_keys_remove(req, name):
 
 
 def post_settings(req, name):
+    """Set project settings."""
     values = body_dict(req, "set")
     with req.server.write_lock:
         settings.set_many(check_name(name), values, WHO)
@@ -352,6 +382,7 @@ def post_settings(req, name):
 
 
 def post_preset(req, name):
+    """Apply a preset to a project."""
     preset = body_text(req, "preset")
     with req.server.write_lock:
         settings.preset(check_name(name), preset, who=WHO)
@@ -359,21 +390,25 @@ def post_preset(req, name):
 
 
 def post_settings_check(req, name):
+    """Re-check a project's settings."""
     with req.server.write_lock:
         settings.check(check_name(name))
     return settings.show(name)
 
 
 def post_plan(req, name):
+    """Reply with the build plan for the given overrides."""
     return runs.plan(check_name(name), body_dict(req, "overrides"))
 
 
 def post_defaults(req, name):
+    """Save overrides as the project's defaults."""
     with req.server.write_lock:
         return settings.save_defaults(check_name(name), body_dict(req, "overrides"), WHO)
 
 
 def post_run_start(req, name):
+    """Start a run from the project's notes."""
     spec, brief = body_text(req, "spec", False), body_text(req, "brief", False)
     overrides = body_dict(req, "overrides")
     with req.server.write_lock:
@@ -382,6 +417,7 @@ def post_run_start(req, name):
 
 
 def post_run_stop(req, project, run_id):
+    """Stop a run."""
     if req.body.get("confirm") is not True:
         raise BadRequest("Stopping a run needs confirmation.")
     with req.server.write_lock:
@@ -389,6 +425,7 @@ def post_run_stop(req, project, run_id):
 
 
 def post_gate_answer(req, gate_id):
+    """Answer a gate."""
     if not GATE_ID_RE.match(gate_id):
         raise BadRequest("That isn't a valid gate id.")
     action = body_text(req, "action")

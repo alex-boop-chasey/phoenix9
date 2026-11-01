@@ -1,0 +1,35 @@
+npm warn Unknown env config "store-dir". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+[1m[46m RUN [49m[22m [36mv3.2.4 [39m[90m/workspace[39m
+
+ [31m❯[39m tests/phoenix/step-03/1-fail.test.ts [2m([22m[2m2 tests[22m[2m | [22m[31m1 failed[39m[2m)[22m[32m 10[2mms[22m[39m
+   [32m✓[39m passes[32m 1[2mms[22m[39m
+[31m   [31m×[31m the sum is right[39m[32m 6[2mms[22m[39m
+[31m     → expected 2 to be 3 // Object.is equality[39m
+
+[31m⎯⎯⎯⎯⎯⎯⎯[39m[1m[41m Failed Tests 1 [49m[22m[31m⎯⎯⎯⎯⎯⎯⎯[39m
+
+[41m[1m FAIL [22m[49m tests/phoenix/step-03/1-fail.test.ts[2m > [22mthe sum is right
+[31m[1mAssertionError[22m: expected 2 to be 3 // Object.is equality[39m
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 3[39m
+[31m+ 2[39m
+
+[36m [2m❯[22m tests/phoenix/step-03/1-fail.test.ts:[2m4:48[22m[39m
+    [90m  2| [39m
+    [90m  3| [39m[34mtest[39m([32m'passes'[39m[33m,[39m () [33m=>[39m { [34mexpect[39m([34m1[39m)[33m.[39m[34mtoBe[39m([34m1[39m) })
+    [90m  4| [39m[34mtest[39m([32m'the sum is right'[39m[33m,[39m () [33m=>[39m { [34mexpect[39m([34m1[39m [33m+[39m [34m1[39m)[33m.[39m[34mtoBe[39m([34m3[39m) })
+    [90m   | [39m                                               [31m^[39m
+    [90m  5| [39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m1 failed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[31m1 failed[39m[22m[2m | [22m[1m[32m1 passed[39m[22m[90m (2)[39m
+[2m   Start at [22m 03:42:23
+[2m   Duration [22m 302ms[2m (transform 46ms, setup 0ms, collect 36ms, tests 10ms, environment 0ms, prepare 84ms)[22m
+

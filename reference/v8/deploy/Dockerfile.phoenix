@@ -1,0 +1,27 @@
+# Phoenix v8 core: the Phoenix container itself (deploy/docker-compose.yml).
+# It only runs Python, git, gh and the Docker command line. No Node and no
+# Claude Code here: Claude only ever runs inside the per-step containers
+# (image phoenix-step:0.6.0) that Phoenix starts through the Docker socket.
+# Build from the repo root:  docker build -f deploy/Dockerfile.phoenix -t phoenix-core:8 .
+FROM python:3.12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git docker-cli gh rsync ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+# The package plus the files it reads next to it (prompts, the step test configs,
+# the summary template and the hooks folder that step containers mount).
+COPY phoenix/ /app/phoenix/
+COPY prompts/ /app/prompts/
+COPY image/testconfig/ /app/image/testconfig/
+COPY templates/ /app/templates/
+COPY hooks/ /app/hooks/
+RUN chmod 755 /app/phoenix/git-credential.sh \
+ && find /app -name __pycache__ -prune -exec rm -rf {} +
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PHOENIX_HOME=/phoenix
+
+CMD ["python", "-m", "phoenix", "watch"]

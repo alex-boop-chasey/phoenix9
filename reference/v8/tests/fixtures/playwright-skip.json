@@ -1,0 +1,205 @@
+{
+  "config": {
+    "argv": [
+      "/usr/local/bin/node",
+      "/workspace/node_modules/.pnpm/@playwright+test@1.64.1/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/phoenix/step-04",
+      "--config",
+      "/phoenix/testconfig/playwright.config.mjs",
+      "--reporter=json"
+    ],
+    "configFile": "/phoenix/testconfig/playwright.config.mjs",
+    "rootDir": "/workspace/tests/phoenix",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/out/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/workspace/tests/phoenix",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.spec.ts"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "filteredProjects": [
+      {
+        "grep": {},
+        "grepInvert": null,
+        "outputDir": "/out/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "name": "chromium",
+        "testDir": "/workspace/tests/phoenix",
+        "snapshotDir": "/workspace/tests/phoenix",
+        "testIgnore": [],
+        "testMatch": "**/*.spec.ts",
+        "timeout": 60000,
+        "use": {
+          "baseURL": "http://127.0.0.1:3000",
+          "screenshot": "only-on-failure",
+          "trace": "retain-on-failure",
+          "browserName": "chromium"
+        },
+        "dependencies": [],
+        "ignoreSnapshots": false,
+        "__projectId": "chromium"
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "default",
+    "updateSourceMethod": "patch",
+    "version": "1.64.1",
+    "workers": 1,
+    "webServer": {
+      "command": "pnpm run dev",
+      "cwd": "/workspace",
+      "env": {
+        "PORT": "3000",
+        "HOSTNAME": "127.0.0.1"
+      },
+      "url": "http://127.0.0.1:3000",
+      "reuseExistingServer": false,
+      "timeout": 180000
+    }
+  },
+  "suites": [
+    {
+      "title": "step-04/2-skip.spec.ts",
+      "file": "step-04/2-skip.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "passes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 27,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-30T03:42:04.444Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "19eaddee14670f348105-37493f7ecd944dd16003",
+          "file": "step-04/2-skip.spec.ts",
+          "line": 3,
+          "column": 5
+        },
+        {
+          "title": "is skipped",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 60000,
+              "annotations": [
+                {
+                  "type": "skip",
+                  "location": {
+                    "file": "/workspace/tests/phoenix/step-04/2-skip.spec.ts",
+                    "line": 4,
+                    "column": 6
+                  }
+                }
+              ],
+              "expectedStatus": "skipped",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "skipped",
+                  "duration": 0,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-30T03:42:04.638Z",
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "location": {
+                        "file": "/workspace/tests/phoenix/step-04/2-skip.spec.ts",
+                        "line": 4,
+                        "column": 6
+                      }
+                    }
+                  ],
+                  "attachments": []
+                }
+              ],
+              "status": "skipped"
+            }
+          ],
+          "id": "19eaddee14670f348105-0449165b19e2e975f220",
+          "file": "step-04/2-skip.spec.ts",
+          "line": 4,
+          "column": 6
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-30T03:41:56.395Z",
+    "duration": 8381.362,
+    "expected": 1,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

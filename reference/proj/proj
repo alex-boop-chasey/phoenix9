@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+# proj: list, create, open and close project workspaces.
+#
+# A project is a folder /srv/projects/<name>/ (CLAUDE.md, notes/, code/). Each one has a systemd
+# service claude-rc@<name>, a Claude Code Remote Control server in that folder, so the project shows
+# up in the Claude app and chats are started there. Projects are always on: the service is enabled
+# at boot when the project is created (or opened) and nothing puts it to sleep. `proj close` is the
+# only way to switch one off. `proj sweep` (every 15 minutes, from proj-sweep.timer) backs the notes
+# up to GitHub.
+#
+# Usage: proj help
+set -uo pipefail
+
+ROOT=/srv/projects
+STATE="$ROOT/.proj"
+HOME_PROJECT=home
+CLAUDE_JSON=/root/.claude.json
+
+die() { echo "proj: $*" >&2; exit 1; }
+say() { echo "proj: $*"; }
+
+[ "$(id -u)" = 0 ] || die "run proj as root"
+mkdir -p "$STATE"
+
+unit()    { echo "claude-rc@$1.service"; }
+exists()  { [ -f "$ROOT/$1/CLAUDE.md" ]; }
+awake()   { systemctl is-active -q "$(unit "$1")"; }
+all_projects() { local d; for d in "$ROOT"/*/; do d="${d%/}"; [ -f "$d/CLAUDE.md" ] && basename "$d"; done; }
+need()    { [ -n "${1:-}" ] || die "which project? See: proj list"; exists "$1" || die "no project '$1'. See: proj list"; }
+
+chats() {  # number of chats open in a project right now (Remote Control session processes)
+  local cg; cg="$(systemctl show -p ControlGroup --value "$(unit "$1")" 2>/dev/null)"
+  [ -n "$cg" ] && [ -r "/sys/fs/cgroup$cg/cgroup.procs" ] || { echo 0; return; }
+  local n=0 pid
+  while read -r pid; do
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--sdk-url' && n=$((n + 1))
+  done < "/sys/fs/cgroup$cg/cgroup.procs"
+  echo "$n"
+}
+
+mark_used() { touch "$STATE/$1.used"; }
+last_used() {  # "3h ago" style, or "never"
+  local f="$STATE/$1.used"; [ -f "$f" ] || { echo never; return; }
+  local s=$(( $(date +%s) - $(stat -c %Y "$f") ))
+  if [ $s -lt 3600 ]; then echo "$((s / 60))m ago"; elif [ $s -lt 172800 ]; then echo "$((s / 3600))h ago"; else echo "$((s / 86400))d ago"; fi
+}
+
+trust() {  # mark the folder as trusted in Claude Code's own settings (remote-control refuses untrusted folders)
+  python3 - "$CLAUDE_JSON" "$ROOT/$1" <<'PY'
+import json, os, sys, tempfile
+path, folder = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = json.load(f)
+# /srv/projects is a signpost to the real folder: trust the folder under both names
+changed = False
+for name in {folder, os.path.realpath(folder)}:
+    entry = data.setdefault("projects", {}).setdefault(name, {})
+    if entry.get("hasTrustDialogAccepted") is not True:
+        entry["hasTrustDialogAccepted"] = True
+        changed = True
+if not changed:
+    sys.exit(0)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path))
+with os.fdopen(fd, "w") as f:
+    json.dump(data, f, indent=2)
+os.chmod(tmp, 0o600)
+os.replace(tmp, path)
+PY
+}
+
+cmd_list_json() {  # same data as cmd_list, for the project selector page (names and texts are JSON-safe)
+  local p first=1
+  printf '{"projects": ['
+  for p in $(all_projects); do
+    [ $first = 1 ] || printf ', '; first=0
+    if awake "$p"; then printf '{"name": "%s", "state": "on", "chats": %s, "last_used": "%s"}' "$p" "$(chats "$p")" "$(last_used "$p")"
+    else printf '{"name": "%s", "state": "off", "chats": 0, "last_used": "%s"}' "$p" "$(last_used "$p")"; fi
+  done
+  printf '], "home": "%s"}\n' "$HOME_PROJECT"
+}
+
+cmd_list() {
+  [ "${1:-}" = --json ] && { cmd_list_json; return; }
+  printf '%-22s %-5s %-6s %s\n' PROJECT STATE CHATS "LAST USED"
+  local p
+  for p in $(all_projects); do
+    if awake "$p"; then printf '%-22s %-5s %-6s %s\n' "$p" on "$(chats "$p")" "$(last_used "$p")"
+    else printf '%-22s %-5s %-6s %s\n' "$p" off - "$(last_used "$p")"; fi
+  done
+}
+
+cmd_open() {  # switch a project on, now and at every boot
+  need "${1:-}"; local p="$1" i
+  systemctl enable -q "$(unit "$p")" 2>/dev/null
+  awake "$p" && { mark_used "$p"; say "$p is already on."; return; }
+  trust "$p"
+  local since; since="$(date '+%Y-%m-%d %H:%M:%S')"
+  systemctl start "$(unit "$p")" || die "couldn't start $p (see: journalctl -u $(unit "$p"))"
+  for i in $(seq 1 6); do
+    sleep 1
+    local out; out="$(journalctl -u "$(unit "$p")" --since "$since" -o cat --no-pager)"
+    echo "$out" | grep -qiE 'error|not trusted' && { systemctl stop "$(unit "$p")"; die "$p failed to start: $(echo "$out" | grep -iE 'error|not trusted' | tail -n 1)"; }
+    awake "$p" || die "$p stopped straight away: $(echo "$out" | tail -n 1)"
+  done
+  mark_used "$p"
+  say "$p is on. It shows up in the Claude app in a few seconds; start a chat there."
+}
+
+cmd_close() {  # switch a project off (and not at boot); the only way a project goes off
+  need "${1:-}"; local p="$1" force="${2:-}" n
+  [ "$p" = "$HOME_PROJECT" ] && [ "$force" != --force ] && die "home is the front door and stays on (use --force to close it anyway)"
+  awake "$p" || { systemctl disable -q "$(unit "$p")" 2>/dev/null; say "$p is already off."; return; }
+  n="$(chats "$p")"
+  [ "$n" -gt 0 ] && [ "$force" != --force ] && die "$p has $n chat(s) open. Close them first, or: proj close $p --force"
+  systemctl disable -q --now "$(unit "$p")"
+  say "$p is off. It won't start at boot; proj open $p turns it back on."
+}
+
+vscode_task() {  # opening the project folder in VS Code makes sure the project is on for the Claude app
+  mkdir -p "$ROOT/$1/.vscode"
+  cat > "$ROOT/$1/.vscode/tasks.json" <<EOF
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Make sure $1 is on for the Claude app",
+      "type": "shell",
+      "command": "proj open $1",
+      "runOptions": { "runOn": "folderOpen" },
+      "presentation": { "reveal": "silent", "panel": "dedicated", "close": true },
+      "problemMatcher": []
+    }
+  ]
+}
+EOF
+}
+
+cmd_new() {
+  local p="${1:-}" code="" repo="" ; shift || true
+  [[ "$p" =~ ^[a-z0-9][a-z0-9-]{0,40}$ ]] || die "usage: proj new <name> [--code <path> | --repo <owner/name>]   (lowercase letters, digits, dashes)"
+  [ -e "$ROOT/$p" ] && die "'$p' already exists"
+  while [ $# -gt 0 ]; do case "$1" in --code) shift; code="${1:-}";; --repo) shift; repo="${1:-}";; *) die "unknown option $1";; esac; shift; done
+  [ -n "$code" ] && [ -n "$repo" ] && die "use --code or --repo, not both"
+  [ -z "$code" ] || [ -d "$code" ] || die "--code: no folder $code"
+  if [ -n "$repo" ]; then
+    [[ "$repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die "--repo: expected owner/name"
+    gh repo view "$repo" --json name >/dev/null 2>&1 || die "--repo: can't see $repo on GitHub"
+  fi
+  mkdir -p "$ROOT/$p/notes/"{research,specs,plans,sessions}
+  chmod 700 "$ROOT/$p/notes"
+  if [ -n "$repo" ]; then
+    gh repo clone "$repo" "$ROOT/$p/code" -- -q || { rm -rf "$ROOT/$p"; die "couldn't copy $repo into code/"; }
+    code="$ROOT/$p/code"
+  elif [ -z "$code" ]; then mkdir -p "$ROOT/$p/code"; fi
+  vscode_task "$p"
+  local today; today="$(date +%Y-%m-%d)"
+  cat > "$ROOT/$p/CLAUDE.md" <<EOF
+# $p
+
+(What this project is, in a few lines. Fill this in with Alex in the first chat.)
+
+- Code: ${code:-code/ (empty so far)}
+- Repo: ${repo:-(none yet)}
+
+@notes/NOW.md
+EOF
+  printf '# Now (%s)\n\n- %s: project created. Next: ask Alex what it is, fill in CLAUDE.md.\n' "$p" "$today" > "$ROOT/$p/notes/NOW.md"
+  printf '# Decisions (%s)\n\n' "$p" > "$ROOT/$p/notes/decisions.md"
+  printf '# Changelog (%s)\n\nPlain-English log of every change, newest last: date · who (chat, subagent, grunt, Phoenix) · what.\n\n' "$p" > "$ROOT/$p/notes/changelog.md"
+  printf '| %s | %s | (new) |\n' "$p" "${repo:-${code:--}}" >> "$ROOT/INDEX.md"
+  say "created $ROOT/$p"
+  cmd_open "$p"
+}
+
+backup() {  # commit and push the notes (code/ folders have their own repos) when they changed
+  [ -d "$ROOT/.git" ] || return 0
+  git -C "$ROOT" add -A >/dev/null 2>&1
+  git -C "$ROOT" diff --cached --quiet && return 0
+  git -C "$ROOT" -c user.name=proj -c user.email=rebirthwd@gmail.com commit -q -m "notes $(date -u '+%Y-%m-%d %H:%M UTC')"
+  git -C "$ROOT" push -q 2>/dev/null || echo "proj: notes backup push failed (will retry next sweep)" >&2
+}
+
+cmd_sweep() {  # run by proj-sweep.timer: note which projects are in use, back the notes up
+  local p
+  for p in $(all_projects); do
+    awake "$p" && [ "$(chats "$p")" -gt 0 ] && mark_used "$p"
+  done
+  backup
+}
+
+cmd_help() {
+  cat <<'EOF'
+proj: project workspaces in /srv/projects (each: CLAUDE.md, notes/, code/). Projects are always on.
+
+  proj list [--json]        every project: on/off, open chats, last used
+  proj open <name>          switch a project on (now and at boot); it appears in the Claude app
+  proj close <name>         switch it off (refuses while chats are open; --force to close anyway)
+  proj new <name> [--code <path> | --repo <owner/name>]
+                            create a project and switch it on: empty code/, existing code elsewhere,
+                            or a copy of a GitHub repo in code/
+  proj sweep                back up the notes (run every 15 min by proj-sweep.timer)
+EOF
+}
+
+case "${1:-help}" in
+  list|ls) cmd_list "${2:-}" ;;
+  open) cmd_open "${2:-}" ;;
+  close) cmd_close "${2:-}" "${3:-}" ;;
+  new) shift; cmd_new "$@" ;;
+  sweep) cmd_sweep ;;
+  help|-h|--help) cmd_help ;;
+  *) die "unknown command '$1'. See: proj help" ;;
+esac

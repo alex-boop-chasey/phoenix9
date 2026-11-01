@@ -1,0 +1,6 @@
+# Hostinger's Docker Manager looks for /docker/<project>/docker-compose.yml.
+# The real file is deploy/docker-compose.yml (see deploy/README.md); this one
+# only includes it, with the settings install.sh wrote to deploy/.env.
+include:
+  - path: deploy/docker-compose.yml
+    env_file: deploy/.env

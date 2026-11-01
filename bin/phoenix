@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The phoenix command: runs the phoenix9 package from this copy of the repo.
+ROOT="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m phoenix9 "$@"

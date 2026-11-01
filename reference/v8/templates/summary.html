@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<!--
+  Phoenix run summary. Filled in by phoenix/run.py (summary_html).
+  Plain HTML and CSS only: no JavaScript, no outside files, so it opens
+  the same way from the run folder, an email or a download.
+  Placeholders are names in double curly braces; every value is HTML-escaped before it
+  is put in, except the pre-built lists (steps, for_you) and the PR link.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<style>
+  :root {
+    --ink: #1f2328;
+    --muted: #59636e;
+    --line: #d1d9e0;
+    --paper: #ffffff;
+    --band: #f6f8fa;
+    --you: #fff8c5;
+    --you-line: #d4a72c;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem 4rem;
+    background: var(--band);
+    color: var(--ink);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 2rem;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  h1 { font-size: 1.5rem; margin: 0 0 1.25rem; }
+  h2 {
+    font-size: 1.15rem;
+    margin: 2rem 0 0.75rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--line);
+  }
+  table { border-collapse: collapse; width: 100%; }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 0.4rem 0.75rem 0.4rem 0;
+    border-bottom: 1px solid var(--band);
+  }
+  th { width: 13rem; color: var(--muted); font-weight: 600; }
+  ul { margin: 0; padding-left: 1.4rem; }
+  li { margin: 0.25rem 0; }
+  li ul { margin-top: 0.25rem; color: var(--muted); }
+  a { color: #0969da; word-break: break-all; }
+  .you {
+    background: var(--you);
+    border: 1px solid var(--you-line);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+  }
+  .you p { margin: 0; }
+  footer { margin-top: 2rem; color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>{{title}}</h1>
+
+  <table>
+    <tr><th>Status</th><td>{{status}}</td></tr>
+    <tr><th>Repo</th><td>{{repo}}</td></tr>
+    <tr><th>Branch</th><td>{{branch}}</td></tr>
+    <tr><th>Pull request</th><td>{{pr}}</td></tr>
+    <tr><th>Full suite at the start</th><td>{{suite_start}}</td></tr>
+    <tr><th>Full suite at the end</th><td>{{suite_end}}</td></tr>
+    <tr><th>Cost</th><td>{{cost}} in {{sessions}} Claude session(s)</td></tr>
+  </table>
+
+  <h2>Steps</h2>
+  <ul>
+{{steps}}
+  </ul>
+
+  <h2>Things only you can do</h2>
+  <div class="you">
+{{for_you}}
+  </div>
+
+  <footer>Written by Phoenix. The same summary is in summary.md next to this file.</footer>
+</main>
+</body>
+</html>

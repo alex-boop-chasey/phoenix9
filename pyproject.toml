@@ -1,0 +1,13 @@
+[project]
+name = "phoenix9"
+version = "9.0.0.dev0"
+description = "Phoenix 9: project manager plus configurable AI coding harness."
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["reference", "web", ".git", "node_modules"]

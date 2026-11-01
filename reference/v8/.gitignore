@@ -1,0 +1,9 @@
+.venv/
+var/
+__pycache__/
+.pytest_cache/
+node_modules/
+build/logs/
+build/progress
+build/.lock
+deploy/.env

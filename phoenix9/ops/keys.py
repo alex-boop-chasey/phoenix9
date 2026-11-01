@@ -32,3 +32,9 @@ def remove(project: str, name: str, who: str) -> dict:
         raise common.OpsError(f"{project} has no key called {name}.")
     common.record_command(who, f"project keys {project} remove {name}", project, change=f"key {name} removed")
     return {"project": project, "name": name, "removed": True}
+
+
+def rows(project: str) -> list:
+    """The project's keys without secret values, and no command record (the dashboard polls this)."""
+    common.project_dir(project)
+    return keys.list_keys(project)

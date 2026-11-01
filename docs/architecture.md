@@ -41,7 +41,7 @@ phoenix9/                      the Python package
                                call ops, print); phase 4 adds global_.py update.py deploy.py api.py
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
-                               common runs gates settings library projects keys (phases 1-2), logs (phase 3),
+                               common runs gates settings library projects keys (phases 1-2), logs app github (phase 3),
                                global_ services update deploy doctor (phase 4). Errors: OpsError.
   paths.py                     where things live (section 3)
   tomlw.py                     small TOML writer (stdlib has no writer); round-trips what we use

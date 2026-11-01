@@ -1,7 +1,7 @@
 """Ops for runs: start, status, list, log and stop."""
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events, gates as gates_core, runs as core, settings, spec, state
+from phoenix9 import atomic, docker, events, gates as gates_core, resolve, runs as core, settings, spec, state
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -11,7 +11,7 @@ FINISHED = ("done", "failed", "stopped")
 def _run_folder(run_id: str) -> Path:
     folder = core.find_run(run_id)
     if folder is None:
-        raise OpsError(f"There is no run called '{run_id}'.")
+        raise common.NotFound(f"There is no run called '{run_id}'.")
     return folder
 
 
@@ -96,3 +96,53 @@ def stop(run_id: str, who: str = "cli") -> dict:
 
 
 list = list_
+
+
+def builds(project: str) -> list:
+    """Previous builds of a project, newest first, with title, preset, times, duration, cost."""
+    from phoenix9 import summary
+    rows = []
+    for r in list_(project):
+        f = summary.facts(core.run_dir(project, r["run_id"]))
+        rows.append({**r, "title": f["title"], "preset": f["preset"], "started": f["started"],
+                     "finished": f["finished"], "duration": f["duration"], "cost": f["cost"],
+                     "tasks_failed": f["counts"]["failed"]})
+    return rows
+
+
+def _preview_plan(project: str, overrides: dict) -> dict:
+    """The step plan the project's settings plus these overrides would give."""
+    try:
+        lib = common.library()
+        eff = settings.effective(common.project_dir(project), lib, overrides or None)
+        return resolve.resolve(lib, settings.enabled_map(eff)).to_json()
+    except (settings.SettingsError, resolve.ResolveError) as err:
+        raise OpsError(str(err)) from None
+
+
+def detail(project: str, run_id: str) -> dict:
+    """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries."""
+    from phoenix9 import summary
+    common.project_dir(project)
+    folder = _run_folder(run_id)
+    if folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    data = status(run_id)
+    facts = summary.facts(folder)
+    frozen = atomic.read_json(folder / "settings.json") or {}
+    plan = atomic.read_json(folder / "plan.json")
+    frozen_plan = plan is not None
+    overrides = atomic.read_json(folder / "overrides.json") or {}
+    if plan is None:
+        plan = _preview_plan(project, overrides)
+    max_tries = frozen.get("max_tries")
+    if max_tries is None:
+        max_tries = overrides.get("max_tries")
+    if max_tries is None:
+        try:
+            eff = settings.effective(common.project_dir(project), common.library(), overrides or None)
+            max_tries = eff.get("max_tries")
+        except settings.SettingsError:
+            pass
+    return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
+            "preset": facts["preset"], "max_tries": max_tries}

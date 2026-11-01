@@ -40,5 +40,14 @@ def presets() -> dict:
             data = settings.load_preset(paths.library(), name)
         except settings.SettingsError:
             data = None
-        rows.append({"name": name, "title": (data or {}).get("title", name), "has_file": data is not None})
+        rows.append({"name": name, "title": (data or {}).get("title", name), "has_file": data is not None,
+                     "description": (data or {}).get("description", "")})
     return {"presets": rows}
+
+
+def services() -> dict:
+    """Every service in the services library with the project keys it needs."""
+    from phoenix9 import services as core
+    rows = [{"name": s["name"], "title": s["title"], "project_keys": s["project_keys"]}
+            for s in sorted(core.load_library().values(), key=lambda s: s["name"])]
+    return {"services": rows, "problems": core.load_problems()}

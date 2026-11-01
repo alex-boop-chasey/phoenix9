@@ -88,7 +88,7 @@ def test_update_unit_file():
     assert "Type=oneshot" in lines
     assert "Environment=PHOENIX_HOME=/var/lib/phoenix9" in lines
     assert "Environment=PHOENIX_INSTALL=/opt/phoenix9" in lines
-    assert "TimeoutStartSec=3h" in lines
+    assert "TimeoutStartSec=5h" in lines
     assert "[Install]" not in lines
     assert "Environment=HOME=/root" in lines
     pre = [x for x in lines if x.startswith("ExecStartPre=")]
@@ -109,3 +109,17 @@ def test_unit_pre_start_restores_a_missing_install(tmp_path):
     (opt / "phoenix9-prev").mkdir()
     subprocess.run(["sh", "-c", script], check=True)
     assert (opt / "phoenix9-prev").exists() and (opt / "phoenix9" / "mark").read_text() == "prev"
+
+
+def test_unit_timeout_exceeds_the_updaters_worst_case():
+    """systemd must never kill a slow but healthy update: the unit's timeout beats the sum of the
+    updater's own limits (checks + web build, idle wait, images, two health checks)."""
+    sys.path.insert(0, str(REPO))
+    from phoenix9 import updater
+    line = next(x.strip() for x in UNIT.read_text().splitlines() if x.strip().startswith("TimeoutStartSec="))
+    value = line.split("=", 1)[1]
+    unit_s = int(value[:-1]) * {"h": 3600, "m": 60, "s": 1}[value[-1]]
+    health = updater.HEALTH_TRIES * updater.DOCTOR_S + (updater.HEALTH_TRIES - 1) * updater.HEALTH_GAP_S
+    worst = (2 * updater.PNPM_S + updater.CHECKS_S + updater.IDLE_TIMEOUT_MIN * 60 + updater.IMAGES_S
+             + 2 * health)
+    assert unit_s > worst, (unit_s, worst)

@@ -628,19 +628,29 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   not live in a folder being swapped, and new (untested) code must never run its own install or the
   rollback. update.sh never looks at `-next`. `request` also accepts `recover` (tag ignored): the unit
   then only repairs a half-done update. `run_request` takes the lock FIRST, then reads and deletes
-  `request.json` (so a second unit start never steals the running update's request).
+  `request.json` (so a second unit start never steals the running update's request). Taking the lock
+  retries for `LOCK_WAIT_S` (2 s, 50 ms sleeps) before refusing, because a status check's read-only
+  probe holds a shared lock for a moment. If `run_request` is still refused it leaves `request.json`
+  alone but writes `HOME/update/refused.json` (never status.json, which only the lock holder writes);
+  `status().last` shows it until the next locked result replaces it, so the app never shows
+  "queued" forever.
 - **The unit file** (`deploy/phoenix9-update.service`): `Environment=HOME=/root` (gh reads root's login)
   and `ExecStartPre=-/bin/sh -c 'test -e /opt/phoenix9 || mv /opt/phoenix9-prev /opt/phoenix9'` (an
-  update that died between its two renames would otherwise leave ExecStart missing). Grunt step 13's
+  update that died between its two renames would otherwise leave ExecStart missing).
+  `TimeoutStartSec=5h`: the worst case is ~4.5 h (web build + checks 60 m, idle wait 120 m, images
+  60 m, two health checks ~31 m); a test checks the unit's timeout beats the sum of the updater's
+  own timeout constants. Grunt step 13's
   install.sh must COPY the unit into `/etc/systemd/system`, never symlink it from `/opt/phoenix9`
   (the swap renames that folder).
 - **Install flow** (`install(tag)`): lock (non-blocking flock; held = `refused`); tag checked against
   `TAG_RE` before it reaches any argv; `recover()`; installed tag = the highest `v9.<n>` tag pointing at
   HEAD (`git tag --points-at`, not `describe`, because `pre-v9.<n>` points at the same commit), shown
   as `unknown` when none; `already-installed` is decided by COMMIT (the tag's commit = HEAD), checked
-  before and after the fetch; `git fetch --tags origin` (no `--force`) with the host gh credential
-  helper; a release tag that moved on origin makes the fetch fail and is `refused` "release v9.N
-  changed on origin" (found with `ls-remote`); other fetch failures `refused` "could not fetch";
+  before and after the fetch; `git fetch --no-tags origin refs/tags/<tag>:refs/tags/<tag>` (only the
+  requested tag, after the `TAG_RE` check; no `--force`) with the host gh credential helper, so
+  another tag that moved on origin never blocks updates; if the REQUESTED tag moved on origin the
+  fetch fails and is `refused` "release v9.N changed on origin" (found with `ls-remote`); other fetch
+  failures `refused` "could not fetch";
   tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD`; clone `install` into
   `-next`, checkout the tag, origin url copied, HEAD verified; in `-next`: `pnpm -C web install
   --frozen-lockfile` and `pnpm -C web build` (when web/package.json exists), `./check.sh` (output to
@@ -653,7 +663,8 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   phoenix-runner phoenix-api`; health = `<install>/bin/phoenix doctor --for-update --json`, 3 tries
   10 s apart; healthy = `installed`; unhealthy = `-prev` back, new copy to `-failed`, restart, health
   again: `rolled-back` or `rolled-back-unhealthy` (urgent notify "Phoenix 9 may be down").
-- **Rollback** (`rollback()`): refused without `-prev`; hold + idle wait; exchange `install` and
+- **Rollback** (`rollback()`): refused without `-prev`, and refused "could not read the installed
+  version" when git cannot read the installed commit (recovery would not know which way to go); hold + idle wait; exchange `install` and
   `-prev` (stage `-prev` as `-next`, then the same swap as an install); restart; health; healthy =
   `rolled-back-manual` (rolling back twice returns to where it was); unhealthy = exchange back,
   restart, `refused` with the doctor's lines.
@@ -667,8 +678,13 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
 - **Recovery** (`recover()`, run first by every install, rollback and run_request, under the lock):
   with a job saved, it finishes the interrupted folder move, then puts back the version that was
   installed when the job started (the last one known to work): install job before the swap = drop
-  `-next`; from `swapping` on = finish the swap, new copy to `-failed`, `-prev` back. Rollback job =
-  end with the `from` commit installed (checked by commit) and the other copy as `-prev`. Then
+  `-next`; from `swapping` on = finish the swap, new copy to `-failed`, `-prev` back. Rollback job
+  at `waiting` or `staged` (not reverting) = only undo the staging (the installed copy was never
+  touched; git is not asked). Later rollback phases = end with the `from` commit installed (checked
+  by commit) and the other copy as `-prev`; if the installed commit cannot be read, or the job has
+  no `from` commit, NOTHING is moved: result `needs-person` ("recovery needs a person: could not
+  read the installed version"), the job is kept (status `interrupted`), Alex is notified, and
+  install/rollback stop at that result until a person sorts it out. Then
   restart if anything had moved, release the hold, clear the job, notify, result `recovered`. With
   no job but `install` missing and `-prev` present, `-prev` is put back. A hold left without an
   update running is released. Any unexpected error inside install/rollback runs the same recovery
@@ -687,7 +703,7 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   state.json). The hold is released after the health check, in every failure path, and by recovery.
 - **Results**: every public function returns `{ok, result, tag, previous, reason, log}`; `result` is
   one of `installed | already-installed | tests-failed | images-failed | harness-busy | rolled-back |
-  rolled-back-unhealthy | rolled-back-manual | refused | recovered` (`request` returns `queued: true`
+  rolled-back-unhealthy | rolled-back-manual | refused | recovered | needs-person` (`request` returns `queued: true`
   and `result: null`). `status(refresh)` returns `{supported, installed: {tag, commit}|null,
   previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase,
   interrupted, last, log_tail}`; `running` = the lock is held (read-only probe); `interrupted` = a job

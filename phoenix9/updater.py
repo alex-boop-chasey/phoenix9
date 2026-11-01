@@ -21,6 +21,7 @@ import re
 import shutil
 import signal
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,8 +35,11 @@ UNIT = "phoenix9-update.service"
 CRED = ("-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")   # host gh login
 CHECKS_S, PNPM_S, IMAGES_S, DOCTOR_S = 30 * 60, 15 * 60, 60 * 60, 5 * 60
 HEALTH_TRIES, HEALTH_GAP_S, POLL_S, LOG_TAIL = 3, 10, 5, 40
+IDLE_TIMEOUT_MIN = 120                 # default wait for the harness to reach a task boundary
+LOCK_WAIT_S, LOCK_GAP_S = 2.0, 0.05    # ride out a status check's brief shared lock before refusing
+NEEDS_PERSON = "recovery needs a person: could not read the installed version"
 RESULTS = ("installed", "already-installed", "tests-failed", "images-failed", "harness-busy", "rolled-back",
-           "rolled-back-unhealthy", "rolled-back-manual", "refused", "recovered")
+           "rolled-back-unhealthy", "rolled-back-manual", "refused", "recovered", "needs-person")
 
 # The only phase changes a job may make (None = the job is starting). Ending a job is allowed anywhere.
 TRANSITIONS = {
@@ -49,6 +53,10 @@ TRANSITIONS = {
 
 class Refused(Exception):
     """The update cannot start; the message says why in plain words."""
+
+
+class NeedsPerson(Exception):
+    """Recovery cannot tell which copy to put back; it moves nothing and leaves the job for a person."""
 
 
 # ------------------------------------------------------------------ files and folders
@@ -83,6 +91,13 @@ def _write_status(**changes) -> dict:
     return st
 
 
+def _refused_file() -> Path:
+    """HOME/update/refused.json: a run_request refused because the lock was busy. Written on its own
+    (never status.json, which only the lock holder writes); status() shows it as `last` until the
+    next locked result replaces it."""
+    return _dir() / "refused.json"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -109,17 +124,24 @@ def _tag_number(tag: str) -> int:
 
 
 @contextlib.contextmanager
-def _lock():
-    """Hold HOME/update/lock (non-blocking); yields False when another update holds it."""
+def _lock(wait_s: float | None = None):
+    """Hold HOME/update/lock; yields False when another update holds it. Retries for `wait_s` seconds
+    (default LOCK_WAIT_S) in short sleeps, because a status check (hold.lock_held) takes a shared lock
+    for a moment and must not make a starting update refuse."""
     path = hold.lock_file()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = open(path, "a")
+    deadline = time.monotonic() + (LOCK_WAIT_S if wait_s is None else wait_s)
     try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-            return
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(LOCK_GAP_S)
         try:
             yield True
         finally:
@@ -167,6 +189,7 @@ class _Update:
         if record:
             _write_status(last={"action": action, "tag": tag, "result": result, "reason": reason,
                                 "at": _now(), "who": self.who}, waiting=None)
+            _refused_file().unlink(missing_ok=True)
         self.log(f"{action} {tag or ''}: {result}{' - ' + reason if reason else ''}")
         return {"ok": ok, "result": result, "tag": tag, "previous": previous, "reason": reason,
                 "log": list(self.lines)}
@@ -313,7 +336,14 @@ def _recover(u: _Update, error: str = "") -> dict | None:
     u.job = job
     kind, phase, tag = job["kind"], job["phase"], job["tag"]
     u.log(f"recovering a {kind} {tag} job stopped at phase {phase}")
-    moved = _RECOVERY[kind](u, d, job)
+    try:
+        moved = _RECOVERY[kind](u, d, job)
+    except NeedsPerson as err:       # nothing moved; the job stays so status shows `interrupted`
+        hold.release_hold()
+        u.notify(f"Phoenix 9 updater: the {kind} of {tag} stopped at '{phase}' and {err}. Nothing was "
+                 f"moved; please check {d['install']} by hand.")
+        return u.result(False, "needs-person", tag=tag, previous=(job.get("from") or {}).get("tag"),
+                        reason=str(err), action="recover")
     if moved:
         u.restart()
     hold.release_hold()
@@ -344,19 +374,30 @@ def _recover_install(u: _Update, d: dict, job: dict) -> bool:
 
 
 def _recover_rollback(u: _Update, d: dict, job: dict) -> bool:
-    """Rollback job: end with the copy we came from installed (checked by commit). True if it moved."""
-    if not d["install"].exists():    # finish a half swap
+    """Rollback job: end with the copy we came from installed (checked by commit). True if it moved.
+
+    Before the first swap (waiting / staged, not reverting) the installed copy was never touched, so
+    recovery only undoes the staging, whatever git says. From the swap on, the direction is decided by
+    the installed copy's commit; if that cannot be read (or the job has no `from` commit) nothing is
+    moved and NeedsPerson is raised: guessing could put the unconfirmed version in place."""
+    if job["phase"] in ("waiting", "staged") and not job.get("reverting"):
+        _unstage(d)
+        return False
+    if not d["install"].exists():    # finish a half swap (the unit's ExecStartPre does the same)
         if d["next"].exists():
             _rename(d["next"], d["install"])
         elif d["prev"].exists():
             _rename(d["prev"], d["install"])
-    here = u.version(d["install"]) or {}
-    if here.get("commit") == (job.get("from") or {}).get("commit"):
+    here = (u.version(d["install"]) or {}).get("commit") or ""
+    came_from = (job.get("from") or {}).get("commit") or ""
+    if not here or not came_from:
+        raise NeedsPerson(NEEDS_PERSON)
+    if here == came_from:
         _unstage(d)                  # the copy we came from is installed; put a staged -next back as -prev
     else:
         _stage(d)                    # the rollback target is installed but never confirmed: swap back
         _swap_in(d)
-    return job["phase"] not in ("waiting", "staged") or bool(job.get("reverting"))
+    return True
 
 
 _RECOVERY = {"install": _recover_install, "rollback": _recover_rollback}
@@ -442,8 +483,10 @@ def _install(u: _Update, tag: str, idle_timeout_min: int) -> dict:
     local = _tag_commit(u, d["install"], tag)
     if local and local == frm["commit"]:          # compared by commit: an untagged HEAD can already be it
         return u.result(True, "already-installed", tag=tag, previous=frm["tag"], reason=f"{tag} is installed")
-    if u.try_git(d["install"], *CRED, "fetch", "--quiet", "--tags", "origin") is None:
-        # No --force: a release tag that moved on origin makes the fetch fail; say so plainly.
+    ref = f"refs/tags/{tag}"        # tag already checked against TAG_RE (install())
+    if u.try_git(d["install"], *CRED, "fetch", "--quiet", "--no-tags", "origin", f"{ref}:{ref}") is None:
+        # Only the requested tag is fetched (another moved tag must not block updates). No --force: if
+        # THIS tag moved on origin the fetch fails; say so plainly.
         remote = _remote_tag_commit(u, d["install"], tag)
         if remote and local and remote != local:
             raise Refused(f"release {tag} changed on origin")
@@ -513,7 +556,9 @@ def _rollback(u: _Update, idle_timeout_min: int) -> dict:
     to = u.version(d["prev"])
     if to is None or not d["install"].exists():
         raise Refused("nothing to roll back to")
-    frm = u.version(d["install"]) or {"tag": "unknown", "commit": ""}
+    frm = u.version(d["install"])
+    if frm is None:                   # recovery could not tell which way to swap back
+        raise Refused("could not read the installed version")
     _rm(d["next"])        # a stale candidate; -next is about to hold the copy we roll back to
     u.start("rollback", to["tag"], frm, to, "waiting")
     idle, busy = u.wait_idle(f"rollback to {to['tag']}", idle_timeout_min)
@@ -597,6 +642,8 @@ def _locked(u: _Update, action: str, tag, fn) -> dict:
 def _install_job(u: _Update, tag: str, idle_timeout_min: int):
     def go():
         rec = _recover(u)
+        if rec and rec["result"] == "needs-person":
+            return rec               # never install over a job nobody could recover
         return _with_recovery(_install(u, tag, idle_timeout_min), rec)
     return go
 
@@ -604,11 +651,13 @@ def _install_job(u: _Update, tag: str, idle_timeout_min: int):
 def _rollback_job(u: _Update, idle_timeout_min: int):
     def go():
         rec = _recover(u)
+        if rec and rec["result"] == "needs-person":
+            return rec
         return _with_recovery(_rollback(u, idle_timeout_min), rec)
     return go
 
 
-def install(tag: str, adapters, *, who: str, idle_timeout_min: int = 120) -> dict:
+def install(tag: str, adapters, *, who: str, idle_timeout_min: int = IDLE_TIMEOUT_MIN) -> dict:
     """Install release `tag` (v9.<n>) over the installed copy; health check; roll back on failure."""
     _load_secrets()
     u = _Update(adapters, who)
@@ -617,7 +666,7 @@ def install(tag: str, adapters, *, who: str, idle_timeout_min: int = 120) -> dic
     return _locked(u, "install", tag, _install_job(u, tag, idle_timeout_min))
 
 
-def rollback(adapters, *, who: str, idle_timeout_min: int = 120) -> dict:
+def rollback(adapters, *, who: str, idle_timeout_min: int = IDLE_TIMEOUT_MIN) -> dict:
     """Swap back to the previous installed version (-prev); rolling back twice returns to where it was."""
     _load_secrets()
     u = _Update(adapters, who)
@@ -671,8 +720,8 @@ def run_request(adapters) -> dict:
     _load_secrets()
     u = _Update(adapters, "updater")
     with _lock() as got:
-        if not got:       # request.json is left for the update that is running... and is not ours to take
-            return u.result(False, "refused", reason="another update is running", action="request", record=False)
+        if not got:
+            return _refuse_request(u)
         path = _dir() / "request.json"
         try:
             req = atomic.read_json(path)
@@ -683,9 +732,9 @@ def run_request(adapters) -> dict:
         u.who = str(req.get("who") or "updater")
         action, tag = req.get("action"), req.get("tag")
         if action == "install" and _valid_tag(tag):
-            return _protected(u, "install", tag, _install_job(u, tag, 120))
+            return _protected(u, "install", tag, _install_job(u, tag, IDLE_TIMEOUT_MIN))
         if action == "rollback":
-            return _protected(u, "rollback", None, _rollback_job(u, 120))
+            return _protected(u, "rollback", None, _rollback_job(u, IDLE_TIMEOUT_MIN))
         rec = _protected(u, "recover", None, lambda: _recover(u))
         if rec:
             return rec
@@ -693,6 +742,26 @@ def run_request(adapters) -> dict:
             return u.result(True, "recovered", reason="nothing needed repairing", action="recover")
         return u.result(False, "refused", tag=None, reason="no valid update request was waiting",
                         action=str(action or "request"), record=False)
+
+
+def _refuse_request(u: _Update) -> dict:
+    """run_request could not get the lock: leave request.json (not ours to take while another updater
+    runs) but record the refusal in refused.json, so the app shows it instead of `queued` forever."""
+    try:
+        req = atomic.read_json(_dir() / "request.json")
+    except (OSError, ValueError):
+        req = None
+    req = req if isinstance(req, dict) else {}
+    action = str(req.get("action") or "request")
+    tag = req.get("tag") if _valid_tag(req.get("tag")) else None
+    u.who = str(req.get("who") or "updater")
+    reason = "another update is running"
+    try:
+        atomic.write_json(_refused_file(), {"action": action, "tag": tag, "result": "refused",
+                                            "reason": reason, "at": _now(), "who": u.who})
+    except OSError as err:
+        u.log(f"could not record the refusal: {err}")
+    return u.result(False, "refused", tag=tag, reason=reason, action=action, record=False)
 
 
 def _newest(u: _Update, install_dir: Path) -> str | None:
@@ -726,7 +795,7 @@ def status(adapters, *, refresh: bool = False) -> dict:
         if found:
             newest = found
             try:
-                with _lock() as got:    # status.json is only ever written under the lock
+                with _lock(wait_s=0) as got:    # status.json is only ever written under the lock
                     if got:
                         _write_status(newest=found, checked=_now())
             except OSError:             # e.g. the API, not root, cannot write HOME/update: just don't cache
@@ -736,12 +805,19 @@ def status(adapters, *, refresh: bool = False) -> dict:
     update_available = bool(newest and installed and (installed["tag"] == "unknown"
                                                        or _tag_number(newest) > _tag_number(installed["tag"])))
     job = st.get("job") or {}
+    last = st.get("last")
+    try:
+        refused = atomic.read_json(_refused_file(), None)
+    except (OSError, ValueError):
+        refused = None
+    if isinstance(refused, dict):    # a refusal newer than any locked result (see _refuse_request)
+        last = refused
     return {"supported": True, "installed": installed, "previous": previous, "newest": newest,
             "update_available": update_available, "can_rollback": previous is not None and not running,
             "busy": busy, "busy_reason": why, "running": running,
             "waiting": (st.get("waiting") or "") if running else "", "phase": job.get("phase"),
             "interrupted": bool(job) and not running,
-            "last": st.get("last"), "log_tail": _log_tail()}
+            "last": last, "log_tail": _log_tail()}
 
 
 def _load_secrets() -> None:

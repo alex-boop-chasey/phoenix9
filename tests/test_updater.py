@@ -319,8 +319,9 @@ def test_same_tag_is_noop(layout, adapters):
 
 
 # 17
-def test_second_update_refused_while_locked(layout, adapters):
+def test_second_update_refused_while_locked(layout, adapters, monkeypatch):
     import fcntl
+    monkeypatch.setattr(updater, "LOCK_WAIT_S", 0.1)
     lock = paths.home() / "update" / "lock"
     lock.parent.mkdir(parents=True)
     with open(lock, "a") as fd:
@@ -734,3 +735,117 @@ def test_secret_from_env_file_never_reaches_the_log(layout, adapters, monkeypatc
     texts = [(paths.logs() / "updater.log").read_text(), (paths.logs() / "update-v9.1-checks.txt").read_text(),
              *adapters.notify.messages, json.dumps(out)]
     assert all("envfile-secret-value-42" not in t for t in texts)
+
+
+# ------------------------------------------------------------------ review fixes (2026-11-01)
+def test_moved_unrelated_tag_does_not_block_a_new_release(layout, adapters):
+    """Only the requested tag is fetched: an old tag that moved on origin no longer blocks every update."""
+    origin, work = layout["origin"], layout["origin"].parent / "src"
+    git(origin, "tag", "-f", "v9.1", "v9.2^{commit}")          # an old, unrelated release moved
+    (work / "VERSION").write_text("v9.3\n")
+    git(work, "commit", "-q", "-am", "release 3")
+    git(work, "tag", "v9.3")
+    git(work, "push", "-q", str(origin), "HEAD:refs/heads/main", "v9.3")
+    out = updater.install("v9.3", adapters, who="alex")
+    assert out["result"] == "installed", out["reason"]
+    assert head(layout["install"]) == tag_commit(layout, "v9.3")
+    # the local copy of the moved tag is untouched (never forced)
+    assert git(layout["install"], "rev-parse", "v9.1^{commit}") != tag_commit(layout, "v9.1")
+
+
+def kill_rollback_at(adapters, monkeypatch, phase):
+    real = updater._Update.phase
+
+    def phase_then_die(self, name, **extra):
+        real(self, name, **extra)
+        if name == phase:
+            raise Crash(name)
+    monkeypatch.setattr(updater._Update, "phase", phase_then_die)
+    killed(monkeypatch)
+    with pytest.raises(Crash):
+        updater.rollback(adapters, who="alex")
+    monkeypatch.setattr(updater._Update, "phase", real)
+    monkeypatch.setattr(updater, "_recover_after_error", REAL_RECOVER_AFTER_ERROR)
+
+
+@pytest.mark.parametrize("phase", ["waiting", "staged"])
+def test_rollback_killed_before_swap_with_unreadable_git_only_unstages(layout, adapters, monkeypatch, phase):
+    """Killed at waiting/staged and git cannot read the installed copy: recovery must not swap anything in."""
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    kill_rollback_at(adapters, monkeypatch, phase)
+    failing_git(adapters, monkeypatch, "rev-parse")
+    adapters.host.calls.clear()
+    out = updater.recover(adapters)
+    assert out["result"] == "recovered"
+    assert head(layout["install"]) == tag_commit(layout, "v9.1")
+    assert head(layout["prev"]) == tag_commit(layout, "v9.0")
+    assert not layout["next"].exists() and restarts(adapters) == []
+    assert updater.status(adapters)["phase"] is None
+
+
+def test_rollback_recovery_after_swap_with_unreadable_git_needs_a_person(layout, adapters, monkeypatch):
+    """Killed after the swap and the installed version cannot be read: move nothing, keep the job, tell Alex."""
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    kill_rollback_at(adapters, monkeypatch, "swapped")
+    assert head(layout["install"]) == tag_commit(layout, "v9.0")    # the unconfirmed rollback target
+    failing_git(adapters, monkeypatch, "rev-parse")
+    adapters.host.calls.clear()
+    adapters.notify.messages.clear()
+    out = updater.recover(adapters)
+    assert not out["ok"] and out["result"] == "needs-person"
+    assert out["reason"] == "recovery needs a person: could not read the installed version"
+    assert head(layout["install"]) == tag_commit(layout, "v9.0")    # nothing moved
+    assert head(layout["prev"]) == tag_commit(layout, "v9.1") and not layout["next"].exists()
+    assert restarts(adapters) == []
+    st = updater.status(adapters)
+    assert st["interrupted"] and st["phase"] == "swapped" and st["last"]["result"] == "needs-person"
+    assert len(adapters.notify.messages) == 1 and "needs a person" in adapters.notify.messages[0]
+    # a new install does not run over the unresolved job
+    out = updater.install("v9.2", adapters, who="alex")
+    assert out["result"] == "needs-person" and head(layout["install"]) == tag_commit(layout, "v9.0")
+    assert not any(c == ["./check.sh"] for c in adapters.host.calls)
+
+
+def test_rollback_refused_when_installed_version_unreadable(layout, adapters, monkeypatch):
+    """A rollback never starts with an unknown `from` commit (recovery could not tell which way to go)."""
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    real = adapters.git.git
+
+    def git_(cwd, *args, **kw):
+        if "rev-parse" in args and Path(cwd) == layout["install"]:
+            raise GitError("git rev-parse failed: boom")
+        return real(cwd, *args, **kw)
+    monkeypatch.setattr(adapters.git, "git", git_)
+    adapters.host.calls.clear()
+    out = updater.rollback(adapters, who="alex")
+    assert out["result"] == "refused" and "could not read the installed version" in out["reason"]
+    assert head(layout["install"]) == tag_commit(layout, "v9.1") and restarts(adapters) == []
+    assert updater.status(adapters)["phase"] is None
+
+
+def test_update_lock_waits_out_a_brief_status_probe(layout, adapters):
+    """A status check's shared lock for a moment must not make the starting update refuse."""
+    import threading
+    lock = hold.lock_file()
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.touch()
+    fd = open(lock, "rb")
+    fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+    threading.Timer(0.3, fd.close).start()
+    atomic.write_json(paths.home() / "update" / "request.json", {"action": "recover", "tag": None, "who": "x"})
+    out = updater.run_request(adapters)
+    assert out["ok"] and out["result"] == "recovered", out["reason"]
+
+
+def test_refused_run_request_is_recorded_as_last(layout, adapters, monkeypatch):
+    """The app must not show `queued` forever: a refused run_request becomes status `last`."""
+    monkeypatch.setattr(updater, "LOCK_WAIT_S", 0.1)
+    atomic.write_json(paths.home() / "update" / "request.json", {"action": "install", "tag": "v9.1", "who": "alex"})
+    with other_update():
+        out = updater.run_request(adapters)
+    assert out["result"] == "refused"
+    last = updater.status(adapters)["last"]
+    assert last["result"] == "refused" and last["reason"] == "another update is running"
+    assert last["action"] == "install" and last["tag"] == "v9.1" and last["who"] == "alex"
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert updater.status(adapters)["last"]["result"] == "installed"     # a later result replaces it

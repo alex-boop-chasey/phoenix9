@@ -1,0 +1,62 @@
+/* The build wizard: outline, canvas, dock, rail rows and AI cards (from the mockup). */
+/* ---------- Wizard ---------- */
+.wiz{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
+@container well (min-width:820px){ .wiz{grid-template-columns:240px minmax(0,1fr)} }
+.outline{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:var(--r-lg); background:var(--surface); padding:8px}
+.outline button{display:grid; grid-template-columns:24px minmax(0,1fr); gap:0 10px; width:100%; text-align:left; padding:8px; border:0; border-radius:var(--r-sm); background:transparent; cursor:pointer; color:var(--text)}
+.outline button:hover:not(:disabled){background:var(--surface-2)}
+.outline button:disabled{cursor:not-allowed; color:var(--text-3)}
+.outline .num{width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font:700 12px/1 var(--f-body); border:1.5px solid var(--line-strong); color:var(--text-2)}
+.outline .done .num{background:var(--ok); border-color:var(--ok); color:#fff}
+.outline [aria-current="step"]{background:var(--accent-soft)}
+.outline [aria-current="step"] .num{border-color:var(--accent); background:var(--accent-fill); color:var(--accent-ink)}
+.outline b{font-weight:600; font-size:14px}
+.outline small{grid-column:2; font-size:12.5px; color:var(--text-2)}
+@container well (max-width:819px){ .outline{flex-direction:row; overflow-x:auto} .outline button{grid-template-columns:24px; min-width:40px} .outline button b,.outline button small{display:none} }
+.canvas{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); padding:24px; display:flex; flex-direction:column; gap:20px; min-width:0; box-shadow:var(--shadow-1)}
+.canvas-h{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap}
+.wdock{position:sticky; bottom:0; z-index:5; margin-top:20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 16px; background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-lg); box-shadow:var(--shadow-3)}
+.wdock .prob{flex:1 1 200px; display:flex; gap:8px; align-items:center; font-size:14px; color:var(--text-2); min-width:0}
+
+/* ---------- BUILD dialect: rows on a rail ---------- */
+.rail{position:relative; display:flex; flex-direction:column; padding-left:4px}
+.rail::before{content:""; position:absolute; left:14px; top:14px; bottom:14px; width:2px; background:var(--line-strong)}
+.rrow{position:relative; display:grid; grid-template-columns:22px minmax(0,1fr) auto; gap:2px 14px; align-items:center; padding:10px 12px 10px 0; min-height:48px; border-radius:var(--r-sm); cursor:pointer}
+.rrow:hover{background:var(--surface-2)}
+.rrow input[type=radio]{position:absolute; opacity:0; width:1px; height:1px}
+.rrow .node{width:20px; height:20px; border-radius:50%; border:2px solid var(--input-border); background:var(--surface); position:relative; z-index:1; margin-left:1px}
+.rrow input:checked ~ .node{border-color:var(--accent); background:radial-gradient(circle,var(--accent) 0 4px,var(--surface) 5px); box-shadow:0 0 0 4px var(--accent-soft)}
+.rrow:has(input[type=radio]:checked){background:var(--accent-soft)}
+.rrow:has(input:focus-visible){outline:2px solid var(--focus); outline-offset:2px}
+.rrow .rt{min-width:0; display:flex; flex-direction:column}
+.rrow .rt b{font-weight:600; font-size:15px; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+.rrow .rt small{font-size:13px; color:var(--text-2); line-height:1.45}
+.rrow .rr{display:flex; gap:8px; align-items:center}
+.rrow.dot .node{width:12px; height:12px; margin-left:5px; border-width:2px; background:var(--line-strong); border-color:var(--line-strong)}
+.rrow.dot.on .node{background:var(--accent); border-color:var(--accent)}
+.rrow.locked{cursor:default}
+.rrow.off{opacity:.6}
+.rail-h{font-size:13px; font-weight:700; color:var(--text-2); padding:8px 0 2px 30px}
+/* choices: separate options (no connecting line), faint outline on each */
+.rail.choices{gap:8px; padding-left:0}
+.rail.choices::before{display:none}
+.rail.choices .rrow{padding:10px 12px; border:1px solid var(--line); background:var(--surface)}
+.rail.choices .rrow:hover{border-color:var(--line-strong); background:var(--surface-2)}
+.rail.choices .rrow:has(input[type=radio]:checked){border-color:var(--accent); background:var(--accent-soft)}
+.rail.choices .rrow .node{margin-left:0}
+.rail.choices .rrow.nodot{grid-template-columns:minmax(0,1fr) auto}
+.rail.choices .rail-h{padding:8px 0 0 2px}
+.aic{display:grid; gap:12px; padding:16px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface)}
+.aic[data-open="true"]{background:var(--surface-2); border-color:var(--line-strong)}
+.aic-h{display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap}
+.aic-b{display:grid; gap:12px}
+.lane{display:grid; gap:6px}
+.lane-row{display:grid; grid-template-columns:24px minmax(0,1fr) auto; gap:10px; align-items:center}
+.lane-row .n{width:24px; height:24px; border-radius:50%; background:var(--surface-3); display:grid; place-items:center; font:700 12px/1 var(--f-body); color:var(--text-2)}
+.lane-row .ctl{display:flex; gap:2px}
+.rrow .rt b svg.i{color:var(--text-2)}
+.rail .note{font-size:12.5px; color:var(--text-3)}
+@container well (max-width:640px){
+  .wdock .btn,.rrow,.aic .btn{min-height:44px}
+  .outline button{min-height:44px}
+}

@@ -15,6 +15,7 @@
 @import "./styles/new-project.css";
 @import "./styles/project.css";
 @import "./styles/build.css";
+@import "./styles/wizard.css";
 
 @custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 

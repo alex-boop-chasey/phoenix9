@@ -1,7 +1,5 @@
 // Slide 7: the plan as a readable list plus every choice, the "remember" box, and any submit error.
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
+import { InfoBlock } from "@/components/InfoBlock"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 
@@ -28,8 +26,8 @@ export function SlideReview({ state, dispatch, plan, presets, specs }: SlideProp
     ["Notifications", onOff(a.steps.notify ?? true)],
   ]
   return (
-    <div className="space-y-6">
-      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
+    <div className="stackg">
+      <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]" style={{ margin: 0 }}>
         {facts.map(([k, v]) => (
           <div key={k} className="contents" data-fact={k}>
             <dt className="text-muted-foreground">{k}</dt>
@@ -37,8 +35,8 @@ export function SlideReview({ state, dispatch, plan, presets, specs }: SlideProp
           </div>
         ))}
       </dl>
-      <section className="space-y-3" aria-label="Plan">
-        <h3 className="font-semibold">The plan</h3>
+      <section className="stackg" aria-label="Plan">
+        <h3 className="h3">The plan</h3>
         {planInOrder(plan.steps).map((g) => (
           <div key={g.group} className="space-y-1">
             <h4 className="text-sm font-medium text-muted-foreground">{g.title}</h4>
@@ -55,18 +53,18 @@ export function SlideReview({ state, dispatch, plan, presets, specs }: SlideProp
           </div>
         ))}
       </section>
-      <div className="flex min-h-11 items-center gap-2">
-        <Checkbox
-          id="wz-remember" checked={state.remember}
-          onCheckedChange={(v) => dispatch({ type: "remember", on: v === true })}
+      <label className="rrow nodot" htmlFor="wz-remember" style={{ border: "1px solid var(--line)" }}>
+        <span className="rt"><b>Remember these as this project's defaults</b></span>
+        <input
+          id="wz-remember" type="checkbox" className="switch" role="switch" aria-label="Remember these as this project's defaults"
+          checked={state.remember} onChange={(e) => dispatch({ type: "remember", on: e.target.checked })}
         />
-        <Label htmlFor="wz-remember" className="font-normal">Remember these as this project's defaults</Label>
-      </div>
+      </label>
       {state.error && (
-        <Alert variant="destructive">
-          <AlertTitle>The build did not start</AlertTitle>
-          <AlertDescription>{state.error}</AlertDescription>
-        </Alert>
+        <InfoBlock tone="bad">
+          <b>The build did not start</b>
+          <p>{state.error}</p>
+        </InfoBlock>
       )}
     </div>
   )

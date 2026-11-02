@@ -4,7 +4,7 @@ import { line, openGate, runDetail } from "@/test/buildFixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
-import { StepList } from "./StepList"
+import { StepList, gatesShownInSteps } from "./StepList"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -84,6 +84,23 @@ test("a waiting merge step leaves room under it for the review", () => {
   show(run)
   expect(stepRow(null, "merge").querySelector("[data-review-room]")).not.toBeNull()
   expect(stepRow(null, "merge")).toHaveTextContent("you")
+})
+
+test("the waiting merge step shows the open merge question as the review", async () => {
+  const gate = { id: "r.1", run: "r", project: "alpha", kind: "merge", title: "Merge Tiny?", why: "", task: null, step: "merge",
+    links: [], actions: ["approve", "back", "skip", "stop"], flags: [], created: "", answered: false } as never
+  const run = runDetail({
+    steps: [line({ group: "run-finish", task: null, step: "merge", status: "waiting", finished: "" })],
+    tasks: {}, gates: [gate],
+  })
+  run.plan.steps = [{ name: "merge", title: "Merge", group: "run-finish", order: 10, on: true, reason: "", kind: "gate" }] as never
+  run.plan.groups = { "run-start": [], task: [], "run-finish": ["merge"] } as never
+  expect(gatesShownInSteps(run).has("r.1")).toBe(true)
+  mockApi({ "GET /api/gates/r.1/review": { gate: "r.1", run: "r", project: "alpha", title: "Merge Tiny?", why: "", answered: false,
+    summary: "Does things.", tasks: { passed: 1, total: 1, retried: [] }, full_suite: { status: "passed", note: "" },
+    safety: { flag: false, files: [] }, files: [], added: 0, removed: 0, merge_request: "" } })
+  renderWithProviders(<StepList run={run} />)
+  expect(await within(stepRow(null, "merge")).findByText("Does things.")).toBeInTheDocument()
 })
 
 test("switched-off steps show why", () => {

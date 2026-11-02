@@ -217,6 +217,9 @@ export function useStopRun(project: string) {
   })
 }
 
+export const useGateReview = (id: string) =>
+  useQuery({ queryKey: ["gate-review", id], queryFn: () => api.gateReview(id), staleTime: 30_000 })
+
 export function useAnswerGate(project?: string) {
   const qc = useQueryClient()
   return useMutation({

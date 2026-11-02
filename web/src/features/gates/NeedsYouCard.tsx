@@ -1,5 +1,6 @@
 import { Loader2 } from "lucide-react"
 import { useEffect, useState } from "react"
+import { Link } from "react-router"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -32,7 +33,7 @@ const DELEGATED_HELP =
 const DELEGATED_FLAG = "delegated to project chat"
 
 /** An amber card that shows one open question for Alex, with the buttons that answer it. */
-export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: boolean }) {
+export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate; compact?: boolean; reviewHref?: string }) {
   const answer = useAnswerGate(gate.project)
   const [pressed, setPressed] = useState<GateAction | null>(null)
   const [noting, setNoting] = useState(false)
@@ -155,7 +156,13 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="acts">{shown.map(button)}</div>
+        {reviewHref && gate.kind === "merge" ? (
+          <div className="acts">
+            <Link className="btn btn-primary" to={reviewHref}><Icon name="git-merge" />Review and merge</Link>
+          </div>
+        ) : (
+          <div className="acts">{shown.map(button)}</div>
+        )}
       </>
     )
   }

@@ -81,7 +81,7 @@ export function OverviewTab({ name }: { name: string }) {
   return (
     <div className="ov">
       <div className="ov-main">
-        {open.map((g) => <NeedsYouCard key={g.id} gate={g} />)}
+        {open.map((g) => <NeedsYouCard key={g.id} gate={g} reviewHref={`/p/${name}/build?run=${g.run}`} />)}
         <CurrentBuild name={name} row={row} builds={builds.data ?? []} />
         <section className="card" aria-labelledby="ov-rc">
           <h2 className="h2" id="ov-rc" style={{ fontSize: 22, marginBottom: 10 }}>Recent changes</h2>

@@ -2,6 +2,7 @@ import type { ReactNode } from "react"
 
 import { Icon } from "@/components/Icon"
 import { Indicator, type IndicatorKind } from "@/components/Indicator"
+import { MergeReview } from "@/features/gates/MergeReview"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { formatDuration, relativeTime } from "@/lib/format"
 import type { Gate, ItemStatus, PlanStep, RunDetail, RunTask, StepGroup, StepLine } from "@/lib/types"
@@ -49,9 +50,17 @@ function gateFor(run: RunDetail, gates: Gate[], task: number | null, line: StepL
   return openGate(gates, line.gate) ?? openGate(gates, t?.gate)
 }
 
+/** The open merge question of a run whose Merge step is waiting (shown as the review under that step). */
+function mergeGate(run: RunDetail, gates: Gate[]): Gate | undefined {
+  if (latestLine(run, null, "merge")?.status !== "waiting") return undefined
+  return gates.find((g) => g.kind === "merge" && !g.answered)
+}
+
 /** Ids of the open gates the step list shows itself (so a page can show only the others). */
 export function gatesShownInSteps(run: RunDetail, gates: Gate[] = run.gates): Set<string> {
   const ids = new Set<string>()
+  const merge = mergeGate(run, gates)
+  if (merge) ids.add(merge.id)
   for (const n of Object.keys(run.tasks)) {
     const seen = new Set<string>()
     for (const name of groupNames(run, "task")) {
@@ -169,10 +178,12 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
       const list: (StepLine | undefined)[] = lines.length ? lines : [undefined]
       return list.map((line, i) => {
         const last = i === list.length - 1
-        const gate = last ? gateFor(run, open, taskNo, line) : undefined
+        const isMerge = taskNo === null && name === "merge" && line?.status === "waiting"
+        const gate = last ? (isMerge ? mergeGate(run, open) : gateFor(run, open, taskNo, line)) : undefined
         const showGate = gate && !shownGate.has(gate.id) ? gate : undefined
         if (showGate) shownGate.add(showGate.id)
         const shown = describe(line, planRow(run, name), task)
+        if (name === "merge" && line?.status === "passed" && !line.note) shown.text = "Merged into main"
         const many = list.length > 1 || (line?.attempt ?? 1) > 1
         const heading = many && line?.attempt ? `${title(name)}, attempt ${line.attempt}` : title(name)
         const mergeRoom = line?.status === "waiting" && name === "merge"
@@ -184,7 +195,9 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
             />
             {mergeRoom && (
               <div className="review-room" data-review-room>
-                {showGate && <NeedsYouCard gate={showGate} compact />}
+                {showGate && (showGate.kind === "merge"
+                  ? <MergeReview gate={showGate} />
+                  : <NeedsYouCard gate={showGate} compact />)}
                 {line && renderUnderStep?.(line)}
               </div>
             )}

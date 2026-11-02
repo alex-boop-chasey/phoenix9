@@ -536,6 +536,13 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def get_gate_review(req, gate_id):
+    """Reply with the merge review of a merge gate."""
+    if not GATE_ID_RE.match(gate_id):
+        raise BadRequest("That isn't a valid gate id.")
+    return gates.review(gate_id)
+
+
 def post_gate_answer(req, gate_id):
     """Answer a gate."""
     if not GATE_ID_RE.match(gate_id):
@@ -584,6 +591,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/gates", get_gates),
+    ("GET", r"/api/gates/(?P<gate_id>[^/]+)/review", get_gate_review),
     ("GET", r"/api/library/steps", get_steps),
     ("GET", r"/api/library/profiles", get_profiles),
     ("GET", r"/api/library/presets", get_presets),

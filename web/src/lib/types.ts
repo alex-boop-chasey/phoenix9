@@ -487,3 +487,31 @@ export interface GateAnswer {
   who: string
   at: string
 }
+
+/** One changed file in a merge review. */
+export interface ReviewFile {
+  path: string
+  added: number
+  removed: number
+  binary: boolean
+  safety: boolean
+  diff: string
+}
+
+/** What `GET /api/gates/<id>/review` returns for a merge question. */
+export interface GateReview {
+  gate: string
+  run: string
+  project: string
+  title: string
+  why: string
+  answered: boolean
+  summary: string
+  tasks: { passed: number; total: number; retried: { number: number; title: string; tries: number }[] }
+  full_suite: { status: string; note: string }
+  safety: { flag: boolean; files: string[] }
+  files: ReviewFile[]
+  added: number
+  removed: number
+  merge_request: string
+}

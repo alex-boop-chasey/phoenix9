@@ -55,3 +55,28 @@ details.tg .tg-in{display:flex; flex-direction:column; gap:6px; padding:6px 0 4p
 .run-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:20px}
 .build-tab{display:flex; flex-direction:column; gap:20px; min-width:0}
 @media (max-width:767px){ .ledger tr td{padding:12px} .ledger a{display:inline-block; min-height:24px} }
+/* merge review inside the review room */
+.review{display:grid; gap:18px; min-width:0}
+.review .facts{display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:10px}
+.fact{padding:12px 14px; border-radius:var(--r-md); border:1px solid var(--line); background:var(--surface-2); border-left:3px solid var(--fc, var(--line-strong)); min-width:0}
+.fact span{display:block; font-size:12.5px; color:var(--text-2)}
+.fact b{display:flex; gap:6px; align-items:center; font-size:15px; font-weight:600; margin-top:2px}
+.fact b svg.i{width:18px; height:18px; color:var(--fc)}
+.fact.ok{--fc:var(--ok)} .fact.bad{--fc:var(--bad)}
+.files{display:flex; flex-direction:column; border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden}
+.files details + details{border-top:1px solid var(--line)}
+.files summary{display:grid; grid-template-columns:18px minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px 14px; cursor:pointer; list-style:none; background:var(--surface-2)}
+.files summary::-webkit-details-marker{display:none}
+.files summary:hover{background:var(--surface-3)}
+.files summary .car{color:var(--text-3); transition:transform var(--dur-base)}
+.files details[open] summary .car{transform:rotate(90deg)}
+.files summary .fn{font:400 13px/1.4 var(--f-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.files summary .st{display:flex; gap:8px; align-items:center; font:500 12.5px/1 var(--f-mono)}
+.add{color:var(--ok)} .del{color:var(--bad)}
+.diff{margin:0; padding:10px 0; background:var(--bg-console); font:400 12.5px/1.6 var(--f-mono); overflow-x:auto; white-space:pre}
+.diff span{display:block; padding:0 14px}
+.diff .a{background:var(--ok-soft); color:var(--ok)} .diff .d{background:var(--bad-soft); color:var(--bad)} .diff .h{color:var(--accent-text)}
+.review .note{display:grid; gap:8px; padding:14px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--line)}
+.review .acts .end{margin-left:auto; display:inline-flex; gap:6px; align-items:center}
+.review-done{display:flex; gap:8px; align-items:center; font-weight:600; color:var(--ok)}
+@media (max-width:640px){ .review .acts .btn{min-height:44px} .review .acts .end{margin-left:0} .files summary{min-height:44px} }

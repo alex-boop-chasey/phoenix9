@@ -1,6 +1,6 @@
 // The only place the web app talks to the server. Paths are relative to the page (path-prefix safe).
 import type {
-  CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
+  CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, RemoveResult, ChatStartResult,
@@ -92,6 +92,7 @@ export const api = {
   builds: (name: string) => get<BuildRow[]>(`projects/${e(name)}/runs`),
   run: (project: string, runId: string) => get<RunDetail>(`runs/${e(project)}/${e(runId)}`),
   gates: (project?: string) => get<Gate[]>("gates", { project }),
+  gateReview: (id: string) => get<GateReview>(`gates/${e(id)}/review`),
   librarySteps: () => get<{ steps: LibraryStep[]; problems: string[] }>("library/steps"),
   libraryProfiles: () => get<{ profiles: Profile[]; problems: string[] }>("library/profiles"),
   libraryPresets: () => get<{ presets: Preset[] }>("library/presets"),

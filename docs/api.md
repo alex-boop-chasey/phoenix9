@@ -64,6 +64,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}}` | `{name, connected, checked, message}` | 400 |
 | POST | `/api/services/<name>/disconnect` | `ops.services.disconnect` | `{yes: true}` | `{name, connected, used_by, warning}` | 400 |
 | POST | `/api/projects` | `ops.projects.new` (in a background thread) | create form | `{job}` | 400, 409 |
+| GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
+| POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added], chat: "on"}`; also takes it off the removed list and sets the chat up (trust, enable, start) | 400, 404, 409 |
+| POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; stops and disables `claude-rc@<name>`, undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |

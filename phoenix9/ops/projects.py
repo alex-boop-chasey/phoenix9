@@ -61,6 +61,24 @@ def new(opts: dict, who: str, progress=None) -> dict:
     return project.create(opts, common.make_adapters(), who, progress)
 
 
+def remove(name: str, who: str) -> dict:
+    """Remove a project from Phoenix's list and switch its chat off; every file is kept."""
+    from phoenix9 import project_removal
+    return project_removal.remove(name, who, common.make_adapters())
+
+
+def import_candidates() -> list:
+    """Projects that can be imported: removed ones, and folders Phoenix does not list yet."""
+    from phoenix9 import project_removal
+    return project_removal.candidates()
+
+
+def import_(name_or_path: str, who: str) -> dict:
+    """Bring a removed project or an unlisted folder into Phoenix and set its chat up."""
+    from phoenix9 import project_removal
+    return project_removal.import_(name_or_path, who, common.make_adapters())
+
+
 def templates_menu() -> list:
     """The templates a new project can start from."""
     from phoenix9 import templates

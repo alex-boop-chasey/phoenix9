@@ -665,7 +665,9 @@ def project_names() -> list:
     root = paths.projects()
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "CLAUDE.md").is_file())
+    from phoenix9 import project_removal
+    gone = project_removal.removed_names()
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "CLAUDE.md").is_file() and p.name not in gone)
 
 
 def _refresh_sizes(names: list, adapters) -> None:

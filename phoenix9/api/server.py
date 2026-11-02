@@ -436,6 +436,25 @@ def post_edit(req, name):
     return get_project(req, name)
 
 
+def post_remove(req, name):
+    """Remove a project from Phoenix (needs confirm); files are kept."""
+    if req.body.get("confirm") is not True and req.body.get("yes") is not True:
+        raise BadRequest("Removing a project needs \"confirm\": true.")
+    with req.server.write_lock:
+        return projects.remove(check_name(name), WHO)
+
+
+def get_import_candidates(req):
+    """Reply with what can be imported."""
+    return projects.import_candidates()
+
+
+def post_import(req):
+    """Import a removed project or an unlisted folder."""
+    with req.server.write_lock:
+        return projects.import_(body_text(req, "target"), WHO)
+
+
 def post_keys_save(req, name):
     """Save project keys."""
     rows = req.body.get("rows")
@@ -545,6 +564,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/update/log", get_update_log),
     ("GET", rf"/api/projects/{NAME}/deploys", get_deploys),
     ("GET", r"/api/projects", get_projects),
+    ("GET", r"/api/import/candidates", get_import_candidates),
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
@@ -569,6 +589,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/projects", post_create),
+    ("POST", r"/api/import", post_import),
+    ("POST", rf"/api/projects/{NAME}/remove", post_remove),
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),

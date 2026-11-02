@@ -111,8 +111,16 @@ def get_deploys(req, name):
 
 
 def get_projects(req):
-    """Reply with the project list rows."""
-    return projects.rows()
+    """Reply with the project rows; with search/filter parameters, {top, rest, total, counts} instead."""
+    keys = ("q", "status", "owner", "sort", "attention")
+    if not any(k in req.query for k in keys):
+        return projects.rows()
+    attention = req.query.get("attention", "")
+    if attention not in ("", "0", "1", "true", "false"):
+        raise BadRequest("'attention' should be 1 or 0.")
+    return projects.query(q=req.query.get("q", ""), status=req.query.get("status") or "all",
+                          owner=req.query.get("owner") or "all", sort=req.query.get("sort") or "name",
+                          attention=attention in ("1", "true"))
 
 
 def get_check_name(req):

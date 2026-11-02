@@ -2,7 +2,7 @@
 import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
+  Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template,
 } from "@/lib/types"
 
@@ -80,6 +80,7 @@ const e = encodeURIComponent
 export const api = {
   info: () => get<Info>("info"),
   projects: () => get<ProjectRow[]>("projects"),
+  searchProjects: (params: Record<string, string>) => get<ProjectQueryResult>("projects", params),
   checkName: (name: string) => get<NameCheck>("projects/check-name", { name }),
   project: (name: string) => get<Project>(`projects/${e(name)}`),
   changelog: (name: string, limit = 20) => get<ChangelogLine[]>(`projects/${e(name)}/changelog`, { limit }),

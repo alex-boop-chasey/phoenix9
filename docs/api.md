@@ -29,6 +29,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/info` | `ops.app.info` | | Info | |
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
+| GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
 | GET | `/api/projects/<name>` | `ops.projects.show` (plus `needs_you`, `run`, `repo_url` like rows) | | Project row + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
@@ -169,3 +170,15 @@ serves it on fake adapters (no systemd, GitHub, Docker or Claude). Fixed times.
 | `tiny-tool` | `alex-boop-chasey/tiny-tool` (python-script, simple) | `20261101-080000-add-json-output` running (task 2 of 4) |
 | `notes-only` | none (research) | none |
 | `phoenix9` | `alex-boop-chasey/phoenix9` (platform) | `20261031-110000-api-and-dashboard` waiting, open merge gate `20261031-110000-api-and-dashboard.1` |
+
+
+**Project search** (`GET /api/projects` with any of `q`, `status`, `owner`, `sort`, `attention`; with none of them the reply is
+the plain list of rows). `q` = text in name or description (case-insensitive); `status` = `all|run|fail|idle|need`
+(need = open question or run waiting; fail = failed or paused at a limit; run = running or queued); `owner` = `all`, `none`
+(no repo) or a GitHub owner; `sort` = `name|active` (most recently used first)`|size` (largest first); `attention=1` puts the
+"need" projects in `top` (in sort order), the rest in `rest` (otherwise `top` is empty). Reply: `{top: [row], rest: [row],
+total, counts: {all, run, fail, idle, need}}`; `total` = rows in top + rest; `counts` follow `q` and `owner` but ignore `status`
+(so the status tabs can show their numbers). Bad `status`, `sort` or `attention` values answer 400.
+CLI: `phoenix project list --filter TEXT --status S --owner O --sort S --attention [--json]` (the same reply with `--json`).
+The page address carries the same values (`/?q=...&status=...`, defaults left out), read and written by `useProjectQuery`
+(`web/src/features/projects/useProjectQuery.ts`); the Agent sets the same values.

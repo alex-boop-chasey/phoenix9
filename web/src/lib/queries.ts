@@ -46,6 +46,8 @@ export const useDeploys = (name: string, enabled = true) =>
   useQuery({ queryKey: ["deploys", name], queryFn: () => api.deploys(name), enabled: !!name && enabled })
 export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
+export const useProjectSearch = (params: Record<string, string>) =>
+  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS })
 export const useProject = (name: string) =>
   useQuery({ queryKey: keys.project(name), queryFn: () => api.project(name), enabled: !!name })
 export const useBuilds = (name: string) =>

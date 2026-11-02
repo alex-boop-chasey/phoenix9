@@ -277,3 +277,21 @@ def test_only_ops_imported():
         pkg, names = line
         imported |= {pkg} if pkg else {n.strip() for n in names.split(",")}
     assert imported <= {"ops", "paths", "scrub", "atomic", "api"}  # api = its own stream helper
+
+
+def test_projects_query_params(api):
+    make_project("alpha")
+    make_project("beta")
+    status, body = api("/api/projects?q=ALPHA&attention=1&sort=size")
+    assert status == 200
+    data = body["data"]
+    assert [r["name"] for r in data["rest"]] == ["alpha"] and data["top"] == [] and data["total"] == 1
+    assert data["counts"]["all"] == 1
+    status, body = api("/api/projects?status=idle&owner=none")
+    assert status == 200 and body["data"]["total"] == 2
+
+
+def test_projects_query_bad_values_are_400(api):
+    for tail in ("status=bogus", "sort=bogus", "attention=maybe"):
+        status, body = api(f"/api/projects?{tail}")
+        assert status == 400 and body["ok"] is False

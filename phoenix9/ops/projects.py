@@ -85,6 +85,57 @@ def rows() -> list:
     return out
 
 
+STATUSES = ("all", "run", "fail", "idle", "need")
+SORTS = ("name", "active", "size")
+
+
+def state_of(row: dict) -> str:
+    """A row's state in one word: need (waiting on Alex), fail, run or idle."""
+    run = row.get("run") or {}
+    if row.get("needs_you", 0) > 0 or run.get("status") == "waiting":
+        return "need"
+    if run.get("status") in ("failed", "paused-limit"):
+        return "fail"
+    if run.get("status") in ("running", "queued"):
+        return "run"
+    return "idle"
+
+
+def _sorted(found: list, sort: str) -> list:
+    """Rows in the chosen order: name, most recently active first, or largest first."""
+    if sort == "active":
+        return sorted(found, key=lambda r: (-(r.get("last_used_at") or 0), r["name"]))
+    if sort == "size":
+        return sorted(found, key=lambda r: (-(r.get("size") or 0), r["name"]))
+    return sorted(found, key=lambda r: r["name"])
+
+
+def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "name", attention: bool = False) -> dict:
+    """Search, filter and sort the rows: {top, rest, total, counts}; counts ignore the status choice."""
+    if status not in STATUSES:
+        raise common.OpsError(f"'{status}' is not a status. Use one of: {', '.join(STATUSES)}.")
+    if sort not in SORTS:
+        raise common.OpsError(f"'{sort}' is not a sort order. Use one of: {', '.join(SORTS)}.")
+    needle = (q or "").strip().lower()
+    owner = owner or "all"
+    matched = []
+    for r in rows():
+        if needle and needle not in f"{r['name']} {r['description']}".lower():
+            continue
+        if owner == "none" and r["repo"]:
+            continue
+        if owner not in ("all", "none") and r.get("repo_owner") != owner:
+            continue
+        matched.append(r)
+    counts = {"all": len(matched), "run": 0, "fail": 0, "idle": 0, "need": 0}
+    for r in matched:
+        counts[state_of(r)] += 1
+    found = _sorted([r for r in matched if status == "all" or state_of(r) == status], sort)
+    top = [r for r in found if state_of(r) == "need"] if attention else []
+    rest = [r for r in found if r not in top]
+    return {"top": top, "rest": rest, "total": len(found), "counts": counts}
+
+
 def row(name: str) -> dict:
     """One Projects page row (as `rows`) for an existing project."""
     common.project_dir(name)

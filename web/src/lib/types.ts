@@ -78,6 +78,14 @@ export interface Gate {
   answered: boolean
 }
 
+/** The reply of the projects search: attention rows first (if asked), the rest, and counts per status. */
+export interface ProjectQueryResult {
+  top: ProjectRow[]
+  rest: ProjectRow[]
+  total: number
+  counts: { all: number; run: number; fail: number; idle: number; need: number }
+}
+
 export interface Project extends ProjectRow {
   changelog: ChangelogLine[]
   gates: Gate[]

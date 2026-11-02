@@ -1,0 +1,57 @@
+/* Build tab: ledger, stacked blocks and the summary aside (copied from the mockup's "Build" CSS). */
+.ledger{width:100%; border-collapse:separate; border-spacing:0 6px; font-size:14px}
+.ledger th{font-size:12.5px; font-weight:600; color:var(--text-2); text-align:left; padding:0 12px}
+.ledger td{background:var(--surface); padding:10px 12px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); white-space:nowrap}
+.ledger td:first-child{border-left:4px solid var(--spine, var(--line-strong)); border-radius:var(--r-md) 0 0 var(--r-md)}
+.ledger td:last-child{border-right:1px solid var(--line); border-radius:0 var(--r-md) var(--r-md) 0}
+.ledger tr.sel td{background:var(--surface-2)}
+.ledger tr{cursor:pointer}
+.ledger tr:hover td{background:var(--surface-2)}
+.ledger .tbar{width:90px}
+.ledger b{font-weight:600}
+.ledger small{display:block; color:var(--text-3); font-size:12px}
+.ledger a{color:inherit; text-decoration:none}
+.tscroll{overflow-x:auto; max-width:100%; min-width:0; position:relative}
+.tbar i.pend{background:var(--surface-3)}
+.tbar i.run{animation:pulse 1.6s ease-in-out infinite}
+.run{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
+@container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:84px} }
+.stack{display:flex; flex-direction:column; gap:6px; min-width:0}
+.stack-h{font-size:13px; font-weight:700; color:var(--text-2); margin:12px 0 2px; display:flex; gap:8px; align-items:center}
+.stack-h:first-child{margin-top:0}
+.blk{position:relative; display:grid; grid-template-columns:22px minmax(0,1fr) auto; gap:4px 14px; align-items:center; padding:12px 16px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm); box-shadow:var(--shadow-1); min-width:0}
+.blk-t{min-width:0}
+.blk-t b{display:block; font-weight:600; font-size:15px; line-height:1.3}
+.blk-t span{display:block; font-size:13px; color:var(--text-2); line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.blk-r{display:flex; flex-direction:column; align-items:flex-end; gap:2px; min-width:0}
+.model{display:inline-flex; gap:5px; align-items:center; font:400 12.5px/1.2 var(--f-mono); color:var(--text-2); white-space:nowrap}
+.model svg.i{width:14px; height:14px; color:var(--text-3)}
+.blk-r small{font-size:12px; color:var(--text-3); white-space:nowrap}
+.blk.st-run{border-color:var(--accent); background:linear-gradient(90deg,var(--accent-soft),transparent 60%),var(--surface)}
+.blk.st-run::before{content:""; position:absolute; left:-1px; top:-1px; bottom:-1px; width:3px; background:var(--accent); border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.blk.st-bad{border-color:color-mix(in srgb, var(--bad) 55%, var(--line))}
+.blk.st-bad::before{content:""; position:absolute; left:-1px; top:-1px; bottom:-1px; width:3px; background:var(--bad); border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.blk.st-pend{background:transparent; box-shadow:none; border-style:dashed}
+.blk.st-pend .blk-t b{color:var(--text-2); font-weight:500}
+.blk.st-need{border-color:var(--attn-edge); padding-left:24px; background:linear-gradient(var(--attn-soft),var(--attn-soft)),var(--surface)}
+.blk.st-need::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--attn); border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.blk.st-need.has-room{border-radius:var(--r-sm) var(--r-sm) 0 0}
+.review-room{border:1px solid var(--attn-edge); border-top:0; border-radius:0 0 var(--r-md) var(--r-md); background:var(--surface); padding:12px 20px 12px 24px; margin-bottom:6px}
+details.tg{min-width:0}
+details.tg > summary{list-style:none; cursor:pointer}
+details.tg > summary::-webkit-details-marker{display:none}
+details.tg > summary .car{transition:transform var(--dur-base); color:var(--text-3)}
+details.tg[open] > summary .car{transform:rotate(90deg)}
+details.tg .tg-in{display:flex; flex-direction:column; gap:6px; padding:6px 0 4px 20px; border-left:2px solid var(--line); margin-left:10px}
+@container well (max-width:520px){ .blk{grid-template-columns:22px minmax(0,1fr)} .blk-r{grid-column:2; align-items:flex-start; flex-direction:row; gap:10px; flex-wrap:wrap} }
+.run-sum{display:flex; flex-direction:column; gap:14px}
+.ring{position:relative; width:84px; height:84px; flex:none}
+.ring svg{width:84px; height:84px; transform:rotate(-90deg)}
+.ring circle{fill:none; stroke-width:8}
+.ring .tr{stroke:var(--surface-3)} .ring .vl{stroke:var(--ring, var(--accent)); stroke-linecap:round; transition:stroke-dasharray .9s var(--ease)}
+.ring b{position:absolute; inset:0; display:grid; place-items:center; font:700 22px/1 var(--f-display)}
+.live{display:inline-flex; gap:8px; align-items:center; font-size:13px; color:var(--text-2)}
+.live i{width:8px; height:8px; border-radius:50%; background:var(--accent-3); animation:pulse 1.6s ease-in-out infinite}
+.run-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:20px}
+.build-tab{display:flex; flex-direction:column; gap:20px; min-width:0}
+@media (max-width:767px){ .ledger tr td{padding:12px} .ledger a{display:inline-block; min-height:24px} }

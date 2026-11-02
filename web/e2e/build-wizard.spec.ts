@@ -49,7 +49,7 @@ test("notes-only: wizard to a queued run, remembered as defaults", async ({ page
 
   await expect(page).toHaveURL(/build\?run=/)
   await expect(page.getByText("Queued: waiting for the runner to pick it up.")).toBeVisible()
-  await expect(page.getByTestId("run-status")).toContainText("Queued")
+  await expect(page.getByRole("complementary", { name: "Build summary" })).toContainText("Queued")
   await expect(page.getByRole("heading", { name: "At the start" })).toBeVisible()
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)

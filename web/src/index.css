@@ -10,6 +10,7 @@
 @import "@fontsource/ibm-plex-mono/latin-400";
 @import "@fontsource/ibm-plex-mono/latin-500";
 @import "./styles/ember.css";
+@import "./styles/frame.css";
 
 @custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 

@@ -10,6 +10,7 @@ beforeEach(() => {
     "GET /api/info": info,
     "GET /api/projects/demo-site": projects[0],
     "GET /api/gates": [],
+    "GET /api/projects": [],
     "GET /api/projects/demo-site/runs": [],
     "GET /api/projects/demo-site/changelog": [],
     "GET /api/events/recent": { events: [], next: 0 },

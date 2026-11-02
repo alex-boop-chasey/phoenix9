@@ -3,9 +3,8 @@ import { useEffect, useState } from "react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
 import { useAnswerGate } from "@/lib/queries"
@@ -104,37 +103,30 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
 
   let body
   if (done) {
-    body = <p role="status" className="text-sm font-medium">Answered: {labelOf(done)}</p>
+    body = <p role="status" className="font-semibold">Answered: {labelOf(done)}</p>
   } else if (already) {
-    body = <p role="status" className="text-sm font-medium">Someone already answered this.</p>
+    body = <p role="status" className="font-semibold">Someone already answered this.</p>
   } else {
     body = (
       <>
         {gate.why && <p className="text-sm">{gate.why}</p>}
-        {(gate.task != null || gate.step) && (
-          <p className="text-xs text-muted-foreground">
-            {[gate.task != null ? `Task ${gate.task}` : null, gate.step ? stepName(gate.step) : null]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
-        )}
         {gate.flags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
+          <div className="flags">
             {gate.flags.map((f) => (
-              <Badge key={f} variant={f === DELEGATED_FLAG ? "secondary" : "destructive"}>
-                {f}
-              </Badge>
+              <span key={f} className={f === DELEGATED_FLAG ? "badge b-info" : "badge b-bad"}>
+                <Icon name={f === DELEGATED_FLAG ? "info" : "shield-check"} />{f}
+              </span>
             ))}
           </div>
         )}
         {escalation && <p className="text-sm text-muted-foreground">{ESCALATION_HELP}</p>}
         {gate.flags.includes(DELEGATED_FLAG) && <p className="text-sm text-muted-foreground">{DELEGATED_HELP}</p>}
         {gate.links.length > 0 && (
-          <div className="flex flex-wrap gap-2">
+          <div className="links">
             {gate.links.map((l) => (
-              <Button key={l.url} asChild variant="link" size="sm" className="h-auto p-0">
-                <a href={l.url} target="_blank" rel="noreferrer">{l.label}</a>
-              </Button>
+              <a key={l.url} href={l.url} target="_blank" rel="noreferrer">
+                <Icon name="git-pull-request" size="sm" />{l.label}
+              </a>
             ))}
           </div>
         )}
@@ -163,17 +155,20 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        <div className="flex flex-wrap gap-2">{shown.map(button)}</div>
+        <div className="acts">{shown.map(button)}</div>
       </>
     )
   }
 
   return (
-    <Card className={cn("border-amber-500/50 border-l-4 border-l-amber-500", compact && "gap-2 py-3 text-sm")}>
-      <CardHeader className={compact ? "px-3" : undefined}>
-        <CardTitle className={compact ? "text-base" : undefined}>Needs you: {gate.title}</CardTitle>
-      </CardHeader>
-      <CardContent className={cn("flex flex-col gap-3", compact && "px-3")}>{body}</CardContent>
+    <article className={cn("need", compact && "need-compact")} aria-label={`Needs you: ${gate.title}`}>
+      <div className="need-bar">
+        <Icon name="bell-ringing" />Needs you<span className="sp">{where(gate)}</span>
+      </div>
+      <div className="need-b">
+        <p className="h3 need-title">{gate.title}</p>
+        {body}
+      </div>
       <ConfirmDialog
         open={confirmStop}
         onOpenChange={setConfirmStop}
@@ -183,8 +178,16 @@ export function NeedsYouCard({ gate, compact = false }: { gate: Gate; compact?: 
         destructive
         onConfirm={() => send("stop")}
       />
-    </Card>
+    </article>
   )
+}
+
+/** Where a question comes from, in words: the task and step, else the kind of question. */
+function where(gate: Gate): string {
+  const parts = [gate.task != null ? `Task ${gate.task}` : null, gate.step ? `${stepName(gate.step)} step` : null]
+  const found = parts.filter(Boolean).join(" · ")
+  if (found) return found
+  return gate.kind === "merge" ? "Merge step" : gate.kind === "plan" ? "Plan" : gate.kind === "deploy" ? "Deploy" : "Build"
 }
 
 /** "builder" -> "Builder". */

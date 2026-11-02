@@ -99,7 +99,7 @@ test("escalation under failed step with Acknowledged posts acknowledged", async 
   const buttons = within(row).getAllByRole("button").map((b) => b.textContent)
   expect(buttons[0]).toBe("Acknowledged")
   expect(buttons).toEqual(expect.arrayContaining(["Skip task", "Stop run"]))
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
   await userEvent.click(within(row).getByRole("button", { name: "Acknowledged" }))
   await waitFor(() => expect(calls.some((c) => c.path === `/api/gates/${openGate.id}/answer`)).toBe(true))
   const answer = calls.find((c) => c.path === `/api/gates/${openGate.id}/answer`)!

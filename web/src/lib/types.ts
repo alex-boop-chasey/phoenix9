@@ -99,7 +99,18 @@ export interface ImportResult { name: string; path: string; repo: string | null;
 export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
 export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }
 
+/** What was chosen when the project was set up (any may be null for older projects). */
+export interface ProjectSetup {
+  kind: string | null
+  source: "empty" | "repo" | "code" | "template" | null
+  template: string | null
+  preset: string | null
+  merge: string | null
+  created: string | null
+}
+
 export interface Project extends ProjectRow {
+  setup?: ProjectSetup
   changelog: ChangelogLine[]
   gates: Gate[]
 }

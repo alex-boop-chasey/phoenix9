@@ -731,9 +731,22 @@ def list_projects(adapters, wait: float = SIZE_WAIT) -> list:
     return [info(n, adapters, size_wait=False) for n in names]
 
 
+def setup_facts(folder: Path) -> dict:
+    """What was chosen at setup: kind (profile), source, template, preset, merge rule, created date."""
+    meta = _meta(folder)
+    try:
+        own = settings.load_project(folder)
+    except settings.SettingsError:
+        own = {}
+    return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
+            "preset": own.get("preset") or None, "merge": own.get("merge") or None,
+            "created": meta.get("created") or None}
+
+
 def show_project(name: str, adapters) -> dict:
-    """info plus the last changelog lines and the open gates."""
+    """info plus the setup facts, the last changelog lines and the open gates."""
     data = info(name, adapters)
+    data["setup"] = setup_facts(paths.projects() / name)
     try:
         lines = (paths.projects() / name / "notes" / "changelog.md").read_text(encoding="utf-8").splitlines()
     except OSError:

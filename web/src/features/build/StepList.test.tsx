@@ -65,8 +65,8 @@ test("escalation card under its failed step", () => {
   mockApi({})
   renderWithProviders(<StepList run={runDetail()} gates={[openGate]} />)
   const row = stepRow("Task 2", "Builder")
-  expect(within(row).getByText(`Needs you: ${openGate.title}`)).toBeInTheDocument()
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  expect(within(row).getByText(openGate.title)).toBeInTheDocument()
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
   expect(row).toHaveTextContent("the checks failed")
 })
 

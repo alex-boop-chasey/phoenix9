@@ -57,6 +57,6 @@ test("notes-only: wizard to a queued run, remembered as defaults", async ({ page
   await page.reload()
   await expect(page.getByText("Queued: waiting for the runner to pick it up.")).toBeVisible()
 
-  await page.getByRole("tab", { name: "settings" }).click()
+  await page.getByRole("navigation", { name: "Project tabs" }).getByRole("link", { name: "Settings" }).click()
   await expect(page.getByLabel("Tries per task")).toHaveValue("2")
 })

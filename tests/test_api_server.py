@@ -92,6 +92,18 @@ def test_project_show(api):
     assert status == 200
     data = body["data"]
     assert data["name"] == "alpha" and data["needs_you"] == 0 and data["run"] is None
+    assert set(data["setup"]) == {"kind", "source", "template", "preset", "merge", "created"}
+
+
+def test_project_show_setup_reads_project_files(api):
+    folder = make_project("alpha")
+    (folder / ".phoenix").mkdir(exist_ok=True)
+    (folder / ".phoenix" / "project.json").write_text(
+        '{"created": "2026-10-01", "source": "template", "template": "static-site", "profile": "web"}')
+    settings.save_project(folder, {"preset": "quick", "merge": "ask"})
+    setup = api("/api/projects/alpha")[1]["data"]["setup"]
+    assert setup == {"kind": "web", "source": "template", "template": "static-site", "preset": "quick",
+                     "merge": "ask", "created": "2026-10-01"}
 
 
 def test_project_sub_endpoints(api):

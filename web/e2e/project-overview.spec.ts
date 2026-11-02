@@ -25,17 +25,26 @@ test("phoenix9 shows the merge card and Send back needs a note", async ({ page }
   await expectNoRawOutput(page)
 })
 
-test("phoenix9 shows the update panel with versions and a disabled Install while a build runs", async ({ page }) => {
+test("phoenix9 Overview has no updates panel", async ({ page }) => {
   await page.goto("/#/p/phoenix9/overview")
-  await expect(page.getByText("Installed: v9.1")).toBeVisible()
-  await expect(page.getByText("Previous: v9.0")).toBeVisible()
-  await expect(page.getByText("Newest: v9.2")).toBeVisible()
-  await expect(page.getByRole("button", { name: "Install update v9.2" })).toBeDisabled()
-  await expect(page.getByRole("button", { name: "Roll back to v9.0" })).toBeEnabled()
-  await page.getByText("Last update log").click()
-  await expect(page.getByText("installed v9.1")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Current build" })).toBeVisible()
+  await expect(page.getByText("Phoenix updates")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Install update/ })).toHaveCount(0)
   await expectNoHorizontalScroll(page)
-  await expectNoRawOutput(page)
+})
+
+test("header shows links, Start new build and tabs; About card shows setup", async ({ page }) => {
+  await page.goto("/#/p/demo-site/overview")
+  await expect(page.getByRole("heading", { name: "demo-site", level: 1 })).toBeVisible()
+  const dock = page.getByRole("group", { name: "Open project" })
+  await expect(dock.getByText("VS Code")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Start new build" })).toBeVisible()
+  const tabs = page.getByRole("navigation", { name: "Project tabs" })
+  await expect(tabs.getByRole("link", { name: /^Overview/ })).toHaveAttribute("aria-current", "page")
+  await expect(page.getByLabel("Chosen at setup")).toBeVisible()
+  await expect(page.getByLabel("On this server")).toBeVisible()
+  await page.getByRole("link", { name: "Start new build" }).click()
+  await expect(page).toHaveURL(/#\/p\/demo-site\/build\?new=1/)
 })
 
 test("demo-site shows the Deploy card with its last deploy", async ({ page }) => {

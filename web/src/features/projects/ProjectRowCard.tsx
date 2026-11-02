@@ -9,7 +9,8 @@ import { switchState } from "@/lib/switcher"
 
 import { runText } from "./rows"
 
-function StateBadge({ row }: { row: ProjectRow }) {
+/** The coloured state badge of a project: needs you, running, failed or idle. */
+export function StateBadge({ row }: { row: ProjectRow }) {
   const state = switchState(row)
   if (state === "need") return <span className="badge b-need"><Icon name="bell-ringing" />Needs you</span>
   if (state === "run") return <span className="badge b-run"><Wheel />{runText(row)}</span>

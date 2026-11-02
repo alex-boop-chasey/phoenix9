@@ -48,8 +48,8 @@ test("run detail shows open gates", async () => {
     }),
   }))
   show("/p/demo-site/build?run=r-wait")
-  expect(await screen.findByText("Needs you: Merge it?")).toBeInTheDocument()
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  expect(await screen.findByText("Merge it?")).toBeInTheDocument()
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
 })
 
 test("polls while running and stops when done", async () => {

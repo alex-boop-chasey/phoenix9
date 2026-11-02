@@ -33,8 +33,8 @@ describe("NeedsYouCard", () => {
   it("merge gate shows four buttons", () => {
     mockApi({})
     renderWithProviders(<NeedsYouCard gate={merge} />)
-    expect(screen.getByText("Needs you: Merge the build")).toBeInTheDocument()
-    expect(screen.getByText("Task 2 · Builder")).toBeInTheDocument()
+    expect(screen.getByText("Merge the build")).toBeInTheDocument()
+    expect(screen.getByText("Task 2 · Builder step")).toBeInTheDocument()
     for (const n of ["Approve", "Send back with a note", "Skip task", "Stop run"]) expect(button(n)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Acknowledged" })).toBeNull()
   })

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { Route, Routes, useLocation } from "react-router"
 
@@ -44,6 +44,10 @@ function routes(extra: Record<string, unknown> = {}) {
     "GET /api/github/repos": repos,
     "GET /api/library/templates": templates,
     "GET /api/library/services": services,
+    "GET /api/library/profiles": { profiles: [
+      { name: "web", title: "Web app", image: "" }, { name: "python-script", title: "Python script", image: "" },
+    ], problems: [] },
+    "GET /api/services": { supported: true, services: [{ name: "supabase", title: "Supabase", connected: true }] },
     "GET /api/projects/check-name": (r: MockRequest) =>
       r.query.name === "taken" ? { ok: false, message: "A project called taken already exists." } : { ok: true, message: "Name is free." },
     ...extra,
@@ -68,11 +72,11 @@ function renderPage() {
 }
 
 const nameBox = () => screen.getByLabelText("Name", { selector: "#pf-name" })
-const open = (el: HTMLElement) => fireEvent.pointerDown(el, { button: 0, ctrlKey: false, pointerType: "mouse" })
+const createBtn = () => screen.getByRole("button", { name: "Create project" })
 
 async function fillName(name = "my-site") {
   await userEvent.type(nameBox(), name)
-  await screen.findByText(/Name is free|already exists/)
+  await screen.findByText(/name is free|already exists/i)
 }
 
 test("name checked live", async () => {
@@ -91,7 +95,7 @@ test("bad name message", async () => {
   expect(await screen.findByText(/lowercase letters, digits and dashes/)).toBeInTheDocument()
   expect(nameBox()).toHaveAttribute("aria-invalid", "true")
   expect(calls.some((c) => c.path === "/api/projects/check-name")).toBe(false)
-  expect(screen.getByRole("button", { name: "Create" })).toBeDisabled()
+  expect(createBtn()).toBeDisabled()
 })
 
 test("existing name message", async () => {
@@ -99,7 +103,7 @@ test("existing name message", async () => {
   renderPage()
   await fillName("taken")
   expect(screen.getByText("A project called taken already exists.")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Create" })).toBeDisabled()
+  expect(createBtn()).toBeDisabled()
 })
 
 test("repo dropdown hidden when github not connected", async () => {
@@ -112,18 +116,21 @@ test("repo dropdown hidden when github not connected", async () => {
   expect(screen.queryByText("Choose a repo")).toBeNull()
 })
 
-test("services listed from the library", async () => {
+test("services are tiles with a connection dot", async () => {
   mockApi(routes())
   renderPage()
-  expect(await screen.findByRole("checkbox", { name: "Supabase" })).toBeInTheDocument()
+  const supabase = await screen.findByRole("checkbox", { name: "Supabase" })
   expect(screen.getByRole("checkbox", { name: "GitHub" })).toBeInTheDocument()
-  expect(screen.getByText("Connecting service accounts comes in a later update.")).toBeInTheDocument()
+  await waitFor(() => expect(supabase.closest("label")).toHaveTextContent("Connected"))
+  expect(supabase.closest("label")).not.toHaveTextContent("Not connected")
+  await userEvent.click(supabase)
+  expect(screen.getByText("1 selected")).toBeInTheDocument()
 })
 
 test("repo search filters the dropdown", async () => {
   mockApi(routes())
   renderPage()
-  await userEvent.click(screen.getByLabelText("Existing GitHub repo"))
+  await userEvent.click(screen.getByRole("radio", { name: "Existing GitHub repo" }))
   await userEvent.click(await screen.findByRole("combobox", { name: "GitHub repo" }))
   expect(await screen.findByText("rebirth-wd/demo-site")).toBeInTheDocument()
   await userEvent.type(screen.getByPlaceholderText("Search repos"), "tiny")
@@ -131,38 +138,67 @@ test("repo search filters the dropdown", async () => {
   expect(screen.getByText("alex-boop-chasey/tiny-tool")).toBeInTheDocument()
 })
 
-test("template prefills profile", async () => {
+test("template tiles prefill the kind and allow another GitHub template", async () => {
   mockApi(routes())
   renderPage()
-  await userEvent.click(screen.getByLabelText("Template"))
-  open(await screen.findByRole("combobox", { name: "Template" }))
-  fireEvent.click(await screen.findByRole("option", { name: "Python tool" }))
-  await waitFor(() => expect(screen.getByRole("combobox", { name: "Profile" })).toHaveTextContent("python-script"))
+  await userEvent.click(screen.getByRole("radio", { name: "Template" }))
+  await userEvent.click(await screen.findByRole("radio", { name: "Python tool" }))
+  expect(screen.getByRole("radio", { name: "Python script" })).toBeChecked()
+  await userEvent.click(screen.getByRole("radio", { name: "Another GitHub template…" }))
+  await userEvent.type(screen.getByLabelText("GitHub template"), "me/starter")
+  expect(screen.getByText("me/starter template")).toBeInTheDocument()
 })
 
-test("new repo on by default for empty and template, off for repo and code", async () => {
+test("the folder path box shows for code on this server", async () => {
+  mockApi(routes())
+  renderPage()
+  await userEvent.click(screen.getByRole("radio", { name: "On this server" }))
+  await userEvent.type(screen.getByLabelText("Folder on this server"), "/srv/old")
+  expect(screen.getByText("Code in /srv/old")).toBeInTheDocument()
+})
+
+test("new repo on by default for empty and template, not for repo and folder", async () => {
   mockApi(routes())
   renderPage()
   const toggle = async () => screen.findByRole("switch", { name: "New GitHub repo" })
   expect(await toggle()).toBeChecked()
-  await userEvent.click(screen.getByLabelText("Existing GitHub repo"))
+  await userEvent.click(screen.getByRole("radio", { name: "Existing GitHub repo" }))
   expect(screen.queryByRole("switch", { name: "New GitHub repo" })).toBeNull()
-  await userEvent.click(screen.getByLabelText("Template"))
+  await userEvent.click(screen.getByRole("radio", { name: "Template" }))
   expect(await toggle()).toBeChecked()
-  await userEvent.click(screen.getByLabelText("Code already on this server"))
+  await userEvent.click(screen.getByRole("radio", { name: "On this server" }))
   expect(screen.queryByRole("switch", { name: "New GitHub repo" })).toBeNull()
-  await userEvent.click(screen.getByLabelText("Empty"))
+  await userEvent.click(screen.getByRole("radio", { name: "Empty" }))
   expect(await toggle()).toBeChecked()
 })
 
-test("owner choice remembered", async () => {
+test("owner tiles remember the choice", async () => {
   mockApi(routes())
   renderPage()
-  const owner = await screen.findByRole("combobox", { name: "Owner" })
-  await waitFor(() => expect(owner).toHaveTextContent("rebirth-wd"))
-  open(owner)
-  fireEvent.click(await screen.findByRole("option", { name: "alex-boop-chasey" }))
+  const first = await screen.findByRole("radio", { name: "rebirth-wd" })
+  await waitFor(() => expect(first).toBeChecked())
+  await userEvent.click(screen.getByRole("radio", { name: "alex-boop-chasey" }))
   expect(localStorage.getItem("phoenix9.newRepoOwner")).toBe("alex-boop-chasey")
+})
+
+test("the receipt follows the choices and the missing item jumps to its step", async () => {
+  mockApi(routes())
+  renderPage()
+  const receipt = screen.getByRole("complementary", { name: "What Phoenix will make" })
+  expect(within(receipt).getByRole("link", { name: "Choose a name that is free." })).toBeInTheDocument()
+  expect(createBtn()).toBeDisabled()
+  await fillName("my-site")
+  expect(within(receipt).getByText("/srv/projects/my-site")).toBeInTheDocument()
+  expect(within(receipt).getByText("rebirth-wd/my-site (new)")).toBeInTheDocument()
+  expect(within(receipt).getByText("Ready to create.")).toBeInTheDocument()
+  await userEvent.type(screen.getByLabelText("Name", { selector: "input[placeholder=NAME]" }), "A_KEY")
+  await userEvent.type(screen.getByLabelText("Value"), "v")
+  const link = within(receipt).getByRole("link", { name: "Save the key rows before creating." })
+  expect(createBtn()).toBeDisabled()
+  await userEvent.click(link)
+  await userEvent.click(screen.getByRole("button", { name: "Save" }))
+  expect(await within(receipt).findByText("1 row")).toBeInTheDocument()
+  expect(createBtn()).toBeEnabled()
 })
 
 async function fillAndCreate(extra: Record<string, unknown>) {
@@ -174,8 +210,8 @@ async function fillAndCreate(extra: Record<string, unknown>) {
   await userEvent.type(screen.getByLabelText("Name", { selector: "input[placeholder=NAME]" }), "API_TOKEN")
   await userEvent.type(screen.getByLabelText("Value"), "tok-1")
   await userEvent.click(screen.getByRole("button", { name: "Save" }))
-  await waitFor(() => expect(screen.getByRole("button", { name: "Create" })).toBeEnabled())
-  await userEvent.click(screen.getByRole("button", { name: "Create" }))
+  await waitFor(() => expect(createBtn()).toBeEnabled())
+  await userEvent.click(createBtn())
   return api
 }
 
@@ -217,22 +253,23 @@ test("progress list updates from job polling", async () => {
   }))
   renderPage()
   await fillName()
-  await userEvent.click(screen.getByRole("button", { name: "Create" }))
+  await userEvent.click(createBtn())
   expect(await screen.findByText("Making the folder")).toBeInTheDocument()
   expect(await screen.findByText("Writing files", {}, { timeout: 3000 })).toBeInTheDocument()
   expect(screen.getByLabelText("Done")).toBeInTheDocument()
   expect(screen.getByTestId("spinner")).toBeInTheDocument()
 })
 
-test("done navigates to the project page", async () => {
+test("done shows the ready line and an open link", async () => {
   mockApi(routes({
     "POST /api/projects": { job: "j1" },
-    "GET /api/jobs/j1": job({ status: "done", steps: [{ label: "Done", status: "done" }] }),
+    "GET /api/jobs/j1": job({ status: "done", steps: [{ label: "Switching the project chat on", status: "done" }] }),
   }))
   renderPage()
   await fillName()
-  await userEvent.click(screen.getByRole("button", { name: "Create" }))
-  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/p/my-site/overview"))
+  await userEvent.click(createBtn())
+  expect(await screen.findByText("my-site is ready")).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "Open my-site" })).toHaveAttribute("href", "/p/my-site/overview")
 })
 
 test("failure shows message and back keeps values", async () => {
@@ -243,7 +280,7 @@ test("failure shows message and back keeps values", async () => {
   renderPage()
   await fillName()
   await userEvent.type(screen.getByLabelText("Description"), "keep me")
-  await userEvent.click(screen.getByRole("button", { name: "Create" }))
+  await userEvent.click(createBtn())
   const alert = await screen.findByRole("alert")
   expect(within(alert).getByText("GitHub said no.")).toBeInTheDocument()
   expect(within(alert).getByText("Nothing was left half-made.")).toBeInTheDocument()
@@ -257,5 +294,5 @@ test("no vscode or chat fields on the form", async () => {
   renderPage()
   await screen.findByRole("checkbox", { name: "Supabase" })
   expect(screen.queryByText(/vs ?code/i)).toBeNull()
-  expect(screen.queryByText(/chat/i)).toBeNull()
+  expect(screen.queryByLabelText(/chat/i)).toBeNull()
 })

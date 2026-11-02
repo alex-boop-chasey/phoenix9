@@ -29,7 +29,7 @@ const SOURCES: { value: SourceKind; label: string }[] = [
 
 const CUSTOM = "__custom__"
 
-function useNameCheck(name: string, enabled: boolean): { message: string; ok: boolean } {
+export function useNameCheck(name: string, enabled: boolean): { message: string; ok: boolean } {
   const [result, setResult] = useState<{ name: string; check: NameCheck } | null>(null)
   const localBad = !!name && !NAME_RE.test(name)
   useEffect(() => {
@@ -234,7 +234,7 @@ export function ProjectForm({
   )
 }
 
-function RepoPicker({
+export function RepoPicker({
   repos, value, onPick,
 }: {
   repos: { full_name: string; owner: string; private: boolean }[]

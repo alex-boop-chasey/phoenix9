@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
+import { Icon } from "@/components/Icon"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
@@ -64,10 +65,12 @@ function toInput(r: Row, local = false): KeyInput {
 
 /** Key rows with Save and Add. `saved` talks to the project's keys; `local` keeps rows in memory. */
 export function KeysForm({
-  mode, project = "", onRowsChange,
+  mode, project = "", draft = false, onRowsChange,
 }: {
   mode: "local" | "saved"
   project?: string
+  /** The New project look: dashed rows until saved, plus a note under the buttons. */
+  draft?: boolean
   /** Local mode: the saved rows (to send with create) and whether typed rows are still unsaved. */
   onRowsChange?: (rows: KeyInput[], pending: boolean) => void
 }) {
@@ -178,10 +181,10 @@ export function KeysForm({
       {problem && (
         <Alert variant="destructive"><AlertDescription>{problem}</AlertDescription></Alert>
       )}
-      <ul className="space-y-3">
+      <ul className={draft ? "stackg" : "space-y-3"}>
         {rows.map((r) => (
           <KeyRowView
-            key={r.id} row={r} error={errors[r.id]}
+            key={r.id} row={r} error={errors[r.id]} draft={draft}
             onName={(name) => edit(r, { name })}
             onValue={(value) => edit(r, { value })}
             onSecret={(secret) => edit(r, { secret })}
@@ -189,14 +192,20 @@ export function KeysForm({
           />
         ))}
       </ul>
-      <div className="flex flex-col gap-2 sm:flex-row">
+      <div className={draft ? "row" : "flex flex-col gap-2 sm:flex-row"}>
         <Button type="button" variant="secondary" disabled={busy} className="w-full sm:w-auto" onClick={() => void saveOnly()}>
           Save
         </Button>
-        <Button type="button" variant="outline" disabled={busy} className="w-full sm:w-auto" onClick={() => void add()}>
-          Add
+        <Button type="button" variant={draft ? "secondary" : "outline"} disabled={busy} className="w-full sm:w-auto" onClick={() => void add()}>
+          {draft && <Icon name="plus" />}Add
         </Button>
       </div>
+      {draft && (
+        <div className="blk-info">
+          <Icon name="info" />
+          <span>Dashed rows are not saved yet. Rows are kept here until you press Create project.</span>
+        </div>
+      )}
       <ConfirmDialog
         open={removing !== null} onOpenChange={(open) => !open && setRemoving(null)}
         title={`Remove key ${removing?.name ?? ""}?`} body="The saved value will be deleted."
@@ -208,10 +217,11 @@ export function KeysForm({
 }
 
 function KeyRowView({
-  row, error, onName, onValue, onSecret, onReveal, onHide, onRemove,
+  row, error, draft, onName, onValue, onSecret, onReveal, onHide, onRemove,
 }: {
   row: Row
   error?: string
+  draft: boolean
   onName: (v: string) => void
   onValue: (v: string) => void
   onSecret: (v: boolean) => void
@@ -223,7 +233,7 @@ function KeyRowView({
   const needsValue = row.saved && !row.hasValue && !row.value
   return (
     <li className="space-y-1">
-      <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_1fr_auto_auto]">
+      <div className={draft ? `krow${row.saved ? " saved" : ""}` : "grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_1fr_auto_auto]"}>
         <Input
           aria-label="Name" placeholder="NAME" value={row.name} readOnly={row.saved} autoComplete="off"
           aria-invalid={!!error} onChange={(e) => onName(e.target.value)}

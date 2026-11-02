@@ -38,6 +38,11 @@ def keys() -> Path:
     return home() / "keys"
 
 
+def cache() -> Path:
+    """Recomputable data (project folder sizes)."""
+    return home() / "cache"
+
+
 def runs(project: str | None = None) -> Path:
     """All run folders, or one project's run folders."""
     return home() / "runs" / project if project else home() / "runs"
@@ -56,3 +61,6 @@ def logs() -> Path:
 def events() -> Path:
     """The global event stream."""
     return home() / "events.jsonl"
+
+
+VSCODE_URL = "https://files.rebirthwebdesign.com.au/"

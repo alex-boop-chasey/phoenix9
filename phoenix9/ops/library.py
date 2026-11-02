@@ -32,13 +32,34 @@ def profiles() -> dict:
     return {"profiles": rows, "problems": problems}
 
 
+def _preset_steps(data: dict | None) -> dict:
+    """{step name: on} for every step the preset file switches on or off."""
+    tables = (data or {}).get("steps", {})
+    return {name: bool(t["on"]) for name, t in tables.items() if isinstance(t, dict) and "on" in t}
+
+
+CUSTOM_DESCRIPTION = "Start from a preset and switch any step on or off yourself."
+
+
 def presets() -> dict:
-    """The presets a project can choose, with their titles."""
+    """The presets a project can choose, with their titles, one-line descriptions and the steps each switches on or off."""
     rows = []
     for name in settings.PRESETS:
-        try:
-            data = settings.load_preset(paths.library(), name)
-        except settings.SettingsError:
-            data = None
-        rows.append({"name": name, "title": (data or {}).get("title", name), "has_file": data is not None})
+        data = None
+        if name != "custom":
+            try:
+                data = settings._read_layer(paths.library() / "presets" / f"{name}.toml", f"presets/{name}.toml")
+            except settings.SettingsError:
+                data = None
+        rows.append({"name": name, "title": (data or {}).get("title", name.capitalize()),
+                     "has_file": data is not None, "description": (data or {}).get("description", "") or (CUSTOM_DESCRIPTION if name == "custom" else ""),
+                     "steps": _preset_steps(data)})
     return {"presets": rows}
+
+
+def services() -> dict:
+    """Every service in the services library with the project keys it needs."""
+    from phoenix9 import services as core
+    rows = [{"name": s["name"], "title": s["title"], "project_keys": s["project_keys"]}
+            for s in sorted(core.load_library().values(), key=lambda s: s["name"])]
+    return {"services": rows, "problems": core.load_problems()}

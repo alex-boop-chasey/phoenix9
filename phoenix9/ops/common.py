@@ -10,6 +10,14 @@ class OpsError(Exception):
     """Something Phoenix refused or could not do; the message is plain words for Alex."""
 
 
+class NotFound(OpsError):
+    """The project, run or gate asked for does not exist (the API answers 404)."""
+
+
+class Conflict(OpsError):
+    """The thing asked for is already done or in the way (the API answers 409)."""
+
+
 def make_adapters():
     """The adapters ops use for outside things (real ones; tests replace this function)."""
     return adapters_mod.real()
@@ -26,7 +34,7 @@ def project_dir(name: str):
         raise OpsError(f"'{name}' is not a project name.")
     folder = paths.projects() / name
     if not folder.is_dir():
-        raise OpsError(f"There is no project called '{name}'.")
+        raise NotFound(f"There is no project called '{name}'.")
     return folder
 
 

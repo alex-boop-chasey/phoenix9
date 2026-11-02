@@ -1,0 +1,6 @@
+name = "astro-tailwind"
+title = "Astro + Tailwind"
+profile = "web"
+kind = "recipe"
+run = ["pnpm create astro@5.1.1 . --template minimal --no-install --no-git --yes", "pnpm add -D tailwindcss@4.0.0 @tailwindcss/vite@4.0.0"]
+check = "pnpm build"

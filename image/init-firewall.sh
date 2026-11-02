@@ -2,6 +2,17 @@
 set -euo pipefail  # Exit on error, undefined vars, and pipeline failures
 IFS=$'\n\t'       # Stricter word splitting
 
+# True when $1 is a dotted IPv4 address and $2 a port from 1 to 65535 (used for /etc/hands/allowed-proxy)
+valid_proxy_line() {
+    local ip="$1" port="$2" part
+    [[ "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]] || return 1
+    for part in ${ip//./$'\n'}; do
+        [ "$((10#$part))" -le 255 ] || return 1
+    done
+    [[ "$port" =~ ^[0-9]{1,5}$ ]] || return 1
+    [ "$((10#$port))" -ge 1 ] && [ "$((10#$port))" -le 65535 ]
+}
+
 # 1. Extract Docker DNS info BEFORE any flushing
 DOCKER_DNS_RULES=$(iptables-save -t nat | grep "127\.0\.0\.11" || true)
 
@@ -134,6 +145,20 @@ iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 # Then allow only specific outbound traffic to allowed domains
 iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
 
+# Key proxies of this step: /etc/hands/allowed-proxy has one "IP PORT" line each; only those ports open
+PROXY_LINES=()
+if [ -r /etc/hands/allowed-proxy ]; then
+    while IFS=' ' read -r p_ip p_port p_extra || [ -n "$p_ip" ]; do
+        [ -z "$p_ip" ] && continue
+        if [ -n "$p_extra" ] || ! valid_proxy_line "$p_ip" "$p_port"; then
+            echo "ERROR: bad proxy line"
+            exit 1
+        fi
+        iptables -A OUTPUT -d "$p_ip" -p tcp --dport "$p_port" -j ACCEPT
+        PROXY_LINES+=("$p_ip $p_port")
+    done < /etc/hands/allowed-proxy
+fi
+
 # Explicitly REJECT all other outbound traffic for immediate feedback
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
 
@@ -161,3 +186,19 @@ if ! curl -s -o /dev/null --connect-timeout 5 https://api.anthropic.com/ 2>/dev/
 else
     echo "Firewall verification passed - able to reach https://api.anthropic.com as expected"
 fi
+
+# Verify the key proxies: each answers (401 without its token is fine) and the same host's port 22 is closed
+for line in "${PROXY_LINES[@]}"; do
+    IFS=' ' read -r p_ip p_port <<< "$line"
+    code=$(curl -s -o /dev/null -w '%{http_code}' --connect-timeout 5 "http://$p_ip:$p_port/" 2>/dev/null || true)
+    if [ "$code" = "000" ] || [ -z "$code" ]; then
+        echo "ERROR: Firewall verification failed - unable to reach the key proxy at $p_ip:$p_port"
+        exit 1
+    fi
+    echo "Firewall verification passed - key proxy at $p_ip:$p_port answers ($code) as expected"
+    if timeout 5 bash -c "exec 3<>/dev/tcp/$p_ip/22" 2>/dev/null; then
+        echo "ERROR: Firewall verification failed - was able to reach $p_ip:22"
+        exit 1
+    fi
+    echo "Firewall verification passed - unable to reach $p_ip:22 as expected"
+done

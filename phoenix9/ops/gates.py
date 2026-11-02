@@ -15,7 +15,9 @@ def answer(gate_id: str, action: str, note: str = "", who: str = "cli") -> dict:
     """Answer an open gate (the runner picks the answer up)."""
     gate = next((g for g in core.list_gates(open_only=False) if g["id"] == gate_id), None)
     if gate is None:
-        raise OpsError(f"There is no gate called '{gate_id}'.")
+        raise common.NotFound(f"There is no gate called '{gate_id}'.")
+    if gate.get("answered"):
+        raise common.Conflict(f"Gate {gate_id} is already answered.")
     try:
         project_settings = settings.load_project(common.project_dir(gate["project"]))
     except (settings.SettingsError, OpsError):

@@ -1,0 +1,18 @@
+name = "github-release"
+title = "GitHub release"
+description = "Publishes a tagged release on GitHub with the built files attached."
+supported = true
+proxy_service = "github"
+preview = false
+for_profiles = ["python-script", "desktop"]
+
+[health]
+timeout_s = 30
+tries = 3
+
+[settings]
+repo = ""
+tag_prefix = "v"
+build_command = ""
+artefacts = []
+notes_from = "changelog"

@@ -1,0 +1,11 @@
+name = "deploy"
+title = "Deploy"
+description = "Puts the merged code live with the project's deployer (off unless [deploy] mode is on-merge or button)."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 40
+needs = ["merged"]
+produces = ["deployed"]
+default = "on"
+proxy = []

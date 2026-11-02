@@ -65,6 +65,8 @@ class StepContext:
     adapters: Any
     emit: Callable[..., Any]
     log: Callable[[str], None]
+    answer: dict | None = None   # the gate answer {action, note, who} when Alex sent this step back
+    proxies: dict = field(default_factory=dict)   # service -> {url, token, port, bind}: this step's key proxies
 
 
 class UsageLimit(Exception):

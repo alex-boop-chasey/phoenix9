@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites><testsuite name="pytest" tests="4">
+<testcase classname="tests.phoenix.task-1.test_a" name="test_ok" file="tests/phoenix/task-1/test_a.py"/>
+<testcase classname="tests.phoenix.task-1.test_a" name="test_bad" file="tests/phoenix/task-1/test_a.py"><failure message="assert 1 == 2">trace</failure></testcase>
+<testcase classname="tests.phoenix.task-1.test_a" name="test_err" file="tests/phoenix/task-1/test_a.py"><error message="boom">trace</error></testcase>
+<testcase classname="tests.phoenix.task-1.test_a" name="test_skip" file="tests/phoenix/task-1/test_a.py"><skipped message="later"/></testcase>
+</testsuite></testsuites>

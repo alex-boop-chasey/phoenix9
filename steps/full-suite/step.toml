@@ -6,6 +6,6 @@ level = "run"
 phase = "finish"
 order = 10
 needs = ["worktree"]
-produces = []
+produces = ["test-report"]
 safety = true
 default = "on"

@@ -3,10 +3,14 @@ image = "phoenix9-step-web:1"
 allowed_domains = ["registry.npmjs.org", "registry.yarnpkg.com"]
 diff_allow_extra = ["pnpm-lock.yaml"]
 screenshots = true
-suggested_deployer = "supabase"
+suggested_deployer = "vps-docker"
 
 [test]
 cmd = "pnpm test"
 task_cmd = "pnpm test"
-report = "vitest-json"
+report = ["vitest-json", "playwright-json"]
 report_path = "test-report.json"
+checks_dir = "tests/phoenix"
+check_files = "*.test.ts *.spec.ts"
+check_command = "pnpm vitest run --passWithNoTests {files} && pnpm playwright test --pass-with-no-tests {files}"
+report_args = "--reporter=json --outputFile=/out/vitest.json"

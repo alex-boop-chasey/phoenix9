@@ -1,0 +1,5 @@
+name = "research-notes"
+title = "Research notes"
+profile = "research"
+kind = "files"
+check = "bash check.sh"

@@ -1,0 +1,10 @@
+name = "preview"
+title = "Preview"
+description = "Deploys the run's branch to a temporary address before Merge (off unless [deploy] preview = true)"
+kind = "script"
+level = "run"
+phase = "finish"
+order = 25
+needs = ["worktree"]
+produces = ["preview-url"]
+default = "on"

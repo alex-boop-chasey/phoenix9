@@ -10,7 +10,7 @@ shows all of it in a dashboard. Every dashboard action is also a `phoenix` comma
 - Python: system `python3` 3.12+, standard library only; package `phoenix9/`; tests `tests/` (pytest).
 - Front end: `web/` (React, TypeScript, Vite, Tailwind, shadcn/ui; pnpm only, versions pinned).
 - Check everything with `./check.sh` (and `./check-browser.sh` for Playwright). Never weaken them.
-- `reference/` is read-only material for porting (Phoenix V8, proj, project-selector). Never import it.
+- `reference/` (Phoenix V8, proj, project-selector, used for porting) was removed at the end of phase 4; `# ported from reference/...` comments are history only.
 - Installed copy that actually runs: /opt/phoenix9 (written only by the updater). Never edit it.
 
 ## Hard rules (never weaken; each says why)

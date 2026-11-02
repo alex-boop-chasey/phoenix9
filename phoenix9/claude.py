@@ -123,6 +123,28 @@ def _claude_md_mount(mode: str, step_dir: Path, project_dir: Path, tmp: Path) ->
     return Mount(joined, f"{CLAUDE_HOME}/CLAUDE.md")
 
 
+ADVISOR_NOTE = "Note: the advisor skill is not available in this setup; carry on without it."
+
+
+def advisor_usable(skills_root=None) -> bool:
+    """True when the advisor skill folder exists and `phoenix doctor` has not found it missing in Claude."""
+    root = Path(skills_root) if skills_root else paths.library() / "skills"
+    if not (root / "advisor").is_dir():
+        return False
+    try:
+        info = atomic.read_json(paths.config() / "doctor.json", {})
+    except (OSError, ValueError):
+        info = {}
+    return not (isinstance(info, dict) and info.get("advisor_available") is False)
+
+
+def advisor_note(ai: dict, skills_root=None) -> str:
+    """One line for the prompt when the step asks for the advisor but it cannot be mounted, else ''."""
+    if (ai.get("advisor") or {}).get("on") and not advisor_usable(skills_root):
+        return ADVISOR_NOTE
+    return ""
+
+
 def session_mounts(ai: dict, step_dir, project_dir, tmp_dir=None, skills_root=None) -> list[Mount]:
     """Return the read-only mounts a session needs: CLAUDE.md, skills, and the advisor skill plus advisor.json.
 
@@ -142,7 +164,7 @@ def session_mounts(ai: dict, step_dir, project_dir, tmp_dir=None, skills_root=No
             raise ValueError(f"bad skill name: {name}")
         mounts.append(Mount(root / name, f"{CLAUDE_HOME}/skills/{name}"))
     advisor = ai.get("advisor") or {}
-    if advisor.get("on"):
+    if advisor.get("on") and advisor_usable(root):
         info = tmp / "advisor.json"
         atomic.write_json(info, {"model": advisor.get("model", ""), "when": list(advisor.get("when") or []),
                                  "instructions": advisor.get("instructions", "")})

@@ -1,0 +1,15 @@
+name = "mux"
+title = "Mux"
+description = "Video hosting and streaming."
+support = "keys-only"
+docs = "https://docs.mux.com"
+account_keys = []
+hosts = ["api.mux.com"]
+
+[[project_keys]]
+name = "MUX_TOKEN_ID"
+secret = true
+
+[[project_keys]]
+name = "MUX_TOKEN_SECRET"
+secret = true

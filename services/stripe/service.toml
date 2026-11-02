@@ -1,0 +1,19 @@
+name = "stripe"
+title = "Stripe"
+description = "Payments."
+support = "keys-only"
+docs = "https://docs.stripe.com"
+account_keys = []
+hosts = ["api.stripe.com"]
+
+[[project_keys]]
+name = "STRIPE_SECRET_KEY"
+secret = true
+
+[[project_keys]]
+name = "STRIPE_PUBLISHABLE_KEY"
+secret = false
+
+[[project_keys]]
+name = "STRIPE_WEBHOOK_SECRET"
+secret = true

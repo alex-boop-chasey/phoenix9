@@ -8,3 +8,6 @@ suggested_deployer = "none"
 [test]
 cmd = "true"
 report = "exit-code"
+checks_dir = "checks/phoenix"
+check_files = "*.sh"
+check_command = "sh {files}"

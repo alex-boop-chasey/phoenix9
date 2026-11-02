@@ -1,0 +1,4 @@
+{"stats":{"expected":1,"unexpected":1,"skipped":0,"flaky":0},"errors":[],
+ "suites":[{"file":"task-1/a.spec.ts","suites":[],"specs":[
+  {"title":"loads","file":"task-1/a.spec.ts","tests":[{"status":"expected"}]},
+  {"title":"submits","file":"task-1/a.spec.ts","tests":[{"status":"unexpected"}]}]}]}

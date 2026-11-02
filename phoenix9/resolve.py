@@ -71,6 +71,11 @@ class Plan:
         return "\n".join(lines).rstrip() + "\n"
 
 
+# Steps that are "on" but skip themselves until a project setting asks for them.
+SELF_SKIP = {"preview": "skips unless [deploy] preview = true",
+             "deploy": "skips unless [deploy] mode is on-merge or button"}
+
+
 def _row_line(r: Row) -> str:
     """One step's headline in explain(): on/off, title, name, labels, and why when off."""
     state = "ON " if r.on else "off"
@@ -80,7 +85,7 @@ def _row_line(r: Row) -> str:
     if r.default == "always":
         labels.append("always on")
     label = f" [{', '.join(labels)}]" if labels else ""
-    why = f" ({r.reason})" if not r.on else ""
+    why = f" ({r.reason})" if not r.on else f" ({SELF_SKIP[r.name]})" if r.name in SELF_SKIP else ""
     return f"  {state}  {r.order:>3}  {r.title} ({r.name}){label}{why}"
 
 

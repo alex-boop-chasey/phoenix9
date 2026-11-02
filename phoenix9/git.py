@@ -6,7 +6,9 @@ Nothing here pushes, adds remotes or talks to GitHub.
 """
 from __future__ import annotations
 
+import base64
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -14,6 +16,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 # ported from reference/v8/phoenix/git.py:35
 SAFE = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")   # hard rule 5
@@ -29,7 +32,10 @@ SECRET_PATTERNS = [
     (re.compile(r"sk_live_"), "a live Stripe key (sk_live_)"),
     (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY"), "a private key (-----BEGIN ... PRIVATE KEY)"),
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"), "an AWS access key (AKIA...)"),
+    (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_[A-Za-z0-9_]{20,}"), "a GitHub token (ghp_/github_pat_)"),
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{10,}"), "an Anthropic key (sk-ant-)"),
 ]
+MIN_SECRET_LEN = 8
 
 # ported from reference/v8/phoenix/git.py:84
 _STRIP = ("GIT_SSH", "GIT_SSH_COMMAND", "GIT_SSH_VARIANT", "GIT_ASKPASS", "SSH_ASKPASS", "GIT_CONFIG",
@@ -82,7 +88,8 @@ def run_git(cwd: Path, *args: str, check: bool = True, input: bytes | None = Non
             timeout: int = 600) -> subprocess.CompletedProcess:
     """Run one git command in `cwd` with the safety flags. Raise GitError on failure when `check`."""
     try:
-        p = subprocess.run(git_argv(*args), cwd=str(cwd), capture_output=True, env=git_env(),
+        trust = ("-c", f"safe.directory={Path(cwd).resolve()}")  # worktrees are handed to the agent uid
+        p = subprocess.run(["git", *SAFE, *trust, *args], cwd=str(cwd), capture_output=True, env=git_env(),
                            input=input, timeout=timeout)
     except subprocess.TimeoutExpired as e:
         raise GitError(f"git {' '.join(args)} in {cwd}: timed out after {timeout}s") from e
@@ -172,6 +179,22 @@ def remove_worktree(code_dir: Path, work_dir: Path) -> None:
     git(code_dir, "worktree", "prune")
 
 
+def fresh_checkout(worktree: Path, dest: Path) -> Path:
+    """Make a clean detached checkout of the worktree's HEAD at `dest`, with its uncommitted changes applied."""
+    worktree, dest = Path(worktree), Path(dest)
+    patch = diff_text(worktree, "HEAD", binary=True)
+    git(worktree, "worktree", "add", "-q", "--detach", "--", str(dest), "HEAD")
+    if patch.strip():
+        git(dest, "apply", "--whitespace=nowarn", input=patch.encode())
+    return dest
+
+
+def remove_checkout(worktree: Path, dest: Path) -> None:
+    """Delete a checkout made by fresh_checkout and forget it."""
+    rmtree(Path(dest))
+    git(Path(worktree), "worktree", "prune")
+
+
 # ------------------------------------------------------------- changes
 def _stage_all(worktree: Path) -> None:
     """Stage everything in the worktree so new files show up in the diff."""
@@ -212,10 +235,11 @@ def diff_changes(worktree: Path, base: str) -> list[Change]:
     return changes
 
 
-def diff_text(worktree: Path, base: str) -> str:
-    """Return the full text diff of the worktree against `base`."""
+def diff_text(worktree: Path, base: str, binary: bool = False) -> str:
+    """Return the full text diff of the worktree against `base` (binary=True: a patch that applies binary files too)."""
     _stage_all(Path(worktree))
-    return git(Path(worktree), "diff", "--cached", "-M", base)
+    extra = ["--binary"] if binary else []
+    return git(Path(worktree), "diff", "--cached", "-M", *extra, base)
 
 
 def reset_attempt(worktree: Path, base: str) -> None:
@@ -229,10 +253,24 @@ def _clean_trailer(text: str) -> str:
     return " ".join(str(text).split())
 
 
-def commit(worktree: Path, message: str, trailers: dict) -> str:
+def pending_paths(worktree: Path, skip_env: bool = False) -> list[str]:
+    """Paths with uncommitted changes (new, changed or deleted); skip_env leaves out .env-style files."""
+    out = git(Path(worktree), "status", "--porcelain", "-z", "--untracked-files=all")
+    found, parts, i = [], out.split("\0"), 0
+    while i < len(parts) and parts[i]:
+        entry = parts[i]
+        found.append(entry[3:])
+        i += 2 if entry[0] in "RC" else 1        # a rename is followed by its old path
+    return [p for p in found if not (skip_env and is_env_file(p.rsplit("/", 1)[-1]))]
+
+
+def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False,
+           allow_empty: bool = True, author: str = "") -> str:
     """Commit everything in the worktree with trailers (`Key: value`). Return the new sha.
 
-    A commit with no changes is still made, so the step's pass is on record.
+    By default a commit with no changes is still made, so the step's pass is on record; allow_empty=False
+    raises GitError("Nothing to commit") instead. skip_env=True leaves .env-style files out of the commit
+    (they stay in the worktree, uncommitted). `author` is "Name <email>" (default: Phoenix).
     """
     lines = [ln for ln in message.strip().splitlines()]
     body = "\n".join(lines).strip() or "Phoenix step"
@@ -241,9 +279,36 @@ def commit(worktree: Path, message: str, trailers: dict) -> str:
                      if _clean_trailer(ln.partition(":")[0]).lower() not in keys)
     block = "\n".join(f"{_clean_trailer(k)}: {_clean_trailer(v)}" for k, v in trailers.items())
     _stage_all(Path(worktree))
+    if skip_env:
+        staged = git(Path(worktree), "diff", "--cached", "--name-only", "-z").split("\0")
+        env = [p for p in staged if p and is_env_file(p.rsplit("/", 1)[-1])]
+        if env:
+            git(Path(worktree), "reset", "-q", "--", *env)
+    if not allow_empty and run_git(Path(worktree), "diff", "--cached", "--quiet", check=False).returncode == 0:
+        raise GitError("Nothing to commit")
     text = f"{body}\n\n{block}\n" if block else f"{body}\n"
-    git(worktree, *IDENT, "commit", "-q", "--allow-empty", "--no-verify", "-F", "-", input=text.encode())
+    ident = IDENT
+    if author:
+        name, _, email = author.partition("<")
+        ident = ("-c", f"user.name={name.strip()}", "-c", f"user.email={email.rstrip('> ').strip()}")
+    flags = ["--allow-empty"] if allow_empty else []
+    git(worktree, *ident, "commit", "-q", *flags, "--no-verify", "-F", "-", input=text.encode())
     return head(worktree)
+
+
+def passed_tasks(worktree: Path, base_sha: str) -> list[int]:
+    """Return the task numbers that have a Phoenix-Task trailer in `git log base..HEAD`, sorted."""
+    # ported from reference/v8/phoenix/git.py:679
+    if not re.fullmatch(r"[0-9a-f]{7,64}", base_sha or ""):
+        raise GitError(f"'{base_sha}' is not a commit sha")
+    out = git(Path(worktree), "log", "--format=%(trailers:key=Phoenix-Task,valueonly,separator=%x2C)%x1e",
+              f"{base_sha}..HEAD")
+    tasks: set[int] = set()
+    for record in out.split("\x1e"):
+        for value in record.strip().split(","):
+            if value.strip().isdigit():
+                tasks.add(int(value.strip()))
+    return sorted(tasks)
 
 
 # ------------------------------------------------------------- allow / deny
@@ -353,6 +418,56 @@ def scan_secrets(diff_text: str) -> list[str]:
                 msg = f"{path}: contains {what}"
                 if msg not in found:
                     found.append(msg)
+    return found
+
+
+# ported from reference/v8/phoenix/git.py:603
+def secret_forms(values) -> dict[str, str]:
+    """Map every written form of each secret value (raw, JSON-escaped, url-encoded, base64) to a label.
+
+    Values under 8 characters are skipped (they match ordinary words). Labels never hold the value.
+    """
+    forms: dict[str, str] = {}
+    for n, value in enumerate(dict.fromkeys(v for v in values if isinstance(v, str)), 1):
+        if len(value) < MIN_SECRET_LEN:
+            continue
+        raw = value.encode("utf-8")
+        b64 = base64.b64encode
+        for f in (value, json.dumps(value)[1:-1], quote(value, safe=""), b64(raw).decode().rstrip("="),
+                  b64(b" " + raw).decode()[2:].rstrip("="), b64(b"  " + raw).decode()[3:].rstrip("=")):
+            if len(f) >= MIN_SECRET_LEN:
+                forms.setdefault(f, "a known secret value")
+    return forms
+
+
+# ported from reference/v8/phoenix/git.py:625
+def find_secrets(text: str, forms: dict[str, str]) -> list[str]:
+    """Return plain descriptions of the secrets found in some text (what kind, never the value)."""
+    out = sorted({what for form, what in forms.items() if form in text})
+    return out + [what for pattern, what in SECRET_PATTERNS if pattern.search(text) and what not in out]
+
+
+def scan_added_lines(diff_text: str, forms: dict[str, str]) -> list[tuple[str, int, str]]:
+    """Return (file, line number, what) for each added diff line holding a secret; never the value."""
+    found: list[tuple[str, int, str]] = []
+    path, skip, line_no = "", False, 0
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            m = re.match(r"diff --git a/.* b/(.*)$", line)
+            path = m.group(1) if m else ""
+            skip, line_no = path.split("/")[-1].lower() in ENV_EXAMPLES, 0
+        elif line.startswith("@@"):
+            m = re.match(r"@@ -\S+ \+(\d+)", line)
+            line_no = int(m.group(1)) if m else 0
+        elif line.startswith("+++") and not line_no:
+            continue
+        elif line.startswith("+"):
+            if not skip:
+                for what in find_secrets(line[1:], forms):
+                    found.append((path, line_no, what))
+            line_no += 1
+        elif line.startswith(" "):
+            line_no += 1
     return found
 
 

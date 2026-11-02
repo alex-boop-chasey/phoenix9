@@ -1,0 +1,39 @@
+name = "supabase"
+title = "Supabase"
+description = "Postgres database, auth and file storage."
+support = "store-and-wire"
+docs = "https://supabase.com/docs"
+account_keys = ["SUPABASE_ACCESS_TOKEN"]
+hosts = ["supabase.co"]
+
+[[project_keys]]
+name = "SUPABASE_URL"
+secret = false
+
+[[project_keys]]
+name = "SUPABASE_ANON_KEY"
+secret = false
+
+[[project_keys]]
+name = "SUPABASE_SERVICE_ROLE_KEY"
+secret = true
+
+[proxy]
+upstream = "https://api.supabase.com"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "SUPABASE_ACCESS_TOKEN"
+extra_headers = {}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/v1/projects"
+[[proxy.allow]]
+method = "GET"
+path = "/v1/projects/*/api-keys"
+
+[check]
+method = "GET"
+path = "/v1/projects"
+expect = [200]

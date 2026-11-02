@@ -8,6 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+import re
+import tomllib
 
 from . import paths, tomlw
 from .library import Library, _is_type, _type_name, load_library, read_toml
@@ -22,7 +24,7 @@ PRESET_META = ("title", "description")  # allowed in a preset file, ignored by s
 HEADER = "Phoenix 9 project settings. Change them with `phoenix settings`, or edit by hand."
 KEY_ORDER = ["preset", "based_on", "profile", "merge", "max_tries", "on_failure", "services",
              "safety_files", "home_chat_may_answer", "diff", "domains", "steps", "deploy",
-             "allow_extra", "deny_extra", "allow", "on", "model", "with", "mode", "preview"]
+             "allow_extra", "deny_extra", "allow", "on", "model", "with", "mode", "preview", "settings"]
 
 
 class SettingsError(Exception):
@@ -154,6 +156,8 @@ def validate(data: dict, specs: dict[str, Spec], where: str) -> list[str]:
     problems: list[str] = []
     prefixes = {p.rsplit(".", i)[0] for p in specs for i in range(1, p.count(".") + 1)}
     for path, value in _flatten(data).items():
+        if path == "deploy.settings" or path.startswith("deploy.settings."):
+            continue    # checked against the chosen deployer by check()
         if path in specs:
             problems += _leaf_problems(path, value, specs[path], where)
         elif path in prefixes:
@@ -188,13 +192,63 @@ def _lib_or_default(lib: Library | None) -> Library:
     return lib if lib is not None else load_library(paths.library())
 
 
+UPDATE_DEFAULTS = {"project": "phoenix9", "repo": "alex-boop-chasey/phoenix9", "tag_prefix": "v9."}
+
+
+def read_global() -> dict:
+    """HOME/config/global.toml as a dict ({} when missing or broken)."""
+    try:
+        return tomllib.loads((paths.config() / "global.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def update_settings() -> dict:
+    """The [update] table of global.toml (project, repo, tag_prefix) with defaults filled in."""
+    table = read_global().get("update")
+    table = table if isinstance(table, dict) else {}
+    return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
+
+
+PROXY_PORTS_DEFAULT = "47100-47199"
+
+
+def parse_port_range(text) -> tuple[int, int]:
+    """'47100-47199' -> (47100, 47199); ValueError naming the setting when it is not a usable range."""
+    m = re.fullmatch(r"\s*(\d{1,5})\s*-\s*(\d{1,5})\s*", text) if isinstance(text, str) else None
+    lo, hi = (int(m.group(1)), int(m.group(2))) if m else (0, 0)
+    if not m or not 1024 <= lo <= hi <= 65535:
+        raise ValueError(f"global.toml: proxy_ports must look like \"{PROXY_PORTS_DEFAULT}\" "
+                         f"(two ports from 1024 to 65535, low first), not {text!r}")
+    return lo, hi
+
+
+def proxy_ports() -> tuple[int, int]:
+    """The key proxy's fixed port range from global.toml `proxy_ports` (default 47100-47199)."""
+    return parse_port_range(read_global().get("proxy_ports", PROXY_PORTS_DEFAULT))
+
+
+def self_project_problems(name: str, data: dict) -> list[str]:
+    """Extra rules for the project that is Phoenix 9 itself: merge fixed to ask, no deployer."""
+    if name != update_settings()["project"]:
+        return []
+    problems = []
+    if data.get("merge", PROJECT_SCHEMA["merge"].default) != "ask":
+        problems.append("phoenix.toml: phoenix9's merge mode is fixed to ask (updates spec 3.2)")
+    if data.get("deploy", {}).get("with", PROJECT_SCHEMA["deploy.with"].default) != "none":
+        problems.append("phoenix.toml: phoenix9 installs itself through the updater, so [deploy] with must be none")
+    return problems
+
+
 def check(project_dir, lib: Library | None = None) -> list[str]:
     """Every problem in the project's phoenix.toml (not just the first); empty when it is fine."""
     try:
         data = load_project(project_dir)
     except SettingsError as err:
         return [str(err)]
-    return validate(data, all_specs(_lib_or_default(lib)), "phoenix.toml")
+    from phoenix9 import deploy    # here, not at the top: deploy.py imports settings
+    return (validate(data, all_specs(_lib_or_default(lib)), "phoenix.toml")
+            + deploy.settings_problems(data) + self_project_problems(Path(project_dir).name, data))
 
 
 def _prune(data: dict) -> dict:
@@ -263,7 +317,31 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "test.task_cmd": _spec(""),
     "test.report": _spec("exit-code", PROFILE_REPORTS),
     "test.report_path": _spec(""),
+    "test.checks_dir": _spec(""),
+    "test.check_files": _spec(""),
+    "test.check_command": _spec(""),
+    "test.report_args": _spec(""),
 }
+
+
+def _without_report_list(own: dict) -> dict:
+    """The profile's own keys, minus test.report when it is a list (checked on its own)."""
+    test = own.get("test")
+    if isinstance(test, dict) and isinstance(test.get("report"), list):
+        return {**own, "test": {k: v for k, v in test.items() if k != "report"}}
+    return own
+
+
+def _report_list_problems(own: dict, where: str) -> list[str]:
+    """Problems with a list-form test.report: it needs names from PROFILE_REPORTS."""
+    test = own.get("test")
+    report = test.get("report") if isinstance(test, dict) else None
+    if not isinstance(report, list):
+        return []
+    bad = [r for r in report if r not in PROFILE_REPORTS]
+    if not report:
+        return [f"{where}: 'test.report' must not be an empty list"]
+    return [f"{where}: 'test.report' has unknown report '{r}' (use {', '.join(PROFILE_REPORTS)})" for r in bad]
 
 
 def check_profile(lib_root, name: str, lib: Library | None = None) -> list[str]:
@@ -275,7 +353,8 @@ def check_profile(lib_root, name: str, lib: Library | None = None) -> list[str]:
         return [str(err)]
     lib = lib if lib is not None else load_library(lib_root)
     own = {k: v for k, v in data.items() if k != "steps"}
-    problems = validate(own, PROFILE_SCHEMA, where)
+    problems = validate(_without_report_list(own), PROFILE_SCHEMA, where)
+    problems += _report_list_problems(own, where)
     if data.get("steps"):
         problems += validate({"steps": data["steps"]}, step_specs(lib), where)
     if not own.get("image"):
@@ -338,7 +417,7 @@ def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> E
         data = load_profile(lib.root, profile)
         if data.get("steps"):               # a profile with no [steps.*] changes nothing
             apply(f"profile:{profile}", {"steps": data["steps"]}, f"profiles/{profile}/profile.toml")
-    preset = preset_name(project)
+    preset = preset_name({**project, **{k: v for k, v in (run_overrides or {}).items() if k in ("preset", "based_on")}})
     apply(f"preset:{preset}", load_preset(lib.root, preset), f"presets/{preset}.toml")
     apply("project", project, "phoenix.toml")
     if run_overrides:
@@ -408,6 +487,35 @@ def set_value(project_dir, dotted_key: str, raw_value: str, lib: Library | None 
     for part in parents:
         node = node.setdefault(part, {})
     node[last] = value
+    save_project(project_dir, data)
+
+
+def flat_problems(flat: dict, lib: Library | None = None) -> list[str]:
+    """Every problem with typed values keyed by dotted path (unknown keys, wrong types, values not allowed)."""
+    specs = all_specs(_lib_or_default(lib))
+    problems = []
+    for key, value in flat.items():
+        if key not in specs:
+            problems.append(f"phoenix.toml: unknown key '{key}'")
+        else:
+            problems += _leaf_problems(key, value, specs[key], "phoenix.toml")
+    return problems
+
+
+def set_values(project_dir, flat: dict, lib: Library | None = None) -> None:
+    """Set many typed values keyed by dotted path; every problem is reported and nothing is written unless all pass."""
+    problems = flat_problems(flat, lib)
+    if problems:
+        raise SettingsError("; ".join(problems))
+    data = load_project(project_dir)
+    for key, value in flat.items():
+        node = data
+        *parents, last = key.split(".")
+        for part in parents:
+            if not isinstance(node.get(part), dict):
+                node[part] = {}
+            node = node[part]
+        node[last] = value
     save_project(project_dir, data)
 
 

@@ -1,38 +1,23 @@
-"""The `phoenix doctor` command (a stub: Python, HOME and the library; the rest comes later)."""
-import os
-import sys
-import tempfile
-
-from phoenix9 import paths
+"""The `phoenix doctor` command: check this installation (--quick, --for-update, or everything)."""
+from phoenix9 import doctor
 from phoenix9.cli.output import show
-from phoenix9.ops import common
+from phoenix9.ops import common, doctor as ops_doctor
 
 
 def add(sub, common_parser) -> None:
     """Register doctor."""
-    sub.add_parser("doctor", parents=[common_parser], help="check this installation").set_defaults(func=run)
-
-
-def _home_writable() -> bool:
-    home = paths.home()
-    if not home.is_dir():
-        return False
-    try:
-        with tempfile.TemporaryFile(dir=home):
-            return True
-    except OSError:
-        return os.access(home, os.W_OK)
+    p = sub.add_parser("doctor", parents=[common_parser], help="check this installation")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--quick", action="store_true", help="only the cheap checks (services, API, home, secrets, disk)")
+    group.add_argument("--for-update", action="store_true", dest="for_update",
+                       help="the checks an update needs (no Claude session)")
+    p.set_defaults(func=run)
 
 
 def run(args) -> int:
-    """Run the basic checks."""
-    lib = common.library()
-    checks = [("python", sys.version_info >= (3, 12), f"Python {sys.version.split()[0]}"),
-              ("home", _home_writable(), f"Phoenix home {paths.home()}"),
-              ("library", not lib.problems, f"{len(lib.steps)} steps loaded, {len(lib.problems)} problems")]
-    lines = [f"{'ok  ' if ok else 'FAIL'} {what}" for _, ok, what in checks]
-    lines.append("The other checks (Docker, Claude, GitHub, services) come later.")
-    data = {"ok": all(ok for _, ok, _ in checks),
-            "checks": [{"name": n, "ok": ok, "detail": d} for n, ok, d in checks]}
-    show(args, data, "\n".join(lines))
+    """Run the checks; exit 0 only when every one passed."""
+    mode = "quick" if args.quick else "for-update" if args.for_update else "full"
+    common.record_command(args.who, f"doctor{' --' + mode if mode != 'full' else ''}")
+    data = ops_doctor.run(mode=mode)
+    show(args, data, doctor.render(data))
     return 0 if data["ok"] else 1

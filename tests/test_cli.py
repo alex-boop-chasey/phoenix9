@@ -141,11 +141,14 @@ def test_settings_check_reports_problems(capsys, demo):
 
 def test_library_and_project_commands(capsys, demo):
     for argv in (("steps", "list"), ("profiles", "list"), ("presets", "list"), ("project", "list"),
-                 ("project", "show", "demo"), ("doctor",)):
+                 ("project", "show", "demo")):
         code, out, err = run_cmd(capsys, *argv)
         assert code == 0 and "Traceback" not in out + err, argv
         code, out, _ = run_cmd(capsys, *argv, "--json")
         json.loads(out)
+    code, out, err = run_cmd(capsys, "doctor")      # empty fakes: problems are listed, not a traceback
+    assert code == 1 and "Traceback" not in out + err and "PROBLEM" in out
+    json.loads(run_cmd(capsys, "doctor", "--json")[1])
     assert "builder" in run_cmd(capsys, "steps", "list")[1]
     shown = json.loads(run_cmd(capsys, "project", "show", "demo", "--json")[1])
     assert shown["description"] == "A small demo project. Second line."

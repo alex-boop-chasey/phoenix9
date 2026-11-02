@@ -24,3 +24,9 @@ fallback = "not-merged"
 fallback = "exit-codes-only"
 [verdict]
 fallback = "pass-if-checks-passed"
+[service-notes]  # what the Builder should know about the project's services (Service setup)
+fallback = "no-services"
+[deployed]  # what Deploy put live: {url, version} (nothing needs it)
+fallback = "none"
+[preview-url]  # the run's temporary preview address (Preview)
+fallback = "none"

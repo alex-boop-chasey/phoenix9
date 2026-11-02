@@ -59,8 +59,11 @@ def lib(tmp_path):
 
 
 def make_run(tmp_path, overrides=None, spec=SPEC, script=None):
+    """A queued run. These tests check the walk itself, so a failure fails the task at once
+    (one try, `continue`); tests/test_attempt_loop.py covers retries and the failure modes."""
     f = tmp_path / "spec.md"
     f.write_text(spec)
+    overrides = {"max_tries": 1, "on_failure": "continue", **(overrides or {})}
     run_dir = runs.create_run("proj", f, overrides)
     if script is not None:
         (run_dir / "script.json").write_text(json.dumps(script))
@@ -156,11 +159,13 @@ def test_drive_twice_resumes_without_repeating_passed_steps(tmp_path, project, a
     script = {"acceptance:2": {"status": "fail", "reasons": ["flaky"]}}
     run_dir = make_run(tmp_path, script=script)
     runner = Runner(adapters, lib)
-    # Simulate a crash: the runner stopped partway, with task 1 done and the run still running.
+    # Simulate a crash: the runner stopped partway, with task 1 done, task 2's attempt still going
+    # (no result.json yet, its failed acceptance line not finished) and the run still running.
     st = runner.drive(run_dir)
     assert st == "failed"
     state.set_status(run_dir, "running")
     state.set_task(run_dir, 2, status="running")
+    (run_dir / "tasks" / "2" / "attempt-1" / "result.json").unlink()
     (run_dir / "script.json").write_text("{}")
     first = len(calls(run_dir))
     assert runner.drive(run_dir) == "done"

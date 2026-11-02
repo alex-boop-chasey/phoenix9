@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from fakes import FakeDocker, fake_adapters
+from fakes import RealCheckDocker, fake_adapters
 from phoenix9 import events, paths, state, watch
 from phoenix9.__main__ import main
 from phoenix9.ops import common
@@ -29,19 +29,6 @@ parser.add_argument("--name", default="")
 args = parser.parse_args()
 print(("hello " + args.name).strip())
 '''
-
-
-class RealCheckDocker(FakeDocker):
-    """A fake docker whose check containers really run the command, in the mounted /workspace."""
-
-    def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
-        """Run the `bash -c` command from the argv in the worktree and return its real exit code."""
-        self.argvs.append(list(argv))
-        mounts = [argv[i + 1] for i, a in enumerate(argv) if a == "--mount"]
-        workspace = next(m.split("src=")[1].split(",")[0] for m in mounts if "dst=/workspace" in m)
-        p = subprocess.run(["bash", "-c", argv[-1]], cwd=workspace, capture_output=True, text=True)
-        Path(stdout_path).write_text(p.stdout + p.stderr)
-        return p.returncode
 
 
 def git(cwd, *args):
@@ -93,7 +80,7 @@ def test_smoke_run_builds_commits_and_merges(smoke):
     assert len(commits) == 3
     for n in (1, 2, 3):
         assert any(f"Phoenix-Task: {n}" in c and f"Phoenix-Run: {st['run_id']}" in c for c in commits)
-    assert git(code, "rev-parse", "main") == git(code, "rev-parse", f"phoenix/{st['run_id']}")
+    git(code, "merge-base", "--is-ancestor", f"phoenix/{st['run_id']}", "main")   # merged with a merge commit
     assert (code / "hello.py").read_text() == HELLO_NAME
     summary = (run_dir / "summary.md").read_text()
     assert summary.count("passed") >= 3 and all(f"Task {n}:" in summary for n in (1, 2, 3))
@@ -103,17 +90,19 @@ def test_smoke_run_builds_commits_and_merges(smoke):
         for line in [x for x in st["steps"] if x["group"] == group]:
             kinds = [e["type"] for e in seen if e.get("step") == line["step"] and e.get("task") == line["task"]]
             assert "run.step.started" in kinds and "run.step.finished" in kinds, line
-    assert smoke["adapters"].notify.messages and "3 of 3" in smoke["adapters"].notify.messages[0]
+    assert smoke["adapters"].notify.messages and "3 passed, 0 failed, 0 skipped" in smoke["adapters"].notify.messages[0]
 
 
 def test_smoke_env_file_fails_task_and_main_stays(smoke):
     code = smoke["code"]
+    (smoke["project"] / "phoenix.toml").write_text(
+        'preset = "simple"\nprofile = "python-script"\nmax_tries = 1\non_failure = "continue"\n')
     before = git(code, "rev-parse", "main")
     run_dir, st = play(smoke, [{"hello.py": HELLO}, {"tests/test_hello.py": TEST_HELLO, ".env": "KEY=1\n"}])
-    assert st["status"] == "failed"
+    assert st["status"] == "waiting"   # a failed task forces the merge to ask (step 9)
     assert [st["tasks"][n]["status"] for n in ("1", "2", "3")] == ["passed", "failed", "skipped"]
     diff_line = next(x for x in st["steps"] if x["step"] == "diff-rules" and x["task"] == 2)
     assert diff_line["status"] == "failed" and ".env" in diff_line["note"]
     assert git(code, "rev-parse", "main") == before
     assert not (code / "hello.py").exists()
-    assert smoke["adapters"].notify.messages
+    assert st["current"]["gate"]   # the merge gate is open; Notify runs after it is answered

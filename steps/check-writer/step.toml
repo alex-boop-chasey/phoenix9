@@ -24,3 +24,6 @@ on = false
 model = "claude-opus-5-5"
 when = ["blocked"]
 instructions = ""
+
+[settings]
+once = true

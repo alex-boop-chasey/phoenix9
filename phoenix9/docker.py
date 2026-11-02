@@ -3,10 +3,12 @@
 The container is the safety boundary for every Claude session. Each one is fresh, firewalled (only
 allowed sites can be reached), has limited memory, CPU and process count, and is removed when it ends.
 A container never gets Docker control, the GitHub token, SSH keys or account service keys (hard rule 2).
-Every call to the docker program goes through DockerRunner, so tests can swap in a fake.
+Every step-container call to the docker program goes through DockerRunner, so tests can swap in a fake.
+The only other place is deployers/vps-docker/deploy.py (site containers, via the host adapter).
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -17,13 +19,15 @@ from phoenix9 import paths, scrub
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
 DOMAINS_MOUNT = "/etc/hands/allowed-domains"        # where image/init-firewall.sh reads extra hosts
+ALLOWED_PROXY_MOUNT = "/etc/hands/allowed-proxy"    # `IP PORT` lines: the only host ports init-firewall.sh opens
 PROMPT_MOUNT = "/phoenix/prompt.md"
 SPEC_MOUNT = "/phoenix/spec"
 STORE_MOUNT = "/pnpm-store"
 LABEL = "phoenix9"
 FALLBACK_UID = 1000                                 # entry.sh refuses uid 0; the image's `node` user
 TIMEOUT_RC = 124
-FORBIDDEN_ENV_FILES = ("github.env",)               # hard rule 2: never inside a step container
+BUILD_TIMEOUT_S = 3600                              # one image build
+FORBIDDEN_ENV_FILES = ("github.env", "telegram.env")              # hard rule 2: never inside a step container
 FORBIDDEN_ENV_PATTERNS = ("service-*.env",)         # hard rule 2: account service keys
 BUILTIN_DOMAINS = ("api.anthropic.com",)            # init-firewall.sh also allows registry.npmjs.org itself
 DEFAULT_LIMITS = {"memory": "4g", "cpus": "1.5", "pids": "512"}
@@ -32,6 +36,25 @@ DEFAULT_LIMITS = {"memory": "4g", "cpus": "1.5", "pids": "512"}
 # ------------------------------------------------------------- the one place that runs docker
 class DockerRunner:
     """The real docker program: every subprocess call in this module lives here."""
+
+    def bridge_gateway(self) -> str:
+        """The default bridge network's gateway address, e.g. 172.17.0.1."""
+        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
+                              "{{(index .IPAM.Config 0).Gateway}}"],
+                             capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        ipaddress.IPv4Address(out)          # refuse anything that is not a plain IPv4 address
+        return out
+
+    def bridge_info(self) -> dict:
+        """The default bridge's {gateway, subnet, interface}, e.g. 172.17.0.1, 172.17.0.0/16, docker0."""
+        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
+                              "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
+                              "{{index .Options \"com.docker.network.bridge.name\"}}"],
+                             capture_output=True, text=True, timeout=30, check=True).stdout.split()
+        gateway, subnet = out[0], out[1]
+        ipaddress.IPv4Address(gateway)
+        ipaddress.IPv4Network(subnet, strict=False)
+        return {"gateway": gateway, "subnet": subnet, "interface": out[2] if len(out) > 2 else "docker0"}
 
     def run(self, argv: list[str], stdout_path: Path | None, stderr_path: Path | None,
             timeout_s: float, name: str, append_stdout: bool = False) -> int:
@@ -84,6 +107,28 @@ class DockerRunner:
     def chown(self, path: Path, uid: int, gid: int) -> None:
         """Hand a host folder to a uid/gid (only used when Phoenix runs as root)."""
         subprocess.run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
+
+    def image_exists(self, tag: str) -> bool:
+        """True when an image with this tag is on this machine."""
+        p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return p.returncode == 0
+
+    def image_label(self, tag: str, label: str) -> str:
+        """One label of an image ('' when the image or the label is missing)."""
+        p = subprocess.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
+                           capture_output=True, text=True)
+        out = p.stdout.strip()
+        return "" if p.returncode != 0 or out == "<no value>" else out
+
+    def build(self, dockerfile: Path, tag: str, context: Path, labels: dict, log_path: Path,
+              timeout_s: float = BUILD_TIMEOUT_S) -> int:
+        """Build an image (output to log_path) and return docker's exit code (124 on timeout)."""
+        argv = [DOCKER, "build", "-f", str(dockerfile), "-t", tag]
+        for key, value in labels.items():
+            argv += ["--label", f"{key}={value}"]
+        argv.append(str(context))
+        Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+        return self.run(argv, Path(log_path), Path(log_path), timeout_s, f"phoenix9-build-{os.getpid()}")
 
 
 # ------------------------------------------------------------- argv building
@@ -154,6 +199,23 @@ def check_env_file(path: Path | str) -> None:
         raise ValueError(f"{name} must never be passed to a step container")
 
 
+def check_extra_env(extra_env: dict | None) -> dict:
+    """Only proxy address and token variables may be added to a container's env (never an account key)."""
+    env = dict(extra_env or {})
+    for name in env:
+        if not name.startswith("PHOENIX_PROXY_"):
+            raise ValueError(f"{name} must not be added to a step container (only PHOENIX_PROXY_* is allowed)")
+    return env
+
+
+def check_mount_source(m: "Mount") -> None:
+    """Refuse mounts of the secrets store or of files that hold account keys."""
+    if isinstance(m.src, Path):
+        check_env_file(m.src)
+        if paths.secrets().resolve() in (m.src.resolve(), *m.src.resolve().parents):
+            raise ValueError("the secrets folder must never be mounted into a step container")
+
+
 def build_argv(r: Run, limits: dict | None = None) -> list[str]:
     """Return the full `docker run ...` command for one container."""
     # ported from reference/v8/phoenix/docker.py:100
@@ -169,7 +231,7 @@ def build_argv(r: Run, limits: dict | None = None) -> list[str]:
         "--label", f"{LABEL}.role={r.role}",
         "--user", "0:0", "--entrypoint", ENTRY,
         "--shm-size", "1g",
-        "-e", "TZ=UTC",
+        "-e", "TZ=UTC", "-e", "PYTHONDONTWRITEBYTECODE=1",   # no .pyc files in the locked checks folder
         "--memory", memory, "--memory-swap", memory,
         "--cpus", str(lim["cpus"]), "--pids-limit", str(lim["pids"]),
         "--security-opt", "no-new-privileges",
@@ -189,6 +251,7 @@ def build_argv(r: Run, limits: dict | None = None) -> list[str]:
     for m in r.mounts:
         if "docker.sock" in str(m.src) or "docker.sock" in m.dst:
             raise ValueError("the Docker socket must never be mounted into a step container")
+        check_mount_source(m)
         argv += ["--mount", m.arg()]
     argv += [r.image, *r.cmd]
     return argv
@@ -253,14 +316,16 @@ def log_path(project: str, run_id: str, task: int | str, attempt: int, role: str
 def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: str, image: str,
                workspace: Path, prompt_file: Path, cmd: list[str], env_files: list[Path] = (),
                domains_file: Path | None = None, spec_dir: Path | None = None, scrub_env: bool = False,
-               pnpm_store: Path | None = None, mounts=()) -> Run:
+               pnpm_store: Path | None = None, mounts=(), workspace_ro: bool = False,
+               extra_env: dict | None = None) -> Run:
     """Describe the container for one Claude session (only the transcript folder is created).
 
-    The spec folder, when given, is mounted read-only (hard rule 4). `cmd` is the claude command line.
+    The spec folder, when given, is mounted read-only (hard rule 4); so is the workspace when `workspace_ro`.
+    `cmd` is the claude command line.
     """
     tdir = transcript_dir(project, run_id, task, attempt, role)
     tdir.mkdir(parents=True, exist_ok=True)
-    all_mounts = [Mount(Path(workspace), "/workspace", ro=False), Mount(Path(prompt_file), PROMPT_MOUNT),
+    all_mounts = [Mount(Path(workspace), "/workspace", ro=workspace_ro), Mount(Path(prompt_file), PROMPT_MOUNT),
                   Mount(tdir, "/home/node/.claude/projects", ro=False)]
     if spec_dir:
         all_mounts.append(Mount(Path(spec_dir), SPEC_MOUNT, ro=True))
@@ -270,21 +335,23 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
         all_mounts.append(Mount(Path(domains_file), DOMAINS_MOUNT))
     all_mounts += list(mounts)
     return Run(project, run_id, task, attempt, role, image, list(cmd), mounts=all_mounts,
-               env=session_env(scrub_env), env_files=[claude_env_file(), *map(Path, env_files)])
+               env={**session_env(scrub_env), **check_extra_env(extra_env)},
+               env_files=[claude_env_file(), *map(Path, env_files)])
 
 
 def run_claude_container(runner, project: str, run_id: str, task: int | str, attempt: int, role: str,
                          image: str, workspace: Path, prompt_file: Path, cmd: list[str],
                          timeout_min: float, *, env_files: list[Path] = (), domains_file: Path | None = None,
                          spec_dir: Path | None = None, scrub_env: bool = False, limits: dict | None = None,
-                         pnpm_store: Path | None = None, mounts=()) -> tuple[int, Path]:
+                         pnpm_store: Path | None = None, mounts=(),
+                         workspace_ro: bool = False, extra_env: dict | None = None) -> tuple[int, Path]:
     """Run one Claude session in a fresh firewalled container. Returns (exit code, log file).
 
     The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl with secret values
     scrubbed out afterwards. The claude port (step 9) builds `cmd` and reads the log.
     """
     r = claude_run(project, run_id, task, attempt, role, image, workspace, prompt_file, cmd, env_files,
-                   domains_file, spec_dir, scrub_env, pnpm_store, mounts)
+                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env)
     argv = build_argv(r, limits)
     out = log_path(project, run_id, task, attempt, role, "jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -309,7 +376,7 @@ def _scrub_file(path: Path, env_files: list[Path]) -> None:
 # ------------------------------------------------------------- check containers
 def check_run(project: str, run_id: str, task: int | str, attempt: int, role: str, image: str,
               checkout: Path, command: str, env_file: Path | None, domains_file: Path | None, store: str,
-              firewall: bool = True, extra_mounts: list[Mount] = ()) -> Run:
+              firewall: bool = True, extra_mounts: list[Mount] = (), extra_env: dict | None = None) -> Run:
     """Describe a check container (nothing is started here). Never gets claude.env."""
     # ported from reference/v8/phoenix/docker.py:359
     if env_file and Path(env_file).name == "claude.env":
@@ -319,6 +386,7 @@ def check_run(project: str, run_id: str, task: int | str, attempt: int, role: st
         mounts.append(Mount(Path(domains_file), DOMAINS_MOUNT))
     mounts += list(extra_mounts)
     env = {k: v for k, v in session_env().items() if not k.startswith("CLAUDE_")}
+    env.update(check_extra_env(extra_env))
     return Run(project, run_id, task, attempt, role, image, ["bash", "-c", command], mounts=mounts, env=env,
                env_files=[Path(env_file)] if env_file else [], firewall=firewall)
 
@@ -327,7 +395,7 @@ def run_check_container(runner, project: str, run_id: str, task: int | str, atte
                         checkout: Path, command: str, env_file: Path | None, domains_file: Path | None,
                         timeout_min: float, *, stdout_path: Path | None = None, role: str = "check",
                         firewall: bool = True, mounts: list[Mount] = (),
-                        limits: dict | None = None) -> tuple[int, Path]:
+                        limits: dict | None = None, extra_env: dict | None = None) -> tuple[int, Path]:
     """Run one shell command in a throwaway check container. Returns (exit code, output file).
 
     No Claude token. The command's stdout and stderr go to a host file, so nothing inside the container
@@ -339,7 +407,7 @@ def run_check_container(runner, project: str, run_id: str, task: int | str, atte
     name = container_name(project, run_id, task, attempt, role)
     store = f"{name}-pnpm"
     r = check_run(project, run_id, task, attempt, role, image, Path(checkout), command, env_file,
-                  domains_file, store, firewall, mounts)
+                  domains_file, store, firewall, mounts, extra_env)
     argv = build_argv(r, limits)
     hand_to_agent(runner, Path(checkout))
     runner.rm(name)
@@ -383,12 +451,22 @@ FIREWALL_PROBE = (
 )
 
 
-def firewall_checks(out: str) -> list[tuple[bool, str]]:
-    """Turn the probe's output markers into (passed, label) pairs."""
+def proxy_probe(ip: str, port: int) -> str:
+    """Extra probe commands: the allowed proxy address answers (any HTTP code) and its port 22 does not."""
+    ipaddress.IPv4Address(ip)
+    port = int(port)
+    return (f"[ \"$(curl -s -o /dev/null -w '%{{http_code}}' --connect-timeout 5 http://{ip}:{port}/)\" != 000 ] "
+            f"&& echo proxy-reachable || echo PROXY-UNREACHABLE; ")
+
+
+def firewall_checks(out: str, proxy: tuple | None = None) -> list[tuple[bool, str]]:
+    """Turn the probe's output markers into (passed, label) pairs; proxy markers only when a proxy was given."""
     # ported from reference/v8/phoenix/docker.py:405
     lines = out.split()
     has = lines.__contains__
-    return [
+    extra = [(has("proxy-reachable") and not has("PROXY-UNREACHABLE"),
+              "the allowed key proxy address is reachable")] if proxy else []
+    return extra + [
         (has("blocked") and not has("LEAK"), "egress blocked for non-allowlisted sites (example.com)"),
         (has("ip-blocked") and not has("LEAK-IP"), "egress blocked to a raw outside IP (1.1.1.1:80)"),
         (any(l.startswith("anthropic=") and l != "anthropic=000" for l in lines), "api.anthropic.com reachable"),
@@ -408,20 +486,45 @@ def firewall_checks(out: str) -> list[tuple[bool, str]]:
     ]
 
 
-def probe_firewall(runner, image: str, limits: dict | None = None, timeout_min: float = 3) -> list[str]:
-    """Start a firewalled container and test it. Returns the failures ([] means all good)."""
+def probe_firewall(runner, image: str, limits: dict | None = None, timeout_min: float = 3,
+                   proxy: tuple[str, int] | None = None) -> list[str]:
+    """Start a firewalled container and test it. Returns the labels of the FAILED checks only ([] means
+    all good), or one "the probe container stopped early (exit N): <last error line>" when it never ran.
+
+    With `proxy` = (ip, port) the probe also opens that one address (like a step with a key proxy) and
+    checks it answers while the host's other ports stay blocked."""
     # ported from reference/v8/phoenix/docker.py:429
     out = paths.home() / "cache" / "doctor" / "firewall-probe.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
-    r = Run("doctor", "doctor", 0, 0, "probe", image, ["bash", "-c", FIREWALL_PROBE])
+    script, mounts = FIREWALL_PROBE, []
+    if proxy:
+        allow = out.parent / "firewall-probe-proxy.txt"
+        allow.write_text(f"{proxy[0]} {int(proxy[1])}\n", encoding="utf-8")
+        script = proxy_probe(*proxy) + FIREWALL_PROBE
+        mounts = [Mount(allow, ALLOWED_PROXY_MOUNT)]
+    r = Run("doctor", "doctor", 0, 0, "probe", image, ["bash", "-c", script], mounts=mounts)
     rc = runner.run(build_argv(r, limits), out, out, timeout_min * 60, r.name)
     text = out.read_text(errors="replace") if out.exists() else ""
-    failures = [label for ok, label in firewall_checks(text) if not ok]
+    if rc != 0 and not set(text.split()) & FIRST_MARKERS:
+        return [f"{STOPPED_EARLY} (exit {rc}): {last_error_line(text)}"]
+    failures = [label for ok, label in firewall_checks(text, proxy) if not ok]
     if rc != 0 and not failures:
         failures.append(f"probe container exited with {rc}")
-    if failures and rc != 0:
-        failures.append(f"container output (exit {rc}):\n{text[-2000:]}")
     return failures
+
+
+STOPPED_EARLY = "the probe container stopped early"
+# Markers of the probe's first commands: when none is in the output, the probe never ran (the
+# container's entrypoint, e.g. init-firewall.sh, stopped it first).
+FIRST_MARKERS = {"blocked", "LEAK", "proxy-reachable", "PROXY-UNREACHABLE"}
+
+
+def last_error_line(text: str) -> str:
+    """The last line starting with ERROR (else the last non-empty line) of a container's output."""
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    errors = [l for l in lines if l.upper().startswith("ERROR")]
+    pick = errors[-1] if errors else (lines[-1] if lines else "no output")
+    return pick[:300]
 
 
 # ------------------------------------------------------------- allowed domains

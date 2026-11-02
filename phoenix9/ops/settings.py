@@ -30,6 +30,42 @@ def set(project: str, key: str, value: str, who: str = "cli") -> dict:
     return {"project": project, "key": key, "value": value}
 
 
+def set_many(project: str, values: dict, who: str = "cli") -> dict:
+    """Set several keys (typed values by dotted path) at once; nothing is written unless all are fine."""
+    folder = common.project_dir(project)
+    try:
+        core.set_values(folder, values, common.library())
+    except core.SettingsError as err:
+        _fail(err)
+    keys = sorted(values)
+    events.emit("settings.changed", project=project, who=who, keys=keys)
+    common.record_command(who, f"settings set {project} {' '.join(keys)}", project,
+                          f"set {', '.join(keys)}")
+    return {"project": project, "set": keys}
+
+
+def save_defaults(project: str, overrides: dict, who: str = "cli") -> dict:
+    """Save wizard settings as the project's defaults: the preset first, then the rest as dotted keys."""
+    folder = common.project_dir(project)
+    rest = dict(overrides or {})
+    name = rest.pop("preset", None)
+    flat = core._flatten(rest)
+    try:
+        lib = common.library()
+        problems = core.flat_problems(flat, lib)
+        if problems:
+            raise core.SettingsError("; ".join(problems))
+        if name is not None:
+            core.apply_preset(folder, name, lib)
+        if flat:
+            core.set_values(folder, flat, lib)
+    except core.SettingsError as err:
+        _fail(err)
+    events.emit("settings.changed", project=project, who=who, key="defaults")
+    common.record_command(who, f"settings defaults {project}", project, "saved the build settings as defaults")
+    return {"project": project}
+
+
 def preset(project: str, name: str, who: str = "cli") -> dict:
     """Choose a preset for the project."""
     folder = common.project_dir(project)

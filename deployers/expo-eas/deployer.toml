@@ -1,0 +1,7 @@
+name = "expo-eas"
+title = "Expo EAS"
+description = "Builds the mobile app with Expo EAS."
+supported = false
+proxy_service = ""
+preview = false
+for_profiles = ["mobile"]

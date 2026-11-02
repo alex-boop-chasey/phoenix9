@@ -83,6 +83,7 @@ def test_safe_flags_on_every_call(monkeypatch, tmp_path):
     for argv, env in seen:
         assert argv[:6] == ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", argv[5]]
         assert "GIT_SSH_COMMAND" not in env
+        assert argv[5:7] == ["-c", f"safe.directory={tmp_path.resolve()}"]  # trusts only this folder
     assert g.git_argv("x")[1:5] == list(g.SAFE)
 
 
@@ -183,3 +184,21 @@ def test_scan_secrets(wt):
 def test_scan_ignores_removed_lines():
     d = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-sk_live_abc\n"
     assert g.scan_secrets(d) == []
+
+
+
+def test_git_works_in_a_folder_owned_by_someone_else(tmp_path, monkeypatch):
+    """Worktrees are chowned to the agent user; Phoenix (root) must still run git there, and only there."""
+    import os
+    import subprocess as sp
+    repo = tmp_path / "r"
+    repo.mkdir()
+    sp.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    sp.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q",
+            "--allow-empty", "-m", "x"], check=True)
+    if os.getuid() == 0:
+        os.chown(repo, 1000, 1000)
+        for root, dirs, files in os.walk(repo):
+            for n in dirs + files:
+                os.lchown(os.path.join(root, n), 1000, 1000)
+    assert len(g.head(repo)) == 40

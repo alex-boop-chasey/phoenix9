@@ -1,0 +1,3 @@
+{"numTotalTests":2,"numPassedTests":2,"numFailedTests":0,"numPendingTests":0,"numTodoTests":0,"success":true,
+ "testResults":[{"name":"/workspace/tests/phoenix/task-1/a.test.ts","status":"passed","assertionResults":[
+  {"fullName":"one","status":"passed","title":"one"},{"fullName":"two","status":"passed","title":"two"}]}]}

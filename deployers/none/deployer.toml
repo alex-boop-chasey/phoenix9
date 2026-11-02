@@ -1,0 +1,7 @@
+name = "none"
+title = "No deploy"
+description = "Nothing is deployed; the project is only built and merged."
+supported = true
+proxy_service = ""
+preview = false
+for_profiles = ["web", "mobile", "desktop", "platform", "python-script", "research"]

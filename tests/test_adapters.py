@@ -42,5 +42,4 @@ def test_real_builds_without_touching_system():
     assert isinstance(a.host, ad.Host) and isinstance(a.clock, ad.Clock)
     with pytest.raises(NotImplementedError):
         a.claude.run_session()
-    with pytest.raises(NotImplementedError):
-        a.chat.delegate()
+    assert isinstance(a.chat, ad.Chat) and callable(a.chat.status)

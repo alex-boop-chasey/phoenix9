@@ -3,10 +3,14 @@ image = "phoenix9-step-mobile:1"
 allowed_domains = ["registry.npmjs.org"]
 diff_allow_extra = ["pnpm-lock.yaml"]
 screenshots = true
-suggested_deployer = "expo"
+suggested_deployer = "expo-eas"
 
 [test]
 cmd = "pnpm test"
 task_cmd = "pnpm test"
 report = "vitest-json"
 report_path = "test-report.json"
+checks_dir = "tests/phoenix"
+check_files = "*.test.ts"
+check_command = "pnpm vitest run {files}"
+report_args = "--reporter=json --outputFile=/out/vitest.json"

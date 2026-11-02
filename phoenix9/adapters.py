@@ -1,4 +1,4 @@
-"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat) behind one object."""
+"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import os
 import subprocess
 import time
@@ -17,10 +17,11 @@ DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 class Host:
     """The real host: systemctl, journalctl, gh, du and plain commands."""
 
-    def run(self, argv: list[str], timeout: float = 60) -> tuple[int, str, str]:
-        """Run a command and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
+    def run(self, argv: list[str], timeout: float = 60, cwd=None) -> tuple[int, str, str]:
+        """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
         try:
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
+                               cwd=cwd)
         except subprocess.TimeoutExpired:
             return 124, "", f"timed out after {timeout}s"
         except FileNotFoundError:
@@ -39,6 +40,15 @@ class Host:
     def gh(self, *args: str) -> tuple[int, str, str]:
         """Run the GitHub command line tool with the given arguments."""
         return self.run(["gh", *args], timeout=120)
+
+    def read_text(self, path) -> str:
+        """Read a text file on the host (FileNotFoundError when it is not there)."""
+        return Path(path).read_text(encoding="utf-8")
+
+    def write_text(self, path, text: str, mode: int = 0o600) -> None:
+        """Write a text file on the host in one swap, keeping it owner-only by default."""
+        from phoenix9 import atomic
+        atomic.write_text(Path(path), text, mode)
 
     def du_bytes(self, path) -> int:
         """Return the size of a folder in bytes (0 if it cannot be measured)."""
@@ -85,11 +95,22 @@ class Http:
 
 
 class Chat:
-    """Delegate mode placeholder (phase 2)."""
+    """Delegate mode: hands a failed task to the project's own chat agent (phoenix9/chat.py)."""
 
-    def delegate(self, *args, **kwargs) -> Any:
-        """Hand a failure to the project chat agent (not built yet)."""
-        raise NotImplementedError("chat delegate is built in phase 2")
+    def delegate(self, project: str, project_dir, gate: str, prompt: str, log_path) -> dict:
+        """Start the detached project chat session; returns {"started", "handle", "error"}."""
+        from phoenix9 import chat
+        return chat.delegate(project, project_dir, gate, prompt, log_path)
+
+    def status(self, handle: str) -> str:
+        """"running" or "exited"."""
+        from phoenix9 import chat
+        return chat.status(handle)
+
+    def stop(self, handle):
+        """Stop a delegate session that is still running (e.g. Alex answered first)."""
+        from phoenix9 import chat
+        chat.stop(handle)
 
 
 class Claude:
@@ -97,18 +118,23 @@ class Claude:
 
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
-               domains_file=None, env_files=()):
+               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None):
         """Run one Claude session in a step container (trying fallback models) and return its Result."""
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
-        mounts = cl.session_mounts(ai, step_dir, project_dir)
+        mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
+        note = cl.advisor_note(ai)
+        if note:
+            text = Path(prompt_file).read_text(encoding="utf-8")
+            if note not in text:
+                Path(prompt_file).write_text(f"{text.rstrip()}\n\n{note}\n", encoding="utf-8")
 
         def one(model: str):
             cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace")
             rc, log = dk.run_claude_container(
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
-                spec_dir=spec_dir, mounts=mounts)
+                spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env)
             return cl.parse(log, rc)
         return cl.run_with_fallback(ai, one)
 
@@ -128,6 +154,17 @@ class Git:
         return getattr(git_module, name)
 
 
+class Proxy:
+    """Starts the per-step key proxy (phoenix9/proxy.py) on this host."""
+
+    def start(self, spec, key: str, *, log_path, step: str, bind: str = "127.0.0.1", ports=None):
+        """Start a proxy for one service and step on the first free port of the fixed range
+        (global.toml `proxy_ports`, default 47100-47199); returns the handle (.url, .token, .port, .stop())."""
+        from phoenix9 import proxy, settings
+        return proxy.serve(spec, key, log_path=Path(log_path), step=step, bind=bind,
+                           ports=tuple(ports) if ports else settings.proxy_ports())
+
+
 @dataclass
 class Adapters:
     """Everything outside Phoenix, in one place; tests swap in fakes."""
@@ -140,9 +177,10 @@ class Adapters:
     clock: Any
     notify: Any
     chat: Any
+    proxy: Any = None
 
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
     return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
-                    clock=Clock(), notify=Notify(), chat=Chat())
+                    clock=Clock(), notify=Notify(), chat=Chat(), proxy=Proxy())

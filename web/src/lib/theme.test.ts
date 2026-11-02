@@ -4,6 +4,7 @@ beforeEach(() => {
   localStorage.clear()
   resetThemeCache()
   document.documentElement.className = ""
+  delete document.documentElement.dataset.theme
   vi.restoreAllMocks()
 })
 
@@ -12,12 +13,14 @@ test("dark by default", () => {
   expect(getTheme()).toBe("dark")
   applyTheme(getTheme())
   expect(document.documentElement).toHaveClass("dark")
+  expect(document.documentElement.dataset.theme).toBe("dark")
 })
 
 test("toggle switches to light and remembers", () => {
   toggleTheme()
   expect(getTheme()).toBe("light")
   expect(document.documentElement).not.toHaveClass("dark")
+  expect(document.documentElement.dataset.theme).toBe("light")
   resetThemeCache()
   expect(readTheme()).toBe("light")
   toggleTheme()

@@ -23,3 +23,15 @@ test("done has no spinner", () => {
   render(<StatusBadge status="done" />)
   expect(screen.queryByTestId("spinner")).toBeNull()
 })
+
+const CLASSES: [AnyStatus, string][] = [
+  ["done", "b-ok"], ["passed", "b-ok"], ["failed", "b-bad"], ["running", "b-run"],
+  ["queued", "b-info"], ["pending", "b-info"], ["stopped", "b-info"], ["skipped", "b-info"],
+  ["paused-limit", "b-info"], ["waiting", "b-need"],
+]
+
+test.each(CLASSES)("%s uses badge class %s", (status, cls) => {
+  render(<StatusBadge status={status} />)
+  const el = document.querySelector(`[data-status="${status}"]`)!
+  expect(el).toHaveClass("badge", cls)
+})

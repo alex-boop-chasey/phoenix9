@@ -1,15 +1,11 @@
 "use client"
 
-import {
-  CircleCheckIcon,
-  InfoIcon,
-  Loader2Icon,
-  OctagonXIcon,
-  TriangleAlertIcon,
-} from "lucide-react"
+import { Icon } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
 import { useTheme } from "@/lib/theme"
 import { Toaster as Sonner, type ToasterProps } from "sonner"
 
+/** Toasts in the mockup look: coloured left edge, an icon, and always a close button. */
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme } = useTheme()
 
@@ -17,19 +13,38 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      closeButton
       icons={{
-        success: <CircleCheckIcon className="size-4" />,
-        info: <InfoIcon className="size-4" />,
-        warning: <TriangleAlertIcon className="size-4" />,
-        error: <OctagonXIcon className="size-4" />,
-        loading: <Loader2Icon className="size-4 animate-spin" />,
+        success: <Icon name="check-circle" />,
+        info: <Icon name="info" />,
+        warning: <Icon name="warning" />,
+        error: <Icon name="warning-octagon" />,
+        loading: <Wheel />,
+      }}
+      toastOptions={{
+        classNames: {
+          toast: "phx-toast",
+          closeButton: "phx-toast-x",
+        },
       }}
       style={
         {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
-          "--border-radius": "var(--radius)",
+          "--normal-bg": "var(--surface)",
+          "--normal-text": "var(--text)",
+          "--normal-border": "var(--line-strong)",
+          "--success-bg": "var(--surface)",
+          "--success-text": "var(--text)",
+          "--success-border": "var(--line-strong)",
+          "--error-bg": "var(--surface)",
+          "--error-text": "var(--text)",
+          "--error-border": "var(--line-strong)",
+          "--info-bg": "var(--surface)",
+          "--info-text": "var(--text)",
+          "--info-border": "var(--line-strong)",
+          "--warning-bg": "var(--surface)",
+          "--warning-text": "var(--text)",
+          "--warning-border": "var(--line-strong)",
+          "--border-radius": "var(--r-md)",
         } as React.CSSProperties
       }
       {...props}

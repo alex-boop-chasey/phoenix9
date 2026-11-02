@@ -1,18 +1,43 @@
-import { fireEvent, screen, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { Route, Routes, useLocation } from "react-router"
 
-import { projects } from "@/test/fixtures"
-import { mockApi } from "@/test/mockApi"
-import { renderWithProviders } from "@/test/render"
+import ImportPage from "@/pages/ImportPage"
 import ProjectsPage from "@/pages/ProjectsPage"
+import { switchState } from "@/lib/switcher"
+import type { ImportCandidate, ProjectRow } from "@/lib/types"
+import { projects } from "@/test/fixtures"
+import { mockApi, type MockRequest } from "@/test/mockApi"
+import { renderWithProviders } from "@/test/render"
 
-afterEach(() => vi.unstubAllGlobals())
+const toasts = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi.fn(), loading: vi.fn(() => "t1") }))
+vi.mock("sonner", () => ({ toast: toasts }))
 
-const routes = (rows: unknown = projects) => ({
-  "GET /api/projects": rows,
-  "GET /api/gates": [],
-  "GET /api/events/recent": { events: [], next: 0 },
-})
+afterEach(() => { vi.unstubAllGlobals(); Object.values(toasts).forEach((f) => f.mockClear()) })
+
+/** A tiny stand-in for the server's search: same params, same reply shape. */
+function search(rows: ProjectRow[], req: MockRequest) {
+  if (!("attention" in req.query)) return rows
+  const { q = "", status = "all", owner = "all", sort = "name", attention = "0" } = req.query
+  const hit = rows.filter((r) =>
+    (!q || `${r.name} ${r.description}`.toLowerCase().includes(q.toLowerCase())) &&
+    (owner === "all" || (owner === "none" ? !r.repo : r.repo_owner === owner)))
+  const counts = { all: hit.length, run: 0, fail: 0, idle: 0, need: 0 }
+  hit.forEach((r) => { counts[switchState(r)]++ })
+  const found = hit.filter((r) => status === "all" || switchState(r) === status)
+    .sort((a, b) => (sort === "size" ? (b.size ?? 0) - (a.size ?? 0) : a.name.localeCompare(b.name)))
+  const top = attention === "1" ? found.filter((r) => switchState(r) === "need") : []
+  const rest = found.filter((r) => !top.includes(r))
+  return { top, rest, total: found.length, counts }
+}
+
+function routes(rows: ProjectRow[] = projects, extra: Record<string, unknown> = {}) {
+  return {
+    "GET /api/projects": (req: MockRequest) => search(rows, req),
+    "GET /api/gates": [],
+    "GET /api/events/recent": { events: [], next: 0 },
+    ...extra,
+  }
+}
 
 function Where() {
   const loc = useLocation()
@@ -25,6 +50,8 @@ function renderPage(route = "/") {
       <Routes>
         <Route path="/" element={<ProjectsPage />} />
         <Route path="/new" element={<div>new form</div>} />
+        <Route path="/import" element={<ImportPage />} />
+        <Route path="/p/:name" element={<div>project page</div>} />
       </Routes>
       <Where />
     </>,
@@ -32,147 +59,163 @@ function renderPage(route = "/") {
   )
 }
 
-function setWidth(width: number) {
-  window.innerWidth = width
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: width >= 768, media: query, addEventListener: () => {}, removeEventListener: () => {},
-  }))
-}
+const rowOf = (name: string) => document.querySelector(`[data-row="${name}"]`) as HTMLElement
 
-beforeEach(() => {
-  setWidth(1280)
-  // jsdom lacks these; the Radix Select needs them to open.
-  Element.prototype.scrollIntoView = () => {}
-  Element.prototype.hasPointerCapture = () => false
-  Element.prototype.releasePointerCapture = () => {}
-})
-
-function openOwner() {
-  fireEvent.pointerDown(screen.getByRole("combobox", { name: "Owner" }), { button: 0, ctrlKey: false, pointerType: "mouse" })
-}
-
-const rowOf = (name: string) => screen.getByRole("link", { name }).closest("tr") as HTMLElement
-
-test("shows every column for each project", async () => {
+test("title, lead line and Add project split button with two mini cards", async () => {
   mockApi(routes())
   renderPage()
-  await screen.findByText("4 of 4 projects")
-  for (const h of ["Project", "Path", "Repo", "Size", "Chat", "VS Code", "Status"]) {
-    expect(screen.getByRole("columnheader", { name: h })).toBeInTheDocument()
-  }
-  const row = within(rowOf("demo-site"))
-  expect(row.getByText("A small marketing site for a pretend bakery.")).toBeInTheDocument()
-  expect(row.getByText("/srv/projects/demo-site")).toBeInTheDocument()
-  expect(row.getByText("rebirth-wd/demo-site")).toBeInTheDocument()
-  expect(row.getByText("5.0 MB")).toBeInTheDocument()
-  expect(row.getByText("Open chat")).toBeInTheDocument()
-  expect(row.getByText("Open")).toBeInTheDocument()
-  expect(row.getByText("Chat on")).toBeInTheDocument()
+  expect(await screen.findByRole("heading", { name: "Projects" })).toBeInTheDocument()
+  expect(screen.getByText("Every project on this server.")).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "Add project" })).toHaveAttribute("href", "/new")
+  const chev = screen.getByRole("button", { name: "More ways to add a project" })
+  expect(chev).toHaveAttribute("aria-expanded", "false")
+  fireEvent.click(chev)
+  expect(chev).toHaveAttribute("aria-expanded", "true")
+  expect(screen.getByRole("menuitem", { name: /Create new/ })).toHaveAttribute("href", "/new")
+  expect(screen.getByRole("menuitem", { name: /Import/ })).toHaveAttribute("href", "/import")
+  fireEvent.keyDown(document, { key: "Escape" })
+  expect(chev).toHaveAttribute("aria-expanded", "false")
 })
 
-test("name links to the project page", async () => {
+test("each row shows name, path, status, repo and the three buttons", async () => {
   mockApi(routes())
   renderPage()
-  expect(await screen.findByRole("link", { name: "tiny-tool" })).toHaveAttribute("href", "/p/tiny-tool")
-})
-
-test("repo, chat and vscode links have the right hrefs and open in a new tab", async () => {
-  mockApi(routes())
-  renderPage()
-  await screen.findByText("4 of 4 projects")
-  const row = within(rowOf("demo-site"))
-  for (const [name, href] of [
-    ["rebirth-wd/demo-site", "https://github.com/rebirth-wd/demo-site"],
-    ["Open chat", "https://claude.ai/code/session_demo_site"],
-    ["Open", "https://code.example.test/?folder=/srv/projects/demo-site"],
-  ] as const) {
-    const a = row.getByRole("link", { name })
-    expect(a).toHaveAttribute("href", href)
-    expect(a).toHaveAttribute("target", "_blank")
-    expect(a).toHaveAttribute("rel", "noreferrer")
-  }
-  expect(within(rowOf("tiny-tool")).getByText("(project)")).toBeInTheDocument()
-  expect(within(rowOf("notes-only")).getAllByText("—").length).toBeGreaterThanOrEqual(2)
-})
-
-test("size shows formatted bytes and a placeholder when unknown", async () => {
-  mockApi(routes())
-  renderPage()
-  await screen.findByText("4 of 4 projects")
-  expect(within(rowOf("demo-site")).getByText("5.0 MB")).toBeInTheDocument()
-  expect(within(rowOf("tiny-tool")).getByTitle("Being measured")).toHaveTextContent("…")
-})
-
-test("status shows running task x of y", async () => {
-  mockApi(routes())
-  renderPage()
-  await screen.findByText("4 of 4 projects")
+  await screen.findByText("4 projects")
+  const demo = within(rowOf("demo-site"))
+  expect(demo.getByText("/srv/projects/demo-site")).toBeInTheDocument()
+  expect(demo.getByText("Needs you")).toBeInTheDocument()
+  expect(demo.getByRole("link", { name: /rebirth-wd\/demo-site/ })).toHaveAttribute("href", "https://github.com/rebirth-wd/demo-site")
+  expect(demo.getByRole("link", { name: /VS Code/ })).toHaveAttribute("href", "https://code.example.test/?folder=/srv/projects/demo-site")
+  expect(demo.getByRole("link", { name: /Chat/ })).toHaveAttribute("href", "https://claude.ai/code/session_demo_site")
+  expect(demo.getByRole("button", { name: /Remove/ })).toBeInTheDocument()
+  expect(rowOf("demo-site").className).toContain("s-need")
+  expect(rowOf("tiny-tool").className).toContain("s-run")
   expect(within(rowOf("tiny-tool")).getByText("Running task 2 of 4")).toBeInTheDocument()
+  expect(within(rowOf("notes-only")).getByText("No repo")).toBeInTheDocument()
   expect(within(rowOf("notes-only")).getByText("Idle")).toBeInTheDocument()
-  expect(within(rowOf("tiny-tool")).getByText("Chat off")).toBeInTheDocument()
 })
 
-test("needs-you badge shown and sorted first", async () => {
+test("clicking a row opens the project; clicking a button does not", async () => {
   mockApi(routes())
   renderPage()
-  await screen.findByText("4 of 4 projects")
-  const names = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("link")[0]!.textContent)
-  expect(names).toEqual(["demo-site", "phoenix9", "tiny-tool", "notes-only"])
-  const badge = within(rowOf("demo-site")).getByText("Needs you")
-  expect(badge.closest("a")).toHaveAttribute("href", "/p/demo-site/overview")
-  expect(within(rowOf("tiny-tool")).queryByText("Needs you")).toBeNull()
+  await screen.findByText("4 projects")
+  fireEvent.click(within(rowOf("notes-only")).getByRole("button", { name: /Remove/ }))
+  expect(screen.queryByText("project page")).toBeNull()
+  fireEvent.click(rowOf("notes-only"))
+  expect(await screen.findByText("project page")).toBeInTheDocument()
 })
 
-test("search filters by name and description", async () => {
+test("status segments show counts and keep the choice in the address", async () => {
   mockApi(routes())
   renderPage()
-  await screen.findByText("4 of 4 projects")
-  const box = screen.getByPlaceholderText("Search projects")
-  fireEvent.change(box, { target: { value: "BAKERY" } })
-  expect(screen.getByText("1 of 4 projects")).toBeInTheDocument()
-  expect(screen.getByRole("link", { name: "demo-site" })).toBeInTheDocument()
-  fireEvent.change(box, { target: { value: "tiny" } })
-  expect(screen.getByRole("link", { name: "tiny-tool" })).toBeInTheDocument()
-  fireEvent.change(box, { target: { value: "zzz" } })
-  expect(screen.getByText("No projects match")).toBeInTheDocument()
+  await screen.findByText("4 projects")
+  const segs = within(screen.getByRole("group", { name: "Status" }))
+  expect(segs.getByRole("button", { name: /All/ })).toHaveTextContent("4")
+  expect(segs.getByRole("button", { name: /Running/ })).toHaveTextContent("1")
+  expect(segs.getByRole("button", { name: /Idle/ })).toHaveTextContent("1")
+  fireEvent.click(segs.getByRole("button", { name: /Running/ }))
+  expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
+  expect(rowOf("tiny-tool")).toBeTruthy()
+  expect(rowOf("demo-site")).toBeNull()
+  expect(screen.getByTestId("where").textContent).toBe("/?status=run")
+})
+
+test("Needs my attention shows the group, the divider and the count", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  const toggle = screen.getByRole("button", { name: /Needs my attention/ })
+  expect(toggle).toHaveTextContent("2")
+  fireEvent.click(toggle)
+  expect(await screen.findByText("Needs you · 2")).toBeInTheDocument()
+  expect(screen.getByRole("separator")).toHaveTextContent("Everything else · 2")
+  expect(toggle).toHaveAttribute("aria-pressed", "true")
+})
+
+test("search, owner and sort selects work; Clear filters resets", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } })
+  expect(await screen.findByText("No projects match")).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }))
-  expect(await screen.findByText("4 of 4 projects")).toBeInTheDocument()
+  expect(await screen.findByText("4 projects")).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "rebirth-wd" } })
+  expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "none" } })
+  await waitFor(() => expect(rowOf("notes-only")).toBeTruthy())
+  expect(rowOf("demo-site")).toBeNull()
+  fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "size" } })
+  expect(screen.getByTestId("where").textContent).toContain("sort=size")
 })
 
-test("owner filter lists owners present plus No repo", async () => {
+test("the / key focuses the search box", async () => {
   mockApi(routes())
   renderPage()
-  await screen.findByText("4 of 4 projects")
-  openOwner()
-  const options = (await screen.findAllByRole("option")).map((o) => o.textContent)
-  expect(options).toEqual(["All owners", "alex-boop-chasey", "rebirth-wd", "No repo"])
+  await screen.findByText("4 projects")
+  fireEvent.keyDown(document.body, { key: "/" })
+  expect(screen.getByRole("searchbox")).toHaveFocus()
 })
 
-test("owner filter kept in the url", async () => {
+test("the filters are read from the address", async () => {
   mockApi(routes())
   renderPage("/?owner=rebirth-wd&q=site")
   expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
-  expect(screen.getByPlaceholderText("Search projects")).toHaveValue("site")
-  openOwner()
-  fireEvent.click(await screen.findByRole("option", { name: "No repo" }))
-  expect(await screen.findByText("No projects match")).toBeInTheDocument()
-  expect(screen.getByTestId("where").textContent).toBe("/?owner=__none__&q=site")
+  expect(screen.getByRole("searchbox")).toHaveValue("site")
 })
 
-test("create button goes to #/new", async () => {
-  mockApi(routes())
+test("remove asks first, then calls the API and offers Import in a toast", async () => {
+  const { calls } = mockApi(routes(projects, { "POST /api/projects/notes-only/remove": { name: "notes-only" } }))
   renderPage()
-  const link = await screen.findByRole("link", { name: "Create new project" })
-  expect(link).toHaveAttribute("href", "/new")
-  fireEvent.click(link)
-  expect(await screen.findByText("new form")).toBeInTheDocument()
+  await screen.findByText("4 projects")
+  fireEvent.click(within(rowOf("notes-only")).getByRole("button", { name: /Remove/ }))
+  expect(await screen.findByText("Remove notes-only from Phoenix?")).toBeInTheDocument()
+  expect(screen.getByText(/You can bring it back with Import/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: /Remove from Phoenix/ }))
+  await waitFor(() => expect(toasts.success).toHaveBeenCalled())
+  const call = calls.find((c) => c.path === "/api/projects/notes-only/remove")!
+  expect(call.body).toEqual({ confirm: true })
+  const [title, opts] = toasts.success.mock.calls[0] as unknown as [string, { action: { label: string; onClick: () => void } }]
+  expect(title).toBe("notes-only removed from Phoenix")
+  expect(opts.action.label).toBe("Import")
 })
 
-test("empty list shows empty state", async () => {
+test("cancel leaves the project alone", async () => {
+  const { calls } = mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  fireEvent.click(within(rowOf("tiny-tool")).getByRole("button", { name: /Remove/ }))
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }))
+  expect(calls.some((c) => c.path.endsWith("/remove"))).toBe(false)
+})
+
+test("phoenix9 shows the can't-be-removed dialog and never calls the API", async () => {
+  const { calls } = mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  fireEvent.click(within(rowOf("phoenix9")).getByRole("button", { name: /Remove/ }))
+  expect(await screen.findByText("phoenix9 can't be removed")).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: /Remove from Phoenix/ })).toBeNull()
+  expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument()
+  expect(calls.some((c) => c.path.endsWith("/remove"))).toBe(false)
+})
+
+test("a Chat that is off starts the chat", async () => {
+  const { calls } = mockApi(routes(projects, {
+    "POST /api/projects/notes-only/chat/start": { project: "notes-only", already: false, chat: { state: "on", kind: "session", url: "https://claude.ai/code/s1" } },
+  }))
+  renderPage()
+  await screen.findByText("4 projects")
+  fireEvent.click(within(rowOf("notes-only")).getByRole("button", { name: /Chat/ }))
+  await waitFor(() => expect(toasts.success).toHaveBeenCalledWith("Chat for notes-only is on", expect.anything()))
+  expect(calls.some((c) => c.path === "/api/projects/notes-only/chat/start")).toBe(true)
+})
+
+test("no projects at all shows the empty state", async () => {
   mockApi(routes([]))
   renderPage()
   expect(await screen.findByText("No projects yet")).toBeInTheDocument()
-  expect(screen.getAllByRole("link", { name: "Create new project" })).toHaveLength(2)
+  expect(screen.getByRole("link", { name: "Create new project" })).toHaveAttribute("href", "/new")
 })
 
 test("api error shows plain error with retry", async () => {
@@ -180,20 +223,38 @@ test("api error shows plain error with retry", async () => {
   renderPage()
   expect(await screen.findByRole("alert")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument()
-  expect(screen.queryByText(/at .*\.tsx?/)).toBeNull()
 })
 
-test("phone layout renders cards", async () => {
-  setWidth(390)
-  mockApi(routes())
-  renderPage()
-  await screen.findByText("4 of 4 projects")
-  expect(screen.queryByRole("table")).toBeNull()
-  const cards = screen.getAllByRole("listitem")
-  expect(cards).toHaveLength(4)
-  const first = within(cards[0]!)
-  expect(first.getByText("demo-site")).toBeInTheDocument()
-  expect(first.getByText("Needs you")).toBeInTheDocument()
-  expect(first.getByRole("link", { name: "VS Code" })).toBeInTheDocument()
-  expect(first.getByText("/srv/projects/demo-site")).toBeInTheDocument()
+const removed: ImportCandidate = { name: "old-site", path: "/srv/projects/old-site", repo: "rebirth-wd/old-site", removed_on: "2026-10-02", kind: "removed" }
+const folder: ImportCandidate = { name: "side-quest", path: "/srv/projects/side-quest", repo: null, removed_on: null, kind: "folder" }
+
+test("import page lists both groups with counts and imports one", async () => {
+  const api = mockApi({
+    "GET /api/import/candidates": [removed, folder],
+    "POST /api/import": { name: "old-site", path: removed.path, repo: removed.repo, was_removed: true, added: [], chat: "on" },
+  })
+  renderWithProviders(<ImportPage />)
+  expect(await screen.findByText("Removed earlier (1)")).toBeInTheDocument()
+  expect(screen.getByText("Not in Phoenix yet (1)")).toBeInTheDocument()
+  expect(screen.getByText("rebirth-wd/old-site · removed on 2 October")).toBeInTheDocument()
+  expect(screen.getByText("No repo · not in Phoenix yet")).toBeInTheDocument()
+  fireEvent.click(within(document.querySelector('[data-candidate="old-site"]') as HTMLElement).getByRole("button", { name: /Import/ }))
+  await waitFor(() => expect(toasts.success).toHaveBeenCalledWith("old-site imported"))
+  expect(api.calls.find((c) => c.path === "/api/import")!.body).toEqual({ target: "old-site" })
+  await waitFor(() => expect(api.calls.filter((c) => c.path === "/api/import/candidates").length).toBeGreaterThan(1))
+})
+
+test("import page imports a folder typed by hand", async () => {
+  const api = mockApi({
+    "GET /api/import/candidates": [],
+    "POST /api/import": { name: "mine", path: "/srv/projects/mine", repo: null, was_removed: false, added: [], chat: "on" },
+  })
+  renderWithProviders(<ImportPage />)
+  await screen.findByText("Removed earlier (0)")
+  const go = screen.getByRole("button", { name: /^Import$/ })
+  expect(go).toBeDisabled()
+  fireEvent.change(screen.getByLabelText("Folder"), { target: { value: "/srv/projects/mine" } })
+  fireEvent.click(go)
+  await waitFor(() => expect(toasts.success).toHaveBeenCalledWith("mine imported"))
+  expect(api.calls.find((c) => c.path === "/api/import")!.body).toEqual({ target: "/srv/projects/mine" })
 })

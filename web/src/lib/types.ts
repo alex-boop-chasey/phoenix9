@@ -87,6 +87,18 @@ export interface ProjectQueryResult {
   counts: { all: number; run: number; fail: number; idle: number; need: number }
 }
 
+export interface ImportCandidate {
+  name: string
+  path: string
+  repo: string | null
+  removed_on: string | null
+  kind: "removed" | "folder"
+}
+
+export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[]; chat: string }
+export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
+export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }
+
 export interface Project extends ProjectRow {
   changelog: ChangelogLine[]
   gates: Gate[]

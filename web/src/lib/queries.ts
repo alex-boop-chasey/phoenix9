@@ -1,5 +1,5 @@
 // react-query hooks with stable keys, and mutations that refresh the right keys.
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
 import type {
@@ -47,7 +47,9 @@ export const useDeploys = (name: string, enabled = true) =>
 export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
 export const useProjectSearch = (params: Record<string, string>) =>
-  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS })
+  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS, placeholderData: keepPreviousData })
+export const useImportCandidates = () =>
+  useQuery({ queryKey: ["import-candidates"], queryFn: api.importCandidates })
 export const useProject = (name: string) =>
   useQuery({ queryKey: keys.project(name), queryFn: () => api.project(name), enabled: !!name })
 export const useBuilds = (name: string) =>
@@ -97,6 +99,32 @@ export const useLibraryProfiles = () => useQuery({ queryKey: keys.library("profi
 export const useLibraryPresets = () => useQuery({ queryKey: keys.library("presets"), queryFn: api.libraryPresets })
 export const useLibraryTemplates = () => useQuery({ queryKey: keys.library("templates"), queryFn: api.libraryTemplates })
 export const useLibraryServices = () => useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices })
+
+/** Remove a project from Phoenix (the page refreshes the lists itself, after the row fades out). */
+export function useRemoveProject() {
+  return useMutation({ mutationFn: (name: string) => api.removeProject(name) })
+}
+
+/** A function that refreshes the project lists and the import lists. */
+export function useRefreshProjects() {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: keys.projects() })
+    void qc.invalidateQueries({ queryKey: ["import-candidates"] })
+  }
+}
+
+/** Import a removed project or a folder; the lists refresh afterwards. */
+export function useImportProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (target: string) => api.importProject(target),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.projects() })
+      void qc.invalidateQueries({ queryKey: ["import-candidates"] })
+    },
+  })
+}
 
 export function useCreateProject() {
   const qc = useQueryClient()

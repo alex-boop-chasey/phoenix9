@@ -3,7 +3,7 @@ import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
-  SpecFile, StartRunBody, Template,
+  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, RemoveResult, ChatStartResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -81,6 +81,7 @@ export const api = {
   info: () => get<Info>("info"),
   projects: () => get<ProjectRow[]>("projects"),
   searchProjects: (params: Record<string, string>) => get<ProjectQueryResult>("projects", params),
+  importCandidates: () => get<ImportCandidate[]>("import/candidates"),
   checkName: (name: string) => get<NameCheck>("projects/check-name", { name }),
   project: (name: string) => get<Project>(`projects/${e(name)}`),
   changelog: (name: string, limit = 20) => get<ChangelogLine[]>(`projects/${e(name)}/changelog`, { limit }),
@@ -109,6 +110,9 @@ export const api = {
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
 
+  removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
+  importProject: (target: string) => post<ImportResult>("import", { target }),
+  chatStart: (name: string) => post<ChatStartResult>(`projects/${e(name)}/chat/start`, {}),
   createProject: (form: CreateForm) => post<{ job: string }>("projects", form),
   editProject: (name: string, body: EditBody) => post<Project>(`projects/${e(name)}/edit`, body),
   saveKeys: (name: string, rows: KeyInput[]) => post<KeyRow[]>(`projects/${e(name)}/keys/save`, { rows }),

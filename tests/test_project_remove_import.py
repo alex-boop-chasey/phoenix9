@@ -157,3 +157,12 @@ def test_api_routes(api):
     assert status == 409
     status, body = api("/api/projects/home/remove", "POST", POST_HEADERS, {"confirm": True})
     assert status in (400, 404)
+
+
+def test_api_chat_start_and_row_chat_shape(api):
+    make_project("alpha")
+    status, body = api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})
+    assert status == 200 and body["data"]["chat"]["state"] == "on" and body["data"]["chat"]["url"] is None
+    status, body = api("/api/projects/alpha")
+    assert body["data"]["chat"]["state"] == "on" and body["data"]["vscode"]["reason"] is None
+    assert api("/api/projects/ghost/chat/start", "POST", POST_HEADERS, {})[0] == 404

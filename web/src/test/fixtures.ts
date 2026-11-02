@@ -11,7 +11,8 @@ export const info: Info = {
 function row(over: Partial<ProjectRow> & { name: string }): ProjectRow {
   return {
     description: "", path: `/srv/projects/${over.name}`, repo: "", repo_owner: "", repo_name: "", profile: "web",
-    services: [], size: 1024, chat: { kind: "none", url: null }, vscode_url: `https://code.example.test/?folder=/srv/projects/${over.name}`, state: "off", chats: 0,
+    services: [], size: 1024, chat: { state: "off", kind: "none", url: null }, vscode_url: `https://code.example.test/?folder=/srv/projects/${over.name}`,
+    vscode: { url: `https://code.example.test/?folder=/srv/projects/${over.name}`, reason: null }, state: "off", chats: 0,
     last_used: "", last_used_at: "", harness: "idle", has_phoenix_toml: true, repo_url: null, needs_you: 0,
     run: null, ...over,
   }
@@ -20,13 +21,13 @@ function row(over: Partial<ProjectRow> & { name: string }): ProjectRow {
 export const projects: ProjectRow[] = [
   row({
     name: "demo-site", description: "A small marketing site for a pretend bakery.", state: "on",
-    chat: { kind: "session", url: "https://claude.ai/code/session_demo_site" }, size: 5 * 1024 * 1024, repo: "rebirth-wd/demo-site", repo_owner: "rebirth-wd", repo_name: "demo-site",
+    chat: { state: "on", kind: "session", url: "https://claude.ai/code/session_demo_site" }, size: 5 * 1024 * 1024, repo: "rebirth-wd/demo-site", repo_owner: "rebirth-wd", repo_name: "demo-site",
     repo_url: "https://github.com/rebirth-wd/demo-site", harness: "needs you", needs_you: 1,
     run: { run_id: "20261031-100000-pricing-page", status: "waiting", task: 2, tasks: 3 },
   }),
   row({
     name: "tiny-tool", description: "A tiny command line tool that tidies CSV files.", size: null,
-    chat: { kind: "environment", url: "https://claude.ai/code/env_demo_tiny_tool" }, repo: "alex-boop-chasey/tiny-tool", repo_owner: "alex-boop-chasey", repo_name: "tiny-tool",
+    chat: { state: "off", kind: "environment", url: "https://claude.ai/code/env_demo_tiny_tool" }, repo: "alex-boop-chasey/tiny-tool", repo_owner: "alex-boop-chasey", repo_name: "tiny-tool",
     profile: "python-script", repo_url: "https://github.com/alex-boop-chasey/tiny-tool", harness: "running task 2 of 4",
     run: { run_id: "20261101-080000-add-json-output", status: "running", task: 2, tasks: 4 },
   }),

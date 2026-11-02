@@ -24,7 +24,7 @@ CHECKS_BY_MODE = {
     "quick": ("services", "api", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "api", "home", "secrets", "images", "proxy-rule", "firewall",
-             "claude", "advisor", "disk", "updater"),
+             "claude", "advisor", "disk", "updater", "project-links"),
 }
 
 
@@ -335,9 +335,23 @@ def check_updater(ctx):
                    "Delete the stale hold file, or reinstall the unit with install.sh.")
 
 
+def check_project_links(ctx):
+    """Every project has a working chat link and a VS Code link."""
+    problems = []
+    for name in project.project_names():
+        chat = project.chat_link(name, ctx.ad)
+        if chat["url"] is None:
+            problems.append(f"{name}: chat is off" if chat["state"] == "off" else f"{name}: chat link not found yet")
+        if project.vscode_link(name)["url"] is None:
+            problems.append(f"{name}: VS Code link missing (folder not found)")
+    return _result(not problems, "every project has its chat and VS Code links" if not problems else "; ".join(problems),
+                   "Switch the chat on with `phoenix project open <name>`, or press Start chat on the project.")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
-          "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater}
+          "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
+          "project-links": check_project_links}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

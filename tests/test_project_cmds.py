@@ -110,22 +110,22 @@ def test_list_shows_dots_until_measured(env):
 
 def test_chat_link_prefers_session_url(env):
     make(env, "alpha", meta={"chat_session_url": "https://claude.ai/code/abc", "environment_id": "env_x"})
-    assert project.chat_link("alpha", env["fakes"]) == {"kind": "session", "url": "https://claude.ai/code/abc"}
+    assert project.chat_link("alpha", env["fakes"]) == {"state": "on", "kind": "session", "url": "https://claude.ai/code/abc"}
 
 
 def test_chat_link_parses_environment_from_journalctl(env):
     folder = make(env, "alpha", meta={})
-    env["host"].script(["journalctl", "-u", "claude-rc@alpha"],
+    env["host"].script(["journalctl", "-u", "claude-rc@alpha.service"],
                        out="x https://claude.ai/code?environment=env_OLD1\nhttps://claude.ai/code?environment=env_NEW2 y\n")
     link = project.chat_link("alpha", env["fakes"])
-    assert link == {"kind": "environment", "url": "https://claude.ai/code?environment=env_NEW2"}
+    assert link == {"state": "on", "kind": "environment", "url": "https://claude.ai/code?environment=env_NEW2"}
     assert json.loads((folder / ".phoenix/project.json").read_text())["environment_id"] == "env_NEW2"
-    assert "-o" in env["host"].calls[0] and "cat" in env["host"].calls[0]
+    assert any("-o" in c and "cat" in c for c in env["host"].calls if c[0] == "journalctl")
 
 
 def test_chat_link_none(env):
     make(env, "alpha")
-    assert project.chat_link("alpha", env["fakes"]) == {"kind": "none", "url": None}
+    assert project.chat_link("alpha", env["fakes"]) == {"state": "on", "kind": "none", "url": None}
 
 
 def new_run(env, name, status, tasks):
@@ -268,3 +268,82 @@ def test_show_json_has_changelog_and_gates(env, capsys):
     code, out, _ = run_cmd(capsys, "project", "show", "alpha", "--json")
     data = json.loads(out)
     assert code == 0 and data["changelog"] and data["gates"] == [] and data["chat"]["kind"] == "session"
+
+
+# ----------------------------------------------------------------------------- chat and VS Code links (always work)
+def meta_of(folder):
+    return json.loads((folder / ".phoenix/project.json").read_text())
+
+
+def journal_calls(host):
+    return [c for c in host.calls if c[0] == "journalctl"]
+
+
+def test_chat_link_reads_journal_since_unit_start_not_fixed_lines(env):
+    folder = make(env, "alpha", meta={})
+    env["host"].script(["systemctl", "show", "-p", "ActiveEnterTimestamp"], out="Mon 2026-11-02 10:00:00 UTC\n")
+    env["host"].script(["journalctl"], out="noise\nhttps://claude.ai/code?environment=env_A1\n")
+    link = project.chat_link("alpha", env["fakes"])
+    call = journal_calls(env["host"])[0]
+    assert "--since" in call and "Mon 2026-11-02 10:00:00 UTC" in call and "-n" not in call
+    assert link["url"].endswith("env_A1")
+    meta = meta_of(folder)
+    assert meta["chat_env_id"] == "env_A1" and meta["chat_env_seen"].endswith("Z")
+
+
+def test_chat_link_rotated_logs_found_once_then_kept(env):
+    """The id was read once; a later empty (rotated) journal does not lose it."""
+    folder = make(env, "alpha", meta={})
+    env["host"].script(["systemctl", "show"], out="T1\n")
+    env["host"].script_seq(["journalctl"], [(0, "https://claude.ai/code?environment=env_A1\n", ""), (0, "", "")])
+    assert project.chat_link("alpha", env["fakes"])["url"].endswith("env_A1")
+    assert project.chat_link("alpha", env["fakes"])["url"].endswith("env_A1")
+    assert len(journal_calls(env["host"])) == 1       # same start time: the stored id is used
+    assert meta_of(folder)["chat_env_id"] == "env_A1"
+
+
+def test_chat_link_restart_replaces_old_id(env):
+    folder = make(env, "alpha", meta={})
+    env["host"].script_seq(["systemctl", "show"], [(0, "T1\n", ""), (0, "T2\n", "")])
+    env["host"].script_seq(["journalctl"], [(0, "https://claude.ai/code?environment=env_OLD\n", ""),
+                                             (0, "https://claude.ai/code?environment=env_NEW\n", "")])
+    assert project.chat_link("alpha", env["fakes"])["url"].endswith("env_OLD")
+    assert project.chat_link("alpha", env["fakes"])["url"].endswith("env_NEW")
+    assert meta_of(folder)["environment_id"] == "env_NEW"
+
+
+def test_chat_link_no_link_yet_keeps_asking(env):
+    folder = make(env, "alpha", meta={})
+    env["host"].script(["systemctl", "show"], out="T1\n")
+    env["host"].script(["journalctl"], out="starting...\n")
+    assert project.chat_link("alpha", env["fakes"]) == {"state": "on", "kind": "none", "url": None}
+    assert "chat_env_id" not in meta_of(folder)
+    project.chat_link("alpha", env["fakes"])
+    assert len(journal_calls(env["host"])) == 2
+
+
+def test_chat_off_has_no_url_even_with_stored_id(env):
+    make(env, "alpha", meta={"environment_id": "env_X", "chat_session_url": "https://claude.ai/code/abc"})
+    env["host"].script(["systemctl", "is-active"], rc=3)
+    assert project.chat_link("alpha", env["fakes"]) == {"state": "off", "kind": "none", "url": None}
+    assert journal_calls(env["host"]) == []
+
+
+def test_vscode_link_needs_folder(env):
+    make(env, "alpha")
+    assert project.vscode_link("alpha") == {"url": f"https://files.rebirthwebdesign.com.au/?folder={env['projects'] / 'alpha'}",
+                                            "reason": None}
+    gone = project.vscode_link("ghost")
+    assert gone["url"] is None and "does not exist" in gone["reason"]
+    assert project.info("alpha", env["fakes"])["vscode"]["reason"] is None
+
+
+def test_chat_start_switches_on_and_returns_chat(env):
+    folder = make(env, "alpha", meta={})
+    off_until_started(env["host"])
+    env["host"].script(["journalctl"], out="https://claude.ai/code?environment=env_S1\n")
+    from phoenix9.ops import projects as ops_projects
+    out = ops_projects.chat_start("alpha", "test")
+    assert out["chat"]["url"].endswith("env_S1") and out["already"] is False
+    assert ["systemctl", "start", "claude-rc@alpha.service"] in env["host"].calls
+    assert meta_of(folder)["environment_id"] == "env_S1"

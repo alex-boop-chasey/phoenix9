@@ -67,6 +67,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
 | POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added], chat: "on"}`; also takes it off the removed list and sets the chat up (trust, enable, start) | 400, 404, 409 |
 | POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; stops and disables `claude-rc@<name>`, undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
+| POST | `/api/projects/<name>/chat/start` | `ops.projects.chat_start` | `{}` | `{project, already, chat}` (chat as in the row shape); enables and starts `claude-rc@<name>`; the link may not be in `chat.url` yet, so the page asks again (`GET /api/projects/<name>`) until it is | 404 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |
@@ -84,8 +85,10 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 
 **Project row** (`ops.projects.rows`): every field of `phoenix9/project.py:info()` unchanged:
 `name`, `description`, `path`, `repo` (string, `""` when none; may be a URL), `repo_owner`, `repo_name`,
-`profile`, `services` (list), `size` (int bytes or null), `chat {kind: "session"|"environment"|"none", url}`,
-`vscode_url`, `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
+`profile`, `services` (list), `size` (int bytes or null), `chat {state: "on"|"off", kind: "session"|"environment"|"none", url}` (`url` is null when the chat is off or no
+environment id is known: the page then shows "Start chat"; the id is read from the journal of `claude-rc@<name>`
+since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
+`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
 `harness` (a string: "idle" | "queued" | "running task N of M" | "needs you"), `has_phoenix_toml`;
 plus:
 - `repo_url`: `https://github.com/<owner>/<name>` when `repo_owner` is set, else null.

@@ -38,8 +38,9 @@ export interface ProjectRow {
   profile: string
   services: string[]
   size: number | null
-  chat: { kind: "session" | "environment" | "none"; url: string | null }
-  vscode_url: string
+  chat: { state: "on" | "off"; kind: "session" | "environment" | "none"; url: string | null }
+  vscode_url: string | null
+  vscode: { url: string | null; reason: string | null }
   state: "on" | "off"
   chats: number
   last_used: string

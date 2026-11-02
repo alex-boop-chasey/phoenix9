@@ -6,6 +6,7 @@ import shlex
 import shutil
 import threading
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, services, settings, templates
@@ -554,22 +555,65 @@ def size(name: str, adapters) -> int:
 
 
 # ----------------------------------------------------------------------------- chat link
+def _unit_started_at(host, name: str) -> str:
+    """When the chat service last started (systemd's own words), or '' when unknown."""
+    rc, out, _ = host.systemctl("show", "-p", "ActiveEnterTimestamp", "--value", unit(name))
+    return out.strip() if rc == 0 else ""
+
+
+def _env_id_in_journal(host, name: str, since: str) -> str:
+    """The newest chat environment id the service logged since its last start ('' when none)."""
+    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager"]
+    rc, out, _ = host.run(argv + ["--since", since] if since else argv)
+    found = ENV_URL_RE.findall(out) if rc == 0 else []
+    return found[-1].split("environment=", 1)[1] if found else ""
+
+
+def _refresh_env_id(name: str, adapters, folder: Path, meta: dict) -> str:
+    """The environment id for the running chat: stored when already read since this start, else read the journal."""
+    host = adapters.host
+    since = _unit_started_at(host, name)
+    if meta.get("environment_id") and since and meta.get("chat_env_start") == since:
+        return meta["environment_id"]
+    seen = _env_id_in_journal(host, name, since)
+    if not seen:
+        return meta.get("environment_id") or ""
+    if folder.is_dir():
+        _save_meta(folder, environment_id=seen, chat_env_id=seen, chat_env_seen=_iso(adapters.clock.now()),
+                   chat_env_start=since)
+    return seen
+
+
+def _iso(now: float) -> str:
+    return datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def chat_link(name: str, adapters) -> dict:
-    """{kind: session|environment|none, url}: the saved chat session, else the chat server's environment."""
+    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known."""
     folder = paths.projects() / name
+    if not is_on(adapters.host, name):
+        return {"state": "off", "kind": "none", "url": None}
     meta = _meta(folder)
     if meta.get("chat_session_url"):
-        return {"kind": "session", "url": meta["chat_session_url"]}
-    if meta.get("environment_id"):
-        return {"kind": "environment", "url": f"https://claude.ai/code?environment={meta['environment_id']}"}
-    rc, out, _ = adapters.host.run(["journalctl", "-u", f"claude-rc@{name}", "-o", "cat", "--no-pager", "-n", "500"])
-    found = ENV_URL_RE.findall(out) if rc == 0 else []
-    if not found:
-        return {"kind": "none", "url": None}
-    url = found[-1]
-    if folder.is_dir():
-        _save_meta(folder, environment_id=url.split("environment=", 1)[1])
-    return {"kind": "environment", "url": url}
+        return {"state": "on", "kind": "session", "url": meta["chat_session_url"]}
+    env_id = _refresh_env_id(name, adapters, folder, meta)
+    if not env_id:
+        return {"state": "on", "kind": "none", "url": None}
+    return {"state": "on", "kind": "environment", "url": f"https://claude.ai/code?environment={env_id}"}
+
+
+def vscode_link(name: str) -> dict:
+    """{url, reason}: the VS Code link for /srv/projects/<name>, or url null with the reason when the folder is missing."""
+    folder = paths.projects() / name
+    if not folder.is_dir():
+        return {"url": None, "reason": f"The folder {folder} does not exist."}
+    return {"url": f"{paths.VSCODE_URL}?folder={folder}", "reason": None}
+
+
+def chat_start(name: str, adapters, who: str) -> dict:
+    """Switch the chat service on (enable and start) and return the chat state; the link may appear a moment later."""
+    result = open_project(name, adapters, who)
+    return {"project": name, "already": result["already"], "chat": chat_link(name, adapters)}
 
 
 # ----------------------------------------------------------------------------- chat server state
@@ -654,7 +698,7 @@ def info(name: str, adapters, size_wait: bool = True) -> dict:
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
             "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
-            "chat": chat_link(name, adapters), "vscode_url": f"{paths.VSCODE_URL}?folder={folder}",
+            "chat": chat_link(name, adapters), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
             "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
             "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}

@@ -41,6 +41,13 @@ def open_(name: str, who: str) -> dict:
     return project.open_project(name, common.make_adapters(), who)
 
 
+def chat_start(name: str, who: str) -> dict:
+    """Switch a project's chat on (enable and start) and return its chat state."""
+    from phoenix9 import project
+    common.project_dir(name)
+    return project.chat_start(name, common.make_adapters(), who)
+
+
 def close(name: str, who: str, force: bool = False) -> dict:
     """Switch a project's chat server off."""
     from phoenix9 import project

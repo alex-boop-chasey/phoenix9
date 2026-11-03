@@ -98,7 +98,8 @@ export const useLibrarySteps = () => useQuery({ queryKey: keys.library("steps"),
 export const useLibraryProfiles = () => useQuery({ queryKey: keys.library("profiles"), queryFn: api.libraryProfiles })
 export const useLibraryPresets = () => useQuery({ queryKey: keys.library("presets"), queryFn: api.libraryPresets })
 export const useLibraryTemplates = () => useQuery({ queryKey: keys.library("templates"), queryFn: api.libraryTemplates })
-export const useLibraryServices = () => useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices })
+export const useLibraryServices = (enabled = true) =>
+  useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices, enabled })
 
 /** Remove a project from Phoenix (the page refreshes the lists itself, after the row fades out). */
 export function useRemoveProject() {

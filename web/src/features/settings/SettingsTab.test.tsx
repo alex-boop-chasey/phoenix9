@@ -13,8 +13,8 @@ const posts = (calls: MockRequest[]) => calls.filter((c) => c.method === "POST" 
 async function setup(name = "demo-site", extra: Record<string, unknown> = {}) {
   const api = mockApi({ ...baseRoutes(name), ...extra })
   renderWithProviders(<SettingsTab name={name} />)
-  await screen.findByRole("button", { name: "Save build settings" })
-  await screen.findByRole("button", { name: "Save project" })
+  await screen.findByRole("radio", { name: /Ask me first/ })
+  await screen.findByLabelText("Description")
   await screen.findByText("Writes the code for the task.")
   return api
 }
@@ -23,7 +23,7 @@ const saved = (name = "demo-site") => ({ [`POST /api/projects/${name}/settings`]
 
 test("project save sends changed fields", async () => {
   const { calls } = await setup("demo-site", { "POST /api/projects/demo-site/edit": { ...baseRoutes()["GET /api/projects/demo-site"], description: "New text" } })
-  expect(screen.getByRole("button", { name: "Save project" })).toBeDisabled()
+  expect(screen.queryByText("Unsaved changes")).toBeNull()
   const desc = screen.getByLabelText("Description")
   await userEvent.clear(desc)
   await userEvent.type(desc, "New text")
@@ -35,6 +35,7 @@ test("project save sends changed fields", async () => {
 
 test("repo change asks for confirmation and sends confirm", async () => {
   const { calls } = await setup("demo-site", { "POST /api/projects/demo-site/edit": baseRoutes()["GET /api/projects/demo-site"] })
+  await userEvent.click(within(screen.getByText("GitHub repo").closest(".srow") as HTMLElement).getByRole("button", { name: "Change" }))
   const repo = screen.getByLabelText("GitHub repo")
   await userEvent.clear(repo)
   await userEvent.type(repo, "rebirth-wd/other")
@@ -48,14 +49,15 @@ test("repo change asks for confirmation and sends confirm", async () => {
 
 test("keys form present in saved mode", async () => {
   await setup()
-  expect(screen.getByText("Project keys")).toBeInTheDocument()
+  expect(screen.getAllByText("Project keys").length).toBeGreaterThan(0)
+  expect(screen.getByRole("columnheader", { name: "Used for" })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument()
   expect(screen.getByText("Changes are picked up by the next build and the next chat restart.")).toBeInTheDocument()
 })
 
 test("build save sends only changed dotted keys", async () => {
   const { calls } = await setup("demo-site", saved())
-  expect(screen.getByRole("button", { name: "Save build settings" })).toBeDisabled()
+  expect(screen.queryByRole("button", { name: "Save build settings" })).toBeNull()
   await userEvent.click(screen.getByRole("radio", { name: /Ask me first/ }))
   await userEvent.click(screen.getByRole("switch", { name: "Reviewer" }))
   await userEvent.click(screen.getByRole("button", { name: "Reviewer settings" }))
@@ -65,7 +67,7 @@ test("build save sends only changed dotted keys", async () => {
   expect(posts(calls)[0]!.body).toEqual({
     set: { merge: "ask", "steps.reviewer.on": false, "steps.reviewer.model": "claude-x" },
   })
-  expect(await screen.findByRole("button", { name: "Save build settings" })).toBeDisabled()
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Save build settings" })).toBeNull())
 })
 
 test("build save sends typed values (numbers, booleans, lists)", async () => {
@@ -92,7 +94,6 @@ test("server validation errors listed and nothing marked saved", async () => {
     return base(input, init)
   }))
   renderWithProviders(<SettingsTab name="demo-site" />)
-  await screen.findByRole("button", { name: "Save build settings" })
   await userEvent.click(await screen.findByRole("radio", { name: /Ask me first/ }))
   await userEvent.click(screen.getByRole("button", { name: "Save build settings" }))
   const alert = await screen.findByRole("alert")
@@ -139,4 +140,35 @@ test("phoenix9 merge locked to ask", async () => {
   expect(screen.getByRole("radio", { name: /Ask me first/ })).toBeChecked()
   expect(screen.getByRole("radio", { name: /Merge automatically/ })).toBeDisabled()
   expect(screen.getByText("Phoenix's own project always asks before merging.")).toBeInTheDocument()
+})
+
+test("discard drops the unsaved changes", async () => {
+  await setup()
+  const desc = screen.getByLabelText("Description") as HTMLTextAreaElement
+  const before = desc.value
+  await userEvent.type(desc, " more")
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole("button", { name: "Discard" }))
+  expect(screen.queryByText("Unsaved changes")).toBeNull()
+  expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(before)
+})
+
+test("profile Change opens choices and picking one marks the form changed", async () => {
+  const { calls } = await setup("demo-site", { "POST /api/projects/demo-site/edit": baseRoutes()["GET /api/projects/demo-site"] })
+  const row = screen.getByText("Profile", { selector: "span.lbl" }).closest(".srow") as HTMLElement
+  await userEvent.click(within(row).getByRole("button", { name: "Change" }))
+  await userEvent.click(within(row).getByRole("option", { name: /Python script/ }))
+  expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole("button", { name: "Save project" }))
+  await userEvent.click(await screen.findByRole("button", { name: "Change it" }))
+  await waitFor(() => expect(posts(calls)).toHaveLength(1))
+  expect(posts(calls)[0]!.body).toEqual({ profile: "python-script", confirm: true })
+})
+
+test("section index has jump links", async () => {
+  await setup()
+  const nav = screen.getByRole("navigation", { name: "Settings sections" })
+  for (const t of ["Repo and kind", "Services", "Project keys", "Preset", "Failures", "Merge and deploy"]) {
+    expect(within(nav).getByRole("link", { name: t })).toBeInTheDocument()
+  }
 })

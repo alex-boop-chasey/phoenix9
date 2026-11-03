@@ -19,7 +19,7 @@ const SOURCES: { value: SourceKind; label: string; hint: string; icon: IconName 
   { value: "code", label: "On this server", hint: "Code already in a folder here.", icon: "folder-open" },
 ]
 
-const PROFILE_LOOK: Record<string, { title: string; hint: string; icon: IconName }> = {
+export const PROFILE_LOOK: Record<string, { title: string; hint: string; icon: IconName }> = {
   web: { title: "Web app", hint: "Sites and apps", icon: "globe" },
   mobile: { title: "Mobile app", hint: "Expo and native", icon: "device-mobile" },
   desktop: { title: "Desktop app", hint: "Tauri", icon: "desktop" },
@@ -28,7 +28,7 @@ const PROFILE_LOOK: Record<string, { title: string; hint: string; icon: IconName
   platform: { title: "Platform", hint: "Services and tooling", icon: "stack" },
 }
 
-const SERVICE_ICON: Record<string, IconName> = {
+export const SERVICE_ICON: Record<string, IconName> = {
   github: "github-logo", supabase: "hard-drives", sentry: "warning-octagon",
 }
 

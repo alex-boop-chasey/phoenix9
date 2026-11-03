@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { api } from "@/lib/api"
-import { keys, useKeyRows } from "@/lib/queries"
+import { keys, useKeyRows, useLibraryServices } from "@/lib/queries"
 import type { KeyInput, KeyRow } from "@/lib/types"
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
@@ -76,6 +76,8 @@ export function KeysForm({
 }) {
   const qc = useQueryClient()
   const query = useKeyRows(mode === "saved" ? project : "")
+  const library = useLibraryServices(mode === "saved")
+  const usedFor = (name: string) => library.data?.services.find((s) => s.project_keys.includes(name))?.title
   const [rows, setRows] = useState<Row[]>(() => [blankRow()])
   const [errors, setErrors] = useState<Record<number, string>>({})
   const [problem, setProblem] = useState("")
@@ -181,23 +183,44 @@ export function KeysForm({
       {problem && (
         <Alert variant="destructive"><AlertDescription>{problem}</AlertDescription></Alert>
       )}
-      <ul className={draft ? "stackg" : "space-y-3"}>
-        {rows.map((r) => (
-          <KeyRowView
-            key={r.id} row={r} error={errors[r.id]} draft={draft}
-            onName={(name) => edit(r, { name })}
-            onValue={(value) => edit(r, { value })}
-            onSecret={(secret) => edit(r, { secret })}
-            onReveal={() => void reveal(r)} onHide={() => hide(r)} onRemove={() => setRemoving(r)}
-          />
-        ))}
-      </ul>
-      <div className={draft ? "row" : "flex flex-col gap-2 sm:flex-row"}>
-        <Button type="button" variant="secondary" disabled={busy} className="w-full sm:w-auto" onClick={() => void saveOnly()}>
+      {draft ? (
+        <ul className="stackg">
+          {rows.map((r) => (
+            <KeyRowView
+              key={r.id} row={r} error={errors[r.id]}
+              onName={(name) => edit(r, { name })}
+              onValue={(value) => edit(r, { value })}
+              onSecret={(secret) => edit(r, { secret })}
+              onReveal={() => void reveal(r)} onHide={() => hide(r)} onRemove={() => setRemoving(r)}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div className="tscroll">
+          <table className="keys">
+            <thead>
+              <tr><th>Name</th><th>Value</th><th>Kind</th><th>Used for</th><th><span className="sr">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <KeyTableRow
+                  key={r.id} row={r} error={errors[r.id]} usedFor={usedFor(r.name.trim())}
+                  onName={(name) => edit(r, { name })}
+                  onValue={(value) => edit(r, { value })}
+                  onSecret={(secret) => edit(r, { secret })}
+                  onReveal={() => void reveal(r)} onHide={() => hide(r)} onRemove={() => setRemoving(r)}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="row">
+        <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void saveOnly()}>
           Save
         </Button>
-        <Button type="button" variant={draft ? "secondary" : "outline"} disabled={busy} className="w-full sm:w-auto" onClick={() => void add()}>
-          {draft && <Icon name="plus" />}Add
+        <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void add()}>
+          <Icon name="plus" />Add
         </Button>
       </div>
       {draft && (
@@ -217,11 +240,10 @@ export function KeysForm({
 }
 
 function KeyRowView({
-  row, error, draft, onName, onValue, onSecret, onReveal, onHide, onRemove,
+  row, error, onName, onValue, onSecret, onReveal, onHide, onRemove,
 }: {
   row: Row
   error?: string
-  draft: boolean
   onName: (v: string) => void
   onValue: (v: string) => void
   onSecret: (v: boolean) => void
@@ -233,7 +255,7 @@ function KeyRowView({
   const needsValue = row.saved && !row.hasValue && !row.value
   return (
     <li className="space-y-1">
-      <div className={draft ? `krow${row.saved ? " saved" : ""}` : "grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_1fr_auto_auto]"}>
+      <div className={`krow${row.saved ? " saved" : ""}`}>
         <Input
           aria-label="Name" placeholder="NAME" value={row.name} readOnly={row.saved} autoComplete="off"
           aria-invalid={!!error} onChange={(e) => onName(e.target.value)}
@@ -264,5 +286,72 @@ function KeyRowView({
       {needsValue && !error && <p className="text-xs text-muted-foreground">Needs a value</p>}
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     </li>
+  )
+}
+
+/** One key as a table row: name, value, kind, what it is used for, and Reveal / Remove. */
+function KeyTableRow({
+  row, error, usedFor, onName, onValue, onSecret, onReveal, onHide, onRemove,
+}: {
+  row: Row
+  error?: string
+  usedFor?: string
+  onName: (v: string) => void
+  onValue: (v: string) => void
+  onSecret: (v: boolean) => void
+  onReveal: () => void
+  onHide: () => void
+  onRemove: () => void
+}) {
+  const dots = isDots(row)
+  const needsValue = row.saved && !row.hasValue && !row.value
+  return (
+    <>
+      <tr>
+        <td>
+          <Input
+            aria-label="Name" placeholder="NAME" value={row.name} readOnly={row.saved} autoComplete="off"
+            className="mono" aria-invalid={!!error} onChange={(e) => onName(e.target.value)}
+          />
+        </td>
+        <td>
+          <Input
+            aria-label="Value" autoComplete="off" aria-invalid={!!error} className="mono"
+            type={row.secret && !row.revealed && !dots ? "password" : "text"}
+            value={dots ? DOTS : row.value} readOnly={dots}
+            placeholder={needsValue ? "Needs a value" : "value"}
+            onChange={(e) => onValue(e.target.value)}
+          />
+        </td>
+        <td>
+          <label className="row" style={{ gap: 6, flexWrap: "nowrap" }}>
+            <Checkbox aria-label="Secret" checked={row.secret} disabled={dots} onCheckedChange={(v) => onSecret(v === true)} />
+            <span className="tag">{row.secret && <Icon name="lock" />}{row.secret ? "Secret" : "Public"}</span>
+          </label>
+        </td>
+        <td>{usedFor ? <span className="chip">{usedFor}</span> : "—"}</td>
+        <td>
+          <div className="row" style={{ gap: 2, flexWrap: "nowrap" }}>
+            {row.saved && row.secret && row.hasValue && (
+              <button type="button" className="btn btn-ghost btn-icon btn-sm" aria-label={row.revealed ? "Hide" : "Reveal"} onClick={row.revealed ? onHide : onReveal}>
+                <Icon name={row.revealed ? "eye-slash" : "eye"} />
+              </button>
+            )}
+            {row.saved && (
+              <button type="button" className="btn btn-ghost btn-icon btn-sm" aria-label="Remove key" onClick={onRemove}>
+                <Icon name="trash" />
+              </button>
+            )}
+          </div>
+        </td>
+      </tr>
+      {(error || needsValue) && (
+        <tr>
+          <td colSpan={5} style={{ paddingTop: 0 }}>
+            {error ? <p className="text-sm text-destructive" role="alert">{error}</p> : <p className="help">Needs a value</p>}
+          </td>
+        </tr>
+      )}
+    </>
   )
 }

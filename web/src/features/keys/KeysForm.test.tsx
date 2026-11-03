@@ -32,7 +32,7 @@ test("saved secret shows dots with reveal and remove", async () => {
   await renderSaved()
   expect(screen.getByDisplayValue("••••••")).toHaveAttribute("readonly")
   expect(screen.getByRole("button", { name: "Reveal" })).toBeInTheDocument()
-  expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2)
+  expect(screen.getAllByRole("button", { name: "Remove key" })).toHaveLength(2)
 })
 
 test("saved non-secret shows its value", async () => {
@@ -119,7 +119,7 @@ test("a saved row without a value says it needs one", async () => {
 
 test("remove asks for confirmation then calls remove", async () => {
   const { calls } = await renderSaved(saved, { "POST /api/projects/demo/keys/remove": [saved[1]] })
-  await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!)
+  await userEvent.click(screen.getAllByRole("button", { name: "Remove key" })[0]!)
   const dialog = await screen.findByRole("alertdialog")
   expect(within(dialog).getByText("Remove key RESEND_API_KEY?")).toBeInTheDocument()
   expect(posts(calls)).toHaveLength(0)
@@ -141,7 +141,7 @@ test("local mode keeps rows in memory and never calls the api", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Reveal" }))
   expect(screen.getByDisplayValue("s3cret")).toBeInTheDocument()
   expect(seen.at(-1)).toEqual([{ name: "TOKEN", value: "s3cret", secret: true }])
-  await userEvent.click(screen.getByRole("button", { name: "Remove" }))
+  await userEvent.click(screen.getByRole("button", { name: "Remove key" }))
   await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }))
   await waitFor(() => expect(screen.queryByDisplayValue("TOKEN")).toBeNull())
   expect(calls).toHaveLength(0)

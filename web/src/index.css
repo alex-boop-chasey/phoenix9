@@ -16,6 +16,7 @@
 @import "./styles/project.css";
 @import "./styles/build.css";
 @import "./styles/wizard.css";
+@import "./styles/logs-settings.css";
 
 @custom-variant dark (&:is(.dark *, [data-theme="dark"] *));
 

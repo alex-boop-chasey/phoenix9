@@ -3,14 +3,9 @@ import { useMemo, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
+import { Icon } from "@/components/Icon"
+import { SaveBar, SettingsRow } from "@/features/settings/ProjectSection"
+import { Choices } from "@/features/build/wizard/Choice"
 import { AiStepEditor } from "@/features/settings/AiStepEditor"
 import { ExplainDialog } from "@/features/settings/ExplainDialog"
 import { StepToggleList } from "@/features/settings/StepToggleList"
@@ -116,33 +111,35 @@ export function BuildSection({ name }: { name: string }) {
       />
     ) : null
 
-  return (
-    <Card>
-      <CardHeader><CardTitle>Build</CardTitle></CardHeader>
-      <CardContent className="space-y-8">
-        <section className="space-y-3" aria-label="Preset">
-          <h3 className="font-semibold">Preset</h3>
-          <RadioGroup value={preset} onValueChange={setChosen} aria-label="Preset">
-            {presetList.map((p) => (
-              <div key={p.name} className="flex items-start gap-2">
-                <RadioGroupItem value={p.name} id={`preset-${p.name}`} className="mt-1" />
-                <Label htmlFor={`preset-${p.name}`} className="flex-col items-start gap-0 font-normal">
-                  <span className="font-medium">{p.title}</span>
-                  <span className="text-sm text-muted-foreground">{p.description}</span>
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-          {preset !== String(values.preset ?? "custom") && (
-            <p className="text-sm text-muted-foreground">Use Reset to preset to apply a preset's values.</p>
-          )}
-          <Button variant="outline" onClick={() => setResetting(true)} disabled={reset.isPending}>Reset to preset</Button>
-        </section>
+  const discard = () => { setChanges({}); setChosen(null); setProblems([]) }
 
-        <section className="space-y-3" aria-label="Steps">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="font-semibold">Steps</h3>
-            <button type="button" className="min-h-11 text-sm underline" onClick={() => setExplaining(true)}>
+  return (
+    <div className="sect" id="sec-build">
+      <div className="sect-h">
+        <h2 className="h2">Build</h2>
+        <span className="area"><Icon name="hammer" />Build</span>
+      </div>
+
+      <SettingsRow id="s-preset" label="Preset">
+        <div className="stackg">
+          <Choices
+            name="preset" label="Preset" value={preset} onChange={setChosen}
+            options={presetList.map((p) => ({ value: p.name, label: p.title, help: p.description }))}
+          />
+          {preset !== String(values.preset ?? "custom") && (
+            <p className="help">Use Reset to preset to apply a preset's values.</p>
+          )}
+          <button type="button" className="btn btn-secondary btn-sm" style={{ justifySelf: "start" }}
+            disabled={reset.isPending} onClick={() => setResetting(true)}>
+            Reset to preset
+          </button>
+        </div>
+      </SettingsRow>
+
+      <SettingsRow label="Steps">
+        <div className="stackg">
+          <div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setExplaining(true)}>
               Show the effective step list
             </button>
           </div>
@@ -150,103 +147,88 @@ export function BuildSection({ name }: { name: string }) {
             steps={plan.data.steps} values={stepOn} renderExtra={aiEditor}
             onChange={(n, on) => set(`steps.${n}.on`, on)}
           />
-        </section>
-
-        <section className="space-y-2" aria-label="Retries">
-          <h3 className="font-semibold">Retries</h3>
-          <Label htmlFor="bs-max-tries">Tries per task</Label>
-          <Input
-            id="bs-max-tries" type="number" min={1} max={10} className="w-24"
-            value={String(val("max_tries") ?? "")}
-            onChange={(e) => set("max_tries", e.target.value === "" ? undefined : Number(e.target.value))}
-          />
-        </section>
-
-        <section className="space-y-2" aria-label="On failure">
-          <h3 className="font-semibold">On failure</h3>
-          <RadioGroup value={String(val("on_failure") ?? "pause")} onValueChange={(v) => set("on_failure", v)} aria-label="On failure">
-            {ON_FAILURE.map((o) => (
-              <div key={o.value} className="flex items-start gap-2">
-                <RadioGroupItem value={o.value} id={`of-${o.value}`} className="mt-1" />
-                <Label htmlFor={`of-${o.value}`} className="flex-col items-start gap-0 font-normal">
-                  <span className="font-medium">{o.label}</span>
-                  <span className="text-sm text-muted-foreground">{o.help}</span>
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-        </section>
-
-        <section className="space-y-2" aria-label="Merge">
-          <h3 className="font-semibold">Merge</h3>
-          <RadioGroup
-            value={locked ? "ask" : String(val("merge") ?? "auto")} disabled={locked}
-            onValueChange={(v) => set("merge", v)} aria-label="Merge"
-          >
-            {MERGE.map((o) => (
-              <div key={o.value} className="flex items-start gap-2">
-                <RadioGroupItem value={o.value} id={`mg-${o.value}`} className="mt-1" />
-                <Label htmlFor={`mg-${o.value}`} className="flex-col items-start gap-0 font-normal">
-                  <span className="font-medium">{o.label}</span>
-                  <span className="text-sm text-muted-foreground">{o.help}</span>
-                </Label>
-              </div>
-            ))}
-          </RadioGroup>
-          {locked && <p className="text-sm text-muted-foreground">Phoenix's own project always asks before merging.</p>}
-        </section>
-
-        <section className="space-y-3" aria-label="Deploy">
-          <h3 className="font-semibold">Deploy</h3>
-          <div className="space-y-1">
-            <Label htmlFor="bs-deploy-with">Deploy with</Label>
-            <Select value={deployWith} onValueChange={(v) => set("deploy.with", v)}>
-              <SelectTrigger id="bs-deploy-with" aria-label="Deploy with" className="w-full md:w-64"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="none">none</SelectItem></SelectContent>
-            </Select>
-            <p className="text-sm text-muted-foreground">Deployers come later.</p>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="bs-deploy-mode">When to deploy</Label>
-            <Select
-              disabled={deployWith === "none"} value={String(val("deploy.mode") ?? "off")}
-              onValueChange={(v) => set("deploy.mode", v)}
-            >
-              <SelectTrigger id="bs-deploy-mode" aria-label="When to deploy" className="w-full md:w-64"><SelectValue /></SelectTrigger>
-              <SelectContent>{DEPLOY_MODES.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="flex min-h-11 min-w-11 items-center justify-center">
-              <Switch
-                id="bs-deploy-preview" aria-label="Deploy a preview" disabled={deployWith === "none"}
-                checked={Boolean(val("deploy.preview"))} onCheckedChange={(v) => set("deploy.preview", v)}
-              />
-            </span>
-            <Label htmlFor="bs-deploy-preview" className="font-normal">Deploy a preview</Label>
-          </div>
-        </section>
-
-        {problems.length > 0 && (
-          <Alert variant="destructive">
-            <AlertTitle>Nothing was saved</AlertTitle>
-            <AlertDescription>
-              <ul className="list-disc pl-4">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
-            </AlertDescription>
-          </Alert>
-        )}
-        <div className="flex items-center gap-3">
-          <Button disabled={!dirty || save.isPending} onClick={doSave}>Save build settings</Button>
-          {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
         </div>
+      </SettingsRow>
 
-        <ConfirmDialog
-          open={resetting} onOpenChange={setResetting} title="Reset to preset?"
-          body={`This sets the preset to ${preset} and clears every per-step on/off choice. Other step settings stay, and unsaved edits here are dropped.`}
-          confirmLabel="Reset to preset" onConfirm={doReset}
-        />
-        <ExplainDialog name={name} open={explaining} onOpenChange={setExplaining} />
-      </CardContent>
-    </Card>
+      <SettingsRow id="s-fail" label="Failures">
+        <div className="stackg">
+          <div className="field" style={{ maxWidth: 200 }}>
+            <label htmlFor="bs-max-tries">Tries per task</label>
+            <input
+              id="bs-max-tries" className="input" type="number" inputMode="numeric" min={1} max={10}
+              value={String(val("max_tries") ?? "")}
+              onChange={(e) => set("max_tries", e.target.value === "" ? undefined : Number(e.target.value))}
+            />
+          </div>
+          <span className="lbl">When a task still fails</span>
+          <Choices
+            name="on_failure" label="On failure" value={String(val("on_failure") ?? "pause")} onChange={(v) => set("on_failure", v)}
+            options={ON_FAILURE.map((o) => ({ value: o.value, label: o.label, help: o.help }))}
+          />
+        </div>
+      </SettingsRow>
+
+      <SettingsRow id="s-merge" label="Merge and deploy">
+        <div className="stackg">
+          <Choices
+            name="merge" label="Merge" value={locked ? "ask" : String(val("merge") ?? "auto")} onChange={(v) => set("merge", v)}
+            options={MERGE.map((o) => ({
+              value: o.value, label: o.label, help: o.help, disabled: locked,
+              icon: locked && o.value === "ask" ? <Icon name="lock" size="sm" /> : undefined,
+            }))}
+          />
+          {locked && (
+            <div className="blk-info"><Icon name="lock" /><span>Phoenix's own project always asks before merging.</span></div>
+          )}
+          <div className="dcard" aria-label="Deploy">
+            <b>Deploy</b>
+            <div className="field">
+              <label htmlFor="bs-deploy-with">Deploy with</label>
+              <select id="bs-deploy-with" className="select" value={deployWith} onChange={(e) => set("deploy.with", e.target.value)}>
+                <option value="none">none</option>
+              </select>
+              <span className="help">Deployers come later.</span>
+            </div>
+            <div className="field">
+              <label htmlFor="bs-deploy-mode">When to deploy</label>
+              <select
+                id="bs-deploy-mode" className="select" disabled={deployWith === "none"}
+                value={String(val("deploy.mode") ?? "off")} onChange={(e) => set("deploy.mode", e.target.value)}
+              >
+                {DEPLOY_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            <label className="swaprow" htmlFor="bs-deploy-preview">
+              <input
+                id="bs-deploy-preview" type="checkbox" role="switch" className="switch" aria-label="Deploy a preview"
+                disabled={deployWith === "none"} checked={Boolean(val("deploy.preview"))}
+                onChange={(e) => set("deploy.preview", e.target.checked)}
+              />
+              Deploy a preview
+            </label>
+          </div>
+        </div>
+      </SettingsRow>
+
+      {problems.length > 0 && (
+        <div className="blk-info" role="alert">
+          <Icon name="warning-circle" />
+          <div>
+            <b>Nothing was saved</b>
+            <ul className="list-disc pl-4">{problems.map((p) => <li key={p}>{p}</li>)}</ul>
+          </div>
+        </div>
+      )}
+      {(dirty || preset !== String(values.preset ?? "custom")) && (
+        <SaveBar label="Save build settings" busy={save.isPending} onDiscard={discard} onSave={doSave} />
+      )}
+
+      <ConfirmDialog
+        open={resetting} onOpenChange={setResetting} title="Reset to preset?"
+        body={`This sets the preset to ${preset} and clears every per-step on/off choice. Other step settings stay, and unsaved edits here are dropped.`}
+        confirmLabel="Reset to preset" onConfirm={doReset}
+      />
+      <ExplainDialog name={name} open={explaining} onOpenChange={setExplaining} />
+    </div>
   )
 }

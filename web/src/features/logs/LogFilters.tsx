@@ -1,10 +1,19 @@
-import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Icon, type IconName } from "@/components/Icon"
 import type { BuildRow, LogEntry } from "@/lib/types"
-import { cn } from "@/lib/utils"
 
-export const ALL = "__all__"
+export const ALL = ""
 export const KINDS: LogEntry["kind"][] = ["session", "check", "diff", "step", "gate", "command", "service"]
+
+/** Plain words and an icon for each kind of log. */
+export const KIND_INFO: Record<LogEntry["kind"], { label: string; icon: IconName }> = {
+  session: { label: "AI conversation", icon: "sparkle" },
+  check: { label: "Check results", icon: "check-circle" },
+  diff: { label: "Code changes", icon: "git-diff" },
+  step: { label: "Step log", icon: "list-bullets" },
+  gate: { label: "Questions", icon: "hand-palm" },
+  command: { label: "Commands", icon: "terminal" },
+  service: { label: "Service logs", icon: "hard-drives" },
+}
 
 export interface LogFilterValues {
   run: string
@@ -13,10 +22,10 @@ export interface LogFilterValues {
   kinds: string[]
 }
 
-/** Words for a task number (task 0 is the run itself). */
-export const taskLabel = (n: number) => (n === 0 ? "Run level" : `Task ${n}`)
+/** Words for a task number (task 0 is the build itself). */
+export const taskLabel = (n: number) => (n === 0 ? "Build level" : `Task ${n}`)
 
-/** The label of a run in the Run select: date, title, result. */
+/** The label of a build in the Build select: date, title, result. */
 export function runLabel(b: BuildRow): string {
   return `${(b.started || b.created).slice(0, 10)} · ${b.title || b.run_id} · ${b.status}`
 }
@@ -32,24 +41,20 @@ function Pick({
 }) {
   const known = !value || options.some((o) => o.value === value)
   return (
-    <Select value={value || ALL} onValueChange={(v) => onChange(v === ALL ? "" : v)}>
-      <SelectTrigger aria-label={label} className="w-full">
-        <SelectValue placeholder={label} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={ALL}>{all}</SelectItem>
-        {!known && <SelectItem value={value}>{value}</SelectItem>}
-        {options.map((o) => (
-          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <>
+      <label className="sr" htmlFor={`lg-${label}`}>{label}</label>
+      <select id={`lg-${label}`} className="select" value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value={ALL}>{all}</option>
+        {!known && <option value={value}>{value}</option>}
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </>
   )
 }
 
-/** Run, task and step dropdowns, kind chips and a Clear filters link (the parent keeps them in the URL). */
+/** Build, task and step dropdowns and Clear filters, then the kind chips (the parent keeps them in the URL). */
 export function LogFilters({
-  values, runs, tasks, steps, onChange, onClear,
+  values, runs, tasks, steps, onChange, onClear, children,
 }: {
   values: LogFilterValues
   runs: BuildRow[]
@@ -57,35 +62,32 @@ export function LogFilters({
   steps: string[]
   onChange: (patch: Partial<LogFilterValues>) => void
   onClear: () => void
+  /** Sits on the right of the filter row (the Refresh button). */
+  children?: React.ReactNode
 }) {
-  const active = !!(values.run || values.task || values.step || values.kinds.length)
   const toggle = (k: string) =>
     onChange({ kinds: values.kinds.includes(k) ? values.kinds.filter((x) => x !== k) : [...values.kinds, k] })
   return (
-    <div className="flex flex-col gap-3">
-      <Pick label="Run" value={values.run} all="All runs" onChange={(run) => onChange({ run, task: "", step: "" })}
-        options={runs.map((b) => ({ value: b.run_id, label: runLabel(b) }))} />
-      <Pick label="Task" value={values.task} all="All tasks" onChange={(task) => onChange({ task })}
-        options={tasks.map((n) => ({ value: String(n), label: taskLabel(n) }))} />
-      <Pick label="Step" value={values.step} all="All steps" onChange={(step) => onChange({ step })}
-        options={steps.map((s) => ({ value: s, label: s }))} />
-      <div role="group" aria-label="Kind" className="flex flex-wrap gap-1.5">
-        {KINDS.map((k) => {
-          const on = values.kinds.includes(k)
-          return (
-            <button key={k} type="button" aria-pressed={on} onClick={() => toggle(k)}
-              className={cn(
-                "rounded-full border px-2.5 py-0.5 text-xs capitalize",
-                on ? "border-primary bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-accent",
-              )}>
-              {k}
-            </button>
-          )
-        })}
+    <>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <div className="lfil">
+          <Pick label="Build" value={values.run} all="All builds" onChange={(run) => onChange({ run, task: "", step: "" })}
+            options={runs.map((b) => ({ value: b.run_id, label: runLabel(b) }))} />
+          <Pick label="Task" value={values.task} all="All tasks" onChange={(task) => onChange({ task })}
+            options={tasks.map((n) => ({ value: String(n), label: taskLabel(n) }))} />
+          <Pick label="Step" value={values.step} all="All steps" onChange={(step) => onChange({ step })}
+            options={steps.map((s) => ({ value: s, label: s }))} />
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onClear}>Clear filters</button>
+        </div>
+        {children}
       </div>
-      {active && (
-        <Button variant="link" size="sm" className="self-start px-0" onClick={onClear}>Clear filters</Button>
-      )}
-    </div>
+      <div className="kinds" role="group" aria-label="Kinds of log">
+        {KINDS.map((k) => (
+          <button key={k} type="button" aria-pressed={values.kinds.includes(k)} onClick={() => toggle(k)}>
+            <Icon name={KIND_INFO[k].icon} />{KIND_INFO[k].label}
+          </button>
+        ))}
+      </div>
+    </>
   )
 }

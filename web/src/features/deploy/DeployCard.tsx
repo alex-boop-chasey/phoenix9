@@ -4,8 +4,7 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Icon } from "@/components/Icon"
 import { post } from "@/lib/api"
 import { useDeploys, useJob } from "@/lib/queries"
 import type { DeployRecord } from "@/lib/types"
@@ -55,9 +54,9 @@ export function DeployCard({ name }: { name: string }) {
   }
 
   return (
-    <Card>
-      <CardHeader><CardTitle>Deploy</CardTitle></CardHeader>
-      <CardContent className="flex flex-col gap-2 text-sm">
+    <section className="card stackg" aria-label="Deploy">
+      <h2 className="h3"><Icon name="rocket-launch" /> Deploy</h2>
+      <div className="stackg" style={{ gap: 8, fontSize: 14 }}>
         <p>Deployer: {deployer.title}</p>
         {!deployer.supported ? (
           <p className="text-muted-foreground">{deployer.title} is not yet supported.</p>
@@ -66,7 +65,7 @@ export function DeployCard({ name }: { name: string }) {
             <p>
               Live address:{" "}
               {data.live_url ? (
-                <a href={data.live_url} target="_blank" rel="noreferrer" className="text-primary underline-offset-4 hover:underline">
+                <a href={data.live_url} target="_blank" rel="noreferrer">
                   {data.live_url}
                 </a>
               ) : (
@@ -75,7 +74,7 @@ export function DeployCard({ name }: { name: string }) {
             </p>
             <p>Last deploy: {last ? lastLine(last) : <span className="text-muted-foreground">none yet</span>}</p>
             <div>
-              <Button disabled={running} onClick={() => setConfirm(true)}>Deploy now</Button>
+              <button type="button" className="btn btn-primary" disabled={running} onClick={() => setConfirm(true)}>Deploy now</button>
             </div>
             {running && <p role="status">Deploying…</p>}
             {job && job.status !== "running" && (
@@ -96,7 +95,7 @@ export function DeployCard({ name }: { name: string }) {
             void start()
           }}
         />
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }

@@ -3,14 +3,13 @@ import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Icon, type IconName } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
 import { KeysForm } from "@/features/keys/KeysForm"
-import { ProjectForm } from "@/features/projects/ProjectForm"
-import { emptyForm, type FormValues } from "@/features/projects/formModel"
+import { PROFILE_LOOK, SERVICE_ICON } from "@/features/projects/OrderSheet"
+import { PROFILES, emptyForm, type FormValues } from "@/features/projects/formModel"
 import { sameValue } from "@/features/settings/dotted"
-import { useEditProject, useProject } from "@/lib/queries"
+import { useEditProject, useLibraryProfiles, useLibraryServices, useProject } from "@/lib/queries"
 import type { EditBody, Project } from "@/lib/types"
 
 const fromProject = (p: Project): FormValues => ({
@@ -27,54 +26,180 @@ export function changedFields(p: Project, v: FormValues): EditBody {
   return body
 }
 
-/** Project fields with their own Save, then the project keys. */
+/** A row of the settings page: a label on the left, the control on the right. */
+export function SettingsRow({ id, label, labelFor, two = true, children }: {
+  id?: string; label: string; labelFor?: string; two?: boolean; children: React.ReactNode
+}) {
+  return (
+    <div className={two ? "srow two" : "srow"} id={id}>
+      {labelFor ? <label className="lbl" htmlFor={labelFor}>{label}</label> : <span className="lbl">{label}</span>}
+      {children}
+    </div>
+  )
+}
+
+/** The sticky "Unsaved changes" bar with Discard and Save. */
+export function SaveBar({ label, busy, onDiscard, onSave }: { label: string; busy: boolean; onDiscard: () => void; onSave: () => void }) {
+  return (
+    <div className="savebar" role="region" aria-label="Unsaved changes">
+      <span className="unsaved"><i />Unsaved changes</span>
+      <button type="button" className="btn btn-ghost" onClick={onDiscard}>Discard</button>
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={onSave}>
+        {busy ? <><Wheel />Saving…</> : label}
+      </button>
+    </div>
+  )
+}
+
+function profileLook(name: string, title?: string) {
+  const look = PROFILE_LOOK[name]
+  return { title: look?.title ?? title ?? name, hint: look?.hint ?? "", icon: (look?.icon ?? "stack") as IconName }
+}
+
+/** Project fields, then the project keys; edits wait for the Save bar. */
 export function ProjectSection({ name }: { name: string }) {
   const project = useProject(name)
   const edit = useEditProject(name)
+  const profiles = useLibraryProfiles()
+  const library = useLibraryServices()
   const [value, setValue] = useState<FormValues | null>(null)
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState("")
+  const [open, setOpen] = useState<"repo" | "profile" | "services" | null>(null)
 
   useEffect(() => {
     if (project.data && !value) setValue(fromProject(project.data))
   }, [project.data, value])
 
   if (!project.data || !value) return null
-  const body = changedFields(project.data, value)
+  const saved = project.data
+  const set = (patch: Partial<FormValues>) => setValue({ ...value, ...patch })
+  const toggle = (which: "repo" | "profile" | "services") => setOpen(open === which ? null : which)
+  const body = changedFields(saved, value)
   const dirty = Object.keys(body).length > 0
   const risky = body.repo !== undefined || body.profile !== undefined
 
   function save(confirm: boolean) {
     setError("")
     edit.mutate(confirm ? { ...body, confirm: true } : body, {
-      onSuccess: (fresh) => { setValue(fromProject(fresh)); toast.success("Saved") },
+      onSuccess: (fresh) => { setValue(fromProject(fresh)); setOpen(null); toast.success("Project saved") },
       onError: (err) => setError(err.message),
     })
   }
 
+  const profileNames = profiles.data?.profiles.map((p) => p.name) ?? [...PROFILES]
+  if (!profileNames.includes(value.profile)) profileNames.push(value.profile)
+  const now = profileLook(value.profile, profiles.data?.profiles.find((p) => p.name === value.profile)?.title)
+  const serviceList = library.data?.services ?? []
+  const titleOf = (n: string) => serviceList.find((s) => s.name === n)?.title ?? n
+
   return (
-    <Card>
-      <CardHeader><CardTitle>Project</CardTitle></CardHeader>
-      <CardContent className="space-y-6">
-        <ProjectForm mode="edit" value={value} onChange={setValue} />
-        {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
-        <div className="flex items-center gap-3">
-          <Button disabled={!dirty || edit.isPending} onClick={() => (risky ? setAsking(true) : save(false))}>
-            Save project
-          </Button>
-          {dirty && <span className="text-sm text-muted-foreground">Unsaved changes</span>}
+    <div className="sect" id="sec-project">
+      <div className="sect-h">
+        <h2 className="h2">Project</h2>
+        <span className="area"><Icon name="sliders-horizontal" />Setup</span>
+      </div>
+      <SettingsRow label="Name" labelFor="st-name">
+        <input className="input mono" id="st-name" value={value.name} readOnly />
+      </SettingsRow>
+      <SettingsRow label="Description" labelFor="st-desc">
+        <div className="field">
+          <textarea className="textarea" id="st-desc" value={value.description} onChange={(e) => set({ description: e.target.value })} />
+          <span className="help">A few lines. They go into the project's CLAUDE.md.</span>
         </div>
-        <ConfirmDialog
-          open={asking} onOpenChange={setAsking} title="Change the repo/profile?"
-          body="Change the repo/profile? The next build uses the new one."
-          confirmLabel="Change it" onConfirm={() => save(true)}
+      </SettingsRow>
+
+      <SettingsRow id="s-repo" label="GitHub repo">
+        <div>
+          <div className="swap">
+            <span className="ico"><Icon name="github-logo" /></span>
+            <span className="t"><b className="mono">{value.repo || "No repo yet"}</b><span>{value.repo ? "Code is kept here" : "Add one to push the code"}</span></span>
+            <button type="button" className="btn btn-secondary btn-sm" aria-expanded={open === "repo"} onClick={() => toggle("repo")}>Change</button>
+          </div>
+          {open === "repo" && (
+            <div className="swap-panel">
+              <input className="input mono" aria-label="GitHub repo" placeholder="owner/name" value={value.repo} autoComplete="off"
+                onChange={(e) => set({ repo: e.target.value })} />
+            </div>
+          )}
+        </div>
+      </SettingsRow>
+
+      <SettingsRow label="Profile">
+        <div>
+          <div className="swap">
+            <span className="ico"><Icon name={now.icon} /></span>
+            <span className="t"><b>{now.title}</b><span>{now.hint}</span></span>
+            <button type="button" className="btn btn-secondary btn-sm" aria-expanded={open === "profile"} aria-controls="profile-panel" onClick={() => toggle("profile")}>Change</button>
+          </div>
+          {open === "profile" && (
+            <div className="swap-panel" id="profile-panel" role="listbox" aria-label="Profile">
+              {profileNames.map((n) => {
+                const look = profileLook(n, profiles.data?.profiles.find((p) => p.name === n)?.title)
+                return (
+                  <button key={n} type="button" className="mini" role="option" aria-selected={value.profile === n} onClick={() => set({ profile: n })}>
+                    <span className="ico"><Icon name={look.icon} /></span>
+                    <span className="t"><b>{look.title}</b><span>{look.hint}</span></span>
+                    <Icon name="check" className="tick" />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </SettingsRow>
+
+      <SettingsRow id="s-svc" label="Services">
+        <div>
+          <div className="swap">
+            <div className="chips" style={{ flex: 1 }}>
+              {value.services.length === 0 && <span className="help">None chosen</span>}
+              {value.services.map((n) => (
+                <span key={n} className="chip"><Icon name={SERVICE_ICON[n] ?? "plugs"} />{titleOf(n)}</span>
+              ))}
+            </div>
+            <button type="button" className="btn btn-secondary btn-sm" aria-expanded={open === "services"} onClick={() => toggle("services")}>Change</button>
+            <div className="sofar">
+              <Icon name="check-circle" size="sm" className="text-ok" />
+              Set up so far: {saved.services.length ? saved.services.map(titleOf).join(", ") : "nothing yet"}
+            </div>
+          </div>
+          {open === "services" && (
+            <div className="swap-panel" role="group" aria-label="Services">
+              {serviceList.map((s) => {
+                const on = value.services.includes(s.name)
+                return (
+                  <button key={s.name} type="button" className="mini" aria-pressed={on} aria-selected={on}
+                    onClick={() => set({ services: on ? value.services.filter((x) => x !== s.name) : [...value.services, s.name] })}>
+                    <span className="ico"><Icon name={SERVICE_ICON[s.name] ?? "plugs"} /></span>
+                    <span className="t"><b>{s.title}</b></span>
+                    <Icon name="check" className="tick" />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </SettingsRow>
+
+      <SettingsRow id="s-keys" label="Project keys" two={false}>
+        <span className="help">Changes are picked up by the next build and the next chat restart.</span>
+        <KeysForm mode="saved" project={name} />
+      </SettingsRow>
+
+      {error && <div className="blk-info" role="alert"><Icon name="warning-circle" /><span>{error}</span></div>}
+      {dirty && (
+        <SaveBar
+          label="Save project" busy={edit.isPending}
+          onDiscard={() => { setValue(fromProject(saved)); setOpen(null); setError("") }}
+          onSave={() => (risky ? setAsking(true) : save(false))}
         />
-        <div className="space-y-2 border-t pt-4">
-          <h3 className="font-semibold">Project keys</h3>
-          <KeysForm mode="saved" project={name} />
-          <p className="text-sm text-muted-foreground">Changes are picked up by the next build and the next chat restart.</p>
-        </div>
-      </CardContent>
-    </Card>
+      )}
+      <ConfirmDialog
+        open={asking} onOpenChange={setAsking} title="Change the repo/profile?"
+        body="Change the repo/profile? The next build uses the new one."
+        confirmLabel="Change it" onConfirm={() => save(true)}
+      />
+    </div>
   )
 }

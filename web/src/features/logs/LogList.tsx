@@ -1,11 +1,10 @@
-import { Badge } from "@/components/ui/badge"
+import { Icon } from "@/components/Icon"
 import { RelativeTime } from "@/components/RelativeTime"
 import type { LogEntry } from "@/lib/types"
-import { cn } from "@/lib/utils"
 
-import { taskLabel } from "./LogFilters"
+import { KIND_INFO, taskLabel } from "./LogFilters"
 
-/** "run · task · attempt · step" in muted words. */
+/** "build · task · attempt · step" in muted words. */
 function where(e: LogEntry): string {
   const bits = [e.run]
   if (e.task !== null) bits.push(taskLabel(e.task))
@@ -24,22 +23,20 @@ export function LogList({
   selected: string
   onSelect: (id: string) => void
 }) {
-  if (!entries.length) return <p className="p-4 text-sm text-muted-foreground">No logs match these filters.</p>
+  if (!entries.length) return <p className="help" style={{ padding: 16 }}>No logs match these filters.</p>
   return (
-    <ul className="flex flex-col gap-1">
-      {entries.map((e) => (
-        <li key={e.id}>
-          <button type="button" onClick={() => onSelect(e.id)} aria-current={e.id === selected}
-            className={cn("w-full rounded-md border p-2 text-left text-sm hover:bg-accent", e.id === selected && "border-primary bg-accent")}>
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate font-medium">{e.title}</span>
-              <Badge variant="secondary">{e.kind}</Badge>
-            </div>
-            <div className="mt-0.5 truncate text-xs text-muted-foreground">{where(e)}</div>
-            <div className="text-xs text-muted-foreground">{size(e.size)} · <RelativeTime iso={e.modified} /></div>
+    <div className="lglist" role="listbox" aria-label="Logs">
+      {entries.map((e) => {
+        const info = KIND_INFO[e.kind]
+        return (
+          <button key={e.id} type="button" className="lgi" role="option" aria-selected={e.id === selected} onClick={() => onSelect(e.id)}>
+            <b>{e.title}</b>
+            <span className="k"><Icon name={info.icon} />{info.label}</span>
+            <small>{where(e)}</small>
+            <small>{size(e.size)} · <RelativeTime iso={e.modified} /></small>
           </button>
-        </li>
-      ))}
-    </ul>
+        )
+      })}
+    </div>
   )
 }

@@ -135,7 +135,7 @@ build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
-chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run}`; older
+chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
 fields in section 4.7).
 

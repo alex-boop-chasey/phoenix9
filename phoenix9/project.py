@@ -740,7 +740,17 @@ def setup_facts(folder: Path) -> dict:
         own = {}
     return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
             "preset": own.get("preset") or None, "merge": own.get("merge") or None,
-            "created": meta.get("created") or None}
+            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta)}
+
+
+def _set_up_entries(meta: dict) -> list:
+    """services_set_up as {name, at, run, run_name} dicts (older plain-name entries get empty fields)."""
+    out = []
+    for e in meta.get("services_set_up") or []:
+        e = e if isinstance(e, dict) else {"name": e}
+        out.append({"name": e.get("name") or "", "at": e.get("at") or None, "run": e.get("run") or None,
+                    "run_name": e.get("run_name") or None})
+    return out
 
 
 def show_project(name: str, adapters) -> dict:

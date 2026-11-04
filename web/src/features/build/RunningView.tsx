@@ -101,7 +101,10 @@ export function RunningView({ name, runId, mode }: Props) {
       <div className="run-head">
         <div className="min-w-0">
           <h2 className="h2 break-words" style={{ fontSize: 30 }}>{d.title || d.run_id}</h2>
-          <p className="small">Started <RelativeTime iso={started} /></p>
+          <p className="small">
+            Started <RelativeTime iso={started} />
+            {d.branch && <> · branch <span className="mono">{d.branch}</span></>}
+          </p>
         </div>
         {s.active && (
           <Button variant="danger" disabled={stop.isPending} onClick={() => setConfirming(true)}>

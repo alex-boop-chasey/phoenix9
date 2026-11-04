@@ -52,6 +52,6 @@ export function runDetail(o: Partial<RunDetail> = {}): RunDetail {
         { name: "summary", title: "Summary", group: "run-finish", order: 20, on: true, reason: "" },
       ] as never,
     },
-    plan_frozen: true, title: "Pricing page", preset: "full", max_tries: 3, ...o,
+    plan_frozen: true, title: "Pricing page", preset: "full", max_tries: 3, branch: "phoenix/r-wait", ...o,
   }
 }

@@ -155,6 +155,9 @@ def test_done_recorded_and_skipped_next_run(tmp_path, adapters):
         assert Runner(adapters, lib).drive(first) == "done"
         entries = project._meta(folder)["services_set_up"]
         assert entries[0]["name"] == "supabase" and entries[0]["run"] == first.name and entries[0]["at"]
+        assert entries[0]["run_name"]
+        shown = project.setup_facts(folder)["services_set_up"]
+        assert shown[0]["name"] == "supabase" and shown[0]["run_name"] == entries[0]["run_name"]
         second = new_run(tmp_path)
         assert Runner(adapters, lib).drive(second) == "done"
     finally:
@@ -264,3 +267,10 @@ def test_presets_still_resolve(tmp_path, preset, on):
         assert plan.sources["builder"]["service-notes"] == "step:service-setup"
     else:
         assert plan.sources["builder"]["service-notes"] == "fallback:no-services"
+
+
+def test_setup_facts_reads_old_string_entries(tmp_path):
+    folder = make_project()
+    project._save_meta(folder, services_set_up=["supabase"])
+    assert project.setup_facts(folder)["services_set_up"] == [
+        {"name": "supabase", "at": None, "run": None, "run_name": None}]

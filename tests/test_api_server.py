@@ -92,7 +92,7 @@ def test_project_show(api):
     assert status == 200
     data = body["data"]
     assert data["name"] == "alpha" and data["needs_you"] == 0 and data["run"] is None
-    assert set(data["setup"]) == {"kind", "source", "template", "preset", "merge", "created"}
+    assert set(data["setup"]) == {"kind", "source", "template", "preset", "merge", "created", "services_set_up"}
 
 
 def test_project_show_setup_reads_project_files(api):
@@ -103,7 +103,7 @@ def test_project_show_setup_reads_project_files(api):
     settings.save_project(folder, {"preset": "quick", "merge": "ask"})
     setup = api("/api/projects/alpha")[1]["data"]["setup"]
     assert setup == {"kind": "web", "source": "template", "template": "static-site", "preset": "quick",
-                     "merge": "ask", "created": "2026-10-01"}
+                     "merge": "ask", "created": "2026-10-01", "services_set_up": []}
 
 
 def test_project_sub_endpoints(api):

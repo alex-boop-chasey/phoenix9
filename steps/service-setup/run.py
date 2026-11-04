@@ -2,7 +2,7 @@
 import importlib.util
 from pathlib import Path
 
-from phoenix9 import atomic, keys, paths, project, project_services, reports, services, state
+from phoenix9 import atomic, keys, paths, project, project_services, reports, services, state, summary
 from phoenix9.stepctx import StepResult
 
 KEYS_WHERE = "Project → Settings → Keys, or `phoenix project keys {name} set KEY`"
@@ -63,7 +63,8 @@ def _record(ctx, newly: list) -> None:
     if not newly:
         return
     entries = list(project._meta(ctx.project.dir).get("services_set_up") or [])
-    entries += [{"name": n, "at": state.now(), "run": ctx.run.id} for n in newly]
+    name = summary.facts(ctx.run.folder)["title"]
+    entries += [{"name": n, "at": state.now(), "run": ctx.run.id, "run_name": name} for n in newly]
     project._save_meta(ctx.project.dir, services_set_up=entries)
 
 

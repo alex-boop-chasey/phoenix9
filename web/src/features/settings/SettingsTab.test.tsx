@@ -172,3 +172,17 @@ test("section index has jump links", async () => {
     expect(within(nav).getByRole("link", { name: t })).toBeInTheDocument()
   }
 })
+
+test("set up so far shows the date and the build, and plain names for old entries", async () => {
+  const proj = baseRoutes()["GET /api/projects/demo-site"]
+  const entry = { name: "supabase", at: "2026-10-31T09:00:00Z", run: "r1", run_name: "Setup wizard" }
+  await setup("demo-site", { "GET /api/projects/demo-site": { ...proj, setup: { services_set_up: [entry] } } })
+  expect(screen.getByText(/Set up so far: Supabase · 31 October · by the “Setup wizard” build/)).toBeInTheDocument()
+})
+
+test("set up so far shows just the name for an old entry", async () => {
+  const proj = baseRoutes()["GET /api/projects/demo-site"]
+  const old = { name: "supabase", at: null, run: null, run_name: null }
+  await setup("demo-site", { "GET /api/projects/demo-site": { ...proj, setup: { services_set_up: [old] } } })
+  expect(screen.getByText(/Set up so far: Supabase$/)).toBeInTheDocument()
+})

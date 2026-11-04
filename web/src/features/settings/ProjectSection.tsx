@@ -10,7 +10,7 @@ import { PROFILE_LOOK, SERVICE_ICON } from "@/features/projects/OrderSheet"
 import { PROFILES, emptyForm, type FormValues } from "@/features/projects/formModel"
 import { sameValue } from "@/features/settings/dotted"
 import { useEditProject, useLibraryProfiles, useLibraryServices, useProject } from "@/lib/queries"
-import type { EditBody, Project } from "@/lib/types"
+import type { EditBody, Project, SetUpService } from "@/lib/types"
 
 const fromProject = (p: Project): FormValues => ({
   ...emptyForm, name: p.name, description: p.description, repo: p.repo, profile: p.profile, services: p.services,
@@ -36,6 +36,15 @@ export function SettingsRow({ id, label, labelFor, two = true, children }: {
       {children}
     </div>
   )
+}
+
+/** "Supabase · 31 October · by the “Setup wizard” build" per service; just the name when nothing more is known. */
+export function setUpLine(done: SetUpService[], titleOf: (n: string) => string): string {
+  if (!done.length) return "nothing yet"
+  return done.map((e) => {
+    const day = e.at && !Number.isNaN(Date.parse(e.at)) ? new Date(e.at).toLocaleDateString("en-GB", { day: "numeric", month: "long" }) : ""
+    return [titleOf(e.name), day, e.run_name ? `by the “${e.run_name}” build` : ""].filter(Boolean).join(" · ")
+  }).join(", ")
 }
 
 /** The sticky "Unsaved changes" bar with Discard and Save. */
@@ -161,7 +170,7 @@ export function ProjectSection({ name }: { name: string }) {
             <button type="button" className="btn btn-secondary btn-sm" aria-expanded={open === "services"} onClick={() => toggle("services")}>Change</button>
             <div className="sofar">
               <Icon name="check-circle" size="sm" className="text-ok" />
-              Set up so far: {saved.services.length ? saved.services.map(titleOf).join(", ") : "nothing yet"}
+              Set up so far: {setUpLine(project.data.setup?.services_set_up ?? [], titleOf)}
             </div>
           </div>
           {open === "services" && (

@@ -31,7 +31,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `needs_you`, `run`, `repo_url` like rows) | | Project row + `setup` `{kind, source, template, preset, merge, created}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `needs_you`, `run`, `repo_url` like rows) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
@@ -117,7 +117,7 @@ tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished`
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
-not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`.
+not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>`).
 
 **Global view** (`ops.app.global_view`): `values` (non-secret contents of `HOME/config/global.toml`),
 `github {connected, accounts}`, `default_models {<ai step>: {model, fallback_models}}`,

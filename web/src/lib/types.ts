@@ -110,6 +110,15 @@ export interface ProjectSetup {
   preset: string | null
   merge: string | null
   created: string | null
+  /** Services Service setup has wired; older projects have name only (the rest null). */
+  services_set_up?: SetUpService[]
+}
+
+export interface SetUpService {
+  name: string
+  at: string | null
+  run: string | null
+  run_name: string | null
 }
 
 export interface Project extends ProjectRow {
@@ -252,6 +261,8 @@ export interface RunDetail {
   title: string
   preset: string
   max_tries: number
+  /** The git branch of the run, e.g. phoenix/<run-id>. */
+  branch?: string
 }
 
 export type Overrides = Record<string, unknown>

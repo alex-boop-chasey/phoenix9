@@ -185,7 +185,7 @@ def _preview_plan(project: str, overrides: dict) -> dict:
 
 def detail(project: str, run_id: str) -> dict:
     """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries."""
-    from phoenix9 import summary
+    from phoenix9 import git as gitmod, summary
     common.project_dir(project)
     folder = _run_folder(run_id)
     if folder.parent.name != project:
@@ -208,4 +208,5 @@ def detail(project: str, run_id: str) -> dict:
         except settings.SettingsError:
             pass
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
-            "preset": facts["preset"], "max_tries": max_tries}
+            "preset": facts["preset"], "max_tries": max_tries,
+            "branch": gitmod.branch_name(run_id)}

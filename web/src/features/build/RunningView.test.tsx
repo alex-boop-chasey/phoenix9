@@ -198,3 +198,10 @@ test("header shows duration and cost from the builds list", async () => {
   expect(await within(aside).findByText("30 min")).toBeInTheDocument()
   expect(within(aside).getByText("$0.80")).toBeInTheDocument()
 })
+
+test("header shows the run's branch", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.getByText("phoenix/r-wait")).toBeInTheDocument()
+})

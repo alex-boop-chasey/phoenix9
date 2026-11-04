@@ -18,6 +18,11 @@ secret = false
 name = "SUPABASE_SERVICE_ROLE_KEY"
 secret = true
 
+[[account_settings]]
+name = "organisation"
+label = "Organisation"
+placeholder = "my-organisation"
+
 [proxy]
 upstream = "https://api.supabase.com"
 auth_header = "Authorization"

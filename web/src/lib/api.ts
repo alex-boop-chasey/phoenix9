@@ -1,5 +1,6 @@
 // The only place the web app talks to the server. Paths are relative to the page (path-prefix safe).
 import type {
+  DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
@@ -101,6 +102,9 @@ export const api = {
   githubRepos: () => get<GithubRepos>("github/repos"),
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),
+  globalServices: () => get<ServicesView>("global/services"),
+  doctor: (mode: "quick" | "full" = "quick") => get<DoctorResult>("doctor", { mode }),
+  updateHistory: () => get<{ history: UpdateHistoryRow[] }>("update/history"),
   keysAudit: () => get<KeysAudit>("keys/audit"),
   update: (refresh = false) => get<UpdateStatus>("update", { refresh: refresh ? 1 : undefined }),
   deploys: (name: string) => get<DeployStatus>(`projects/${e(name)}/deploys`),

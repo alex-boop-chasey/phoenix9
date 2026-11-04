@@ -14,7 +14,13 @@ FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
           Field("docs", str, default=""), Field("account_keys", list, default=[], list_of=str),
           Field("secrets_file", str, default=""),
           Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
-          Field("proxy", dict, default=None), Field("check", dict, default=None)]
+          Field("proxy", dict, default=None), Field("check", dict, default=None),
+          Field("account_settings", list, default=[], list_of=dict)]
+SETTING_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+SETTING_FIELDS = [Field("name", str, required=True), Field("label", str, required=True),
+                  Field("kind", str, default="text", choices=("text", "select")),
+                  Field("options", list, default=[], list_of=str), Field("default", str, default=""),
+                  Field("placeholder", str, default=""), Field("help", str, default="")]
 KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=True)]
 CHECK_FIELDS = [Field("method", str, required=True), Field("path", str, required=True),
                 Field("expect", list, default=[200], list_of=int)]
@@ -29,6 +35,22 @@ def _check_names(values: dict, where: str) -> list[str]:
             problems.append(f"{where}: host '{host}' must be a bare domain name like example.com "
                             "(no scheme, port, path or *)")
     return problems
+
+
+def _check_settings(values: dict, where: str, problems: list) -> list[dict]:
+    """The checked [[account_settings]] rows (plain, non-secret settings kept with the account)."""
+    rows = []
+    for item in values["account_settings"]:
+        row, bad = library.check_fields(item, SETTING_FIELDS, f"{where} account_settings")
+        problems += bad
+        if bad:
+            continue
+        if not SETTING_NAME.match(row["name"]):
+            problems.append(f"{where}: account setting '{row['name']}' must be lower_case_with_underscores")
+        if row["kind"] == "select" and not row["options"]:
+            problems.append(f"{where}: account setting '{row['name']}' is a select but lists no options")
+        rows.append(row)
+    return rows
 
 
 def _check_proxy(values: dict, where: str) -> list[str]:
@@ -66,6 +88,7 @@ def _parse(data: dict, folder, where: str):
             problems += bad
             keys.append(key)
         problems += _check_names(values, where) + _check_proxy(values, where)
+        values["account_settings"] = _check_settings(values, where, problems)
     values["project_keys"] = keys
     values["secrets_file"] = values["secrets_file"] or f"service-{values['name']}.env"
     return (None if problems else values), problems

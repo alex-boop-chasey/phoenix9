@@ -7,13 +7,14 @@ import secrets
 import threading
 import time
 import traceback
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, gates, github, keys, library, logs, projects, runs, services, settings, update
+from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, keys, library, logs, projects, runs, services, settings, update
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -229,6 +230,31 @@ def get_services_lib(req):
 def get_repos(req):
     """Reply with the GitHub repos Phoenix can see."""
     return github.repos()
+
+
+def get_global_services(req):
+    """Reply with the rows of Phoenix settings > Services (Claude, the library services, Telegram)."""
+    rows = services.list_global()
+    for row in rows:
+        row["endpoints"] = {"connect": f"services/{row['name']}/connect",
+                            "disconnect": f"services/{row['name']}/disconnect",
+                            "test": f"services/{row['name']}/test"}
+    return {"supported": True, "services": rows}
+
+
+def get_doctor(req):
+    """Run the health checks (?mode=quick by default, or full) and reply with the results."""
+    mode = req.query.get("mode") or "quick"
+    if mode not in ("quick", "full"):
+        raise BadRequest("'mode' should be quick or full.")
+    out = ops_doctor.run(mode=mode)
+    out["checked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return out
+
+
+def get_update_history(req):
+    """Reply with the updater's past installs and roll-backs, newest first."""
+    return {"history": update.history()}
 
 
 def get_global(req):
@@ -558,9 +584,28 @@ def post_service_connect(req, name):
     values = body_dict(req, "values")
     if not all(isinstance(v, str) for v in values.values()):
         raise BadRequest("'values' should map key names to text.")
+    extra = req.body.get("settings") or {}
+    if not isinstance(extra, dict):
+        raise BadRequest("'settings' should map setting names to text.")
     scrub.add_secrets(v for v in values.values() if v)
     with req.server.write_lock:
-        return services.connect(check_name(name), values, who=WHO)
+        return services.connect(check_name(name), values, who=WHO, settings_in=extra)
+
+
+def post_service_test(req, name):
+    """Try a service's key (the pasted one, else the saved one); nothing is saved."""
+    values = req.body.get("values") or {}
+    if not isinstance(values, dict) or not all(isinstance(v, str) for v in values.values()):
+        raise BadRequest("'values' should map key names to text.")
+    scrub.add_secrets(v for v in values.values() if v)
+    return services.test(check_name(name), values, who=WHO)
+
+
+def post_global_models(req):
+    """Save Phoenix's default models: {steps: {step: {model, fallback_models}}}."""
+    steps = body_dict(req, "steps")
+    with req.server.write_lock:
+        return app.set_default_models(steps, who=WHO)
 
 
 def post_service_disconnect(req, name):
@@ -599,6 +644,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/library/services", get_services_lib),
     ("GET", r"/api/github/repos", get_repos),
     ("GET", r"/api/global", get_global),
+    ("GET", r"/api/global/services", get_global_services),
+    ("GET", r"/api/doctor", get_doctor),
+    ("GET", r"/api/update/history", get_update_history),
     ("GET", r"/api/services", get_services),
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
@@ -611,6 +659,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
+    ("POST", rf"/api/services/{NAME}/test", post_service_test),
+    ("POST", r"/api/global/models", post_global_models),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),

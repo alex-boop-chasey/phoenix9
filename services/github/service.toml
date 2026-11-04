@@ -8,6 +8,11 @@ secrets_file = "github.env"
 # No hosts: GitHub account calls go only through the key proxy, never straight from a step container.
 hosts = []
 
+[[account_settings]]
+name = "default_owner"
+label = "Default owner for new repos"
+placeholder = "your-github-name"
+
 [proxy]
 upstream = "https://api.github.com"
 auth_header = "Authorization"

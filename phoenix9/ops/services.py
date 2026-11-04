@@ -17,13 +17,50 @@ def _guard(fn, *args):
         raise common.OpsError(str(err)) from None
 
 
+# Phoenix's own account settings that look like services in the dashboard (no proxy, no key check).
+BUILTIN = {
+    "claude": {"name": "claude", "title": "Claude", "description": "The AI models every build and chat uses.",
+               "support": "store-and-wire", "account_keys": ["CLAUDE_CODE_OAUTH_TOKEN"],
+               "secrets_file": "claude.env", "project_keys": [], "hosts": [], "proxy": None, "check": None,
+               "account_settings": []},
+    "telegram": {"name": "telegram", "title": "Telegram",
+                 "description": "Messages you when a build finishes or needs you.",
+                 "support": "store-and-wire", "account_keys": ["TELEGRAM_BOT_TOKEN"],
+                 "secrets_file": "telegram.env", "project_keys": [], "hosts": [], "proxy": None, "check": None,
+                 "account_settings": [{"name": "chat_id", "label": "Chat ID", "kind": "text", "options": [],
+                                       "default": "", "placeholder": "", "help": ""}]},
+}
+
+
 def _service(name: str) -> dict:
-    """One library service; OpsError for an unknown name."""
-    svc = services.get(name)
+    """One library service (or Claude / Telegram); OpsError for an unknown name."""
+    svc = BUILTIN.get(name) or services.get(name)
     if svc is None:
-        known = ", ".join(sorted(services.load_library())) or "none"
+        known = ", ".join(sorted([*services.load_library(), *BUILTIN])) or "none"
         raise common.OpsError(f"There is no service called '{name}'. Available: {known}.")
     return svc
+
+
+def _is_connected(svc: dict, entry: dict) -> bool:
+    """Claude and Telegram count as connected when their key file exists; the rest by the registry."""
+    if svc["name"] in BUILTIN:
+        return (paths.secrets() / svc["secrets_file"]).is_file()
+    return bool(entry.get("connected", False))
+
+
+def _ends_in(svc: dict) -> dict:
+    """{key name: '…abcd'} for each saved account key (the last four characters only; never the value)."""
+    try:
+        saved = keys.read_secret_file(svc["secrets_file"])
+    except keys.KeyError_:
+        return {}
+    return {k: "…" + v[-4:] for k, v in saved.items() if v and k in svc["account_keys"]}
+
+
+def _setting_rows(svc: dict, entry: dict) -> list[dict]:
+    """The service's plain account settings with their saved (or default) values."""
+    saved = entry.get("settings") if isinstance(entry.get("settings"), dict) else {}
+    return [{**s, "value": saved.get(s["name"], s["default"])} for s in svc["account_settings"]]
 
 
 def _keys_only(svc: dict) -> bool:
@@ -47,8 +84,12 @@ def _row(svc: dict, registry: dict) -> dict:
     """One list row (names and flags only)."""
     entry = registry.get(svc["name"], {})
     only = _keys_only(svc)
+    connected = True if only else _is_connected(svc, entry)
     return {"name": svc["name"], "title": svc["title"], "description": svc["description"],
-            "support": svc["support"], "connected": True if only else bool(entry.get("connected", False)),
+            "support": svc["support"], "connected": connected,
+            "can_test": bool(svc["check"]),
+            "ends_in": {} if only or not connected else _ends_in(svc),
+            "account_settings": _setting_rows(svc, entry),
             "note": "no account connection needed" if only else "",
             "account_keys": list(svc["account_keys"]),
             "checked": "not checked" if only else entry.get("checked", "not checked"),
@@ -61,6 +102,14 @@ def list_() -> list[dict]:
     """Every library service with its connection state (never a value)."""
     registry = services.read_registry()
     return [_row(s, registry) for _, s in sorted(services.load_library().items())]
+
+
+def list_global() -> list[dict]:
+    """The rows for Phoenix settings: Claude first, the library services, then Telegram."""
+    registry = services.read_registry()
+    rows = [_row(BUILTIN["claude"], registry)]
+    rows += [_row(s, registry) for _, s in sorted(services.load_library().items())]
+    return rows + [_row(BUILTIN["telegram"], registry)]
 
 
 def _check(svc: dict, key: str, adapters) -> str:
@@ -82,24 +131,59 @@ def _check(svc: dict, key: str, adapters) -> str:
         handle.stop()
 
 
-def connect(name: str, values: dict, *, who: str, check: bool = True) -> dict:
-    """Save a service's account keys, then (unless check is False) try them; a failed check keeps the keys."""
+def _check_settings(svc: dict, settings_in: dict) -> dict:
+    """The plain account settings to save; OpsError for an unknown name or a choice not on the list."""
+    known = {x["name"]: x for x in svc["account_settings"]}
+    out = {}
+    for key, value in settings_in.items():
+        if key not in known:
+            raise common.OpsError(f"{svc['title']} has no setting called '{key}'.")
+        if not isinstance(value, str):
+            raise common.OpsError(f"The {known[key]['label']} setting should be text.")
+        if known[key]["kind"] == "select" and value not in known[key]["options"]:
+            raise common.OpsError(f"{known[key]['label']} should be one of: {', '.join(known[key]['options'])}.")
+        out[key] = value.strip()
+    return out
+
+
+def _check_values(svc: dict, values: dict, was_connected: bool) -> None:
+    """The account keys must be exactly the wanted ones (a connected service may send only the ones it replaces)."""
+    want, got = set(svc["account_keys"]), {k for k, v in values.items() if v or k not in svc["account_keys"]}
+    if was_connected and got <= want:
+        return
+    parts = []
+    if want - got:
+        parts.append("missing " + ", ".join(sorted(want - got)))
+    if got - want:
+        parts.append("not wanted " + ", ".join(sorted(got - want)))
+    if parts:
+        raise common.OpsError(f"{svc['title']} needs exactly {', '.join(svc['account_keys'])} ({'; '.join(parts)}).")
+
+
+def connect(name: str, values: dict, *, who: str, check: bool = True, settings_in: dict | None = None) -> dict:
+    """Save a service's account keys and settings, then (unless check is False) try them; a failed check keeps them."""
     svc = _service(name)
     if _keys_only(svc):
         raise common.OpsError(f"{svc['title']} needs no account connection; add its keys per project.")
-    want, got = set(svc["account_keys"]), set(values)
-    if want != got:
-        parts = []
-        if want - got:
-            parts.append("missing " + ", ".join(sorted(want - got)))
-        if got - want:
-            parts.append("not wanted " + ", ".join(sorted(got - want)))
-        raise common.OpsError(f"{svc['title']} needs exactly {', '.join(svc['account_keys'])} ({'; '.join(parts)}).")
-    _guard(keys.write_secret_file, svc["secrets_file"], dict(values))
-    result = _check(svc, values[svc["proxy"]["key"]], common.make_adapters()) if check else "not checked"
     registry = services.read_registry()
-    registry[name] = {"connected": True, "connected_at": _now(), "account_keys": list(svc["account_keys"]),
-                      "checked": result, "checked_at": _now() if check else ""}
+    was = _is_connected(svc, registry.get(name, {}))
+    _check_values(svc, values, was)
+    extra = _check_settings(svc, settings_in or {})
+    values = {k: v for k, v in values.items() if v} if was else dict(values)
+    if values:
+        saved = _guard(keys.read_secret_file, svc["secrets_file"]) if was else {}
+        _guard(keys.write_secret_file, svc["secrets_file"], {**saved, **values})
+    key_name = (svc["proxy"] or {}).get("key")
+    if check and svc["check"]:
+        key = (values or _guard(keys.read_secret_file, svc["secrets_file"])).get(key_name, "")
+        result = _check(svc, key, common.make_adapters())
+    else:
+        result = "not checked"
+    old = registry.get(name, {})
+    registry[name] = {"connected": True, "connected_at": old.get("connected_at") or _now(),
+                      "account_keys": list(svc["account_keys"]), "checked": result,
+                      "checked_at": _now() if result != "not checked" else "",
+                      "settings": {**(old.get("settings") or {}), **extra}}
     services.write_registry(registry)
     common.record_command(who, f"services connect {name}")
     if result == "ok":
@@ -109,6 +193,25 @@ def connect(name: str, values: dict, *, who: str, check: bool = True) -> dict:
     else:
         message = f"{svc['title']}: saved, but {svc['title']} refused it: {result.removeprefix('failed: ')}."
     return {"name": name, "connected": True, "checked": result, "message": message}
+
+
+def test(name: str, values: dict | None = None, *, who: str) -> dict:
+    """Try a service's key (a pasted one, else the saved one) without saving anything; {ok, message}."""
+    svc = _service(name)
+    if not svc["check"]:
+        raise common.OpsError(f"{svc['title']} has no connection test; its key is only saved.")
+    values = {k: v for k, v in (values or {}).items() if v}
+    key_name = svc["proxy"]["key"]
+    key = values.get(key_name) or (_guard(keys.read_secret_file, svc["secrets_file"])
+                                   if (paths.secrets() / svc["secrets_file"]).is_file() else {}).get(key_name, "")
+    if not key:
+        raise common.OpsError(f"Paste the {key_name} first, then test.")
+    result = _check(svc, key, common.make_adapters())
+    common.record_command(who, f"services test {name}")
+    ok = result == "ok"
+    message = (f"{svc['title']}: the key works." if ok
+               else f"{svc['title']} refused the key: {result.removeprefix('failed: ')}.")
+    return {"name": name, "ok": ok, "message": message}
 
 
 def disconnect(name: str, *, who: str, yes: bool = False) -> dict:
@@ -142,7 +245,7 @@ def recipes() -> list[dict]:
 def proxy_spec_for(name: str):
     """(ProxySpec, key) for a connected store-and-wire service; plain error when not connected."""
     svc = _service(name)
-    if _keys_only(svc):
+    if _keys_only(svc) or not svc["proxy"]:
         raise common.OpsError(f"{svc['title']} needs no account connection, so it has no proxy.")
     if not services.read_registry().get(name, {}).get("connected"):
         raise common.OpsError(f"{svc['title']} is not connected. Run: phoenix services connect {name}")

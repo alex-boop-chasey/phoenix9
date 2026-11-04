@@ -84,6 +84,10 @@ export const useLogs = (project: string, filter: { run?: string; task?: number; 
 export const useGlobal = () => useQuery({ queryKey: keys.global(), queryFn: api.global })
 export const useKeysAudit = (enabled = true) =>
   useQuery({ queryKey: ["keys-audit"], queryFn: api.keysAudit, enabled })
+export const useGlobalServices = () => useQuery({ queryKey: ["global-services"], queryFn: api.globalServices })
+export const useDoctor = () =>
+  useQuery({ queryKey: ["doctor"], queryFn: () => api.doctor("quick"), staleTime: 5 * 60_000 })
+export const useUpdateHistory = () => useQuery({ queryKey: ["update-history"], queryFn: api.updateHistory })
 export const useServices = () => useQuery({ queryKey: keys.services(), queryFn: api.services })
 export const useGithubRepos = (enabled = true) =>
   useQuery({ queryKey: keys.github(), queryFn: api.githubRepos, enabled })

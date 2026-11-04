@@ -14,6 +14,12 @@ secret = true
 name = "RESEND_FROM"
 secret = false
 
+[[account_settings]]
+name = "send_from"
+label = "Send from"
+placeholder = "hello@yourdomain.com.au"
+help = "The sender address new projects use for email."
+
 [proxy]
 upstream = "https://api.resend.com"
 auth_header = "Authorization"

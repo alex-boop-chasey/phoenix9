@@ -31,9 +31,9 @@ describe("UpdatePanel", () => {
     mockApi({ "GET /api/info": supportedInfo, "GET /api/update": status() })
     renderWithProviders(<UpdatePanel />)
     expect(await screen.findByRole("button", { name: "Install update v9.2" })).toBeEnabled()
-    expect(screen.getByText("Installed: v9.1")).toBeInTheDocument()
-    expect(screen.getByText("Previous: v9.0")).toBeInTheDocument()
-    expect(screen.getByText("Newest: v9.2")).toBeInTheDocument()
+    expect(screen.getByText("v9.1")).toBeInTheDocument()
+    expect(screen.getByText("Previous")).toBeInTheDocument()
+    expect(screen.getByText("Newest")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Roll back to v9.0" })).toBeEnabled()
   })
 

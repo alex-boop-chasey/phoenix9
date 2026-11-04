@@ -4,9 +4,8 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Icon } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
 import { api, post } from "@/lib/api"
 import { useInfo, useUpdate } from "@/lib/queries"
 import type { UpdateStatus } from "@/lib/types"
@@ -116,48 +115,52 @@ export function UpdatePanel({ bare = false }: { bare?: boolean }) {
   const endpoints = info?.update.endpoints
 
   const body = !info || (supported && !st) ? (
-    <p className="text-sm text-muted-foreground">Loading…</p>
+    <p className="small">Loading…</p>
   ) : !supported || !st ? (
-    <p className="text-sm">
+    <p className="small">
       Installed: v{info.update.installed || info.version}. Installing updates from the dashboard comes in a later update.
     </p>
   ) : (
-    <div className="flex flex-col gap-3 text-sm">
-      <div className="flex flex-wrap gap-x-6 gap-y-1">
-        <span>Installed: {st.installed?.tag ?? "not installed yet"}</span>
-        <span>Previous: {st.previous?.tag ?? "none"}</span>
-        <span>Newest: {st.newest ?? "unknown"}</span>
+    <div className="stackg">
+      <div className="trio">
+        <div><span>Installed</span><b>{st.installed?.tag ?? "not installed yet"}</b></div>
+        <div><span>Previous</span><b>{st.previous?.tag ?? "none"}</b></div>
+        <div className={st.update_available ? "new" : ""}><span>Newest</span><b>{st.newest ?? "unknown"}</b></div>
       </div>
-      {wait && wait.result === "" && <p role="status">{wait.text}</p>}
+      {wait && wait.result === "" && <p role="status" className="row"><Wheel />{wait.text}</p>}
       {wait && wait.result !== "" && (
-        wait.failed ? (
-          <Alert variant="destructive"><AlertDescription>{wait.result}</AlertDescription></Alert>
-        ) : (
-          <p role="status">{wait.result}</p>
-        )
+        wait.failed
+          ? <p role="alert" className="cfgerr"><Icon name="warning-circle" size="sm" />{wait.result}</p>
+          : <p role="status" className="light ok"><i></i>{wait.result}</p>
       )}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="row">
         {endpoints?.install && (
-          <Button disabled={installOff} onClick={() => setConfirm("install")}>
-            Install update {st.newest ?? ""}
-          </Button>
+          <button type="button" className="btn btn-primary" disabled={installOff} onClick={() => setConfirm("install")}>
+            <Icon name="arrow-circle-up" />Install update {st.newest ?? ""}
+          </button>
         )}
         {endpoints?.rollback && (
-          <Button variant="outline" disabled={!st.can_rollback || waiting || busy} onClick={() => setConfirm("rollback")}>
-            Roll back{st.previous ? ` to ${st.previous.tag}` : ""}
-          </Button>
+          <button type="button" className="btn btn-danger" disabled={!st.can_rollback || waiting || busy} onClick={() => setConfirm("rollback")}>
+            <Icon name="arrow-counter-clockwise" />Roll back{st.previous ? ` to ${st.previous.tag}` : ""}
+          </button>
         )}
-        <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => void check()}>
-          Check for updates
+      </div>
+      <div className="row">
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void check()}>
+          <Icon name="arrows-clockwise" />Check for updates
         </button>
       </div>
-      {endpoints?.install && noInstallWhy && <p className="text-muted-foreground">{noInstallWhy}</p>}
+      {endpoints?.install && noInstallWhy && <p className="small">{noInstallWhy}</p>}
       <details>
-        <summary className="cursor-pointer">Last update log</summary>
-        <pre className="mt-2 max-h-72 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">
+        <summary className="small" style={{ cursor: "pointer" }}>Last update log</summary>
+        <pre className="mono small" style={{ maxHeight: 288, overflow: "auto", whiteSpace: "pre-wrap", marginTop: 8 }}>
           {st.log_tail.length ? st.log_tail.join("\n") : "Nothing logged yet."}
         </pre>
       </details>
+      <div className="blk-info">
+        <Icon name="info" />
+        <span>Installing waits for any build step that is running, then the dashboard is down for a few seconds while the update is swapped in.</span>
+      </div>
       <ConfirmDialog
         open={confirm !== null}
         onOpenChange={(open) => !open && setConfirm(null)}
@@ -176,9 +179,12 @@ export function UpdatePanel({ bare = false }: { bare?: boolean }) {
 
   if (bare) return body
   return (
-    <Card>
-      <CardHeader><CardTitle>Phoenix updates</CardTitle></CardHeader>
-      <CardContent>{body}</CardContent>
-    </Card>
+    <section className="board" aria-labelledby="g-u" id="updBoard">
+      <div className="board-h">
+        <h2 className="h2" id="g-u">Phoenix updates</h2>
+        {st?.update_available && <span className="sp"><span className="light lrun"><i></i>{st.newest} available</span></span>}
+      </div>
+      <div className="board-b">{body}</div>
+    </section>
   )
 }

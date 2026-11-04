@@ -96,8 +96,9 @@ web/                           React app (phase 3)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
 CLI groups (`phoenix <group> --help`; each writes a `command` event when it changes something):
   run gate settings steps profiles presets project doctor api   phases 1-3
-  services list|connect|disconnect|recipes    account services and their keys (section 4.6)
+  services list|connect|test|disconnect|recipes   account services and their keys (section 4.6)
   keys audit                                  which keys exist, where used, problems (never a value)
+  models list|set                             Phoenix's default models per AI step (global.toml [models])
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
   images build                                build the step images, label `phoenix9.commit`
@@ -310,7 +311,20 @@ path = "/v1/projects"             # optional per-rule: upstream = "https://other
 method = "GET"
 path = "/v1/projects"             # must match one proxy.allow rule
 expect = [200]
+
+[[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
+name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]
+label = "Organisation"
+kind = "text"                     # "text" (default) | "select" (then `options = [...]`, optional `default`)
+placeholder = "my-organisation"   # optional; also optional `help`
 ```
+
+Phoenix settings also lists **Claude** (`claude.env`, `CLAUDE_CODE_OAUTH_TOKEN`) and **Telegram**
+(`telegram.env`, `TELEGRAM_BOT_TOKEN`, setting `chat_id`) as built-in rows (`ops/services.py BUILTIN`); they
+have no library folder, proxy or `[check]`. Saved secrets are shown as their last four characters only.
+`global.toml` may hold `[models.<step>]` (`model`, `fallback_models`): Phoenix's default models, applied
+under presets, profiles and project settings (`settings.global_models`). The updater also appends one JSON
+line per finished install or roll-back to `HOME/update/history.jsonl` (`at, action, tag, result, reason, who`).
 
 Rules (checked by `phoenix9/services.py`; a broken folder is reported and skipped, never a crash):
 name = folder name; `support` is one of the two values; `account_keys` match `^[A-Z][A-Z0-9_]*$`;

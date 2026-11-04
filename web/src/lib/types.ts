@@ -401,10 +401,33 @@ export interface Service {
   project_keys: string[]
 }
 
+export interface DefaultModel {
+  model: string
+  fallback_models: string[]
+  title?: string
+  /** What the library itself would use (before Phoenix's saved defaults). */
+  library?: { model: string; fallback_models: string[] }
+}
+
+export interface AccountSetting {
+  name: string
+  label: string
+  kind: "text" | "select"
+  options: string[]
+  placeholder: string
+  help: string
+  value: string
+}
+
+export interface DoctorCheck { name: string; ok: boolean; detail: string; fix: string }
+export interface DoctorResult { ok: boolean; checks: DoctorCheck[]; checked_at: string }
+
+export interface UpdateHistoryRow { at: string; action: string; tag: string | null; result: string; reason: string; who: string }
+
 export interface GlobalView {
   values: Record<string, unknown>
   github: { connected: boolean; accounts: string[] }
-  default_models: Record<string, { model: string; fallback_models: string[] }>
+  default_models: Record<string, DefaultModel>
   telegram: { connected: boolean }
   supported: { services: boolean; update: boolean; secrets: boolean; github_connect?: boolean }
   /** Paths (under api/) the server offers for global writes. */
@@ -425,7 +448,11 @@ export interface ServiceStatus {
   checked_at?: string
   used_by?: string[]
   /** Paths (under api/) for this service: connect and disconnect. */
-  endpoints?: { connect?: string; disconnect?: string }
+  endpoints?: { connect?: string; disconnect?: string; test?: string }
+  /** "…abcd" for each saved account key (never the value). */
+  ends_in?: Record<string, string>
+  account_settings?: AccountSetting[]
+  can_test?: boolean
 }
 
 export interface ConnectResult {

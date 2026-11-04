@@ -19,6 +19,11 @@ secret = false
 name = "SENTRY_PROJECT"
 secret = false
 
+[[account_settings]]
+name = "organisation"
+label = "Organisation slug"
+placeholder = "my-organisation"
+
 [proxy]
 upstream = "https://sentry.io/api/0"
 auth_header = "Authorization"

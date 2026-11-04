@@ -75,12 +75,12 @@ test("build save sends typed values (numbers, booleans, lists)", async () => {
   await userEvent.clear(screen.getByLabelText("Tries per task"))
   await userEvent.type(screen.getByLabelText("Tries per task"), "5")
   await userEvent.click(screen.getByRole("button", { name: "Builder settings" }))
-  await userEvent.type(screen.getByLabelText("Tools denied"), "Bash, Write")
+  await userEvent.click(await screen.findByRole("switch", { name: "Run commands" }))
   await userEvent.click(screen.getByRole("switch", { name: "Advisor on" }))
   await userEvent.click(screen.getByRole("button", { name: "Save build settings" }))
   await waitFor(() => expect(posts(calls)).toHaveLength(1))
   expect(posts(calls)[0]!.body).toEqual({
-    set: { max_tries: 5, "steps.builder.tools_denied": ["Bash", "Write"], "steps.builder.advisor.on": true },
+    set: { max_tries: 5, "steps.builder.tools_denied": ["Bash"], "steps.builder.advisor.on": true },
   })
 })
 

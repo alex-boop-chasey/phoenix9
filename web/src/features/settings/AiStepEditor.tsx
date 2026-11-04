@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { getPath, listText, parseList } from "@/features/settings/dotted"
-import type { SettingSource } from "@/lib/types"
+import type { LibraryTool, SettingSource } from "@/lib/types"
+import { switchTool, toolState, usesDefaults } from "@/lib/tools"
 
 const WHEN = [
   { value: "blocked", label: "Blocked" },
@@ -32,12 +33,14 @@ export interface AiStepEditorProps {
   onChange: (key: string, value: unknown) => void
   /** Known model names for the suggestion list. */
   models?: string[]
+  /** The supported tools (from the library); when given, tools are switches instead of comma lists. */
+  toolList?: LibraryTool[]
   readOnly?: boolean
 }
 
 /** One expandable row with all the AI settings of a step. */
 export function AiStepEditor(props: AiStepEditorProps) {
-  const { step, title, effective, source, changes, onChange, models = [], readOnly = false } = props
+  const { step, title, effective, source, changes, onChange, models = [], toolList, readOnly = false } = props
   const [open, setOpen] = useState(false)
   const drafts = useDrafts()
   const base = `steps.${step}`
@@ -91,6 +94,35 @@ export function AiStepEditor(props: AiStepEditorProps) {
     )
   }
 
+  const toolSwitches = (list: LibraryTool[]) => {
+    const asList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
+    const lists = { tools: asList(current("tools")), denied: asList(current("tools_denied")) }
+    return (
+      <fieldset className="space-y-1 md:col-span-2" aria-label="Tools it may use">
+        <legend className="text-sm font-medium">Tools it may use</legend>
+        {usesDefaults(lists) && <span className="block text-xs text-muted-foreground">Using this step's default tools. Switch one off to deny it.</span>}
+        {list.map((t) => (
+          <div key={t.name} className="flex items-center gap-2">
+            <span className="flex min-h-11 min-w-11 items-center justify-center">
+              <Switch
+                id={id(`tool-${t.name}`)} aria-label={t.label} disabled={readOnly}
+                checked={toolState(lists, t.name) !== "off"}
+                onCheckedChange={(on) => {
+                  const next = switchTool(lists, t.name, on)
+                  set("tools", next.tools)
+                  set("tools_denied", next.denied)
+                }}
+              />
+            </span>
+            <Label htmlFor={id(`tool-${t.name}`)} className="font-normal">{t.label}</Label>
+            <span className="text-xs text-muted-foreground">{t.help}</span>
+          </div>
+        ))}
+        {from("tools")}
+      </fieldset>
+    )
+  }
+
   const advisorOn = current("advisor.on")
   const when = (current("advisor.when") ?? getPath(effective, "advisor.when") ?? []) as string[]
   const claudeMd = current("claude_md")
@@ -118,8 +150,7 @@ export function AiStepEditor(props: AiStepEditorProps) {
             {from("model")}
           </div>
           {listField("fallback_models", "Fallback models")}
-          {listField("tools", "Tools")}
-          {listField("tools_denied", "Tools denied")}
+          {toolList ? toolSwitches(toolList) : <>{listField("tools", "Tools")}{listField("tools_denied", "Tools denied")}</>}
           {listField("mcp_servers", "MCP servers")}
           {listField("skills", "Skills")}
           <div className="space-y-1">

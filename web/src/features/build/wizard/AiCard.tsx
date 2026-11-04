@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button"
 import type { PlanStep } from "@/lib/types"
 
 import { SwitchRow } from "./Choice"
-import { TOOLS, editList } from "./model"
+import { useLibraryTools } from "@/lib/queries"
+import { switchTool, toolState, usesDefaults } from "@/lib/tools"
+
+import { editList } from "./model"
 
 /** Models offered when the presets name none. */
 const KNOWN_MODELS = ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]
@@ -33,7 +36,8 @@ export function AiCard({ step, preset, edits, models, onEdit }: {
   const value = (k: string): unknown => (key(k) in edits ? edits[key(k)] : preset[k])
   const model = String(value("model") ?? "")
   const fallbacks = asList(value("fallback_models"))
-  const tools = asList(value("tools"))
+  const lists = { tools: asList(value("tools")), denied: asList(value("tools_denied")) }
+  const library = useLibraryTools().data?.tools ?? []
   const edited = Object.keys(edits).some((k) => k.startsWith(`steps.${step.name}.`))
   const choices = modelChoices([model], fallbacks, models)
   const setList = (k: string, list: string[]) => onEdit(key(k), list)
@@ -98,11 +102,16 @@ export function AiCard({ step, preset, edits, models, onEdit }: {
             <p className="help">Tried in this order if the first one is unavailable.</p>
           </div>
           <span className="lbl">Tools it may use</span>
+          {usesDefaults(lists) && <p className="help">Using this step's default tools. Switch one off to deny it.</p>}
           <div className="rail choices">
-            {TOOLS.map(([label, tool]) => (
+            {library.map((t) => (
               <SwitchRow
-                key={tool} id={`${uid}-tool-${tool}`} label={label} checked={tools.includes(tool)}
-                onChange={(on) => setList("tools", on ? [...tools, tool] : tools.filter((t) => t !== tool))}
+                key={t.name} id={`${uid}-tool-${t.name}`} label={t.label} help={t.help} checked={toolState(lists, t.name) !== "off"}
+                onChange={(on) => {
+                  const next = switchTool(lists, t.name, on)
+                  setList("tools", next.tools)
+                  setList("tools_denied", next.denied)
+                }}
               />
             ))}
           </div>

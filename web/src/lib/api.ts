@@ -3,7 +3,7 @@ import type {
   DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
+  Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult, ChatStartResult,
 } from "@/lib/types"
 
@@ -100,6 +100,7 @@ export const api = {
   libraryPresets: () => get<{ presets: Preset[] }>("library/presets"),
   libraryTemplates: () => get<Template[]>("library/templates"),
   libraryServices: () => get<{ services: Service[]; problems: string[] }>("library/services"),
+  libraryTools: () => get<{ tools: LibraryTool[] }>("library/tools"),
   githubRepos: () => get<GithubRepos>("github/repos"),
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),

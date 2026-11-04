@@ -161,6 +161,8 @@ def test_library_endpoints(api):
     assert "presets" in api("/api/library/presets")[1]["data"]
     assert isinstance(api("/api/library/templates")[1]["data"], list)
     assert "services" in api("/api/library/services")[1]["data"]
+    names = [t["name"] for t in api("/api/library/tools")[1]["data"]["tools"]]
+    assert names[:3] == ["Read", "Edit", "Write"] and "Bash" in names
     assert "supported" in api("/api/services")[1]["data"]
     assert "values" in api("/api/global")[1]["data"]
     assert "connected" in api("/api/github/repos")[1]["data"]

@@ -10,7 +10,7 @@ import { AiStepEditor } from "@/features/settings/AiStepEditor"
 import { ExplainDialog } from "@/features/settings/ExplainDialog"
 import { StepToggleList } from "@/features/settings/StepToggleList"
 import { getPath, sameValue } from "@/features/settings/dotted"
-import { useLibraryPresets, usePlanRows, useSetPreset, useSetSettings, useSettings } from "@/lib/queries"
+import { useLibraryPresets, useLibraryTools, usePlanRows, useSetPreset, useSetSettings, useSettings } from "@/lib/queries"
 import type { PlanStep } from "@/lib/types"
 
 export const ON_FAILURE = [
@@ -53,6 +53,7 @@ function knownModels(values: Record<string, unknown>): string[] {
 /** The build settings form with its own Save. */
 export function BuildSection({ name }: { name: string }) {
   const settings = useSettings(name)
+  const toolList = useLibraryTools().data?.tools
   const plan = usePlanRows(name)
   const presets = useLibraryPresets()
   const save = useSetSettings(name)
@@ -105,7 +106,7 @@ export function BuildSection({ name }: { name: string }) {
   const aiEditor = (s: PlanStep) =>
     s.kind === "ai" ? (
       <AiStepEditor
-        step={s.name} title={s.title} models={models} source={source}
+        step={s.name} title={s.title} models={models} toolList={toolList} source={source}
         effective={(getPath(values, `steps.${s.name}`) ?? {}) as Record<string, unknown>}
         changes={changes} onChange={set}
       />

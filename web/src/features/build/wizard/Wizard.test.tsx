@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useLocation } from "react-router"
 
+import { libraryToolsData } from "@/test/settingsFixtures"
 import { runDetail } from "@/test/buildFixtures"
 import { mockApi, type MockRequest } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -19,6 +20,7 @@ const routes = (over: Record<string, unknown> = {}) => ({
   [`GET /api/projects/${P}/settings`]: wizardSettings(),
   "GET /api/library/presets": { presets: wizardPresets },
   "GET /api/library/steps": { steps: wizardSteps, problems: [] },
+  "GET /api/library/tools": libraryToolsData,
   [`GET /api/projects/${P}/specs`]: wizardSpecs,
   [`POST /api/projects/${P}/plan`]: (req: MockRequest) => wizardPlan((req.body as { overrides: Record<string, unknown> }).overrides),
   [`GET /api/projects/${P}/runs`]: [],
@@ -163,8 +165,11 @@ test("models slide: one card per AI step that is on, opened by Model and tools",
   await userEvent.click(builder.getByRole("button", { name: "Move fallback 2 up" }))
   await userEvent.click(builder.getByRole("button", { name: "Remove fallback 1" }))
   expect(builder.queryByLabelText("Fallback model 2")).toBeNull()
-  await userEvent.click(builder.getByRole("switch", { name: "Web search" }))
-  expect(builder.getByRole("switch", { name: "Web search" })).toBeChecked()
+  expect(builder.getByText(/default tools/)).toBeInTheDocument()
+  expect(await builder.findByRole("switch", { name: "Search the web" })).toBeChecked()
+  await userEvent.click(builder.getByRole("switch", { name: "Search the web" }))
+  expect(builder.getByRole("switch", { name: "Search the web" })).not.toBeChecked()
+  expect(builder.queryByText(/default tools/)).toBeNull()
   await userEvent.clear(builder.getByLabelText("Turn limit"))
   await userEvent.type(builder.getByLabelText("Turn limit"), "99")
   await userEvent.click(builder.getByRole("button", { name: "Close" }))

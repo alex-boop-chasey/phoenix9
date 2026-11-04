@@ -9,6 +9,15 @@ function step(over: Partial<PlanStep> & { name: string }): PlanStep {
   }
 }
 
+export const libraryToolsData = {
+  tools: [
+    { name: "Read", label: "Read files", help: "Look at files in the project." },
+    { name: "Edit", label: "Edit files", help: "Change parts of existing files." },
+    { name: "Bash", label: "Run commands", help: "Run shell commands inside the step's container." },
+    { name: "WebSearch", label: "Search the web", help: "Search the internet." },
+  ],
+}
+
 export const planSteps: PlanStep[] = [
   step({ name: "builder", title: "Builder", order: 30, kind: "ai", default: "always" }),
   step({ name: "plan-check", title: "Plan check", group: "run-start", order: 10, kind: "gate" }),
@@ -79,6 +88,7 @@ export const baseRoutes = (name = "demo-site") => ({
   [`GET /api/projects/${name}/keys`]: [],
   "GET /api/library/presets": presetsData,
   "GET /api/library/steps": libraryStepsData,
+  "GET /api/library/tools": libraryToolsData,
   "GET /api/library/services": { services: [{ name: "supabase", title: "Supabase", project_keys: [] }], problems: [] },
   "GET /api/library/templates": [],
   "GET /api/info": { version: "0.9.0", update: { supported: false, installed: "0.9.0", newest: "0.9.0", available: false, can_install: false, reason: "" }, github: { connected: true, accounts: ["rebirth-wd"] }, services: { supported: false } },

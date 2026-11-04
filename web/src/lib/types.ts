@@ -414,6 +414,13 @@ export interface ServiceKey {
   secret: boolean
 }
 
+/** A Claude Code tool a step may use, with a plain label and a one-line explanation. */
+export interface LibraryTool {
+  name: string
+  label: string
+  help: string
+}
+
 export interface Service {
   name: string
   title: string

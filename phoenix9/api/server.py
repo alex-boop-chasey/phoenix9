@@ -227,6 +227,11 @@ def get_services_lib(req):
     return library.services()
 
 
+def get_tools_lib(req):
+    """Reply with the tools a step may use."""
+    return library.tools()
+
+
 def get_repos(req):
     """Reply with the GitHub repos Phoenix can see."""
     return github.repos()
@@ -648,6 +653,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/library/presets", get_presets),
     ("GET", r"/api/library/templates", get_templates),
     ("GET", r"/api/library/services", get_services_lib),
+    ("GET", r"/api/library/tools", get_tools_lib),
     ("GET", r"/api/github/repos", get_repos),
     ("GET", r"/api/global", get_global),
     ("GET", r"/api/global/services", get_global_services),

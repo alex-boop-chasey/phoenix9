@@ -344,8 +344,3 @@ export function editList(list: string[], op: { add: string } | { up: number } | 
   ;[out[i], out[j]] = [out[j]!, out[i]!]
   return out
 }
-
-/** The tools an AI step may use, as the card shows them (label -> tool name). */
-export const TOOLS: [label: string, tool: string][] = [
-  ["Read files", "Read"], ["Edit files", "Edit"], ["Run commands", "Bash"], ["Web search", "WebSearch"],
-]

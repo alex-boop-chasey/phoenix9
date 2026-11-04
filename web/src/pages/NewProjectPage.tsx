@@ -8,6 +8,7 @@ import { CreateProgress } from "@/features/projects/CreateProgress"
 import { OrderSheet } from "@/features/projects/OrderSheet"
 import { emptyForm, newRepoApplies, sourceComplete, toCreateForm, type FormValues } from "@/features/projects/formModel"
 import { useCreateProject, useGithubRepos, useJob, useLibraryProfiles, useLibraryTemplates } from "@/lib/queries"
+import type { RowsSummary } from "@/features/keys/KeysForm"
 import type { KeyInput } from "@/lib/types"
 
 interface Missing {
@@ -35,7 +36,7 @@ function jump(m: Missing) {
   field?.focus({ preventScroll: true })
 }
 
-function Receipt({ v, keyRows, github }: { v: FormValues; keyRows: KeyInput[]; github: boolean }) {
+function Receipt({ v, summary, github }: { v: FormValues; summary: RowsSummary; github: boolean }) {
   const templates = useLibraryTemplates()
   const profiles = useLibraryProfiles()
   const code =
@@ -45,7 +46,7 @@ function Receipt({ v, keyRows, github }: { v: FormValues; keyRows: KeyInput[]; g
           : (v.path ? `Code in ${v.path}` : "Code already on this server")
   const kind = profiles.data?.profiles.find((p) => p.name === v.profile)?.title ?? v.profile
   const newRepo = github && newRepoApplies(v.source) && v.newRepo
-  const withoutValue = keyRows.filter((k) => k.value === "").length
+  const { total, needValue } = summary
   return (
     <dl>
       <dt>Folder</dt><dd className="mono">{v.name ? `/srv/projects/${v.name}` : "—"}</dd>
@@ -55,7 +56,7 @@ function Receipt({ v, keyRows, github }: { v: FormValues; keyRows: KeyInput[]; g
       <dd className="mono">{newRepo ? `${v.owner}/${v.name || "…"} (new)` : v.source === "repo" && v.repo ? v.repo : "none"}</dd>
       <dt>Services</dt><dd>{v.services.length ? v.services.join(", ") : "none"}</dd>
       <dt>Keys</dt>
-      <dd>{keyRows.length === 0 ? "none" : `${keyRows.length} ${keyRows.length === 1 ? "row" : "rows"}${withoutValue ? ` (${withoutValue} need a value)` : ""}`}</dd>
+      <dd>{total === 0 ? "none" : `${total} ${total === 1 ? "row" : "rows"}${needValue ? ` (${needValue} need a value)` : ""}`}</dd>
       <dt>Chat</dt><dd>set up and started</dd>
     </dl>
   )
@@ -67,6 +68,7 @@ export default function NewProjectPage() {
   const [nameOk, setNameOk] = useState(false)
   const [keyRows, setKeyRows] = useState<KeyInput[]>([])
   const [pending, setPending] = useState(false)
+  const [summary, setSummary] = useState<RowsSummary>({ total: 0, needValue: 0 })
   const [jobId, setJobId] = useState("")
   const [error, setError] = useState("")
   const create = useCreateProject()
@@ -74,7 +76,7 @@ export default function NewProjectPage() {
   const job = useJob(jobId)
   const toasted = useRef("")
 
-  const onRows = useCallback((rows: KeyInput[], p: boolean) => { setKeyRows(rows); setPending(p) }, [])
+  const onRows = useCallback((rows: KeyInput[], p: boolean, s: RowsSummary) => { setKeyRows(rows); setPending(p); setSummary(s) }, [])
 
   const j = job.data
   const started = !!jobId
@@ -135,7 +137,7 @@ export default function NewProjectPage() {
             </div>
           ) : (
             <>
-              <Receipt v={values} keyRows={keyRows} github={!!github.data?.connected} />
+              <Receipt v={values} summary={summary} github={!!github.data?.connected} />
               <div className="receipt-f">
                 {error && <p className="reason" role="alert">{error}</p>}
                 <p className="small" id="rcUnmet" style={{ display: "flex", gap: 6, alignItems: "center", color: missing.length ? undefined : "var(--ok)" }}>

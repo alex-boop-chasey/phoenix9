@@ -1,5 +1,5 @@
 // The New project order sheet: seven numbered steps made of open tiles.
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
@@ -7,7 +7,7 @@ import { RepoPicker, useNameCheck } from "@/features/projects/ProjectForm"
 import {
   PROFILES, newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
 } from "@/features/projects/formModel"
-import { KeysForm } from "@/features/keys/KeysForm"
+import { KeysForm, type RowsSummary, type WantedKey } from "@/features/keys/KeysForm"
 import { useGithubRepos, useInfo, useLibraryProfiles, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
 import type { KeyInput } from "@/lib/types"
 
@@ -243,6 +243,18 @@ function RepoStep({ value, set }: Props) {
   )
 }
 
+/** The keys the ticked services ask for (each name once). */
+export function wantedKeys(
+  services: { name: string; project_keys: { name: string; secret: boolean }[] }[] | undefined, ticked: string[],
+): WantedKey[] {
+  const out: WantedKey[] = []
+  for (const s of services ?? []) {
+    if (!ticked.includes(s.name)) continue
+    for (const k of s.project_keys) if (!out.some((o) => o.name === k.name)) out.push({ service: s.name, ...k })
+  }
+  return out
+}
+
 /** Step 6: services as multi-select tiles with a connection dot. */
 function ServicesStep({ value, set }: Props) {
   const library = useLibraryServices()
@@ -253,6 +265,7 @@ function ServicesStep({ value, set }: Props) {
   const toggle = (name: string, on: boolean) =>
     set({ services: on ? [...value.services, name] : value.services.filter((x) => x !== name) })
   const n = value.services.length
+  const rows = wantedKeys(library.data?.services, value.services).length
   return (
     <Step n={6} id="np-step-services">
       <span className="lbl" id="svcL">Services</span>
@@ -269,7 +282,7 @@ function ServicesStep({ value, set }: Props) {
           )
         })}
       </div>
-      <p className="small">{n === 0 ? "None selected" : `${n} selected`}</p>
+      <p className="small">{n === 0 ? "None selected" : `${n} selected · adds ${rows} key ${rows === 1 ? "row" : "rows"} below`}</p>
     </Step>
   )
 }
@@ -287,8 +300,10 @@ export function OrderSheet({
   value: FormValues
   onChange: (v: FormValues) => void
   onNameOk: (ok: boolean) => void
-  onRows: (rows: KeyInput[], pending: boolean) => void
+  onRows: (rows: KeyInput[], pending: boolean, summary: RowsSummary) => void
 }) {
+  const library = useLibraryServices()
+  const wanted = useMemo(() => wantedKeys(library.data?.services, value.services), [library.data, value.services])
   const props: Props = { value, set: (patch) => onChange({ ...value, ...patch }), onNameOk }
   return (
     <ol className="osteps">
@@ -299,7 +314,7 @@ export function OrderSheet({
       <ServicesStep {...props} />
       <Step n={7} id="np-step-keys">
         <span className="lbl">Project keys</span>
-        <KeysForm mode="local" draft onRowsChange={onRows} />
+        <KeysForm mode="local" draft onRowsChange={onRows} wanted={wanted} />
       </Step>
     </ol>
   )

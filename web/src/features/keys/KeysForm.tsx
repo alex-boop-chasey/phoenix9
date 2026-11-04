@@ -25,6 +25,21 @@ interface Row {
   hasValue: boolean
   edited: boolean
   revealed: boolean
+  /** The service that added this draft row (cleared once the row is kept on its own). */
+  service?: string
+}
+
+/** A key a ticked service asks for. */
+export interface WantedKey {
+  service: string
+  name: string
+  secret: boolean
+}
+
+/** How many key rows there are and how many still need a value. */
+export interface RowsSummary {
+  total: number
+  needValue: number
 }
 
 let nextId = 1
@@ -40,6 +55,7 @@ function fromServer(r: KeyRow): Row {
 }
 
 const isBlank = (r: Row) => !r.saved && !r.name.trim() && !r.value
+const isPlaceholder = (r: Row) => !r.saved && !!r.service && !r.value
 const isDots = (r: Row) => r.saved && r.secret && r.hasValue && !r.edited && !r.revealed
 const keepsSavedValue = (r: Row) => r.saved && r.secret && r.hasValue && !r.edited
 
@@ -65,25 +81,30 @@ function toInput(r: Row, local = false): KeyInput {
 
 /** Key rows with Save and Add. `saved` talks to the project's keys; `local` keeps rows in memory. */
 export function KeysForm({
-  mode, project = "", draft = false, onRowsChange,
+  mode, project = "", draft = false, onRowsChange, wanted,
 }: {
   mode: "local" | "saved"
   project?: string
   /** The New project look: dashed rows until saved, plus a note under the buttons. */
   draft?: boolean
   /** Local mode: the saved rows (to send with create) and whether typed rows are still unsaved. */
-  onRowsChange?: (rows: KeyInput[], pending: boolean) => void
+  onRowsChange?: (rows: KeyInput[], pending: boolean, summary: RowsSummary) => void
+  /** Local mode: keys the ticked services ask for; draft rows are added and removed to match. */
+  wanted?: WantedKey[]
 }) {
   const qc = useQueryClient()
   const query = useKeyRows(mode === "saved" ? project : "")
   const library = useLibraryServices(mode === "saved")
-  const usedFor = (name: string) => library.data?.services.find((s) => s.project_keys.includes(name))?.title
+  const usedFor = (name: string) => library.data?.services.find((s) => s.project_keys.some((k) => k.name === name))?.title
   const [rows, setRows] = useState<Row[]>(() => [blankRow()])
   const [errors, setErrors] = useState<Record<number, string>>({})
   const [problem, setProblem] = useState("")
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<Row | null>(null)
+  const [kept, setKept] = useState<string[]>([])
   const loaded = useRef(false)
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
 
   useEffect(() => {
     if (mode === "saved" && query.data && !loaded.current) {
@@ -94,9 +115,31 @@ export function KeysForm({
 
   useEffect(() => {
     if (mode !== "local") return
-    const pending = rows.some((r) => !isBlank(r) && !r.saved)
-    onRowsChange?.(rows.filter((r) => r.saved).map((r) => toInput(r, true)), pending)
+    const pending = rows.some((r) => !isBlank(r) && !r.saved && !isPlaceholder(r))
+    const real = rows.filter((r) => !isBlank(r))
+    const summary = { total: real.length, needValue: real.filter((r) => !r.value).length }
+    onRowsChange?.(rows.filter((r) => r.saved).map((r) => toInput(r, true)), pending, summary)
   }, [mode, rows, onRowsChange])
+
+  // Keep the draft rows in step with the ticked services.
+  useEffect(() => {
+    if (mode !== "local" || !wanted) return
+    const current = rowsRef.current
+    const names = new Set(wanted.map((w) => w.service))
+    const gone = current.filter((r) => r.service && !names.has(r.service))
+    const added = wanted.filter((w) => !current.some((r) => r.name.trim() === w.name))
+    const keptNames = gone.filter((r) => r.value).map((r) => r.name)
+    setKept(keptNames)
+    if (!gone.length && !added.length) return
+    setRows((rs) => {
+      const rest = rs
+        .filter((r) => !(r.service && !names.has(r.service) && !r.value))
+        .map((r) => (r.service && !names.has(r.service) ? { ...r, service: undefined } : r))
+      const fresh = added.map((w) => ({ ...blankRow(), name: w.name, secret: w.secret, service: w.service }))
+      const blank = rest.filter(isBlank)
+      return [...rest.filter((r) => !isBlank(r)), ...fresh, ...(blank.length ? blank : [blankRow()])]
+    })
+  }, [mode, wanted])
 
   const change = (id: number, patch: Partial<Row>) => {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)))
@@ -110,15 +153,17 @@ export function KeysForm({
 
   /** Validate, then save (or lock in local mode). Returns the new rows, or null when refused. */
   async function save(): Promise<Row[] | null> {
-    const found = validateKeyRows(rows, mode)
+    const checked = rows.filter((r) => !isPlaceholder(r))
+    const found = validateKeyRows(checked, mode)
     setErrors(found)
     setProblem("")
     if (Object.keys(found).length) return null
-    const real = rows.filter((r) => !isBlank(r))
+    const real = checked.filter((r) => !isBlank(r))
     if (mode === "local") {
       const locked = real.map((r) => ({ ...r, name: r.name.trim(), saved: true, hasValue: true, edited: false, revealed: false }))
-      setRows(locked)
-      return locked
+      const all = rows.filter(isPlaceholder).length ? [...locked, ...rows.filter(isPlaceholder)] : locked
+      setRows(all)
+      return all
     }
     if (!real.length) return rows
     setBusy(true)
@@ -223,6 +268,11 @@ export function KeysForm({
           <Icon name="plus" />Add
         </Button>
       </div>
+      {kept.length > 0 && (
+        <p className="small" role="status">
+          Kept {kept.join(", ")} because you typed a value. Remove {kept.length === 1 ? "it" : "them"} yourself if not needed.
+        </p>
+      )}
       {draft && (
         <div className="blk-info">
           <Icon name="info" />

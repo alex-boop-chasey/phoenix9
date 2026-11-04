@@ -33,7 +33,7 @@ const templates = [
 const services = {
   services: [
     { name: "github", title: "GitHub", project_keys: [] },
-    { name: "supabase", title: "Supabase", project_keys: ["SUPABASE_URL"] },
+    { name: "supabase", title: "Supabase", project_keys: [{ name: "SUPABASE_URL", secret: false }, { name: "SUPABASE_KEY", secret: true }] },
   ],
   problems: [],
 }
@@ -124,7 +124,39 @@ test("services are tiles with a connection dot", async () => {
   await waitFor(() => expect(supabase.closest("label")).toHaveTextContent("Connected"))
   expect(supabase.closest("label")).not.toHaveTextContent("Not connected")
   await userEvent.click(supabase)
-  expect(screen.getByText("1 selected")).toBeInTheDocument()
+  expect(screen.getByText("1 selected · adds 2 key rows below")).toBeInTheDocument()
+})
+
+const nameBoxes = () => screen.getAllByLabelText("Name", { selector: "input[placeholder=NAME]" }) as HTMLInputElement[]
+const valueBoxes = () => screen.getAllByLabelText("Value") as HTMLInputElement[]
+
+test("ticking a service adds its key rows and unticking removes the empty ones", async () => {
+  mockApi(routes())
+  renderPage()
+  const supabase = await screen.findByRole("checkbox", { name: "Supabase" })
+  await userEvent.click(supabase)
+  await waitFor(() => expect(nameBoxes().map((b) => b.value)).toEqual(["SUPABASE_URL", "SUPABASE_KEY", ""]))
+  const [url, key] = valueBoxes()
+  expect(url!.type).toBe("text")
+  expect(key!.type).toBe("password")
+  const receipt = screen.getByRole("complementary", { name: "What Phoenix will make" })
+  expect(within(receipt).getByText("2 rows (2 need a value)")).toBeInTheDocument()
+  await userEvent.click(supabase)
+  await waitFor(() => expect(nameBoxes().map((b) => b.value)).toEqual([""]))
+  expect(within(receipt).queryByText(/key rows?|\d+ rows?/)).toBeNull()
+  expect(within(receipt).getByText("Keys").nextElementSibling).toHaveTextContent("none")
+})
+
+test("unticking keeps a key row the user typed a value into and says so", async () => {
+  mockApi(routes())
+  renderPage()
+  const supabase = await screen.findByRole("checkbox", { name: "Supabase" })
+  await userEvent.click(supabase)
+  await waitFor(() => expect(nameBoxes()).toHaveLength(3))
+  await userEvent.type(valueBoxes()[0]!, "https://x.example")
+  await userEvent.click(supabase)
+  await waitFor(() => expect(nameBoxes().map((b) => b.value)).toEqual(["SUPABASE_URL", ""]))
+  expect(screen.getByRole("status")).toHaveTextContent("Kept SUPABASE_URL because you typed a value")
 })
 
 test("repo search filters the dropdown", async () => {
@@ -207,8 +239,8 @@ async function fillAndCreate(extra: Record<string, unknown>) {
   await fillName("my-site")
   await userEvent.type(screen.getByLabelText("Description"), "A test site")
   await userEvent.click(await screen.findByRole("checkbox", { name: "Supabase" }))
-  await userEvent.type(screen.getByLabelText("Name", { selector: "input[placeholder=NAME]" }), "API_TOKEN")
-  await userEvent.type(screen.getByLabelText("Value"), "tok-1")
+  await userEvent.type(nameBoxes().at(-1)!, "API_TOKEN")
+  await userEvent.type(valueBoxes().at(-1)!, "tok-1")
   await userEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(createBtn()).toBeEnabled())
   await userEvent.click(createBtn())

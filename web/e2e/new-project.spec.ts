@@ -33,3 +33,22 @@ test("a bad name shows the message", async ({ page }) => {
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
+
+test("choosing a service adds its key rows and unticking removes the empty ones", async ({ page }) => {
+  await page.goto("/#/new")
+  const names = page.getByPlaceholder("NAME", { exact: true })
+  await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
+  await expect(page.getByText("1 selected · adds 2 key rows below")).toBeVisible()
+  await expect(names.nth(0)).toHaveValue("CLERK_SECRET_KEY")
+  await expect(names.nth(1)).toHaveValue("CLERK_PUBLISHABLE_KEY")
+  await expect(page.getByLabel("Value").nth(0)).toHaveAttribute("type", "password")
+  await expect(page.getByLabel("Value").nth(1)).toHaveAttribute("type", "text")
+  await expect(page.getByRole("complementary", { name: "What Phoenix will make" })).toContainText("2 rows (2 need a value)")
+  await expectNoHorizontalScroll(page)
+
+  await page.getByLabel("Value").nth(1).fill("pk_test_123")
+  await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
+  await expect(names.nth(0)).toHaveValue("CLERK_PUBLISHABLE_KEY")
+  await expect(names).toHaveCount(2) // the kept row and the empty one
+  await expect(page.getByRole("status")).toContainText("Kept CLERK_PUBLISHABLE_KEY")
+})

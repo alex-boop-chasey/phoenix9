@@ -398,10 +398,15 @@ export interface Template {
   check: string
 }
 
+export interface ServiceKey {
+  name: string
+  secret: boolean
+}
+
 export interface Service {
   name: string
   title: string
-  project_keys: string[]
+  project_keys: ServiceKey[]
 }
 
 export interface DefaultModel {

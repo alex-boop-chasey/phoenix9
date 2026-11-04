@@ -14,7 +14,7 @@ from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_o
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
 ROW_KEYS = {"name", "description", "path", "repo", "repo_owner", "repo_name", "profile", "services", "size",
             "chat", "vscode_url", "vscode", "state", "chats", "last_used", "last_used_at", "harness", "has_phoenix_toml",
-            "repo_url", "needs_you", "run"}
+            "repo_url", "needs_you", "run", "last_build_failed"}
 
 
 @pytest.fixture
@@ -223,3 +223,45 @@ def test_library_presets_have_titles_and_descriptions(env):
     assert rows["quick"]["has_file"] is True
     assert rows["quick"]["description"].startswith("Simple, plus")
     assert rows["custom"] == {"name": "custom", "title": "Custom", "has_file": False, "description": library.CUSTOM_DESCRIPTION, "steps": {}}
+
+
+def _finish(run_id, status):
+    state.set_status(runs_core.find_run(run_id), status)
+
+
+def _state(name="demo"):
+    return projects.state_of({r["name"]: r for r in projects.rows()}[name])
+
+
+def test_state_latest_build_failed_is_fail(env):
+    make(env)
+    _finish(queue_run(env), "failed")
+    assert _state() == "fail"
+    assert projects.query()["counts"]["fail"] == 1
+    assert projects.row("demo")["last_build_failed"] is True
+
+
+def test_state_failed_then_passed_later_is_idle(env):
+    make(env)
+    _finish(queue_run(env), "failed")
+    second = queue_run(env)
+    state.update(runs_core.find_run(second), lambda s: s.__setitem__("created", "9999-01-01T00:00:00Z"))
+    _finish(second, "done")
+    assert _state() == "idle"
+
+
+def test_state_failed_but_new_run_running_is_run(env):
+    make(env)
+    _finish(queue_run(env), "failed")
+    newer = queue_run(env)
+    state.update(runs_core.find_run(newer), lambda s: s.__setitem__("created", "9999-01-01T00:00:00Z"))
+    _finish(newer, "running")
+    assert _state() == "run"
+
+
+def test_state_failed_and_gate_open_is_need(env):
+    make(env)
+    _finish(queue_run(env), "failed")
+    newer = queue_run(env)
+    gates_core.open_gate(runs_core.find_run(newer), kind="merge", title="Merge?", why="because")
+    assert _state() == "need"

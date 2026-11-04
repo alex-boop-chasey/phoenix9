@@ -10,6 +10,7 @@ export function switchState(p: ProjectRow): SwitchState {
   if (p.needs_you > 0 || p.run?.status === "waiting") return "need"
   if (p.run?.status === "failed" || p.run?.status === "paused-limit") return "fail"
   if (p.run && (p.run.status === "running" || p.run.status === "queued")) return "run"
+  if (p.last_build_failed && !p.run) return "fail"
   return "idle"
 }
 

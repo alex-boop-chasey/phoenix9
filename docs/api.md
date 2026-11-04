@@ -101,6 +101,9 @@ plus:
 - `needs_you`: number of open gates of the project.
 - `run`: `{run_id, status, task, tasks}` of the newest run that is queued, running, waiting or
   paused-limit (`task` = `current.task`, `tasks` = total), else null.
+- `last_build_failed`: true when the newest finished run (done, failed or stopped) failed. A project's state
+  is `need` (open gate or waiting run), else `run` (queued or running), else `fail` (paused at a limit, or
+  `last_build_failed` with nothing active), else `idle`. Shown as "Last build failed".
 
 `vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
 

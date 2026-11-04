@@ -93,20 +93,24 @@ def templates_menu() -> list:
 
 
 def rows() -> list:
-    """The Projects page rows: every info field plus repo_url, needs_you and the active run."""
+    """The Projects page rows: every info field plus repo_url, needs_you, the active run and last_build_failed."""
     from phoenix9 import gates, runs
     open_gates = gates.list_gates()
     active = {}
+    last_failed = {}
     for r in runs.list_runs():     # newest first, so the first match per project is the newest
-        if r["status"] in ACTIVE_RUN and r["project"] not in active:
-            active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],
-                                    "task": (r.get("current") or {}).get("task"), "tasks": r["tasks_total"]}
+        if r["status"] in ACTIVE_RUN:
+            if r["project"] not in active:
+                active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],
+                                        "task": (r.get("current") or {}).get("task"), "tasks": r["tasks_total"]}
+        elif r["project"] not in last_failed:
+            last_failed[r["project"]] = r["status"] == "failed"
     out = []
     for row in list_():
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
                     "needs_you": sum(1 for g in open_gates if g["project"] == row["name"]),
-                    "run": active.get(row["name"])})
+                    "run": active.get(row["name"]), "last_build_failed": last_failed.get(row["name"], False)})
     return out
 
 
@@ -115,7 +119,7 @@ SORTS = ("name", "active", "size")
 
 
 def state_of(row: dict) -> str:
-    """A row's state in one word: need (waiting on Alex), fail, run or idle."""
+    """A row's state in one word: need (waiting on Alex), run, fail (latest finished build failed) or idle."""
     run = row.get("run") or {}
     if row.get("needs_you", 0) > 0 or run.get("status") == "waiting":
         return "need"
@@ -123,6 +127,8 @@ def state_of(row: dict) -> str:
         return "fail"
     if run.get("status") in ("running", "queued"):
         return "run"
+    if row.get("last_build_failed") and not run:
+        return "fail"
     return "idle"
 
 

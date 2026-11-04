@@ -5,7 +5,7 @@ test("the demo data shows every state on the Projects page", async ({ page }) =>
   const row = (n: string) => page.locator(`[data-row="${n}"]`)
   await expect(row("phoenix9").getByText("Needs you")).toBeVisible()
   await expect(row("tiny-tool").getByText(/Running/)).toBeVisible()
-  await expect(row("ember-oak")).toBeVisible()
+  await expect(row("ember-oak").getByText("Last build failed")).toBeVisible()
   await expect(row("railway-hotel")).toBeVisible()
   await expect(row("notes-only").getByText("No repo")).toBeVisible()
   await expect(row("tiny-tool").getByRole("button", { name: /Chat/ })).toBeVisible()

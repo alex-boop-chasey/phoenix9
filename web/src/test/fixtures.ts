@@ -8,13 +8,13 @@ export const info: Info = {
   services: { supported: false },
 }
 
-function row(over: Partial<ProjectRow> & { name: string }): ProjectRow {
+export function row(over: Partial<ProjectRow> & { name: string }): ProjectRow {
   return {
     description: "", path: `/srv/projects/${over.name}`, repo: "", repo_owner: "", repo_name: "", profile: "web",
     services: [], size: 1024, chat: { state: "off", kind: "none", url: null }, vscode_url: `https://code.example.test/?folder=/srv/projects/${over.name}`,
     vscode: { url: `https://code.example.test/?folder=/srv/projects/${over.name}`, reason: null }, state: "off", chats: 0,
     last_used: "", last_used_at: "", harness: "idle", has_phoenix_toml: true, repo_url: null, needs_you: 0,
-    run: null, ...over,
+    run: null, last_build_failed: false, ...over,
   }
 }
 

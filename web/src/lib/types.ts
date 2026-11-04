@@ -50,6 +50,7 @@ export interface ProjectRow {
   repo_url: string | null
   needs_you: number
   run: ActiveRun | null
+  last_build_failed: boolean
 }
 
 export interface ChangelogLine {

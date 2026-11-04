@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
-import { RepoPicker, useNameCheck } from "@/features/projects/ProjectForm"
+import { RepoPicker } from "@/features/projects/RepoPicker"
+import { useNameCheck } from "@/features/projects/useNameCheck"
 import {
   PROFILES, newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
 } from "@/features/projects/formModel"

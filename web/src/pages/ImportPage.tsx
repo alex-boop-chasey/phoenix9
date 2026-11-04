@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { ErrorState } from "@/components/ErrorState"
 import { Icon } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
+import { FolderPicker } from "@/features/projects/FolderPicker"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useImportCandidates, useImportProject, useRefreshProjects } from "@/lib/queries"
 import type { ImportCandidate } from "@/lib/types"
@@ -39,6 +40,7 @@ export default function ImportPage() {
   const refresh = useRefreshProjects()
   const [busy, setBusy] = useState<string | null>(null)
   const [path, setPath] = useState("")
+  const [choosing, setChoosing] = useState(false)
 
   const run = (target: string, after?: () => void) => {
     setBusy(target)
@@ -88,11 +90,15 @@ export default function ImportPage() {
               <label htmlFor="impPath">Folder</label>
               <input className="input mono" id="impPath" placeholder="/srv/projects/…" value={path} onChange={(e) => setPath(e.target.value)} />
             </div>
+            <button type="button" className="btn btn-secondary" style={{ alignSelf: "flex-end" }} onClick={() => setChoosing(true)}>
+              <Icon name="folder-open" />Choose a folder
+            </button>
             <button type="submit" className="btn btn-primary" style={{ alignSelf: "flex-end" }} disabled={!path.trim() || busy !== null}>
               <Icon name="download-simple" />Import
             </button>
           </div>
         </form>
+        <FolderPicker open={choosing} start={path.trim()} onClose={() => setChoosing(false)} onPick={(p) => { setPath(p); setChoosing(false) }} />
       </div>
     </main>
   )

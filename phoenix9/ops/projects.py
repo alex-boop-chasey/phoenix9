@@ -1,4 +1,7 @@
 """Ops for projects: list, show, edit, open, close, set-chat, new and the templates menu."""
+from pathlib import Path
+
+from phoenix9 import paths
 from phoenix9.ops import common
 
 ACTIVE_RUN = ("queued", "running", "waiting", "paused-limit")
@@ -84,6 +87,30 @@ def import_(name_or_path: str, who: str) -> dict:
     """Bring a removed project or an unlisted folder into Phoenix and set its chat up."""
     from phoenix9 import project_removal
     return project_removal.import_(name_or_path, who, common.make_adapters())
+
+
+def list_folders(path: str = "") -> dict:
+    """The sub-folders of a folder under the projects root: {path, parent, folders: [{name, path}]}."""
+    root = paths.projects().resolve()
+    text = (path or "").strip()
+    here = (Path(text).expanduser() if text else root)
+    if not here.is_absolute():
+        here = root / here
+    here = here.resolve()
+    if here != root and root not in here.parents:
+        raise common.OpsError(f"{text} is not inside {root}. Only folders under the projects folder can be browsed.")
+    if not here.is_dir():
+        raise common.NotFound(f"{text} is not a folder.")
+    folders = []
+    for child in sorted(here.iterdir(), key=lambda c: c.name.lower()):
+        if child.name.startswith(".") or not child.is_dir():
+            continue
+        real = child.resolve()
+        if real != root and root not in real.parents:      # a symlink that leaves the projects folder
+            continue
+        folders.append({"name": child.name, "path": str(here / child.name)})
+    return {"path": str(here), "root": str(root), "parent": str(here.parent) if here != root else None,
+            "folders": folders}
 
 
 def templates_menu() -> list:

@@ -4,7 +4,7 @@ import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
-  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, RemoveResult, ChatStartResult,
+  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult, ChatStartResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -83,6 +83,7 @@ export const api = {
   projects: () => get<ProjectRow[]>("projects"),
   searchProjects: (params: Record<string, string>) => get<ProjectQueryResult>("projects", params),
   importCandidates: () => get<ImportCandidate[]>("import/candidates"),
+  folders: (path: string) => get<FolderListing>("folders", { path }),
   checkName: (name: string) => get<NameCheck>("projects/check-name", { name }),
   project: (name: string) => get<Project>(`projects/${e(name)}`),
   changelog: (name: string, limit = 20) => get<ChangelogLine[]>(`projects/${e(name)}/changelog`, { limit }),

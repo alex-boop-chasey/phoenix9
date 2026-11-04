@@ -166,3 +166,45 @@ def test_api_chat_start_and_row_chat_shape(api):
     status, body = api("/api/projects/alpha")
     assert body["data"]["chat"]["state"] == "on" and body["data"]["vscode"]["reason"] is None
     assert api("/api/projects/ghost/chat/start", "POST", POST_HEADERS, {})[0] == 404
+
+
+def test_list_folders_lists_visible_subfolders_only(env):
+    root = paths.projects()
+    (root / "alpha" / "sub").mkdir(parents=True)
+    (root / ".hidden").mkdir()
+    (root / "file.txt").write_text("x")
+    top = projects.list_folders("")
+    assert top["parent"] is None and [f["name"] for f in top["folders"]] == ["alpha"]
+    inner = projects.list_folders(str(root / "alpha"))
+    assert inner["parent"] == str(root.resolve()) or inner["parent"] == str(root)
+    assert [f["name"] for f in inner["folders"]] == ["sub"]
+
+
+def test_list_folders_refuses_outside_and_dotdot(env, tmp_path):
+    (paths.projects() / "alpha").mkdir(parents=True)
+    for bad in (str(tmp_path), "/", "/etc", str(paths.projects() / "alpha" / ".." / ".."), "../.."):
+        with pytest.raises(OpsError):
+            projects.list_folders(bad)
+    with pytest.raises(OpsError):
+        projects.list_folders(str(paths.projects() / "missing"))
+
+
+def test_list_folders_skips_symlinks_that_leave_the_root(env, tmp_path):
+    root = paths.projects()
+    (root / "real").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "escape").symlink_to(outside)
+    (root / "inside").symlink_to(root / "real")
+    names = [f["name"] for f in projects.list_folders("")["folders"]]
+    assert names == ["inside", "real"]
+    with pytest.raises(OpsError):
+        projects.list_folders(str(root / "escape"))
+
+
+def test_api_folders(api):
+    (paths.projects() / "alpha").mkdir(parents=True)
+    status, body = api("/api/folders")
+    assert status == 200 and [f["name"] for f in body["data"]["folders"]] == ["alpha"]
+    status, body = api("/api/folders?path=/etc")
+    assert status == 400

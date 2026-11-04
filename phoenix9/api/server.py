@@ -481,6 +481,11 @@ def get_import_candidates(req):
     return projects.import_candidates()
 
 
+def get_folders(req):
+    """Reply with the sub-folders of a folder under the projects root."""
+    return projects.list_folders(req.query.get("path", ""))
+
+
 def post_import(req):
     """Import a removed project or an unlisted folder."""
     with req.server.write_lock:
@@ -623,6 +628,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/deploys", get_deploys),
     ("GET", r"/api/projects", get_projects),
     ("GET", r"/api/import/candidates", get_import_candidates),
+    ("GET", r"/api/folders", get_folders),
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),

@@ -48,6 +48,10 @@ export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
 export const useProjectSearch = (params: Record<string, string>) =>
   useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS, placeholderData: keepPreviousData })
+/** The sub-folders of a folder under the projects folder (empty path = the projects folder). */
+export const useFolders = (path: string) =>
+  useQuery({ queryKey: ["folders", path], queryFn: () => api.folders(path), retry: false })
+
 export const useImportCandidates = () =>
   useQuery({ queryKey: ["import-candidates"], queryFn: api.importCandidates })
 export const useProject = (name: string) =>

@@ -86,3 +86,16 @@ test("import page has the folder box", async ({ page }) => {
   await expect(page.getByLabel("Folder")).toBeVisible()
   await expectNoHorizontalScroll(page)
 })
+
+test("Choose a folder picks a folder into the path box", async ({ page }) => {
+  await page.goto("/#/import")
+  await page.getByRole("button", { name: "Choose a folder" }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByRole("heading", { name: "Choose a folder" })).toBeVisible()
+  await dialog.getByRole("button", { name: "scratch-pad" }).click()
+  await expect(dialog.getByTestId("folder-here")).toContainText("scratch-pad")
+  await dialog.getByRole("button", { name: "Use this folder" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByLabel("Folder")).toHaveValue(/scratch-pad$/)
+  await expectNoHorizontalScroll(page)
+})

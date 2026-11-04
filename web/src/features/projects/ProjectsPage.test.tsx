@@ -258,3 +258,25 @@ test("import page imports a folder typed by hand", async () => {
   await waitFor(() => expect(toasts.success).toHaveBeenCalledWith("mine imported"))
   expect(api.calls.find((c) => c.path === "/api/import")!.body).toEqual({ target: "/srv/projects/mine" })
 })
+
+test("import page: Choose a folder browses folders and fills the path box", async () => {
+  const listing = (path = "") => path === "/srv/projects/side-quest"
+    ? { path, root: "/srv/projects", parent: "/srv/projects", folders: [] }
+    : { path: "/srv/projects", root: "/srv/projects", parent: null, folders: [{ name: "side-quest", path: "/srv/projects/side-quest" }] }
+  const api = mockApi({
+    "GET /api/import/candidates": [],
+    "GET /api/folders": (req: MockRequest) => listing(req.query.path),
+  })
+  renderWithProviders(<ImportPage />)
+  await screen.findByText("Removed earlier (0)")
+  fireEvent.click(screen.getByRole("button", { name: "Choose a folder" }))
+  const dialog = await screen.findByRole("dialog")
+  expect(within(dialog).getByRole("button", { name: "Use this folder" })).toBeDisabled()
+  fireEvent.click(await within(dialog).findByRole("button", { name: "side-quest" }))
+  await waitFor(() => expect(within(dialog).getByTestId("folder-here")).toHaveTextContent("/srv/projects/side-quest"))
+  expect(await within(dialog).findByText("No folders in here.")).toBeInTheDocument()
+  fireEvent.click(within(dialog).getByRole("button", { name: "Use this folder" }))
+  await waitFor(() => expect(screen.getByLabelText("Folder")).toHaveValue("/srv/projects/side-quest"))
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+  expect(api.calls.some((c) => c.path === "/api/folders" && !c.query.path)).toBe(true)
+})

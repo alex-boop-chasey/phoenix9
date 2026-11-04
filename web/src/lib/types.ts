@@ -96,6 +96,8 @@ export interface ImportCandidate {
   kind: "removed" | "folder"
 }
 
+export interface FolderListing { path: string; root: string; parent: string | null; folders: { name: string; path: string }[] }
+
 export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[]; chat: string }
 export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
 export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }

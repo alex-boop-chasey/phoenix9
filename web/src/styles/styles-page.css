@@ -1,0 +1,17 @@
+/* ---------- Styles view ---------- */
+.swatches{display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:8px}
+.swt{border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; background:var(--surface)}
+.swt i{display:block; height:44px; background:var(--v); border-bottom:1px solid var(--line)}
+.swt div{padding:8px; display:grid}
+.swt b{font-size:12.5px; font-weight:600}
+.swt code{font:400 11.5px/1.4 var(--f-mono); color:var(--text-2)}
+.rtable{width:100%; border-collapse:collapse; font-size:13.5px; min-width:700px}
+.rtable th,.rtable td{padding:10px 12px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top}
+.rtable thead th{font-size:13px; color:var(--text); background:var(--surface-2)}
+.rtable tbody th{font-weight:600; color:var(--text); width:150px}
+.rtable td{color:var(--text-2)}
+.areas4{display:grid; gap:12px; grid-template-columns:repeat(auto-fill,minmax(min(100%,250px),1fr))}
+.areas4 > div{border:1px solid var(--line); border-radius:var(--r-md); padding:14px; background:var(--bg-dash); display:grid; gap:10px; align-content:start; min-width:0}
+.icons{display:grid; grid-template-columns:repeat(auto-fill,minmax(76px,1fr)); gap:6px}
+.icons figure{margin:0; display:grid; justify-items:center; gap:6px; padding:10px 4px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--line); color:var(--text-2)}
+.icons figcaption{font:400 10.5px/1.2 var(--f-mono); text-align:center; overflow-wrap:anywhere}

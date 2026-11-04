@@ -17,6 +17,7 @@ RUNS = {
     "demo-site": ["20261020-090000-contact-form", "20261022-140000-blog-section", "20261031-100000-pricing-page"],
     "phoenix9": ["20261031-110000-api-and-dashboard"],
     "tiny-tool": ["20261101-080000-add-json-output"],
+    "ember-oak": ["20261102-090000-gallery-page"],
 }
 
 
@@ -36,12 +37,15 @@ def seeded(tmp_path):
 def test_seed_creates_documented_projects_runs_and_gates(seeded):
     home, projects = seeded
     names = sorted(p.name for p in projects.iterdir() if (p / "CLAUDE.md").is_file())
-    assert names == ["demo-site", "notes-only", "phoenix9", "tiny-tool"]
+    assert names == ["demo-site", "ember-oak", "notes-only", "old-experiment", "phoenix9", "railway-hotel", "tiny-tool"]
+    assert not (projects / "scratch-pad" / "CLAUDE.md").exists()
+    from phoenix9 import project_removal
+    assert project_removal.removed_names() == {"old-experiment"}
     for project, run_ids in RUNS.items():
         found = sorted(p.name for p in (home / "runs" / project).iterdir())
         assert found == sorted(run_ids)
     assert not (home / "runs" / "notes-only").exists()
-    for name in names:
+    for name in [n for n in names if n != "old-experiment"]:
         lines = (projects / name / "notes/changelog.md").read_text().splitlines()
         assert len([x for x in lines if x.startswith("- ")]) == 5
         assert list((projects / name / "notes/specs").glob("*.md"))
@@ -105,7 +109,7 @@ def test_api_serves_seeded_data(seeded, monkeypatch, tmp_path):
     try:
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
         get = lambda p: json.loads(urllib.request.urlopen(base + p).read())["data"]
-        assert len(get("/api/projects")) == 4
+        assert len(get("/api/projects")) == 6
         assert len([g for g in get("/api/gates") if not g["answered"]]) == 2
         assert len(get("/api/projects/demo-site/runs")) == 3
         assert get("/api/logs?project=demo-site")

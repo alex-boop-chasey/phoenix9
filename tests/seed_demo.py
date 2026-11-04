@@ -53,6 +53,18 @@ PROJECTS = {
                    "spec": ("Reading plan", [
                        ("Collect sources", "List the articles to read.", "yes", [],
                         ["The list has at least ten articles with links"])])},
+    "ember-oak": {"repo": "rebirth-wd/ember-oak", "profile": "web", "preset": "full", "merge": "ask",
+                  "about": "Furniture maker portfolio with a gallery and enquiry form.", "chat": {},
+                  "spec": ("Gallery page", [
+                      ("Gallery grid", "Show the photos in a grid.", "no", ["pnpm test"],
+                       ["The gallery shows every photo in a grid"]),
+                      ("Enquiry form", "Add an enquiry form.", "no", ["pnpm test"],
+                       ["The enquiry form sends a message"])])},
+    "railway-hotel": {"repo": "rebirth-wd/railway-hotel", "profile": "web", "preset": "quick", "merge": "auto",
+                      "about": "Country hotel site with rooms, rates and bookings.", "chat": {},
+                      "spec": ("Rooms page", [
+                          ("Rooms list", "List the rooms and rates.", "no", ["pnpm test"],
+                           ["The rooms page lists every room with its rate"])])},
     "phoenix9": {"repo": "alex-boop-chasey/phoenix9", "profile": "platform", "preset": "full", "merge": "ask",
                  "about": "Phoenix 9 itself: the project manager and build harness.",
                  "chat": {"environment_id": "env_demo_phoenix9"},
@@ -72,6 +84,10 @@ CHANGELOG = {
                   "wrote the JSON output spec", "fixed the header row bug"],
     "notes-only": ["created for reading notes", "added the reading plan", "listed the first sources",
                    "noted two open questions", "tidied the notes"],
+    "ember-oak": ["created from the portfolio template", "added the gallery spec", "chose the full preset",
+                  "set the merge question to ask", "added the enquiry form spec"],
+    "railway-hotel": ["created from a copy of a GitHub repo", "added the rooms spec", "chose the quick preset",
+                      "set the merge rule to automatic", "tidied the notes"],
     "phoenix9": ["created the project", "chose the platform profile", "wrote the API spec",
                  "set the merge question to ask", "added the demo data"],
 }
@@ -92,6 +108,9 @@ RUNS = [
     {"project": "phoenix9", "id": "20261031-110000-api-and-dashboard", "status": "waiting",
      "created": "2026-10-31T11:00:00+00:00", "finished": None,
      "tasks": [("passed", 1, ""), ("passed", 1, ""), ("passed", 2, "")], "cost": 3.4, "sessions": 12, "gate": "merge"},
+    {"project": "ember-oak", "id": "20261102-090000-gallery-page", "status": "failed",
+     "created": "2026-11-02T09:00:00+00:00", "finished": "2026-11-02T09:20:00+00:00", "title": "Gallery page",
+     "tasks": [("passed", 1, ""), ("failed", 3, "the checks still failed after 3 tries")], "cost": 1.9, "sessions": 6},
     {"project": "tiny-tool", "id": "20261101-080000-add-json-output", "status": "running",
      "created": "2026-11-01T08:00:00+00:00", "finished": None,
      "tasks": [("passed", 1, ""), ("running", 1, ""), ("pending", 0, ""), ("pending", 0, "")],
@@ -429,6 +448,24 @@ def _seed_deploys(project: str) -> None:
     path.write_text("".join(json.dumps(r) + "\n" for r in rows))
 
 
+def _seed_extras(home: Path, projects: Path) -> None:
+    """A removed project, an unlisted folder, and two connected services (the rest stay unconnected)."""
+    from phoenix9 import tomlw
+    old = projects / "old-experiment"
+    (old / "notes").mkdir(parents=True)
+    atomic.write_text(old / "CLAUDE.md", "# old-experiment\n\nA project that was removed from Phoenix.\n")
+    tomlw.dump(paths.config() / "global.toml", {"removed_projects": [{
+        "name": "old-experiment", "path": str(old), "repo": "alex-boop-chasey/old-experiment",
+        "removed_on": "2026-10-28"}]})
+    (projects / "scratch-pad").mkdir()
+    atomic.write_text(projects / "scratch-pad" / "ideas.txt", "loose notes, not a Phoenix project\n")
+    from phoenix9.ops import services as ops_services
+    for name in ("github", "resend"):
+        svc = ops_services._service(name)
+        ops_services.connect(name, {k: f"demo-{k.lower()}-0123456789" for k in svc["account_keys"]},
+                             who="demo", check=False)
+
+
 def seed(home: Path, projects: Path) -> None:
     """Empty the two folders (only if they are empty or demo folders) and fill them with the demo data."""
     home, projects = Path(home), Path(projects)
@@ -445,6 +482,7 @@ def seed(home: Path, projects: Path) -> None:
     keys.set_key("demo-site", "RESEND_API_KEY", SECRET_KEY_VALUE, secret=True)
     keys.set_key("demo-site", "PUBLIC_SITE_URL", PUBLIC_URL, secret=False)
     _seed_install(home)
+    _seed_extras(home, projects)
     _seed_deploys("demo-site")
     all_events = []
     for run in RUNS:

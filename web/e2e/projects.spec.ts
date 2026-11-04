@@ -70,7 +70,7 @@ test("remove a project, then bring it back with Import", async ({ page }) => {
   await expect(page.getByText("notes-only removed from Phoenix")).toBeVisible()
   await page.getByRole("button", { name: "Import" }).click()
   await expect(page).toHaveURL(/#\/import/)
-  await expect(page.getByText(/Removed earlier \(1\)/)).toBeVisible()
+  await expect(page.getByText(/Removed earlier \(2\)/)).toBeVisible()
   const card = page.locator('[data-candidate="notes-only"]')
   await expect(card).toBeVisible()
   await card.getByRole("button", { name: /Import/ }).click()

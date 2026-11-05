@@ -1,4 +1,7 @@
 """Ops for projects: list, show, edit, open, close, set-chat, new and the templates menu."""
+from pathlib import Path
+
+from phoenix9 import paths
 from phoenix9.ops import common
 
 ACTIVE_RUN = ("queued", "running", "waiting", "paused-limit")
@@ -41,6 +44,13 @@ def open_(name: str, who: str) -> dict:
     return project.open_project(name, common.make_adapters(), who)
 
 
+def chat_start(name: str, who: str) -> dict:
+    """Switch a project's chat on (enable and start) and return its chat state."""
+    from phoenix9 import project
+    common.project_dir(name)
+    return project.chat_start(name, common.make_adapters(), who)
+
+
 def close(name: str, who: str, force: bool = False) -> dict:
     """Switch a project's chat server off."""
     from phoenix9 import project
@@ -61,6 +71,48 @@ def new(opts: dict, who: str, progress=None) -> dict:
     return project.create(opts, common.make_adapters(), who, progress)
 
 
+def remove(name: str, who: str) -> dict:
+    """Remove a project from Phoenix's list and switch its chat off; every file is kept."""
+    from phoenix9 import project_removal
+    return project_removal.remove(name, who, common.make_adapters())
+
+
+def import_candidates() -> list:
+    """Projects that can be imported: removed ones, and folders Phoenix does not list yet."""
+    from phoenix9 import project_removal
+    return project_removal.candidates()
+
+
+def import_(name_or_path: str, who: str) -> dict:
+    """Bring a removed project or an unlisted folder into Phoenix and set its chat up."""
+    from phoenix9 import project_removal
+    return project_removal.import_(name_or_path, who, common.make_adapters())
+
+
+def list_folders(path: str = "") -> dict:
+    """The sub-folders of a folder under the projects root: {path, parent, folders: [{name, path}]}."""
+    root = paths.projects().resolve()
+    text = (path or "").strip()
+    here = (Path(text).expanduser() if text else root)
+    if not here.is_absolute():
+        here = root / here
+    here = here.resolve()
+    if here != root and root not in here.parents:
+        raise common.OpsError(f"{text} is not inside {root}. Only folders under the projects folder can be browsed.")
+    if not here.is_dir():
+        raise common.NotFound(f"{text} is not a folder.")
+    folders = []
+    for child in sorted(here.iterdir(), key=lambda c: c.name.lower()):
+        if child.name.startswith(".") or not child.is_dir():
+            continue
+        real = child.resolve()
+        if real != root and root not in real.parents:      # a symlink that leaves the projects folder
+            continue
+        folders.append({"name": child.name, "path": str(here / child.name)})
+    return {"path": str(here), "root": str(root), "parent": str(here.parent) if here != root else None,
+            "folders": folders}
+
+
 def templates_menu() -> list:
     """The templates a new project can start from."""
     from phoenix9 import templates
@@ -68,21 +120,122 @@ def templates_menu() -> list:
 
 
 def rows() -> list:
-    """The Projects page rows: every info field plus repo_url, needs_you and the active run."""
+    """The Projects page rows: every info field plus repo_url, needs_you, the active run and last_build_failed."""
     from phoenix9 import gates, runs
     open_gates = gates.list_gates()
     active = {}
+    last_failed = {}
+    asking = {g["run"] for g in open_gates}
     for r in runs.list_runs():     # newest first, so the first match per project is the newest
-        if r["status"] in ACTIVE_RUN and r["project"] not in active:
-            active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],
-                                    "task": (r.get("current") or {}).get("task"), "tasks": r["tasks_total"]}
+        if r["status"] == "waiting" and r["run_id"] not in asking:      # every question answered
+            r = {**r, "status": "running"}
+        if r["status"] in ACTIVE_RUN:
+            if r["project"] not in active:
+                active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],
+                                        "task": (r.get("current") or {}).get("task"), "tasks": r["tasks_total"]}
+        elif r["project"] not in last_failed:
+            last_failed[r["project"]] = r["status"] == "failed"
     out = []
     for row in list_():
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
                     "needs_you": sum(1 for g in open_gates if g["project"] == row["name"]),
-                    "run": active.get(row["name"])})
+                    "run": active.get(row["name"]), "last_build_failed": last_failed.get(row["name"], False)})
     return out
+
+
+STATUSES = ("all", "run", "fail", "idle", "need")
+SORTS = ("name", "active", "size", "created", "modified")
+SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")
+
+
+def state_of(row: dict) -> str:
+    """A row's state in one word: need (waiting on Alex), run, fail (latest finished build failed) or idle."""
+    run = row.get("run") or {}
+    if row.get("needs_you", 0) > 0 or run.get("status") == "waiting":
+        return "need"
+    if run.get("status") in ("failed", "paused-limit"):
+        return "fail"
+    if run.get("status") in ("running", "queued"):
+        return "run"
+    if row.get("last_build_failed") and not run:
+        return "fail"
+    return "idle"
+
+
+def created_at(row: dict) -> float:
+    """When the project was created: the date in .phoenix/project.json, else that file's change time (0 if unknown)."""
+    import datetime
+    import json
+    meta_file = Path(row["path"]) / ".phoenix" / "project.json"
+    try:
+        made = json.loads(meta_file.read_text(encoding="utf-8")).get("created")
+        if made:
+            return datetime.datetime.fromisoformat(str(made)).timestamp()
+    except (OSError, ValueError):
+        pass
+    try:
+        return meta_file.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def modified_at(row: dict) -> float:
+    """When the project last changed: the latest of its last run, its changelog and its project files."""
+    import os
+    folder = Path(row["path"])
+    latest = float(row.get("last_used_at") or 0)
+    try:
+        latest = max(latest, (folder / "notes" / "changelog.md").stat().st_mtime)
+    except OSError:
+        pass
+    for here, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for f in files:
+            try:
+                latest = max(latest, os.stat(os.path.join(here, f), follow_symlinks=False).st_mtime)
+            except OSError:
+                pass
+    return latest
+
+
+def _sorted(found: list, sort: str) -> list:
+    """Rows in the chosen order: name, recently active, largest, newest created or most recently modified."""
+    if sort == "active":
+        return sorted(found, key=lambda r: (-(r.get("last_used_at") or 0), r["name"]))
+    if sort == "size":
+        return sorted(found, key=lambda r: (-(r.get("size") or 0), r["name"]))
+    if sort == "created":
+        return sorted(found, key=lambda r: (-created_at(r), r["name"]))
+    if sort == "modified":
+        return sorted(found, key=lambda r: (-modified_at(r), r["name"]))
+    return sorted(found, key=lambda r: r["name"])
+
+
+def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "name", attention: bool = False) -> dict:
+    """Search, filter and sort the rows: {top, rest, total, counts}; counts ignore the status choice."""
+    if status not in STATUSES:
+        raise common.OpsError(f"'{status}' is not a status. Use one of: {', '.join(STATUSES)}.")
+    if sort not in SORTS:
+        raise common.OpsError(f"'{sort}' is not a sort order. Use one of: {', '.join(SORTS)}.")
+    needle = (q or "").strip().lower()
+    owner = owner or "all"
+    matched = []
+    for r in rows():
+        if needle and needle not in f"{r['name']} {r['description']}".lower():
+            continue
+        if owner == "none" and r["repo"]:
+            continue
+        if owner not in ("all", "none") and r.get("repo_owner") != owner:
+            continue
+        matched.append(r)
+    counts = {"all": len(matched), "run": 0, "fail": 0, "idle": 0, "need": 0}
+    for r in matched:
+        counts[state_of(r)] += 1
+    found = _sorted([r for r in matched if status == "all" or state_of(r) == status], sort)
+    top = [r for r in found if state_of(r) == "need"] if attention else []
+    rest = [r for r in found if r not in top]
+    return {"top": top, "rest": rest, "total": len(found), "counts": counts}
 
 
 def row(name: str) -> dict:

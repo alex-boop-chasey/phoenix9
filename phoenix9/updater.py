@@ -102,6 +102,37 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _history_file() -> Path:
+    return _dir() / "history.jsonl"
+
+
+def _append_history(row: dict) -> None:
+    """Add one line to HOME/update/history.jsonl (what the Updates tab lists); a write problem is ignored."""
+    try:
+        _dir().mkdir(parents=True, exist_ok=True)
+        with open(_history_file(), "a", encoding="utf-8") as f:
+            f.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
+
+
+def read_history(limit: int = 50) -> list[dict]:
+    """The recorded installs and roll-backs, newest first."""
+    try:
+        lines = _history_file().read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows[::-1][:limit]
+
+
 def _rm(path: Path) -> None:
     """Delete a folder (never follows a symlink)."""
     if path.is_symlink() or path.is_file():
@@ -190,6 +221,8 @@ class _Update:
             _write_status(last={"action": action, "tag": tag, "result": result, "reason": reason,
                                 "at": _now(), "who": self.who}, waiting=None)
             _refused_file().unlink(missing_ok=True)
+            _append_history({"at": _now(), "action": action, "tag": tag, "result": result, "reason": reason,
+                             "who": self.who})
         self.log(f"{action} {tag or ''}: {result}{' - ' + reason if reason else ''}")
         return {"ok": ok, "result": result, "tag": tag, "previous": previous, "reason": reason,
                 "log": list(self.lines)}

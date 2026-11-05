@@ -9,8 +9,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { ModelPicker } from "@/features/build/wizard/ModelPicker"
 import { getPath, listText, parseList } from "@/features/settings/dotted"
-import type { SettingSource } from "@/lib/types"
+import type { LibraryTool, SettingSource } from "@/lib/types"
+import { switchTool, toolState, usesDefaults } from "@/lib/tools"
 
 const WHEN = [
   { value: "blocked", label: "Blocked" },
@@ -32,12 +34,14 @@ export interface AiStepEditorProps {
   onChange: (key: string, value: unknown) => void
   /** Known model names for the suggestion list. */
   models?: string[]
+  /** The supported tools (from the library); when given, tools are switches instead of comma lists. */
+  toolList?: LibraryTool[]
   readOnly?: boolean
 }
 
 /** One expandable row with all the AI settings of a step. */
 export function AiStepEditor(props: AiStepEditorProps) {
-  const { step, title, effective, source, changes, onChange, models = [], readOnly = false } = props
+  const { step, title, effective, source, changes, onChange, models = [], toolList, readOnly = false } = props
   const [open, setOpen] = useState(false)
   const drafts = useDrafts()
   const base = `steps.${step}`
@@ -91,6 +95,35 @@ export function AiStepEditor(props: AiStepEditorProps) {
     )
   }
 
+  const toolSwitches = (list: LibraryTool[]) => {
+    const asList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
+    const lists = { tools: asList(current("tools")), denied: asList(current("tools_denied")) }
+    return (
+      <fieldset className="space-y-1 md:col-span-2" aria-label="Tools it may use">
+        <legend className="text-sm font-medium">Tools it may use</legend>
+        {usesDefaults(lists) && <span className="block text-xs text-muted-foreground">Using this step's default tools. Switch one off to deny it.</span>}
+        {list.map((t) => (
+          <div key={t.name} className="flex items-center gap-2">
+            <span className="flex min-h-11 min-w-11 items-center justify-center">
+              <Switch
+                id={id(`tool-${t.name}`)} aria-label={t.label} disabled={readOnly}
+                checked={toolState(lists, t.name) !== "off"}
+                onCheckedChange={(on) => {
+                  const next = switchTool(lists, t.name, on)
+                  set("tools", next.tools)
+                  set("tools_denied", next.denied)
+                }}
+              />
+            </span>
+            <Label htmlFor={id(`tool-${t.name}`)} className="font-normal">{t.label}</Label>
+            <span className="text-xs text-muted-foreground">{t.help}</span>
+          </div>
+        ))}
+        {from("tools")}
+      </fieldset>
+    )
+  }
+
   const advisorOn = current("advisor.on")
   const when = (current("advisor.when") ?? getPath(effective, "advisor.when") ?? []) as string[]
   const claudeMd = current("claude_md")
@@ -107,19 +140,15 @@ export function AiStepEditor(props: AiStepEditorProps) {
       </CollapsibleTrigger>
       <CollapsibleContent className="w-full space-y-4 pt-2">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1">
-            <Label htmlFor={id("model")}>Model</Label>
-            <Input
-              id={id("model")} list={id("models")} disabled={readOnly} autoComplete="off"
-              placeholder={placeholder("model")} value={String(current("model") ?? "")}
-              onChange={(e) => set("model", e.target.value)}
+          <div className="md:col-span-2">
+            <ModelPicker
+              model={String(current("model") ?? getPath(effective, "model") ?? "")} models={models} disabled={readOnly}
+              backups={asStrings(current("fallback_models") ?? getPath(effective, "fallback_models"))}
+              onModel={(m) => set("model", m)} onBackups={(l) => set("fallback_models", l)}
             />
-            <datalist id={id("models")}>{models.map((m) => <option key={m} value={m} />)}</datalist>
             {from("model")}
           </div>
-          {listField("fallback_models", "Fallback models")}
-          {listField("tools", "Tools")}
-          {listField("tools_denied", "Tools denied")}
+          {toolList ? toolSwitches(toolList) : <>{listField("tools", "Tools")}{listField("tools_denied", "Tools denied")}</>}
           {listField("mcp_servers", "MCP servers")}
           {listField("skills", "Skills")}
           <div className="space-y-1">
@@ -135,8 +164,9 @@ export function AiStepEditor(props: AiStepEditorProps) {
             </Select>
             {from("claude_md")}
           </div>
-          {numberField("max_turns", "Max turns")}
-          {numberField("timeout", "Timeout (minutes)")}
+          {numberField("max_turns", "Turn limit")}
+          {numberField("timeout", "Time limit (minutes)")}
+          <span className="block text-xs text-muted-foreground md:col-span-2">The AI stops when it has used this many turns or this many minutes, whichever comes first.</span>
         </div>
 
         <fieldset className="space-y-3 rounded-md border p-3">
@@ -194,6 +224,8 @@ export function AiStepEditor(props: AiStepEditorProps) {
     </Collapsible>
   )
 }
+
+const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
 
 /** Remembers the text typed into list boxes so a trailing comma is not eaten while typing. */
 function useDrafts() {

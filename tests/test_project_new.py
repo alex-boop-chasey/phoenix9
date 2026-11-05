@@ -124,12 +124,12 @@ def test_services_and_keys_file(env, tmp_path):
     secret = "sk-test-SECRET-value-98765"
     kf = tmp_path / "keys.toml"
     kf.write_text(f'[[key]]\nname = "RESEND_API_KEY"\nvalue = "{secret}"\nsecret = true\n\n'
-                  '[[key]]\nname = "SUPABASE_URL"\nvalue = "https://x.supabase.co"\nsecret = false\n')
+                  '[[key]]\nname = "PUBLIC_SUPABASE_URL"\nvalue = "https://x.supabase.co"\nsecret = false\n')
     create(env, profile="python-script", services=["resend", "supabase"], keys_file=str(kf))
     folder = env["projects"] / "demo"
     rows = {r["name"]: r for r in keys.list_keys("demo")}
-    assert rows["RESEND_API_KEY"]["secret"] and rows["SUPABASE_URL"]["value_if_not_secret"] == "https://x.supabase.co"
-    assert "SUPABASE_ANON_KEY" in rows
+    assert rows["RESEND_API_KEY"]["secret"] and rows["PUBLIC_SUPABASE_URL"]["value_if_not_secret"] == "https://x.supabase.co"
+    assert "PUBLIC_SUPABASE_PUBLISHABLE_KEY" in rows
     allow = settings.load_project(folder)["domains"]["allow"]
     assert "api.resend.com" in allow and "supabase.co" in allow
     example = (folder / "code/.env.example").read_text()

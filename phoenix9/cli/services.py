@@ -1,4 +1,4 @@
-"""Commands for `phoenix services`: list, connect, disconnect, recipes."""
+"""Commands for `phoenix services`: list, connect, test, disconnect, recipes."""
 import getpass
 import sys
 
@@ -20,6 +20,9 @@ def add(sub, common) -> None:
     source.add_argument("--from-stdin", action="store_true", help="read NAME=value lines from stdin")
     p.add_argument("--no-check", action="store_true", help="save without trying the key")
     p.set_defaults(func=connect)
+    p = group.add_parser("test", parents=[common], help="try a connected service's saved key")
+    p.add_argument("name")
+    p.set_defaults(func=test)
     p = group.add_parser("disconnect", parents=[common], help="remove a service's account keys")
     p.add_argument("name")
     p.add_argument("--yes", action="store_true", help="confirm")
@@ -81,8 +84,16 @@ def connect(args) -> int:
         return problem(args, "Give the keys with --from-file PATH or --from-stdin, or run this in a terminal "
                              "to be asked.", 2)
     scrub.add_secrets(values.values())
-    r = ops.connect(args.name, values, who=args.who, check=not args.no_check)
+    extra = {k: values.pop(k) for k in [k for k in values if k.islower()]}   # lower-case names are plain settings
+    r = ops.connect(args.name, values, who=args.who, check=not args.no_check, settings_in=extra)
     return show(args, r, r["message"])
+
+
+def test(args) -> int:
+    """Try a connected service's saved key."""
+    r = ops.test(args.name, who=args.who)
+    show(args, r, r["message"])
+    return 0 if r["ok"] else 1
 
 
 def disconnect(args) -> int:

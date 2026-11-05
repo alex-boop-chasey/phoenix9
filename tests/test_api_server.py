@@ -92,6 +92,18 @@ def test_project_show(api):
     assert status == 200
     data = body["data"]
     assert data["name"] == "alpha" and data["needs_you"] == 0 and data["run"] is None
+    assert set(data["setup"]) == {"kind", "source", "template", "preset", "merge", "created", "services_set_up", "waiting_for_keys"}
+
+
+def test_project_show_setup_reads_project_files(api):
+    folder = make_project("alpha")
+    (folder / ".phoenix").mkdir(exist_ok=True)
+    (folder / ".phoenix" / "project.json").write_text(
+        '{"created": "2026-10-01", "source": "template", "template": "static-site", "profile": "web"}')
+    settings.save_project(folder, {"preset": "quick", "merge": "ask"})
+    setup = api("/api/projects/alpha")[1]["data"]["setup"]
+    assert setup == {"kind": "web", "source": "template", "template": "static-site", "preset": "quick",
+                     "merge": "ask", "created": "2026-10-01", "services_set_up": [], "waiting_for_keys": []}
 
 
 def test_project_sub_endpoints(api):
@@ -149,6 +161,8 @@ def test_library_endpoints(api):
     assert "presets" in api("/api/library/presets")[1]["data"]
     assert isinstance(api("/api/library/templates")[1]["data"], list)
     assert "services" in api("/api/library/services")[1]["data"]
+    names = [t["name"] for t in api("/api/library/tools")[1]["data"]["tools"]]
+    assert names[:3] == ["Read", "Edit", "Write"] and "Bash" in names
     assert "supported" in api("/api/services")[1]["data"]
     assert "values" in api("/api/global")[1]["data"]
     assert "connected" in api("/api/github/repos")[1]["data"]
@@ -277,3 +291,21 @@ def test_only_ops_imported():
         pkg, names = line
         imported |= {pkg} if pkg else {n.strip() for n in names.split(",")}
     assert imported <= {"ops", "paths", "scrub", "atomic", "api"}  # api = its own stream helper
+
+
+def test_projects_query_params(api):
+    make_project("alpha")
+    make_project("beta")
+    status, body = api("/api/projects?q=ALPHA&attention=1&sort=size")
+    assert status == 200
+    data = body["data"]
+    assert [r["name"] for r in data["rest"]] == ["alpha"] and data["top"] == [] and data["total"] == 1
+    assert data["counts"]["all"] == 1
+    status, body = api("/api/projects?status=idle&owner=none")
+    assert status == 200 and body["data"]["total"] == 2
+
+
+def test_projects_query_bad_values_are_400(api):
+    for tail in ("status=bogus", "sort=bogus", "attention=maybe"):
+        status, body = api(f"/api/projects?{tail}")
+        assert status == 400 and body["ok"] is False

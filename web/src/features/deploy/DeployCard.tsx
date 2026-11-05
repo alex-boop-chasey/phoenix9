@@ -1,11 +1,11 @@
 // The Deploy card on a project's Overview: deployer, live address, last deploy and a Deploy now button.
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
+import { Link } from "react-router"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Icon } from "@/components/Icon"
 import { post } from "@/lib/api"
 import { useDeploys, useJob } from "@/lib/queries"
 import type { DeployRecord } from "@/lib/types"
@@ -21,6 +21,21 @@ function lastLine(r: DeployRecord): string {
 function resultLine(status: string, message: string, url?: string): string {
   if (status === "done") return url ? `Deployed to ${url}.` : "Deployed."
   return message || "The deploy failed."
+}
+
+const SETTINGS_HINT = "Settings \u2192 Merge and deploy"
+
+/** A message, with a link to the deploy settings when it tells the reader to go there. */
+function WithSettingsLink({ text, name }: { text: string; name: string }) {
+  if (!text.includes(SETTINGS_HINT)) return <>{text}</>
+  const [before, after] = text.split(SETTINGS_HINT)
+  return (
+    <>
+      {before}
+      <Link to={`/p/${encodeURIComponent(name)}/settings#s-merge`}>{SETTINGS_HINT}</Link>
+      {after}
+    </>
+  )
 }
 
 /** Deploy card for a project whose deployer is not "none". */
@@ -55,9 +70,9 @@ export function DeployCard({ name }: { name: string }) {
   }
 
   return (
-    <Card>
-      <CardHeader><CardTitle>Deploy</CardTitle></CardHeader>
-      <CardContent className="flex flex-col gap-2 text-sm">
+    <section className="card stackg" aria-label="Deploy">
+      <h2 className="h3"><Icon name="rocket-launch" /> Deploy</h2>
+      <div className="stackg" style={{ gap: 8, fontSize: 14 }}>
         <p>Deployer: {deployer.title}</p>
         {!deployer.supported ? (
           <p className="text-muted-foreground">{deployer.title} is not yet supported.</p>
@@ -66,21 +81,21 @@ export function DeployCard({ name }: { name: string }) {
             <p>
               Live address:{" "}
               {data.live_url ? (
-                <a href={data.live_url} target="_blank" rel="noreferrer" className="text-primary underline-offset-4 hover:underline">
+                <a href={data.live_url} target="_blank" rel="noreferrer">
                   {data.live_url}
                 </a>
               ) : (
                 <span className="text-muted-foreground">not deployed yet</span>
               )}
             </p>
-            <p>Last deploy: {last ? lastLine(last) : <span className="text-muted-foreground">none yet</span>}</p>
+            <p>Last deploy: {last ? <WithSettingsLink text={lastLine(last)} name={name} /> : <span className="text-muted-foreground">none yet</span>}</p>
             <div>
-              <Button disabled={running} onClick={() => setConfirm(true)}>Deploy now</Button>
+              <button type="button" className="btn btn-primary" disabled={running} onClick={() => setConfirm(true)}>Deploy now</button>
             </div>
             {running && <p role="status">Deploying…</p>}
             {job && job.status !== "running" && (
               <p role="status" className={job.status === "failed" ? "text-destructive" : undefined}>
-                {resultLine(job.status, job.message, job.result?.url)}
+                <WithSettingsLink text={resultLine(job.status, job.message, job.result?.url)} name={name} />
               </p>
             )}
           </>
@@ -96,7 +111,7 @@ export function DeployCard({ name }: { name: string }) {
             void start()
           }}
         />
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   )
 }

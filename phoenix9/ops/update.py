@@ -75,3 +75,8 @@ def release(who: str, yes: bool) -> dict:
     common.record_command(who, f"update release {out['tag']}")
     return {"ok": True, **out, "created": True}
 
+
+
+def history() -> list[dict]:
+    """Past installs and roll-backs the updater recorded, newest first."""
+    return updater.read_history()

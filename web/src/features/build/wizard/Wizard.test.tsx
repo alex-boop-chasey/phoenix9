@@ -1,7 +1,8 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { act, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useLocation } from "react-router"
 
+import { libraryToolsData } from "@/test/settingsFixtures"
 import { runDetail } from "@/test/buildFixtures"
 import { mockApi, type MockRequest } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -19,6 +20,7 @@ const routes = (over: Record<string, unknown> = {}) => ({
   [`GET /api/projects/${P}/settings`]: wizardSettings(),
   "GET /api/library/presets": { presets: wizardPresets },
   "GET /api/library/steps": { steps: wizardSteps, problems: [] },
+  "GET /api/library/tools": libraryToolsData,
   [`GET /api/projects/${P}/specs`]: wizardSpecs,
   [`POST /api/projects/${P}/plan`]: (req: MockRequest) => wizardPlan((req.body as { overrides: Record<string, unknown> }).overrides),
   [`GET /api/projects/${P}/runs`]: [],
@@ -39,8 +41,7 @@ const sw = (name: string) => screen.getByRole("switch", { name })
 
 async function pickSpec() {
   await screen.findByText("Step 1 of 7")
-  fireEvent.pointerDown(screen.getByRole("combobox", { name: "Spec" }), { button: 0, ctrlKey: false, pointerType: "mouse" })
-  fireEvent.click(await screen.findByRole("option", { name: /Reading plan/ }))
+  await userEvent.click(await screen.findByRole("radio", { name: "Reading plan" }))
 }
 
 /** Go from slide 1 to slide n with the spec picked. */
@@ -78,11 +79,12 @@ test("next and back keep answers across all seven slides", async () => {
   await next()
   expect(title()).toBe("Review and submit")
   for (let n = 7; n > 1; n--) await back()
-  expect(screen.getByRole("combobox", { name: "Spec" })).toHaveTextContent("Reading plan")
+  expect(screen.getByRole("radio", { name: "Reading plan" })).toBeChecked()
   await next()
   expect(screen.getByRole("radio", { name: "Custom" })).toBeChecked()
   await next()
   expect(sw("Reviewer")).toBeChecked()
+  await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled())
   await next()
   await next()
   expect(screen.getByLabelText("Tries per task (1 to 10)")).toHaveValue(2)
@@ -108,20 +110,37 @@ test("effective step list refetched (debounced) when answers change", async () =
   await act(() => vi.advanceTimersByTimeAsync(400))
   await waitFor(() => expect(wizardCalls()).toHaveLength(1))
   expect(wizardCalls()[0]!.preset).toBe("full")
-  await waitFor(() => expect(sw("Reviewer")).toBeChecked())
-  expect(sw("Reviewer")).toBeDisabled()
+  const rail = screen.getByRole("list", { name: "Effective steps" })
+  await waitFor(() => expect(within(rail).getByText(/Reviewer/, { selector: "b" })).toBeInTheDocument())
+  expect(rail.querySelector("[data-off]")).toBeNull()
 })
 
-test("always-on steps locked", async () => {
+test("always-on steps are listed plainly, with no switch", async () => {
   mockApi(routes())
   show()
   await goTo(3)
-  await waitFor(() => expect(sw("Builder")).toBeChecked())
-  expect(sw("Builder")).toBeDisabled()
-  const row = screen.getAllByText("Builder")[0]!.closest("li")!
-  expect(within(row).getByText("always on")).toBeInTheDocument()
+  const always = await screen.findByRole("region", { name: "Always runs" })
+  expect(within(always).getByText("Builder")).toBeInTheDocument()
+  expect(within(always).queryByRole("switch")).toBeNull()
+  expect(screen.queryByRole("switch", { name: "Builder" })).toBeNull()
+  expect(screen.queryByText("always on")).toBeNull()
   expect(sw("Verify")).toBeEnabled()
-  expect(within(sw("Verify").closest("li")!).getByText("Safety")).toBeInTheDocument()
+  expect(within(sw("Verify").closest("label")!).getByText("Safety")).toBeInTheDocument()
+})
+
+test("every step change scrolls the progress header to the top and focuses the title", async () => {
+  mockApi(routes())
+  const scroll = vi.fn()
+  Element.prototype.scrollIntoView = scroll
+  show()
+  await goTo(2)
+  expect(scroll).toHaveBeenCalled()
+  expect(screen.getByTestId("wizard-progress")).toHaveTextContent("Step 2 of 7")
+  expect(screen.getByRole("heading", { level: 2 })).toHaveFocus()
+  scroll.mockClear()
+  await userEvent.click(screen.getByRole("button", { name: /Back/ }))
+  expect(scroll).toHaveBeenCalledTimes(1)
+  expect(screen.getByTestId("wizard-progress")).toHaveTextContent("Step 1 of 7")
 })
 
 test("forced-off step shows reason", async () => {
@@ -141,18 +160,103 @@ test("forced-off step shows reason", async () => {
   await userEvent.click(sw("Reviewer"))
   expect(await screen.findByText("Reviewer needs a test report, which nothing makes")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
-  expect(screen.getByText(/Custom, based on Quick/)).toBeInTheDocument()
+  expect(screen.getAllByText(/Custom, based on Quick/).length).toBeGreaterThan(0)
 })
 
-test("models slide collapsed by default with preset values", async () => {
-  mockApi(routes({ [`GET /api/projects/${P}/settings`]: wizardSettings({ preset: "full", steps: { planner: { on: true } } }) }))
+test("models slide: one card per AI step that is on, opened by Model and tools", async () => {
+  mockApi(routes({ [`GET /api/projects/${P}/settings`]: wizardSettings({ preset: "full", steps: { planner: { on: true }, "check-writer": { on: true }, reviewer: { on: true } } }) }))
   show()
   await goTo(4)
-  await screen.findByText("Model: claude-fable-5-1")
-  expect(screen.getByText("Model: claude-sonnet-5-5", { selector: "[data-step=planner] *" })).toBeInTheDocument()
-  expect(screen.queryByLabelText("Model")).toBeNull()
-  await userEvent.click(screen.getByRole("button", { name: "Builder settings" }))
-  expect(screen.getByLabelText("Model")).toHaveAttribute("placeholder", "claude-fable-5-1")
+  await screen.findByText("claude-fable-5-1")
+  const cards = [...document.querySelectorAll(".aic")].map((c) => c.getAttribute("data-step"))
+  expect(cards).toEqual(["planner", "check-writer", "builder", "reviewer"])
+  const builder = within(screen.getByRole("group", { name: "Builder" }))
+  expect(screen.queryByLabelText("Primary model")).toBeNull()
+  await userEvent.click(builder.getByRole("button", { name: "Model and tools" }))
+  expect(builder.getByLabelText("Primary model")).toHaveValue("claude-fable-5-1")
+  expect(builder.getByLabelText("Backup model (optional)")).toHaveValue("claude-sonnet-5-5")
+  expect(builder.queryByRole("button", { name: /Move fallback|Add a fallback/ })).toBeNull()
+  await userEvent.selectOptions(builder.getByLabelText("Primary model"), "claude-opus-5-5")
+  await userEvent.selectOptions(builder.getByLabelText("Backup model (optional)"), "None")
+  expect(builder.getByLabelText("Backup model (optional)")).toHaveValue("")
+  expect(builder.getByText(/default tools/)).toBeInTheDocument()
+  expect(await builder.findByRole("switch", { name: "Search the web" })).toBeChecked()
+  await userEvent.click(builder.getByRole("switch", { name: "Search the web" }))
+  expect(builder.getByRole("switch", { name: "Search the web" })).not.toBeChecked()
+  expect(builder.queryByText(/default tools/)).toBeNull()
+  await userEvent.clear(builder.getByLabelText("Turn limit"))
+  await userEvent.type(builder.getByLabelText("Turn limit"), "99")
+  await userEvent.click(builder.getByRole("button", { name: "Close" }))
+  expect(builder.queryByLabelText("Primary model")).toBeNull()
+})
+
+test("models slide leaves out AI steps that are switched off", async () => {
+  mockApi(routes())
+  show()
+  await goTo(4)
+  await screen.findByRole("group", { name: "Builder" })
+  expect(screen.queryByRole("group", { name: "Reviewer" })).toBeNull()
+  expect(screen.queryByRole("group", { name: "Planner" })).toBeNull()
+})
+
+test("the outline jumps back to seen steps and shows their summary", async () => {
+  mockApi(routes())
+  show()
+  await goTo(3)
+  const outline = screen.getByRole("list", { name: "Build wizard steps" })
+  expect(within(outline).getByRole("button", { name: /Preset/ })).toHaveTextContent("Quick")
+  expect(within(outline).getByRole("button", { name: /Failures/ })).toBeDisabled()
+  await userEvent.click(within(outline).getByRole("button", { name: /What to build/ }))
+  expect(screen.getByText("Step 1 of 7")).toBeInTheDocument()
+})
+
+test("step 2 rail shows what runs and why the rest is off", async () => {
+  mockApi(routes())
+  show()
+  await goTo(2)
+  const rail = await screen.findByRole("list", { name: "Effective steps" })
+  await waitFor(() => expect(within(rail).getByText("Off in Quick")).toBeInTheDocument())
+  expect(within(rail).getByText("At the start")).toBeInTheDocument()
+  expect(within(rail).getByText("For every task")).toBeInTheDocument()
+  expect(within(rail).getByText("At the end")).toBeInTheDocument()
+  expect(rail.querySelector("[data-off] b")).toHaveTextContent("Planner")
+  await userEvent.click(screen.getByRole("radio", { name: "Custom" }))
+  expect(await within(rail).findByText("Switched off on the Steps page")).toBeInTheDocument()
+  expect(screen.getByText(/Custom: switch each step on or off/)).toBeInTheDocument()
+})
+
+test("steps 2 and 3 share one state: a switch makes Custom and updates the rail", async () => {
+  mockApi(routes())
+  show()
+  await goTo(3)
+  await waitFor(() => expect(sw("Reviewer")).toBeEnabled())
+  await userEvent.click(sw("Reviewer"))
+  await back()
+  expect(screen.getByRole("radio", { name: "Custom" })).toBeChecked()
+  const rail = screen.getByRole("list", { name: "Effective steps" })
+  expect(within(rail).getByText(/Reviewer/, { selector: "b" })).toBeInTheDocument()
+  expect(rail).toBeInTheDocument()
+})
+
+test("red check needs check writer: a dependency note, and it follows the switch", async () => {
+  mockApi(routes())
+  show()
+  await goTo(3)
+  await screen.findByText("Can't run: needs Check writer (switch it on)")
+  expect(sw("Red check")).toBeDisabled()
+})
+
+test("a brief locks the Planner on with a note", async () => {
+  mockApi(routes())
+  show()
+  await screen.findByText("Step 1 of 7")
+  await userEvent.click(screen.getByRole("radio", { name: "Write a brief for the Planner" }))
+  await userEvent.type(screen.getByLabelText("Brief"), "A reading list")
+  await next()
+  await next()
+  await waitFor(() => expect(sw("Planner")).toBeChecked())
+  expect(sw("Planner")).toBeDisabled()
+  expect(screen.getByText("On because you chose to write a brief on step 1")).toBeInTheDocument()
 })
 
 test("failure modes explained", async () => {
@@ -183,9 +287,15 @@ test("review lists the plan in order with off steps greyed", async () => {
   const reviewer = plan.querySelector("[data-step=reviewer]")!
   expect(reviewer).toHaveAttribute("data-on", "false")
   expect(reviewer).toHaveClass("line-through")
+  for (const t of ["What to build", "Preset", "Steps", "Models and tools", "Failures", "Finish"]) {
+    expect(screen.getByRole("button", { name: `Edit ${t}` })).toBeInTheDocument()
+  }
+  expect(screen.getByText("Tries per task").closest("[data-fact]")).toBeInTheDocument()
   expect(plan.querySelector("[data-step=verify]")).toHaveAttribute("data-on", "true")
   expect(screen.getByText("Reading plan (specs/reading-plan.md)")).toBeInTheDocument()
-  expect(screen.getByRole("checkbox", { name: "Remember these as this project's defaults" })).toBeChecked()
+  expect(screen.getByRole("checkbox", { name: "Use these choices for this project's next builds" })).not.toBeChecked()
+  await userEvent.click(screen.getByRole("button", { name: "Edit Failures" }))
+  expect(title()).toBe("Failures")
 })
 
 test("submit with remember posts defaults then runs then shows running view", async () => {
@@ -201,8 +311,9 @@ test("submit with remember posts defaults then runs then shows running view", as
   await userEvent.type(tries, "2")
   await next()
   await next()
-  await userEvent.click(screen.getByRole("button", { name: "Submit" }))
-  await screen.findByText("Queued: waiting for the runner to pick it up.")
+  await userEvent.click(screen.getByRole("checkbox", { name: "Use these choices for this project's next builds" }))
+  await userEvent.click(screen.getByRole("button", { name: "Start build" }))
+  await screen.findByText(/Starting… the first step runs/)
   expect(screen.getByTestId("where")).toHaveTextContent(`/p/${P}/build?run=r-new`)
   const posts = calls.filter((c) => c.method === "POST" && !c.path.endsWith("/plan"))
   expect(posts.map((c) => c.path)).toEqual([`/api/projects/${P}/defaults`, `/api/projects/${P}/runs`])
@@ -219,8 +330,7 @@ test("submit without remember posts only runs", async () => {
   }))
   show()
   await goTo(7)
-  await userEvent.click(screen.getByRole("checkbox", { name: "Remember these as this project's defaults" }))
-  await userEvent.click(screen.getByRole("button", { name: "Submit" }))
+  await userEvent.click(screen.getByRole("button", { name: "Start build" }))
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("run=r-new"))
   const posts = calls.filter((c) => c.method === "POST" && !c.path.endsWith("/plan")).map((c) => c.path)
   expect(posts).toEqual([`/api/projects/${P}/runs`])
@@ -234,11 +344,11 @@ test("submit error keeps answers and shows message", async () => {
     String(input).endsWith(`/projects/${P}/runs`) && init?.method === "POST" ? fail() : real(input, init))
   show()
   await goTo(7)
-  await userEvent.click(screen.getByRole("button", { name: "Submit" }))
+  await userEvent.click(screen.getByRole("button", { name: "Start build" }))
   expect(await screen.findByText("The spec has to be a file in notes/specs.")).toBeInTheDocument()
   expect(title()).toBe("Review and submit")
   expect(screen.getByText("Reading plan (specs/reading-plan.md)")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Submit" })).toBeEnabled()
+  expect(screen.getByRole("button", { name: "Start build" })).toBeEnabled()
 })
 
 test("brief switches the planner on with a note", async () => {
@@ -249,6 +359,7 @@ test("brief switches the planner on with a note", async () => {
   await userEvent.click(screen.getByRole("radio", { name: "Write a brief for the Planner" }))
   expect(screen.getByText(/The Planner turns your brief into a spec/)).toBeInTheDocument()
   await userEvent.type(screen.getByLabelText("Brief"), "Add a reading list page")
+  await next()
   await next()
   await waitFor(() => expect(sw("Planner")).toBeChecked())
 })

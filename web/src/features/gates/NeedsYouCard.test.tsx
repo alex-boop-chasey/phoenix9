@@ -33,8 +33,8 @@ describe("NeedsYouCard", () => {
   it("merge gate shows four buttons", () => {
     mockApi({})
     renderWithProviders(<NeedsYouCard gate={merge} />)
-    expect(screen.getByText("Needs you: Merge the build")).toBeInTheDocument()
-    expect(screen.getByText("Task 2 · Builder")).toBeInTheDocument()
+    expect(screen.getByText("Merge the build")).toBeInTheDocument()
+    expect(screen.getByText("Task 2 · Builder step")).toBeInTheDocument()
     for (const n of ["Approve", "Send back with a note", "Skip task", "Stop run"]) expect(button(n)).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Acknowledged" })).toBeNull()
   })
@@ -48,6 +48,18 @@ describe("NeedsYouCard", () => {
     fireEvent.click(button("Done, keys pasted"))
     await waitFor(() => expect(calls.length).toBe(1))
     expect(calls[0]!.body).toEqual({ action: "done", note: "" })
+  })
+
+  it("the keys question offers Build without it for now and posts defer", async () => {
+    const { calls } = mockApi(answerRoute("r.3"))
+    const keys: Gate = { ...merge, id: "r.3", kind: "human-task", title: "Paste keys for Supabase",
+      actions: ["done", "defer", "skip", "stop"] }
+    renderWithProviders(<NeedsYouCard gate={keys} />)
+    expect(button("Done, keys pasted")).toBeInTheDocument()
+    expect(screen.getByText(/Waiting for keys/)).toBeInTheDocument()
+    fireEvent.click(button("Build without it for now"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "defer", note: "" })
   })
 
   it("an unknown action is labelled with its own name", () => {
@@ -138,8 +150,8 @@ describe("NeedsYouCard", () => {
     mockApi(answerRoute("r.1"))
     renderWithProviders(<NeedsYouCard gate={merge} />)
     fireEvent.click(button("Approve"))
-    expect(await screen.findByText("Answered: Approve")).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText("Answered: Approve")).toBeNull(), { timeout: 3000 })
+    expect(await screen.findByText("Answered: Phoenix is carrying on")).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText("Answered: Phoenix is carrying on")).toBeNull(), { timeout: 3000 })
     expect(screen.queryByText(/Needs you:/)).toBeNull()
   })
 

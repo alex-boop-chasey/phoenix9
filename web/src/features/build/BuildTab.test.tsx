@@ -38,7 +38,8 @@ test("run detail links to its logs", async () => {
   show("/p/demo-site/build?run=r-wait")
   const link = await screen.findByRole("link", { name: "See this build's logs" })
   expect(link).toHaveAttribute("href", "/p/demo-site/logs?run=r-wait")
-  expect(screen.getByRole("link", { name: "← All builds" })).toHaveAttribute("href", "/p/demo-site/build?list=1")
+  // The ledger stays above the selected build, which is highlighted.
+  expect(document.querySelector("tr.sel")).toHaveTextContent("Pricing page")
 })
 
 test("run detail shows open gates", async () => {
@@ -48,8 +49,8 @@ test("run detail shows open gates", async () => {
     }),
   }))
   show("/p/demo-site/build?run=r-wait")
-  expect(await screen.findByText("Needs you: Merge it?")).toBeInTheDocument()
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  expect(await screen.findByText("Merge it?")).toBeInTheDocument()
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
 })
 
 test("polls while running and stops when done", async () => {

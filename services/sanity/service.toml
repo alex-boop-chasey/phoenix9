@@ -7,13 +7,37 @@ account_keys = []
 hosts = ["sanity.io"]
 
 [[project_keys]]
-name = "SANITY_PROJECT_ID"
+name = "PUBLIC_SANITY_PROJECT_ID"
 secret = false
+public = true
+required = true
+help = "sanity.io/manage: open the project, the ID is shown at the top."
 
 [[project_keys]]
-name = "SANITY_DATASET"
+name = "PUBLIC_SANITY_DATASET"
 secret = false
+public = true
+required = true
+help = "sanity.io/manage > project > Datasets. Usually production."
 
 [[project_keys]]
-name = "SANITY_API_TOKEN"
+name = "PUBLIC_SANITY_API_VERSION"
+secret = false
+public = true
+required = true
+help = "Not in the dashboard: a date such as 2026-03-01. Use today's date."
+
+[[project_keys]]
+name = "SANITY_API_READ_TOKEN"
 secret = true
+public = false
+required = false
+help = "sanity.io/manage > project > API > Tokens, role Viewer. Only for drafts, Visual Editing or private datasets."
+
+[[project_keys]]
+name = "SANITY_API_WRITE_TOKEN"
+secret = true
+public = false
+required = false
+help = "Same page, role Editor. Only if the site saves content (forms, scripts)."
+

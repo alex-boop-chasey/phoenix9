@@ -33,7 +33,7 @@ export const wizardPresets: Preset[] = [
 ]
 
 const AI: Record<string, Record<string, unknown>> = {
-  planner: { model: "claude-sonnet-5-5", fallback_models: ["claude-opus-5-5"], max_turns: 200 },
+  planner: { model: "claude-sonnet-5-5", fallback_models: ["claude-opus-5-5"], max_turns: 40 },
   "check-writer": { model: "claude-sonnet-5-5", fallback_models: [], max_turns: 40 },
   builder: { model: "claude-fable-5-1", fallback_models: ["claude-sonnet-5-5"], max_turns: 40 },
   reviewer: { model: "claude-sonnet-5-5", fallback_models: [], max_turns: 40 },

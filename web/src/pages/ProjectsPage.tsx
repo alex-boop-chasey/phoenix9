@@ -1,89 +1,118 @@
-// The home page: every project on the server, with search, an owner filter and live status.
-import { FolderOpen } from "lucide-react"
-import { useMemo } from "react"
-import { Link, useSearchParams } from "react-router"
+// The home page: every project on the server, with search, filters, the Add project menu and live status.
+import { useEffect, useRef, useState } from "react"
+import { Link, useNavigate } from "react-router"
+import { toast } from "sonner"
 
-import { EmptyState } from "@/components/EmptyState"
+import { Icon } from "@/components/Icon"
 import { ErrorState } from "@/components/ErrorState"
-import { PageHeader } from "@/components/PageHeader"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ProjectCards } from "@/features/projects/ProjectCards"
+import { AddProjectMenu } from "@/features/projects/AddProjectMenu"
+import { ProjectRowCard } from "@/features/projects/ProjectRowCard"
 import { ProjectsFilters } from "@/features/projects/ProjectsFilters"
-import { ProjectsTable } from "@/features/projects/ProjectsTable"
-import { ALL_OWNERS, filterRows, ownersOf, sortRows } from "@/features/projects/rows"
-import { useIsDesktop } from "@/features/projects/useIsDesktop"
+import { RemoveDialog } from "@/features/projects/RemoveDialogs"
+import { startChat } from "@/features/projects/startChat"
+import { apiParams, useProjectQuery } from "@/features/projects/useProjectQuery"
 import { useLiveEvents } from "@/lib/live"
-import { useProjects } from "@/lib/queries"
+import { useProjects, useProjectSearch, useRefreshProjects, useRemoveProject } from "@/lib/queries"
+import type { ProjectRow } from "@/lib/types"
 
-function CreateButton() {
-  return (
-    <Button asChild>
-      <Link to="/new">Create new project</Link>
-    </Button>
-  )
-}
+const FADE_MS = 220
 
 /** The Projects page. */
 export default function ProjectsPage() {
-  const query = useProjects()
-  const desktop = useIsDesktop()
-  const [params, setParams] = useSearchParams()
-  // Live: project.*, run.*, task.* and gate.* events refresh the list (see invalidateForEvent); it also polls every 10 s.
+  const { query, update, clear } = useProjectQuery()
+  const all = useProjects()
+  const found = useProjectSearch(apiParams(query))
+  const remove = useRemoveProject()
+  const refresh = useRefreshProjects()
+  const navigate = useNavigate()
+  const search = useRef<HTMLInputElement>(null)
+  const [asking, setAsking] = useState<string | null>(null)
+  const [gone, setGone] = useState<string[]>([])
+  // Live: project.*, run.*, task.* and gate.* events refresh the list; it also polls every 10 s.
   useLiveEvents()
 
-  const q = params.get("q") ?? ""
-  const owner = params.get("owner") ?? ALL_OWNERS
-  const setFilter = (key: "q" | "owner", value: string) => {
-    const next = new URLSearchParams(params)
-    if (value === "" || (key === "owner" && value === ALL_OWNERS)) next.delete(key)
-    else next.set(key, value)
-    setParams(next, { replace: true })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName
+      if (e.key !== "/" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.ctrlKey || e.metaKey) return
+      e.preventDefault()
+      search.current?.focus()
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [])
+
+  const confirmRemove = (name: string) => {
+    setAsking(null)
+    remove.mutate(name, {
+      onSuccess: () => {
+        setGone((g) => [...g, name])
+        setTimeout(() => { refresh(); setGone((g) => g.filter((n) => n !== name)) }, FADE_MS)
+        toast.success(`${name} removed from Phoenix`, {
+          description: "Bring it back any time with Import.",
+          action: { label: "Import", onClick: () => navigate("/import") },
+        })
+      },
+      onError: (err) => toast.error(err.message),
+    })
   }
 
-  const all = useMemo(() => sortRows(query.data ?? []), [query.data])
-  const owners = useMemo(() => ownersOf(all), [all])
-  const shown = useMemo(() => filterRows(all, q, owner), [all, q, owner])
+  const card = (row: ProjectRow) => (
+    <ProjectRowCard
+      key={row.name} row={row} gone={gone.includes(row.name)}
+      onRemove={() => setAsking(row.name)} onStartChat={() => void startChat(row.name, refresh)}
+    />
+  )
+
+  const body = () => {
+    if (!all.data || !found.data) {
+      const error = all.error ?? found.error
+      if (error) return <ErrorState error={error} onRetry={() => { void all.refetch(); void found.refetch() }} />
+      return (
+        <div className="plist" aria-label="Loading projects">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
+        </div>
+      )
+    }
+    const { top, rest, total } = found.data
+    const totalAll = all.data.length
+    if (totalAll === 0) {
+      return (
+        <div className="empty">
+          <span className="ec"><Icon name="folder-open" /></span>
+          <b className="h3">No projects yet</b>
+          <p className="small">Create your first project to get started.</p>
+          <Link className="btn btn-primary" to="/new"><Icon name="plus" />Create new project</Link>
+        </div>
+      )
+    }
+    const countText = total === totalAll ? `${total} project${total === 1 ? "" : "s"}` : `${total} of ${totalAll} projects`
+    return (
+      <>
+        <ProjectsFilters ref={search} query={query} countText={countText} onChange={update} />
+        {total === 0 ? (
+          <div className="empty">
+            <span className="ec"><Icon name="magnifying-glass" /></span>
+            <b className="h3">No projects match</b>
+            <p className="small">Try another word or clear the filters.</p>
+            <button type="button" className="btn btn-secondary" onClick={clear}>Clear filters</button>
+          </div>
+        ) : (
+          <div className="plist">{[...top, ...rest].map(card)}</div>
+        )}
+      </>
+    )
+  }
 
   return (
     <main>
-      <PageHeader title="Projects" description="Every project on this server." actions={<CreateButton />} />
-      {query.isPending ? (
-        <div className="flex flex-col gap-2" aria-label="Loading projects">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      ) : query.isError ? (
-        <ErrorState error={query.error} onRetry={() => void query.refetch()} />
-      ) : all.length === 0 ? (
-        <EmptyState icon={FolderOpen} title="No projects yet" line="Create your first project to get started." action={<CreateButton />} />
-      ) : (
-        <div className="flex flex-col gap-3">
-          <ProjectsFilters
-            q={q} owner={owner} owners={owners}
-            onQ={(v) => setFilter("q", v)} onOwner={(v) => setFilter("owner", v)}
-          />
-          <p className="text-sm text-muted-foreground">
-            {shown.length} of {all.length} projects
-          </p>
-          {shown.length === 0 ? (
-            <EmptyState
-              icon={FolderOpen}
-              title="No projects match"
-              action={
-                <Button variant="outline" onClick={() => setParams({}, { replace: true })}>
-                  Clear filters
-                </Button>
-              }
-            />
-          ) : desktop ? (
-            <ProjectsTable rows={shown} />
-          ) : (
-            <ProjectCards rows={shown} />
-          )}
-        </div>
-      )}
+      <div className="title-row">
+        <div><h1 className="h1">Projects</h1><p className="lead">Every project on this server.</p></div>
+        <AddProjectMenu />
+      </div>
+      {body()}
+      <RemoveDialog name={asking} onCancel={() => setAsking(null)} onConfirm={confirmRemove} />
     </main>
   )
 }

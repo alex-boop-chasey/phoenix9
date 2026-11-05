@@ -96,8 +96,9 @@ web/                           React app (phase 3)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
 CLI groups (`phoenix <group> --help`; each writes a `command` event when it changes something):
   run gate settings steps profiles presets project doctor api   phases 1-3
-  services list|connect|disconnect|recipes    account services and their keys (section 4.6)
+  services list|connect|test|disconnect|recipes   account services and their keys (section 4.6)
   keys audit                                  which keys exist, where used, problems (never a value)
+  models list|set                             Phoenix's default models per AI step (global.toml [models])
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
   images build                                build the step images, label `phoenix9.commit`
@@ -111,7 +112,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | Name | Default | Env override | Holds |
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
-| config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
+| config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`; `[[removed_projects]]` rows `name`, `path`, `repo`, `removed_on` for projects taken off Phoenix's list by `phoenix project remove`, section 3 of `docs/design/phase-4-5-project-list.md`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
@@ -134,7 +135,7 @@ build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
-chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run}`; older
+chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
 fields in section 4.7).
 
@@ -191,7 +192,7 @@ model = "claude-sonnet-5-5"
   (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
 - Service setup is a run-start step at `order = 50`, after Branch (40) and Planner (45), `proxy =
   ["@project"]`, on by default. Per chosen service (phoenix.toml `services`): unknown service fails;
-  project keys without a value open a `human-task` gate (actions `done`, `skip`, `stop`; `done` calls
+  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
   the step again and it re-checks, still missing = fail; `skip` continues without them); hosts missing
   from the project's `[domains] allow` are added (and to this run's frozen settings); the service's
   `recipe.py` `wire(ctx, service, proxy)` runs once (recorded in `.phoenix/project.json`
@@ -293,8 +294,11 @@ secrets_file = "service-supabase.env"      # default "service-<name>.env"; githu
 hosts = ["supabase.co"]           # added to a project's allowed domains (bare names, suffix match)
 
 [[project_keys]]                  # rows pre-filled in the project keys form
-name = "SUPABASE_URL"
-secret = false
+name = "PUBLIC_SUPABASE_URL"     # the exact env var name the project code reads
+secret = false                    # default true
+public = true                     # default false: safe in browser code (never together with secret = true)
+required = true                   # default true; false = optional, a project can build without it
+help = "Project dashboard > Connect: the project URL."   # one line: where to find it in the provider dashboard
 
 [proxy]                           # store-and-wire only: the account API, through the key proxy
 upstream = "https://api.supabase.com"
@@ -310,11 +314,24 @@ path = "/v1/projects"             # optional per-rule: upstream = "https://other
 method = "GET"
 path = "/v1/projects"             # must match one proxy.allow rule
 expect = [200]
+
+[[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
+name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]
+label = "Organisation"
+kind = "text"                     # "text" (default) | "select" (then `options = [...]`, optional `default`)
+placeholder = "my-organisation"   # optional; also optional `help`
 ```
+
+Phoenix settings also lists **Claude** (`claude.env`, `CLAUDE_CODE_OAUTH_TOKEN`) and **Telegram**
+(`telegram.env`, `TELEGRAM_BOT_TOKEN`, setting `chat_id`) as built-in rows (`ops/services.py BUILTIN`); they
+have no library folder, proxy or `[check]`. Saved secrets are shown as their last four characters only.
+`global.toml` may hold `[models.<step>]` (`model`, `fallback_models`): Phoenix's default models, applied
+under presets, profiles and project settings (`settings.global_models`). The updater also appends one JSON
+line per finished install or roll-back to `HOME/update/history.jsonl` (`at, action, tag, result, reason, who`).
 
 Rules (checked by `phoenix9/services.py`; a broken folder is reported and skipped, never a crash):
 name = folder name; `support` is one of the two values; `account_keys` match `^[A-Z][A-Z0-9_]*$`;
-`[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
+`[[project_keys]]` rows: `name` matches `^[A-Z][A-Z0-9_]*$`, `secret` (default true), `public` (default false, not with `secret`), `required` (default true), `help`. Names are final env var names: a browser-safe value carries the web profile's `PUBLIC_` prefix in its name (no per-profile prefixing; services are used by the web profile). `[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
 `account_keys`; `[proxy]` is checked by `proxy.spec_from_service` (so rules by `proxy.parse_rules`: no
 trailing `/` in a path); `hosts` are bare domain names (no scheme, port, path or `*`; subdomains match by
 suffix, and each name must resolve on its own). Beside it: `install.md` (store-and-wire: plain

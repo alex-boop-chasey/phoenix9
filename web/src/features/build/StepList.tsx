@@ -1,11 +1,13 @@
 import type { ReactNode } from "react"
 
-import { StatusBadge } from "@/components/StatusBadge"
+import { Icon } from "@/components/Icon"
+import { Indicator, type IndicatorKind } from "@/components/Indicator"
+import { MergeReview } from "@/features/gates/MergeReview"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { formatDuration, relativeTime } from "@/lib/format"
 import type { Gate, ItemStatus, PlanStep, RunDetail, RunTask, StepGroup, StepLine } from "@/lib/types"
 
-import { Muted, ShortText } from "./parts"
+import { Muted } from "./parts"
 
 /** The latest attempt's line for a step (of one task, or of the run when task is null). */
 function latestLine(run: RunDetail, task: number | null, step: string): StepLine | undefined {
@@ -15,6 +17,13 @@ function latestLine(run: RunDetail, task: number | null, step: string): StepLine
     if (!best || (l.attempt ?? 0) >= (best.attempt ?? 0)) best = l
   }
   return best
+}
+
+/** Every attempt's line for a step (of one task, or of the run when task is null), oldest first. */
+function allLines(run: RunDetail, task: number | null, step: string): StepLine[] {
+  return run.steps
+    .filter((l) => l.step === step && (l.task ?? null) === task)
+    .sort((a, b) => (a.attempt ?? 0) - (b.attempt ?? 0))
 }
 
 /** Step names of a group in plan order, including steps switched off. */
@@ -41,9 +50,17 @@ function gateFor(run: RunDetail, gates: Gate[], task: number | null, line: StepL
   return openGate(gates, line.gate) ?? openGate(gates, t?.gate)
 }
 
+/** The open merge question of a run whose Merge step is waiting (shown as the review under that step). */
+function mergeGate(run: RunDetail, gates: Gate[]): Gate | undefined {
+  if (latestLine(run, null, "merge")?.status !== "waiting") return undefined
+  return gates.find((g) => g.kind === "merge" && !g.answered)
+}
+
 /** Ids of the open gates the step list shows itself (so a page can show only the others). */
 export function gatesShownInSteps(run: RunDetail, gates: Gate[] = run.gates): Set<string> {
   const ids = new Set<string>()
+  const merge = mergeGate(run, gates)
+  if (merge) ids.add(merge.id)
   for (const n of Object.keys(run.tasks)) {
     const seen = new Set<string>()
     for (const name of groupNames(run, "task")) {
@@ -67,12 +84,16 @@ interface Shown {
   text: string
 }
 
+/** What a step says once its question is answered and the runner has not picked it up yet. */
+export const CARRYING_ON = "Answered: Phoenix is carrying on"
+
 function describe(line: StepLine | undefined, off: PlanStep | undefined, task: RunTask | undefined): Shown {
   if (off && !off.on && !line) return { status: "skipped", text: `Switched off (${off.reason || "switched off"})` }
   if (!line) {
     if (task?.status === "skipped") return { status: "skipped", text: task.note || "skipped" }
     return { status: "pending", text: "" }
   }
+  if (line.answered) return { status: "running", text: CARRYING_ON }
   const note = line.note?.split("\n")[0] ?? ""
   if (note) return { status: line.status, text: note }
   switch (line.status) {
@@ -89,27 +110,49 @@ function describe(line: StepLine | undefined, off: PlanStep | undefined, task: R
   }
 }
 
-function StepRow({ title, shown }: { title: string; shown: Shown }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
-      <div className="min-w-0">
-        <div className="text-sm font-medium">{title}</div>
-        {shown.text && <ShortText text={shown.text} className="block truncate text-xs text-muted-foreground" />}
-      </div>
-      <StatusBadge status={shown.status} className="shrink-0" />
-    </div>
-  )
+const KIND: Record<ItemStatus, IndicatorKind> = {
+  passed: "passed", failed: "failed", running: "running", waiting: "needs-you",
+  pending: "pending", queued: "pending", skipped: "off",
+} as never
+
+const EDGE: Partial<Record<IndicatorKind, string>> = {
+  running: "st-run", failed: "st-bad", pending: "st-pend", "needs-you": "st-need", off: "st-pend",
 }
 
-function Block({ heading, extra, children }: { heading: string; extra?: ReactNode; children: ReactNode }) {
+/** What the right-hand side of a block says about who does the step. */
+function Model({ plan }: { plan: PlanStep | undefined }) {
+  if (plan?.kind === "gate") return <span className="model"><Icon name="user" />you</span>
+  if (plan?.kind === "ai") {
+    const model = typeof plan.ai?.model === "string" ? plan.ai.model : "AI"
+    return <span className="model"><Icon name="cpu" />{model}</span>
+  }
+  return <span className="model"><Icon name="terminal" />script</span>
+}
+
+interface BlockProps {
+  title: string
+  line: string
+  time: string
+  status: ItemStatus
+  plan: PlanStep | undefined
+  room?: boolean
+}
+
+/** One step as a block: indicator, title, what line, who runs it and how long it took. */
+function Block({ title, line, time, status, plan, room }: BlockProps) {
+  const kind = KIND[status] ?? "pending"
   return (
-    <section className="rounded-lg border p-3">
-      <div className="mb-1 flex flex-wrap items-center gap-2">
-        <h3 className="text-sm font-semibold">{heading}</h3>
-        {extra}
+    <div className={`blk ${EDGE[kind] ?? ""} ${room ? "has-room" : ""}`} data-status={status}>
+      <Indicator kind={kind} />
+      <div className="blk-t">
+        <b>{title}</b>
+        {line && <span title={line}>{line}</span>}
       </div>
-      <div className="divide-y">{children}</div>
-    </section>
+      <div className="blk-r">
+        <Model plan={plan} />
+        <small>{time}</small>
+      </div>
+    </div>
   )
 }
 
@@ -119,58 +162,118 @@ interface Props {
   renderUnderStep?: (line: StepLine) => ReactNode
 }
 
-/** The read-only list of a run's steps: the start steps, one block per task, the end steps. */
+function timeOf(line: StepLine | undefined, shown: Shown): string {
+  if (!line) return shown.status === "skipped" ? "Off" : "Pending"
+  if (line.status === "running" && line.answered) return "Answered"
+  if (line.status === "running") return line.started ? `Started ${relativeTime(line.started)}` : "Running"
+  if (line.status === "waiting") return line.started ? `Waiting ${relativeTime(line.started).replace(/ ago$/, "")}` : "Waiting"
+  return took(line) || (shown.status === "skipped" ? "Skipped" : "")
+}
+
+/** The stacked blocks of a run: the start steps, one group per task, the end steps. */
 export function StepList({ run, gates, renderUnderStep }: Props) {
   const open = gates ?? run.gates
   const title = (name: string) => planRow(run, name)?.title || name
 
-  function rows(group: StepGroup, taskNo: number | null) {
+  function blocks(group: StepGroup, taskNo: number | null) {
     const task = taskNo === null ? undefined : run.tasks[String(taskNo)]
     const shownGate = new Set<string>()
-    return groupNames(run, group).map((name) => {
-      const line = latestLine(run, taskNo, name)
-      const gate = gateFor(run, open, taskNo, line)
-      const showGate = gate && !shownGate.has(gate.id) ? gate : undefined
-      if (showGate) shownGate.add(showGate.id)
-      return (
-        <div key={name} data-step={name}>
-          <StepRow title={title(name)} shown={describe(line, planRow(run, name), task)} />
-          {showGate && (
-            <div className="pb-2"><NeedsYouCard gate={showGate} compact /></div>
-          )}
-          {line && renderUnderStep?.(line)}
-        </div>
-      )
+    return groupNames(run, group).flatMap((name) => {
+      const lines = allLines(run, taskNo, name)
+      const list: (StepLine | undefined)[] = lines.length ? lines : [undefined]
+      return list.map((line, i) => {
+        const last = i === list.length - 1
+        const isMerge = taskNo === null && name === "merge" && line?.status === "waiting"
+        const gate = last ? (isMerge ? mergeGate(run, open) : gateFor(run, open, taskNo, line)) : undefined
+        const showGate = gate && !shownGate.has(gate.id) ? gate : undefined
+        if (showGate) shownGate.add(showGate.id)
+        const shown = describe(line, planRow(run, name), task)
+        if (name === "merge" && line?.status === "passed" && !line.note) shown.text = "Merged into main"
+        const many = list.length > 1 || (line?.attempt ?? 1) > 1
+        const heading = many && line?.attempt ? `${title(name)}, attempt ${line.attempt}` : title(name)
+        const mergeRoom = line?.status === "waiting" && name === "merge"
+        const block = (
+          <Block
+            title={heading} line={shown.text} time={timeOf(line, shown)} status={shown.status}
+            plan={planRow(run, name)} room={mergeRoom}
+          />
+        )
+        const room = (
+          <div className="review-room" data-review-room>
+            {showGate && (showGate.kind === "merge"
+              ? <MergeReview gate={showGate} />
+              : <NeedsYouCard gate={showGate} compact />)}
+            {line && renderUnderStep?.(line)}
+          </div>
+        )
+        return (
+          <div key={`${name}-${line?.attempt ?? 0}`} data-step={name}>
+            {mergeRoom ? <div className="need-card">{block}{room}</div> : block}
+            {!mergeRoom && showGate && <div className="pt-2"><NeedsYouCard gate={showGate} compact /></div>}
+            {!mergeRoom && line && renderUnderStep?.(line)}
+          </div>
+        )
+      })
     })
   }
 
+  function finishedTask(n: number) {
+    const t = run.tasks[String(n)]!
+    const names = groupNames(run, "task").filter((s) => allLines(run, n, s).length > 0)
+    const count = names.length
+    return (
+      <details className="tg" key={n} data-task={n}>
+        <summary className="blk">
+          <Indicator kind="passed" />
+          <div className="blk-t">
+            <b>Task {n} · {t.title}</b>
+            <span>{count} {count === 1 ? "step" : "steps"} passed</span>
+          </div>
+          <div className="blk-r"><Icon name="caret-right" size="sm" className="car" /></div>
+        </summary>
+        <div className="tg-in">{blocks("task", n)}</div>
+      </details>
+    )
+  }
+
+  function idleTask(n: number) {
+    const t = run.tasks[String(n)]!
+    const skipped = t.status === "skipped"
+    return (
+      <div className="blk st-pend" key={n} data-task={n}>
+        <Indicator kind={skipped ? "off" : "pending"} />
+        <div className="blk-t">
+          <b>Task {n} · {t.title}</b>
+          <span>{skipped ? t.note || "Skipped" : "Not started"}</span>
+        </div>
+      </div>
+    )
+  }
+
   const taskNumbers = Object.keys(run.tasks).map(Number).sort((a, b) => a - b)
+  const hasOpenGate = (n: number) => groupNames(run, "task").some((s) => gateFor(run, open, n, allLines(run, n, s).at(-1)))
   return (
-    <div className="flex flex-col gap-3">
+    <div className="stack" aria-live="polite">
       {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
-      <Block heading="At the start">{rows("run-start", null)}</Block>
+      <h3 className="stack-h">At the start</h3>
+      {blocks("run-start", null)}
       {taskNumbers.map((n) => {
         const t = run.tasks[String(n)]!
+        const started = run.steps.some((l) => l.task === n)
+        if (t.status === "passed" && !hasOpenGate(n)) return finishedTask(n)
+        if (!started) return idleTask(n)
         return (
-          <Block
-            key={n}
-            heading={`Task ${n}: ${t.title}`}
-            extra={
-              <>
-                <StatusBadge status={t.status} />
-                {t.tries > 0 && (
-                  <span className="text-xs text-muted-foreground">
-                    attempt {t.tries} of {run.max_tries}
-                  </span>
-                )}
-              </>
-            }
-          >
-            {rows("task", n)}
-          </Block>
+          <div className="stack" key={n} data-task={n}>
+            <h3 className="stack-h">
+              Task {n} · {t.title}
+              {t.tries > 0 && <span className="small">attempt {t.tries} of {run.max_tries}</span>}
+            </h3>
+            {blocks("task", n)}
+          </div>
         )
       })}
-      <Block heading="At the end">{rows("run-finish", null)}</Block>
+      <h3 className="stack-h">At the end</h3>
+      {blocks("run-finish", null)}
     </div>
   )
 }

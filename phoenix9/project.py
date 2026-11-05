@@ -6,6 +6,7 @@ import shlex
 import shutil
 import threading
 import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 
 from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, services, settings, templates
@@ -554,22 +555,65 @@ def size(name: str, adapters) -> int:
 
 
 # ----------------------------------------------------------------------------- chat link
+def _unit_started_at(host, name: str) -> str:
+    """When the chat service last started (systemd's own words), or '' when unknown."""
+    rc, out, _ = host.systemctl("show", "-p", "ActiveEnterTimestamp", "--value", unit(name))
+    return out.strip() if rc == 0 else ""
+
+
+def _env_id_in_journal(host, name: str, since: str) -> str:
+    """The newest chat environment id the service logged since its last start ('' when none)."""
+    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager"]
+    rc, out, _ = host.run(argv + ["--since", since] if since else argv)
+    found = ENV_URL_RE.findall(out) if rc == 0 else []
+    return found[-1].split("environment=", 1)[1] if found else ""
+
+
+def _refresh_env_id(name: str, adapters, folder: Path, meta: dict) -> str:
+    """The environment id for the running chat: stored when already read since this start, else read the journal."""
+    host = adapters.host
+    since = _unit_started_at(host, name)
+    if meta.get("environment_id") and since and meta.get("chat_env_start") == since:
+        return meta["environment_id"]
+    seen = _env_id_in_journal(host, name, since)
+    if not seen:
+        return meta.get("environment_id") or ""
+    if folder.is_dir():
+        _save_meta(folder, environment_id=seen, chat_env_id=seen, chat_env_seen=_iso(adapters.clock.now()),
+                   chat_env_start=since)
+    return seen
+
+
+def _iso(now: float) -> str:
+    return datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def chat_link(name: str, adapters) -> dict:
-    """{kind: session|environment|none, url}: the saved chat session, else the chat server's environment."""
+    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known."""
     folder = paths.projects() / name
+    if not is_on(adapters.host, name):
+        return {"state": "off", "kind": "none", "url": None}
     meta = _meta(folder)
     if meta.get("chat_session_url"):
-        return {"kind": "session", "url": meta["chat_session_url"]}
-    if meta.get("environment_id"):
-        return {"kind": "environment", "url": f"https://claude.ai/code?environment={meta['environment_id']}"}
-    rc, out, _ = adapters.host.run(["journalctl", "-u", f"claude-rc@{name}", "-o", "cat", "--no-pager", "-n", "500"])
-    found = ENV_URL_RE.findall(out) if rc == 0 else []
-    if not found:
-        return {"kind": "none", "url": None}
-    url = found[-1]
-    if folder.is_dir():
-        _save_meta(folder, environment_id=url.split("environment=", 1)[1])
-    return {"kind": "environment", "url": url}
+        return {"state": "on", "kind": "session", "url": meta["chat_session_url"]}
+    env_id = _refresh_env_id(name, adapters, folder, meta)
+    if not env_id:
+        return {"state": "on", "kind": "none", "url": None}
+    return {"state": "on", "kind": "environment", "url": f"https://claude.ai/code?environment={env_id}"}
+
+
+def vscode_link(name: str) -> dict:
+    """{url, reason}: the VS Code link for /srv/projects/<name>, or url null with the reason when the folder is missing."""
+    folder = paths.projects() / name
+    if not folder.is_dir():
+        return {"url": None, "reason": f"The folder {folder} does not exist."}
+    return {"url": f"{paths.VSCODE_URL}?folder={folder}", "reason": None}
+
+
+def chat_start(name: str, adapters, who: str) -> dict:
+    """Switch the chat service on (enable and start) and return the chat state; the link may appear a moment later."""
+    result = open_project(name, adapters, who)
+    return {"project": name, "already": result["already"], "chat": chat_link(name, adapters)}
 
 
 # ----------------------------------------------------------------------------- chat server state
@@ -654,7 +698,7 @@ def info(name: str, adapters, size_wait: bool = True) -> dict:
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
             "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
-            "chat": chat_link(name, adapters), "vscode_url": f"{paths.VSCODE_URL}?folder={folder}",
+            "chat": chat_link(name, adapters), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
             "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
             "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
@@ -665,7 +709,9 @@ def project_names() -> list:
     root = paths.projects()
     if not root.is_dir():
         return []
-    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "CLAUDE.md").is_file())
+    from phoenix9 import project_removal
+    gone = project_removal.removed_names()
+    return sorted(p.name for p in root.iterdir() if p.is_dir() and (p / "CLAUDE.md").is_file() and p.name not in gone)
 
 
 def _refresh_sizes(names: list, adapters) -> None:
@@ -685,9 +731,43 @@ def list_projects(adapters, wait: float = SIZE_WAIT) -> list:
     return [info(n, adapters, size_wait=False) for n in names]
 
 
+def setup_facts(folder: Path) -> dict:
+    """What was chosen at setup: kind (profile), source, template, preset, merge rule, created date."""
+    meta = _meta(folder)
+    try:
+        own = settings.load_project(folder)
+    except settings.SettingsError:
+        own = {}
+    return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
+            "preset": own.get("preset") or None, "merge": own.get("merge") or None,
+            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta),
+            "waiting_for_keys": waiting_for_keys(folder.name)}
+
+
+def waiting_for_keys(name: str) -> list:
+    """Titles of services built without their keys that still have a required key with no value."""
+    from phoenix9 import keys
+    entries = _meta(paths.projects() / name).get("services_deferred") or []
+    if not entries:
+        return []
+    have = {k["name"]: k["has_value"] for k in keys.list_keys(name)}
+    return [e["title"] for e in entries if any(not have.get(k) for k in e.get("keys") or [])]
+
+
+def _set_up_entries(meta: dict) -> list:
+    """services_set_up as {name, at, run, run_name} dicts (older plain-name entries get empty fields)."""
+    out = []
+    for e in meta.get("services_set_up") or []:
+        e = e if isinstance(e, dict) else {"name": e}
+        out.append({"name": e.get("name") or "", "at": e.get("at") or None, "run": e.get("run") or None,
+                    "run_name": e.get("run_name") or None})
+    return out
+
+
 def show_project(name: str, adapters) -> dict:
-    """info plus the last changelog lines and the open gates."""
+    """info plus the setup facts, the last changelog lines and the open gates."""
     data = info(name, adapters)
+    data["setup"] = setup_facts(paths.projects() / name)
     try:
         lines = (paths.projects() / name / "notes" / "changelog.md").read_text(encoding="utf-8").splitlines()
     except OSError:

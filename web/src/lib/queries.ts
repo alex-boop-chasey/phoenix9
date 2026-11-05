@@ -1,5 +1,5 @@
 // react-query hooks with stable keys, and mutations that refresh the right keys.
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
 import type {
@@ -46,6 +46,14 @@ export const useDeploys = (name: string, enabled = true) =>
   useQuery({ queryKey: ["deploys", name], queryFn: () => api.deploys(name), enabled: !!name && enabled })
 export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
+export const useProjectSearch = (params: Record<string, string>) =>
+  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS, placeholderData: keepPreviousData })
+/** The sub-folders of a folder under the projects folder (empty path = the projects folder). */
+export const useFolders = (path: string) =>
+  useQuery({ queryKey: ["folders", path], queryFn: () => api.folders(path), retry: false })
+
+export const useImportCandidates = () =>
+  useQuery({ queryKey: ["import-candidates"], queryFn: api.importCandidates })
 export const useProject = (name: string) =>
   useQuery({ queryKey: keys.project(name), queryFn: () => api.project(name), enabled: !!name })
 export const useBuilds = (name: string) =>
@@ -80,6 +88,10 @@ export const useLogs = (project: string, filter: { run?: string; task?: number; 
 export const useGlobal = () => useQuery({ queryKey: keys.global(), queryFn: api.global })
 export const useKeysAudit = (enabled = true) =>
   useQuery({ queryKey: ["keys-audit"], queryFn: api.keysAudit, enabled })
+export const useGlobalServices = () => useQuery({ queryKey: ["global-services"], queryFn: api.globalServices })
+export const useDoctor = () =>
+  useQuery({ queryKey: ["doctor"], queryFn: () => api.doctor("quick"), staleTime: 5 * 60_000 })
+export const useUpdateHistory = () => useQuery({ queryKey: ["update-history"], queryFn: api.updateHistory })
 export const useServices = () => useQuery({ queryKey: keys.services(), queryFn: api.services })
 export const useGithubRepos = (enabled = true) =>
   useQuery({ queryKey: keys.github(), queryFn: api.githubRepos, enabled })
@@ -94,7 +106,35 @@ export const useLibrarySteps = () => useQuery({ queryKey: keys.library("steps"),
 export const useLibraryProfiles = () => useQuery({ queryKey: keys.library("profiles"), queryFn: api.libraryProfiles })
 export const useLibraryPresets = () => useQuery({ queryKey: keys.library("presets"), queryFn: api.libraryPresets })
 export const useLibraryTemplates = () => useQuery({ queryKey: keys.library("templates"), queryFn: api.libraryTemplates })
-export const useLibraryServices = () => useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices })
+export const useLibraryTools = () => useQuery({ queryKey: keys.library("tools"), queryFn: api.libraryTools })
+export const useLibraryServices = (enabled = true) =>
+  useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices, enabled })
+
+/** Remove a project from Phoenix (the page refreshes the lists itself, after the row fades out). */
+export function useRemoveProject() {
+  return useMutation({ mutationFn: (name: string) => api.removeProject(name) })
+}
+
+/** A function that refreshes the project lists and the import lists. */
+export function useRefreshProjects() {
+  const qc = useQueryClient()
+  return () => {
+    void qc.invalidateQueries({ queryKey: keys.projects() })
+    void qc.invalidateQueries({ queryKey: ["import-candidates"] })
+  }
+}
+
+/** Import a removed project or a folder; the lists refresh afterwards. */
+export function useImportProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (target: string) => api.importProject(target),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.projects() })
+      void qc.invalidateQueries({ queryKey: ["import-candidates"] })
+    },
+  })
+}
 
 export function useCreateProject() {
   const qc = useQueryClient()
@@ -186,6 +226,9 @@ export function useStopRun(project: string) {
     },
   })
 }
+
+export const useGateReview = (id: string) =>
+  useQuery({ queryKey: ["gate-review", id], queryFn: () => api.gateReview(id), staleTime: 30_000 })
 
 export function useAnswerGate(project?: string) {
   const qc = useQueryClient()

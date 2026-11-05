@@ -3,6 +3,7 @@ import { expect, expectNoHorizontalScroll, expectNoRawOutput, test } from "./fix
 test("Build section shows Safety badges, saves, explains", async ({ page }) => {
   await page.goto("/#/p/demo-site/settings")
   await expect(page.getByText("Safety").first()).toBeVisible()
+  await expect(page.getByRole("navigation", { name: "Settings sections" })).toBeVisible()
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 
@@ -15,12 +16,13 @@ test("Build section shows Safety badges, saves, explains", async ({ page }) => {
 test("changing the Builder model saves and survives a reload", async ({ page }) => {
   await page.goto("/#/p/demo-site/settings")
   await page.getByRole("button", { name: /builder settings/i }).click()
-  await page.getByLabel("Model", { exact: true }).fill("claude-opus-5-5")
+  await page.getByLabel("Primary model", { exact: true }).selectOption("claude-opus-5-5")
+  await expect(page.getByText("Unsaved changes")).toBeVisible()
   await page.getByRole("button", { name: "Save build settings" }).click()
   await expect(page.getByText("Saved").first()).toBeVisible()
   await page.reload()
   await page.getByRole("button", { name: /builder settings/i }).click()
-  await expect(page.getByLabel("Model", { exact: true })).toHaveValue("claude-opus-5-5")
+  await expect(page.getByLabel("Primary model", { exact: true })).toHaveValue("claude-opus-5-5")
   await expectNoHorizontalScroll(page)
 })
 

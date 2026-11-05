@@ -301,3 +301,17 @@ def test_plain_output_counts_problems(fake_ops, capsys):
     assert main(["doctor", "--quick"]) == 1
     out = capsys.readouterr().out
     assert "PROBLEM services" in out and "Fix:" in out and "1 problem." in out
+
+
+def test_project_links_check_lists_missing_chat_and_folder(healthy, phoenix_env):
+    host = healthy.host
+    (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
+    host.script(["journalctl"], out="https://claude.ai/code?environment=env_OK\n")
+    assert by_name(doctor.run_checks(healthy, "full"))["project-links"]["ok"]
+    (phoenix_env["projects"] / "demo" / ".phoenix" / "project.json").unlink()
+    host.script(["journalctl"], out="nothing yet\n")
+    check = by_name(doctor.run_checks(healthy, "full"))["project-links"]
+    assert not check["ok"] and "demo: chat link not found yet" in check["detail"]
+    host.script(["systemctl", "is-active"], rc=3)
+    check = by_name(doctor.run_checks(healthy, "full"))["project-links"]
+    assert "demo: chat is off" in check["detail"]

@@ -1,0 +1,40 @@
+/* New project order sheet and receipt (from the mockup "CREATE dialect: open tiles"). */
+@layer components {
+.order{display:grid; gap:24px; grid-template-columns:minmax(0,1fr)}
+@container well (min-width:980px){ .order{grid-template-columns:minmax(0,1fr) 320px; align-items:start} .receipt{position:sticky; top:84px} }
+.osteps{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0}
+.ostep{display:grid; grid-template-columns:36px minmax(0,1fr); gap:16px; padding:20px 0; border-bottom:1px solid var(--line)}
+.ostep:first-child{padding-top:0}
+.ostep .sn{width:32px; height:32px; border-radius:var(--r-sm); background:var(--surface); border:1px solid var(--line-strong); display:grid; place-items:center; font:700 18px/1 var(--f-display); color:var(--text-2)}
+.ostep .body{display:grid; gap:12px; min-width:0}
+.tiles{display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(min(100%,180px),1fr))}
+.tile{position:relative; display:flex; flex-direction:column; gap:4px; padding:14px; min-height:96px; border-radius:var(--r-md); background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow-1); cursor:pointer; transition:border-color var(--dur-fast),box-shadow var(--dur-base),transform var(--dur-fast)}
+.tile:hover{border-color:var(--line-strong); transform:translateY(-1px)}
+.tile input{position:absolute; opacity:0; width:1px; height:1px}
+.tile .ti{color:var(--text-2)}
+.tile b{font-weight:600; font-size:15px; margin-top:4px}
+.tile small{font-size:12.5px; color:var(--text-2); line-height:1.4}
+.tile .mark-r{position:absolute; top:12px; right:12px; width:18px; height:18px; border-radius:50%; border:2px solid var(--input-border)}
+.tile.multi .mark-r{border-radius:4px}
+.tile:has(input:checked){border:2px solid var(--accent); padding:13px; box-shadow:0 0 0 4px var(--accent-soft),0 0 24px -6px var(--accent-glow)}
+.tile:has(input:checked) .ti{color:var(--accent)}
+.tile:has(input:checked) .mark-r{border-color:var(--accent); background:radial-gradient(circle,var(--accent) 0 4px,transparent 5px)}
+.tile.multi:has(input:checked) .mark-r{background:var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3.5 8.5l3 3 6-7' fill='none' stroke='white' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/14px no-repeat}
+.tile:has(input:focus-visible){outline:2px solid var(--focus); outline-offset:2px}
+.tile.dashed{border-style:dashed; box-shadow:none; background:transparent}
+.cdot{display:inline-flex; gap:5px; align-items:center; font-size:12px; color:var(--text-2)}
+.cdot i{width:7px; height:7px; border-radius:50%; background:var(--ok)} .cdot.no i{background:var(--text-3)}
+.follow{border-left:2px solid var(--accent); padding-left:14px; display:grid; gap:10px}
+.krow{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; gap:8px; align-items:center; padding:10px; border:1px dashed var(--input-border); border-radius:var(--r-md)}
+.krow.saved{border-style:solid; border-color:var(--line); background:var(--surface)}
+@container well (max-width:560px){ .krow{grid-template-columns:minmax(0,1fr) auto} .krow .input:nth-child(2){grid-column:1 / -1; grid-row:2} }
+.reason{font-size:12.5px; color:var(--bad); display:flex; gap:4px; align-items:center}
+.receipt{background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-lg); box-shadow:var(--shadow-2); overflow:hidden}
+.receipt-h{padding:16px 20px; border-bottom:1px dashed var(--line-strong); background-image:var(--metal)}
+.receipt dl{display:grid; grid-template-columns:auto minmax(0,1fr); gap:8px 14px; margin:0; padding:16px 20px; font-size:14px}
+.receipt dt{color:var(--text-2)} .receipt dd{margin:0; text-align:right; overflow-wrap:anywhere}
+.receipt-f{padding:16px 20px; border-top:1px dashed var(--line-strong); display:grid; gap:12px}
+.launch{list-style:none; margin:0; padding:0; display:grid; gap:4px}
+.launch li{display:flex; gap:10px; align-items:center; padding:6px 0; font-size:14px}
+.launch li.pend{color:var(--text-3)}
+}

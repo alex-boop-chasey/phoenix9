@@ -11,6 +11,10 @@ test("bytes", () => {
 test("duration", () => {
   expect(formatDuration(45)).toBe("45s")
   expect(formatDuration(14 * 60)).toBe("14 min")
+  expect(formatDuration(2 * 3600 + 10 * 60)).toBe("2 h 10 min")
+  expect(formatDuration(109 * 3600 + 39 * 60 + 56)).toBe("4 days")
+  expect(formatDuration(5 * 86400)).toBe("5 days")
+  expect(formatDuration(86400)).toBe("1 day")
   expect(formatDuration(2 * 3600 + 5 * 60)).toBe("2 h 5 min")
   expect(formatDuration(3600)).toBe("1 h")
   expect(formatDuration(null)).toBe("-")

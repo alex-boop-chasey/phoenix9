@@ -4,12 +4,40 @@ description = "Video hosting and streaming."
 support = "keys-only"
 docs = "https://docs.mux.com"
 account_keys = []
-hosts = ["api.mux.com"]
+hosts = ["api.mux.com", "stream.mux.com", "image.mux.com"]
 
 [[project_keys]]
 name = "MUX_TOKEN_ID"
-secret = true
+secret = false
+public = false
+required = true
+help = "dashboard.mux.com > Settings > Access Tokens: pick the right environment, Mux Video read and write."
 
 [[project_keys]]
 name = "MUX_TOKEN_SECRET"
 secret = true
+public = false
+required = true
+help = "Shown once when the access token is made."
+
+[[project_keys]]
+name = "MUX_WEBHOOK_SECRET"
+secret = true
+public = false
+required = false
+help = "Settings > Webhooks > the endpoint. Only if the site receives Mux webhooks."
+
+[[project_keys]]
+name = "MUX_SIGNING_KEY"
+secret = false
+public = false
+required = false
+help = "Settings > Signing Keys: the key ID. Only for signed (private) playback."
+
+[[project_keys]]
+name = "MUX_PRIVATE_KEY"
+secret = true
+public = false
+required = false
+help = "Shown once when the signing key is made (base64). Only for signed (private) playback."
+

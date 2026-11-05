@@ -38,8 +38,9 @@ export interface ProjectRow {
   profile: string
   services: string[]
   size: number | null
-  chat: { kind: "session" | "environment" | "none"; url: string | null }
-  vscode_url: string
+  chat: { state: "on" | "off"; kind: "session" | "environment" | "none"; url: string | null }
+  vscode_url: string | null
+  vscode: { url: string | null; reason: string | null }
   state: "on" | "off"
   chats: number
   last_used: string
@@ -49,6 +50,7 @@ export interface ProjectRow {
   repo_url: string | null
   needs_you: number
   run: ActiveRun | null
+  last_build_failed: boolean
 }
 
 export interface ChangelogLine {
@@ -78,7 +80,51 @@ export interface Gate {
   answered: boolean
 }
 
+/** The reply of the projects search: attention rows first (if asked), the rest, and counts per status. */
+export interface ProjectQueryResult {
+  top: ProjectRow[]
+  rest: ProjectRow[]
+  total: number
+  counts: { all: number; run: number; fail: number; idle: number; need: number }
+}
+
+export interface ImportCandidate {
+  name: string
+  path: string
+  repo: string | null
+  removed_on: string | null
+  kind: "removed" | "folder"
+}
+
+export interface FolderListing { path: string; root: string; parent: string | null; folders: { name: string; path: string }[] }
+
+export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[]; chat: string }
+export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
+export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }
+
+/** What was chosen when the project was set up (any may be null for older projects). */
+export interface ProjectSetup {
+  kind: string | null
+  source: "empty" | "repo" | "code" | "template" | null
+  template: string | null
+  preset: string | null
+  merge: string | null
+  created: string | null
+  /** Services Service setup has wired; older projects have name only (the rest null). */
+  services_set_up?: SetUpService[]
+  /** Titles of services built without their keys that still have no values. */
+  waiting_for_keys?: string[]
+}
+
+export interface SetUpService {
+  name: string
+  at: string | null
+  run: string | null
+  run_name: string | null
+}
+
 export interface Project extends ProjectRow {
+  setup?: ProjectSetup
   changelog: ChangelogLine[]
   gates: Gate[]
 }
@@ -145,6 +191,7 @@ export interface BuildRow {
   duration: string
   cost: string
   tasks_failed: number
+  carrying_on?: boolean
 }
 
 export interface RunTask {
@@ -157,6 +204,7 @@ export interface RunTask {
   flagged?: string | null
   gate?: string | null
   note?: string | null
+  answered?: boolean
 }
 
 export interface StepLine {
@@ -169,6 +217,8 @@ export interface StepLine {
   finished: string
   note?: string
   gate?: string | null
+  /** The question this step was waiting on has been answered; the runner has not moved on yet. */
+  answered?: boolean
 }
 
 export interface PlanStep {
@@ -211,12 +261,16 @@ export interface RunDetail {
   steps: StepLine[]
   usage: Usage
   gates: Gate[]
+  /** Every question of the run is answered but the runner has not moved on yet. */
+  carrying_on?: boolean
   recent_events: PhoenixEvent[]
   plan: Partial<PlanView> & { off?: string[]; sources?: Record<string, unknown> }
   plan_frozen: boolean
   title: string
   preset: string
   max_tries: number
+  /** The git branch of the run, e.g. phoenix/<run-id>. */
+  branch?: string
 }
 
 export type Overrides = Record<string, unknown>
@@ -363,16 +417,54 @@ export interface Template {
   check: string
 }
 
+export interface ServiceKey {
+  name: string
+  secret: boolean
+  public?: boolean
+  required?: boolean
+  help?: string
+}
+
+/** A Claude Code tool a step may use, with a plain label and a one-line explanation. */
+export interface LibraryTool {
+  name: string
+  label: string
+  help: string
+}
+
 export interface Service {
   name: string
   title: string
-  project_keys: string[]
+  project_keys: ServiceKey[]
 }
+
+export interface DefaultModel {
+  model: string
+  fallback_models: string[]
+  title?: string
+  /** What the library itself would use (before Phoenix's saved defaults). */
+  library?: { model: string; fallback_models: string[] }
+}
+
+export interface AccountSetting {
+  name: string
+  label: string
+  kind: "text" | "select"
+  options: string[]
+  placeholder: string
+  help: string
+  value: string
+}
+
+export interface DoctorCheck { name: string; ok: boolean; detail: string; fix: string }
+export interface DoctorResult { ok: boolean; checks: DoctorCheck[]; checked_at: string }
+
+export interface UpdateHistoryRow { at: string; action: string; tag: string | null; result: string; reason: string; who: string }
 
 export interface GlobalView {
   values: Record<string, unknown>
   github: { connected: boolean; accounts: string[] }
-  default_models: Record<string, { model: string; fallback_models: string[] }>
+  default_models: Record<string, DefaultModel>
   telegram: { connected: boolean }
   supported: { services: boolean; update: boolean; secrets: boolean; github_connect?: boolean }
   /** Paths (under api/) the server offers for global writes. */
@@ -393,7 +485,11 @@ export interface ServiceStatus {
   checked_at?: string
   used_by?: string[]
   /** Paths (under api/) for this service: connect and disconnect. */
-  endpoints?: { connect?: string; disconnect?: string }
+  endpoints?: { connect?: string; disconnect?: string; test?: string }
+  /** "…abcd" for each saved account key (never the value). */
+  ends_in?: Record<string, string>
+  account_settings?: AccountSetting[]
+  can_test?: boolean
 }
 
 export interface ConnectResult {
@@ -454,4 +550,32 @@ export interface GateAnswer {
   note: string
   who: string
   at: string
+}
+
+/** One changed file in a merge review. */
+export interface ReviewFile {
+  path: string
+  added: number
+  removed: number
+  binary: boolean
+  safety: boolean
+  diff: string
+}
+
+/** What `GET /api/gates/<id>/review` returns for a merge question. */
+export interface GateReview {
+  gate: string
+  run: string
+  project: string
+  title: string
+  why: string
+  answered: boolean
+  summary: string
+  tasks: { passed: number; total: number; retried: { number: number; title: string; tries: number }[] }
+  full_suite: { status: string; note: string }
+  safety: { flag: boolean; files: string[] }
+  files: ReviewFile[]
+  added: number
+  removed: number
+  merge_request: string
 }

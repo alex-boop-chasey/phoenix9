@@ -10,6 +10,7 @@ beforeEach(() => {
     "GET /api/info": info,
     "GET /api/projects/demo-site": projects[0],
     "GET /api/gates": [],
+    "GET /api/projects": [],
     "GET /api/projects/demo-site/runs": [],
     "GET /api/projects/demo-site/changelog": [],
     "GET /api/events/recent": { events: [], next: 0 },
@@ -31,10 +32,10 @@ test("unknown route shows Page not found", () => {
 test("/p/demo-site redirects to the overview tab", async () => {
   renderWithProviders(<App />, { route: "/p/demo-site" })
   expect(await screen.findByRole("heading", { name: "demo-site" })).toBeInTheDocument()
-  expect(screen.getByRole("tab", { name: "overview" })).toHaveAttribute("aria-selected", "true")
+  expect(screen.getByRole("link", { name: /^Overview/ })).toHaveAttribute("aria-current", "page")
 })
 
 test("unknown tab falls back to overview", async () => {
   renderWithProviders(<App />, { route: "/p/demo-site/bogus" })
-  expect(await screen.findByRole("tab", { name: "overview" })).toHaveAttribute("aria-selected", "true")
+  expect(await screen.findByRole("link", { name: /^Overview/ })).toHaveAttribute("aria-current", "page")
 })

@@ -4,12 +4,26 @@ description = "User sign-in and accounts."
 support = "keys-only"
 docs = "https://clerk.com/docs"
 account_keys = []
-hosts = ["api.clerk.com"]
+hosts = ["api.clerk.com", "clerk.accounts.dev"]
+
+[[project_keys]]
+name = "PUBLIC_CLERK_PUBLISHABLE_KEY"
+secret = false
+public = true
+required = true
+help = "Clerk Dashboard > API keys > Quick copy: starts pk_test_ or pk_live_."
 
 [[project_keys]]
 name = "CLERK_SECRET_KEY"
 secret = true
+public = false
+required = true
+help = "Same page: starts sk_test_ or sk_live_. Shown once."
 
 [[project_keys]]
-name = "CLERK_PUBLISHABLE_KEY"
-secret = false
+name = "CLERK_WEBHOOK_SIGNING_SECRET"
+secret = true
+public = false
+required = false
+help = "Dashboard > Webhooks > the endpoint > Signing Secret. Only if the site receives Clerk webhooks."
+

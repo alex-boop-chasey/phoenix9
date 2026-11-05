@@ -2,7 +2,7 @@
 import importlib.util
 from pathlib import Path
 
-from phoenix9 import atomic, keys, paths, project, project_services, reports, services, state
+from phoenix9 import atomic, keys, paths, project, project_services, reports, services, state, summary
 from phoenix9.stepctx import StepResult
 
 KEYS_WHERE = "Project → Settings → Keys, or `phoenix project keys {name} set KEY`"
@@ -14,9 +14,9 @@ def _done_names(meta: dict) -> set:
 
 
 def _missing_keys(ctx, svc) -> list[str]:
-    """Expected project keys of the service that have no value yet (names only)."""
+    """Required project keys of the service that have no value yet (names only)."""
     have = {k["name"]: k["has_value"] for k in keys.list_keys(ctx.project.name)}
-    return [k["name"] for k in svc["project_keys"] if not have.get(k["name"])]
+    return [k["name"] for k in svc["project_keys"] if k["required"] and not have.get(k["name"])]
 
 
 def _allow_hosts(ctx, chosen: list, lib: dict) -> None:
@@ -63,16 +63,25 @@ def _record(ctx, newly: list) -> None:
     if not newly:
         return
     entries = list(project._meta(ctx.project.dir).get("services_set_up") or [])
-    entries += [{"name": n, "at": state.now(), "run": ctx.run.id} for n in newly]
+    name = summary.facts(ctx.run.folder)["title"]
+    entries += [{"name": n, "at": state.now(), "run": ctx.run.id, "run_name": name} for n in newly]
     project._save_meta(ctx.project.dir, services_set_up=entries)
 
 
-def _notes(chosen: list, lib: dict) -> str:
+DEFERRED_NOTE = ("Alex chose to build without this service's keys for now. Wire the service in anyway, reading "
+                 "these values from the environment, but keep the site working when they are missing: switch the "
+                 "feature off and show a clear message instead of crashing. Do not make up values.")
+
+
+def _notes(chosen: list, lib: dict, deferred: dict | None = None) -> str:
     """services.md text: per service the title, the env var names to read, and its install notes."""
+    deferred = deferred or {}
     out = ["# Services this project uses", ""]
     for name in chosen:
         svc = lib[name]
         out += [f"## {svc['title']}", ""]
+        if name in deferred:
+            out += [f"**Keys missing for now ({', '.join(deferred[name])}).** " + DEFERRED_NOTE, ""]
         names = [k["name"] for k in svc["project_keys"]]
         if names:
             out += ["Read these environment variables in the code (never write their values anywhere):",
@@ -87,9 +96,16 @@ def _keys_gate(missing: dict, lib: dict, project_name: str) -> StepResult:
     """A human-task gate listing the missing key names per service."""
     lines = [f"{lib[n]['title']}: {', '.join(names)}" for n, names in missing.items()]
     why = ("These keys have no value yet. " + "; ".join(lines) + ". Paste them in "
-           + KEYS_WHERE.format(name=project_name) + ", then press Done.")
+           + KEYS_WHERE.format(name=project_name) + ", then press Done, or build without it for now.")
     return StepResult("gate", gate={"kind": "human-task", "title": f"Paste keys for {', '.join(lib[n]['title'] for n in missing)}",
-                                    "why": why, "actions": ["done", "skip", "stop"]})
+                                    "why": why, "actions": ["done", "defer", "skip", "stop"]})
+
+
+def _record_deferred(ctx, deferred: dict, lib: dict) -> None:
+    """Remember in project.json which services wait for keys (replaces the earlier list); also in the run folder."""
+    entries = [{"name": n, "title": lib[n]["title"], "keys": m} for n, m in deferred.items()]
+    project._save_meta(ctx.project.dir, services_deferred=entries)
+    atomic.write_json(ctx.run.folder / "deferred-services.json", entries)
 
 
 def run(ctx) -> StepResult:
@@ -105,14 +121,16 @@ def run(ctx) -> StepResult:
     missing = {n: m for n in chosen if (m := _missing_keys(ctx, lib[n]))}
     if missing and (ctx.answer or {}).get("action") == "done":
         return StepResult("fail", [f"{lib[n]['title']} still has no value for: {', '.join(m)}" for n, m in missing.items()])
-    if missing:
+    deferring = bool(missing) and (ctx.answer or {}).get("action") == "defer"
+    if missing and not deferring:
         return _keys_gate(missing, lib, ctx.project.name)
+    _record_deferred(ctx, missing, lib)
     done = _done_names(project._meta(ctx.project.dir))
-    todo = [n for n in chosen if n not in done]
+    todo = [n for n in chosen if n not in done and n not in missing]
     failures = [r for n in todo if (r := _wire(ctx, n, lib[n]))]
     if failures:
         return StepResult("fail", failures)
     _record(ctx, todo)
     path = ctx.run.folder / "services.md"
-    atomic.write_text(path, _notes(chosen, lib))
+    atomic.write_text(path, _notes(chosen, lib, missing))
     return StepResult("pass", produces={"service-notes": str(path)})

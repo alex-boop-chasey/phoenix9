@@ -10,7 +10,13 @@ from phoenix9.ops.common import OpsError
 def add(sub, common) -> None:
     """Register the project group."""
     group = sub.add_parser("project", help="projects").add_subparsers(dest="action", metavar="ACTION", required=True)
-    group.add_parser("list", parents=[common], help="list projects").set_defaults(func=list_)
+    p = group.add_parser("list", parents=[common], help="list projects, optionally searched and filtered")
+    p.add_argument("--filter", default="", metavar="TEXT", help="only projects whose name or description has this text")
+    p.add_argument("--status", default="all", help="all, run, fail, idle or need")
+    p.add_argument("--owner", default="all", help="all, none (no repo) or a GitHub owner")
+    p.add_argument("--sort", default="name", help="name, active, size, created or modified")
+    p.add_argument("--attention", action="store_true", help="put projects that need you first")
+    p.set_defaults(func=list_)
     p = group.add_parser("show", parents=[common], help="show one project")
     p.add_argument("name")
     p.set_defaults(func=show_)
@@ -28,6 +34,14 @@ def add(sub, common) -> None:
     p.add_argument("--force", action="store_true", help="close even home or a project with chats open")
     p.add_argument("--yes", action="store_true", help="really switch it off")
     p.set_defaults(func=close_)
+    p = group.add_parser("remove", parents=[common], help="take a project off Phoenix's list (keeps every file)")
+    p.add_argument("name")
+    p.add_argument("--yes", action="store_true", help="really remove it")
+    p.set_defaults(func=remove_)
+    p = group.add_parser("import", parents=[common], help="bring a removed project or an existing folder into Phoenix")
+    p.add_argument("target", nargs="?", metavar="NAME|PATH")
+    p.add_argument("--list", action="store_true", help="list what can be imported")
+    p.set_defaults(func=import_)
     p = group.add_parser("set-chat", parents=[common], help="save the chat link (https://claude.ai/code/<id>)")
     p.add_argument("name")
     p.add_argument("url")
@@ -71,10 +85,15 @@ def _size(n) -> str:
 
 def list_(args) -> int:
     """List projects."""
-    found = projects.list()
+    filtered = (args.filter, args.status, args.owner, args.sort, args.attention) != ("", "all", "all", "name", False)
+    if filtered:
+        r = projects.query(args.filter, args.status, args.owner, args.sort, args.attention)
+        found = r["top"] + r["rest"]
+    else:
+        found = projects.list()
     text = table([[p["name"], p["state"], p["chats"], p["harness"], _size(p["size"]), p["last_used"]] for p in found],
-                 ["project", "state", "chats", "harness", "size", "last used"]) if found else "No projects yet."
-    return show(args, found, text)
+                 ["project", "state", "chats", "harness", "size", "last used"]) if found else ("No projects match." if filtered else "No projects yet.")
+    return show(args, found if not filtered or not args.json else r, text)
 
 
 def show_(args) -> int:
@@ -114,6 +133,27 @@ def close_(args) -> int:
     r = projects.close(args.name, args.who, args.force)
     return show(args, r, f"{args.name} is already off." if r["already"] else
                 f"{args.name} is off. It won't start at boot; phoenix project open {args.name} turns it back on.")
+
+
+def remove_(args) -> int:
+    """Remove a project from Phoenix (needs --yes); nothing is deleted."""
+    if not args.yes:
+        return problem(args, f"This takes {args.name} off Phoenix's list and out of the Claude app. "
+                             "Its files stay. Run it again with --yes to do it.")
+    r = projects.remove(args.name, args.who)
+    return show(args, r, f"Removed {args.name} from Phoenix. {r['kept']} "
+                         f"Bring it back with: phoenix project import {args.name}")
+
+
+def import_(args) -> int:
+    """Import a project, or list what can be imported."""
+    if args.list or not args.target:
+        found = projects.import_candidates()
+        rows = [[c["name"], c["path"], c["repo"] or "(none)", f"removed on {c['removed_on']}" if c["removed_on"] else "not listed"]
+                for c in found]
+        return show(args, found, table(rows, ["name", "path", "repo", "status"]) if rows else "Nothing to import.")
+    r = projects.import_(args.target, args.who)
+    return show(args, r, f"Imported {r['name']}. Its chat is on and shows up in the Claude app in a few seconds.")
 
 
 def set_chat_(args) -> int:

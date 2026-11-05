@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { LogsTab } from "@/features/logs/LogsTab"
@@ -44,8 +44,7 @@ function routes(over: Record<string, unknown> = {}) {
 }
 
 async function pick(label: string, option: string) {
-  fireEvent.pointerDown(screen.getByRole("combobox", { name: label }), { button: 0, ctrlKey: false, pointerType: "mouse" })
-  fireEvent.click(await screen.findByRole("option", { name: option }))
+  await userEvent.selectOptions(screen.getByRole("combobox", { name: label }), option)
 }
 
 beforeAll(() => {
@@ -68,7 +67,7 @@ describe("LogsTab", () => {
     const { calls } = mockApi(routes())
     renderWithProviders(<LogsTab name="demo-site" />)
     await screen.findByText("Builder session")
-    await pick("Run", `2026-10-20 · Contact form · done`)
+    await pick("Build", `2026-10-20 · Contact form · done`)
     await waitFor(() => expect(calls.some((c) => c.path === "/api/logs" && c.query.run === RUN)).toBe(true))
     expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
   })
@@ -77,7 +76,7 @@ describe("LogsTab", () => {
     mockApi(routes())
     renderWithProviders(<LogsTab name="demo-site" />)
     await screen.findByText("Builder session")
-    await pick("Task", "Run level")
+    await pick("Task", "Build level")
     expect(await screen.findByText("Gate note")).toBeInTheDocument()
     expect(screen.queryByText("Builder session")).toBeNull()
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
@@ -85,8 +84,8 @@ describe("LogsTab", () => {
     expect(await screen.findByText("Check output")).toBeInTheDocument()
     expect(screen.queryByText("Builder session")).toBeNull()
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }))
-    await userEvent.click(screen.getByRole("button", { name: "diff" }))
-    await userEvent.click(screen.getByRole("button", { name: "gate" }))
+    await userEvent.click(screen.getByRole("button", { name: "Code changes" }))
+    await userEvent.click(screen.getByRole("button", { name: "Questions" }))
     expect(await screen.findByText("Gate note")).toBeInTheDocument()
     expect(screen.queryByText("Builder session")).toBeNull()
     expect(screen.getByText("Task 2 diff")).toBeInTheDocument()
@@ -97,8 +96,23 @@ describe("LogsTab", () => {
     renderWithProviders(<LogsTab name="demo-site" />, { route: `/p/demo-site/logs?run=${RUN}&kind=diff` })
     expect(await screen.findByText("Task 2 diff")).toBeInTheDocument()
     expect(screen.queryByText("Builder session")).toBeNull()
-    expect(screen.getByRole("button", { name: "diff" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Code changes" })).toHaveAttribute("aria-pressed", "true")
     expect(calls.some((c) => c.path === "/api/logs" && c.query.run === RUN && c.query.kind === "diff")).toBe(true)
+  })
+
+  it("marks the open entry selected and shows the kind tag", async () => {
+    mockApi(routes())
+    renderWithProviders(<LogsTab name="demo-site" />)
+    await userEvent.click(await screen.findByText("Builder session"))
+    await screen.findByText("hello from the builder")
+    expect(screen.getByRole("option", { name: /Builder session/ })).toHaveAttribute("aria-selected", "true")
+    expect(screen.getByRole("option", { name: /Check output/ })).toHaveAttribute("aria-selected", "false")
+  })
+
+  it("shows a loading state while the log loads", async () => {
+    mockApi(routes({ "GET /api/logs/read": () => new Promise(() => {}) }))
+    renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?id=s1" })
+    expect(await screen.findByTestId("log-loading")).toHaveTextContent("Loading log…")
   })
 
   it("clicking an entry loads its text", async () => {
@@ -112,7 +126,7 @@ describe("LogsTab", () => {
     mockApi(routes())
     renderWithProviders(<LogsTab name="demo-site" />)
     await userEvent.click(await screen.findByText("Task 2 diff"))
-    expect((await screen.findByText("+new")).className).toContain("bg-green")
+    expect((await screen.findByText("+new")).className).toContain("bg-ok")
   })
 
   it("copy button copies full text", async () => {

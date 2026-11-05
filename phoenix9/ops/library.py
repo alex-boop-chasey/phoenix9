@@ -63,3 +63,9 @@ def services() -> dict:
     rows = [{"name": s["name"], "title": s["title"], "project_keys": s["project_keys"]}
             for s in sorted(core.load_library().values(), key=lambda s: s["name"])]
     return {"services": rows, "problems": core.load_problems()}
+
+
+def tools() -> dict:
+    """The Claude Code tools a step may be given or denied, each with a plain label and explanation."""
+    from phoenix9 import claude
+    return {"tools": [{"name": n, "label": label, "help": h} for n, label, h in claude.SUPPORTED_TOOLS]}

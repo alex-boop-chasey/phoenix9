@@ -1,0 +1,78 @@
+/* Logs console and project Settings (from the mockup's "Logs: console" and "SETUP dialect" CSS). */
+.idx-wrap{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
+@container well (min-width:860px){ .idx-wrap{grid-template-columns:210px minmax(0,1fr)} .sidx{position:sticky; top:84px; align-self:start} }
+.sidx{display:flex; flex-direction:column; gap:2px}
+.sidx button{display:flex; gap:10px; align-items:center; height:40px; padding:0 12px; border:0; border-radius:var(--r-sm); background:transparent; cursor:pointer; font-weight:600; font-size:14px; color:var(--text-2); text-align:left}
+.sidx button:hover{background:var(--surface-2); color:var(--text)}
+.sidx button[aria-current="true"]{background:var(--surface); color:var(--text); box-shadow:inset 3px 0 0 var(--accent),var(--shadow-1)}
+.sidx a{display:block; padding:4px 12px 4px 42px; font-size:13px; color:var(--text-2); text-decoration:none}
+.sidx a:hover{color:var(--accent-text)}
+@container well (max-width:859px){ .sidx{flex-direction:row; flex-wrap:wrap} .sidx a{display:none} }
+.sect{display:flex; flex-direction:column; gap:0; min-width:0}
+.sect-h{display:flex; align-items:center; gap:12px; justify-content:space-between; flex-wrap:wrap; padding-bottom:12px; border-bottom:1px solid var(--line)}
+.srow{display:grid; grid-template-columns:minmax(0,1fr); gap:8px; padding:18px 0; border-bottom:1px solid var(--line); min-width:0}
+@container well (min-width:860px){ .srow.two{grid-template-columns:180px minmax(0,1fr); gap:20px} .srow.two > .lbl{padding-top:8px} }
+.swap{display:flex; align-items:center; gap:12px; padding:10px 10px 10px 12px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--line); min-width:0; flex-wrap:wrap}
+.swap .ico{width:36px; height:36px; border-radius:var(--r-sm); display:grid; place-items:center; background:var(--surface); border:1px solid var(--line); color:var(--accent); flex:none}
+.swap .t{flex:1; min-width:0; display:flex; flex-direction:column}
+.swap .t b{font-weight:600; font-size:15px; overflow-wrap:anywhere} .swap .t span{font-size:13px; color:var(--text-2)}
+.swap-panel{margin-top:8px; padding:8px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line-strong); box-shadow:var(--shadow-2); display:grid; gap:6px; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr))}
+.swap-panel .input{grid-column:1/-1}
+.chips{display:flex; gap:6px; flex-wrap:wrap}
+.chip{display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 10px; border-radius:var(--r-pill); background:var(--surface); border:1px solid var(--line-strong); font-size:13px; font-weight:500}
+.chip svg.i{width:14px; height:14px; color:var(--accent)}
+.sofar{width:100%; font-size:13px; color:var(--text-2); display:flex; gap:6px; align-items:center; padding-top:8px; border-top:1px dashed var(--line)}
+.keys{width:100%; border-collapse:collapse; font-size:14px; min-width:520px}
+.keys th{text-align:left; font-size:12.5px; color:var(--text-2); font-weight:600; padding:6px 10px; border-bottom:1px solid var(--line)}
+.keys td{padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:middle}
+.savebar{position:sticky; bottom:12px; z-index:6; margin-top:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line-strong); box-shadow:var(--shadow-3)}
+.savebar .unsaved{display:flex; gap:8px; align-items:center; font-size:14px; font-weight:600; margin-right:auto}
+.savebar .unsaved i{width:9px; height:9px; border-radius:50%; background:var(--accent-3)}
+.lfil{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.lfil .select{width:auto; height:36px; font-size:14px}
+.kinds{display:flex; gap:6px; flex-wrap:wrap}
+.kinds button{display:inline-flex; gap:6px; align-items:center; height:32px; padding:0 12px; border-radius:var(--r-pill); border:1px solid var(--line-strong); background:transparent; cursor:pointer; font-size:13px; font-weight:500; color:var(--text-2)}
+.kinds button svg.i{width:15px; height:15px}
+.kinds button[aria-pressed="true"]{border-color:var(--accent); color:var(--text); background:var(--accent-soft)}
+.kinds button[aria-pressed="true"] svg{color:var(--accent)}
+.console{display:grid; gap:12px; grid-template-columns:minmax(0,1fr)}
+@container well (min-width:860px){ .console{grid-template-columns:330px minmax(0,1fr)} }
+.lglist{border:1px solid var(--line); border-radius:var(--r-sm); overflow:hidden; align-self:start}
+.lgi{display:grid; gap:2px; width:100%; text-align:left; padding:10px 12px 10px 14px; border:0; border-bottom:1px solid var(--line); background:transparent; cursor:pointer; color:var(--text); position:relative}
+.lgi:last-child{border-bottom:0}
+.lgi:hover{background:var(--surface-2)}
+.lgi[aria-selected="true"]{background:var(--surface-2); box-shadow:inset 4px 0 0 var(--accent)}
+.lgi b{font-weight:600; font-size:14px}
+.lgi .k{display:flex; gap:6px; align-items:center; font-size:12.5px; color:var(--text-2)}
+.lgi .k svg.i{width:14px; height:14px}
+.lgi small{font-size:12px; color:var(--text-3)}
+.reader{border:1px solid var(--line); border-radius:var(--r-sm); background:var(--bg-console); min-width:0; display:flex; flex-direction:column; min-height:420px}
+.reader-h{display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--surface)}
+.reader-h b{font-weight:600}
+.reader pre{margin:0; padding:14px; font:400 13px/1.65 var(--f-mono); white-space:pre-wrap; overflow-wrap:anywhere; color:var(--text)}
+.reader pre .who{color:var(--accent-text); font-weight:500}
+.reader pre .t{color:var(--text-3)}
+.reader .loading{flex:1; display:grid; place-items:center; gap:10px; color:var(--text-2); font-size:14px; padding:40px}
+.lfil .select{max-width:100%}
+.lgi{font:inherit}
+.reader-h .tag{flex:none}
+.reader-body{overflow:auto; max-height:65vh; min-width:0}
+.reader-body .difft{padding:14px; font:400 13px/1.65 var(--f-mono)}
+.reader .loading{flex:1; display:grid; place-items:center; align-content:center; gap:10px; color:var(--text-2); font-size:14px; padding:40px}
+.lgi .k{text-transform:none}
+@media (max-width:640px){ .kinds button,.lfil .select,.lfil .btn,.lgi{min-height:44px} .sidx button{height:44px} }
+.sidx a{min-height:28px}
+.savebar[hidden]{display:none}
+.srow .rail.choices{width:100%}
+.swap-panel .mini{width:100%}
+.keys .kv-in{min-width:120px}
+.keys .btn-icon{--h:36px}
+@media (max-width:640px){ .keys .btn-icon{--h:44px} }
+.wheel.wheel-lg{width:28px; height:28px; border-width:3px}
+.mini .tick{margin-left:auto; color:var(--accent); opacity:0}
+.mini[aria-selected="true"]{border-color:var(--accent)}
+.mini[aria-selected="true"] .ico{background:var(--accent-soft); color:var(--accent); border-color:var(--accent)}
+.mini[aria-selected="true"] .tick{opacity:1}
+.dcard{display:grid; gap:12px; padding:14px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--line)}
+.dcard .field{max-width:320px}
+.swaprow{display:flex; gap:10px; align-items:center; min-height:44px}

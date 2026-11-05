@@ -1,11 +1,10 @@
 import { screen, within } from "@testing-library/react"
-import userEvent from "@testing-library/user-event"
 
 import { line, openGate, runDetail } from "@/test/buildFixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
-import { StepList } from "./StepList"
+import { StepList, gatesShownInSteps } from "./StepList"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -13,27 +12,38 @@ const show = (run = runDetail(), props = {}) => {
   mockApi({})
   return renderWithProviders(<StepList run={run} {...props} />)
 }
-const blocks = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
-const stepRow = (block: string, step: string) =>
-  within(screen.getByRole("heading", { name: new RegExp(block) }).closest("section")!)
-    .getAllByText(step)[0]!.closest("[data-step]") as HTMLElement
+const headings = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
+const taskBox = (n: number) => document.querySelector(`[data-task="${n}"]`) as HTMLElement
+const stepRow = (task: number | null, step: string) =>
+  [...(task === null ? document.body : taskBox(task)).querySelectorAll(`[data-step=${step}]`)].at(-1) as HTMLElement
 
 test("run-level steps once at top and bottom", () => {
   show()
-  expect(blocks()[0]).toBe("At the start")
-  expect(blocks().at(-1)).toBe("At the end")
+  expect(headings()[0]).toBe("At the start")
+  expect(headings().at(-1)).toBe("At the end")
   expect(screen.getAllByText("Planner")).toHaveLength(1)
   expect(screen.getAllByText("Summary")).toHaveLength(1)
 })
 
-test("task block repeated per task in order", () => {
+test("finished tasks collapse into one block, the failed one stays open", () => {
   show()
-  expect(blocks()).toEqual(["At the start", "Task 1: Pricing table", "Task 2: Plan cards", "Task 3: Footer", "At the end"])
-  expect(screen.getAllByText("Builder")).toHaveLength(3)
-  expect(screen.getByText("attempt 2 of 3")).toBeInTheDocument()
+  const done = taskBox(1)
+  expect(done.tagName).toBe("DETAILS")
+  expect(done).toHaveTextContent("Task 1 · Pricing table")
+  expect(done).toHaveTextContent("2 steps passed")
+  expect(headings()).toHaveLength(3)
+  expect(headings()[1]).toContain("Task 2 · Plan cards")
+  expect(headings()[1]).toContain("attempt 2 of 3")
+  expect(taskBox(3)).toHaveTextContent("depends on task 2, which failed")
 })
 
-test("badge per step status incl spinner and waiting", () => {
+test("every attempt gets its own block", () => {
+  show()
+  expect(within(taskBox(2)).getByText("Builder, attempt 1")).toBeInTheDocument()
+  expect(within(taskBox(2)).getByText("Builder, attempt 2")).toBeInTheDocument()
+})
+
+test("indicator per step status incl running, waiting and pending", () => {
   const run = runDetail({
     steps: [
       line({ group: "run-start", task: null, step: "planner", status: "passed" }),
@@ -41,42 +51,82 @@ test("badge per step status incl spinner and waiting", () => {
       line({ task: 1, step: "check", status: "waiting" }),
       line({ task: 2, status: "failed" }),
     ],
+    tasks: { ...runDetail().tasks, "1": { ...runDetail().tasks["1"]!, status: "running" } },
     gates: [],
   })
   show(run)
-  expect(within(stepRow("Task 1", "Builder")).getByTestId("spinner")).toBeInTheDocument()
-  expect(stepRow("Task 1", "Check").querySelector('[data-status="waiting"]')).toHaveTextContent("Waiting for you")
-  expect(stepRow("Task 2", "Builder").querySelector('[data-status="failed"]')).not.toBeNull()
-  expect(stepRow("At the start", "Planner").querySelector('[data-status="passed"]')).not.toBeNull()
-  expect(stepRow("Task 2", "Check").querySelector('[data-status="pending"]')).not.toBeNull()
+  expect(stepRow(1, "builder").querySelector('[data-indicator="running"]')).not.toBeNull()
+  expect(stepRow(1, "builder").querySelector(".blk")).toHaveClass("st-run")
+  expect(stepRow(1, "check").querySelector('[data-indicator="needs-you"]')).not.toBeNull()
+  expect(stepRow(1, "check").querySelector(".blk")).toHaveClass("st-need")
+  expect(stepRow(2, "builder").querySelector('[data-indicator="failed"]')).not.toBeNull()
+  expect(stepRow(2, "builder").querySelector(".blk")).toHaveClass("st-bad")
+  expect(stepRow(null, "planner").querySelector('[data-indicator="passed"]')).not.toBeNull()
+  expect(stepRow(2, "check").querySelector(".blk")).toHaveClass("st-pend")
+  expect(stepRow(2, "check")).toHaveTextContent("Pending")
 })
 
-test("skipped shows reason", () => {
+test("who runs a step: script, you, or the model", () => {
+  const run = runDetail()
+  run.plan.steps![1] = { ...run.plan.steps![1]!, kind: "ai", ai: { model: "claude-opus-5-5" } } as never
+  show(run)
+  expect(stepRow(2, "builder")).toHaveTextContent("claude-opus-5-5")
+  expect(stepRow(null, "planner")).toHaveTextContent("script")
+})
+
+test("a waiting merge step leaves room under it for the review", () => {
+  const run = runDetail({
+    steps: [line({ group: "run-finish", task: null, step: "merge", status: "waiting", finished: "" })],
+    tasks: {}, gates: [],
+  })
+  run.plan.steps = [{ name: "merge", title: "Merge", group: "run-finish", order: 10, on: true, reason: "", kind: "gate" }] as never
+  run.plan.groups = { "run-start": [], task: [], "run-finish": ["merge"] } as never
+  show(run)
+  expect(stepRow(null, "merge").querySelector("[data-review-room]")).not.toBeNull()
+  expect(stepRow(null, "merge")).toHaveTextContent("you")
+  // the block and its review share one outlined card, so the orange edge sits inside it
+  const card = stepRow(null, "merge").querySelector(".need-card")!
+  expect(card.querySelector(".blk")).not.toBeNull()
+  expect(card.querySelector("[data-review-room]")).not.toBeNull()
+})
+
+test("the waiting merge step shows the open merge question as the review", async () => {
+  const gate = { id: "r.1", run: "r", project: "alpha", kind: "merge", title: "Merge Tiny?", why: "", task: null, step: "merge",
+    links: [], actions: ["approve", "back", "skip", "stop"], flags: [], created: "", answered: false } as never
+  const run = runDetail({
+    steps: [line({ group: "run-finish", task: null, step: "merge", status: "waiting", finished: "" })],
+    tasks: {}, gates: [gate],
+  })
+  run.plan.steps = [{ name: "merge", title: "Merge", group: "run-finish", order: 10, on: true, reason: "", kind: "gate" }] as never
+  run.plan.groups = { "run-start": [], task: [], "run-finish": ["merge"] } as never
+  expect(gatesShownInSteps(run).has("r.1")).toBe(true)
+  mockApi({ "GET /api/gates/r.1/review": { gate: "r.1", run: "r", project: "alpha", title: "Merge Tiny?", why: "", answered: false,
+    summary: "Does things.", tasks: { passed: 1, total: 1, retried: [] }, full_suite: { status: "passed", note: "" },
+    safety: { flag: false, files: [] }, files: [], added: 0, removed: 0, merge_request: "" } })
+  renderWithProviders(<StepList run={run} />)
+  expect(await within(stepRow(null, "merge")).findByText("Does things.")).toBeInTheDocument()
+})
+
+test("switched-off steps show why", () => {
   show()
-  const row = stepRow("Task 3", "Builder")
-  expect(row.querySelector('[data-status="skipped"]')).not.toBeNull()
-  expect(row).toHaveTextContent("depends on task 2, which failed")
-  const off = stepRow("Task 1", "Review")
-  expect(off.querySelector('[data-status="skipped"]')).not.toBeNull()
+  const off = stepRow(1, "review")
+  expect(off.querySelector('[data-indicator="off"]')).not.toBeNull()
   expect(off).toHaveTextContent("switched off")
 })
 
 test("escalation card under its failed step", () => {
   mockApi({})
   renderWithProviders(<StepList run={runDetail()} gates={[openGate]} />)
-  const row = stepRow("Task 2", "Builder")
-  expect(within(row).getByText(`Needs you: ${openGate.title}`)).toBeInTheDocument()
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  const row = stepRow(2, "builder")
+  expect(within(row).getByText(openGate.title)).toBeInTheDocument()
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
   expect(row).toHaveTextContent("the checks failed")
 })
 
-test("long note truncated", async () => {
+test("a long note is cut with an ellipsis and keeps the whole text in its tooltip", () => {
   const note = "x".repeat(300)
   show(runDetail({ steps: [line({ task: 1, status: "failed", note })], gates: [] }))
-  const shown = stepRow("Task 1", "Builder").querySelector(".truncate")!
-  expect(shown.textContent!.length).toBeLessThan(150)
-  await userEvent.hover(shown)
-  expect((await screen.findAllByText(note)).length).toBeGreaterThan(0)
+  expect(stepRow(1, "builder").querySelector(".blk-t span")).toHaveAttribute("title", note)
 })
 
 test("unfrozen plan says planned", () => {

@@ -9,6 +9,24 @@ hosts = ["openrouter.ai"]
 [[project_keys]]
 name = "OPENROUTER_API_KEY"
 secret = true
+public = false
+required = true
+help = "openrouter.ai > Settings > Keys: make one key per site and set a credit limit."
+
+[[project_keys]]
+name = "OPENROUTER_SITE_URL"
+secret = false
+public = false
+required = false
+help = "The site's address; sent to OpenRouter as the HTTP-Referer for attribution."
+
+[[project_keys]]
+name = "OPENROUTER_SITE_NAME"
+secret = false
+public = false
+required = false
+help = "The site's name; sent to OpenRouter for attribution."
+
 
 [proxy]
 upstream = "https://openrouter.ai/api/v1"

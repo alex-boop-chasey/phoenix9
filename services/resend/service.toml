@@ -9,10 +9,30 @@ hosts = ["api.resend.com"]
 [[project_keys]]
 name = "RESEND_API_KEY"
 secret = true
+public = false
+required = true
+help = "Resend > API Keys > Create: pick Sending access and limit it to this site's domain."
 
 [[project_keys]]
 name = "RESEND_FROM"
 secret = false
+public = false
+required = true
+help = "An address on a domain verified at Resend > Domains. onboarding@resend.dev is for tests only."
+
+[[project_keys]]
+name = "RESEND_WEBHOOK_SECRET"
+secret = true
+public = false
+required = false
+help = "Resend > Webhooks > the endpoint. Only if the site receives Resend webhooks."
+
+
+[[account_settings]]
+name = "send_from"
+label = "Send from"
+placeholder = "hello@yourdomain.com.au"
+help = "The sender address new projects use for email."
 
 [proxy]
 upstream = "https://api.resend.com"

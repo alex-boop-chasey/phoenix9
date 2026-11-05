@@ -1,28 +1,28 @@
-import { Loader2 } from "lucide-react"
-
+import { Icon, type IconName } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
 import { Badge } from "@/components/ui/badge"
-import { cn } from "@/lib/utils"
 import type { AnyStatus } from "@/lib/types"
 
-const LOOK: Record<AnyStatus, { label: string; className: string }> = {
-  queued: { label: "Queued", className: "bg-muted text-muted-foreground" },
-  pending: { label: "Pending", className: "bg-muted text-muted-foreground" },
-  running: { label: "Running", className: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
-  waiting: { label: "Waiting for you", className: "bg-amber-500/15 text-amber-700 dark:text-amber-400" },
-  "paused-limit": { label: "Paused (usage limit)", className: "bg-orange-500/15 text-orange-700 dark:text-orange-400" },
-  done: { label: "Done", className: "bg-green-500/15 text-green-700 dark:text-green-400" },
-  passed: { label: "Passed", className: "bg-green-500/15 text-green-700 dark:text-green-400" },
-  failed: { label: "Failed", className: "bg-red-500/15 text-red-700 dark:text-red-400" },
-  stopped: { label: "Stopped", className: "bg-muted text-muted-foreground" },
-  skipped: { label: "Skipped", className: "bg-muted text-muted-foreground" },
+type Variant = "ok" | "bad" | "running" | "info" | "need"
+const LOOK: Record<AnyStatus, { label: string; variant: Variant; icon?: IconName }> = {
+  queued: { label: "Queued", variant: "info", icon: "circle-dashed" },
+  pending: { label: "Pending", variant: "info", icon: "circle-dashed" },
+  running: { label: "Running", variant: "running" },
+  waiting: { label: "Waiting for you", variant: "need", icon: "bell-ringing" },
+  "paused-limit": { label: "Paused (usage limit)", variant: "info", icon: "hand-palm" },
+  done: { label: "Done", variant: "ok", icon: "check-circle" },
+  passed: { label: "Passed", variant: "ok", icon: "check-circle" },
+  failed: { label: "Failed", variant: "bad", icon: "x-circle" },
+  stopped: { label: "Stopped", variant: "info", icon: "stop-circle" },
+  skipped: { label: "Skipped", variant: "info", icon: "circle-dashed" },
 }
 
-/** A coloured badge for a run, task or step status. */
+/** A coloured badge for a run, task or step status (orange only for "waiting for you"). */
 export function StatusBadge({ status, className }: { status: AnyStatus; className?: string }) {
-  const look = LOOK[status] ?? { label: status, className: "bg-muted text-muted-foreground" }
+  const look = LOOK[status] ?? { label: status, variant: "info" as Variant }
   return (
-    <Badge variant="secondary" className={cn(look.className, className)} data-status={status}>
-      {status === "running" && <Loader2 className="animate-spin" data-testid="spinner" aria-hidden />}
+    <Badge variant={look.variant} className={className} data-status={status}>
+      {status === "running" ? <Wheel /> : look.icon && <Icon name={look.icon} />}
       {look.label}
     </Badge>
   )

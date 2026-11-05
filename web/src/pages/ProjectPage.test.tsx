@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { Route, Routes, useLocation } from "react-router"
 
 import ProjectPage from "@/pages/ProjectPage"
@@ -36,26 +36,26 @@ function api(name = "demo-site") {
 }
 
 describe("ProjectPage", () => {
-  it("four tabs present", async () => {
+  it("four tabs present, with the waiting count on Overview", async () => {
     api()
     renderAt("/p/demo-site/overview")
     await screen.findByRole("heading", { name: "demo-site" })
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["overview", "build", "logs", "settings"])
+    const tabs = within(screen.getByRole("navigation", { name: "Project tabs" })).getAllByRole("link")
+    expect(tabs.map((t) => t.textContent)).toEqual(["Overview1", "Build", "Logs", "Settings"])
+    expect(screen.getByLabelText("1 waiting for you")).toBeInTheDocument()
   })
 
   it("tab change updates the url", async () => {
     api()
     renderAt("/p/demo-site/overview")
-    const tab = await screen.findByRole("tab", { name: "logs" })
-    fireEvent.mouseDown(tab)
-    fireEvent.click(tab)
+    fireEvent.click(await screen.findByRole("link", { name: "Logs" }))
     expect(screen.getByTestId("where")).toHaveTextContent("/p/demo-site/logs")
   })
 
   it("deep link opens the right tab", async () => {
     api()
     renderAt("/p/demo-site/settings")
-    expect(await screen.findByRole("tab", { name: "settings" })).toHaveAttribute("aria-selected", "true")
+    expect(await screen.findByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page")
   })
 
   it("unknown project shows not found", async () => {
@@ -69,13 +69,25 @@ describe("ProjectPage", () => {
     expect(screen.getByRole("link", { name: "Back to projects" })).toHaveAttribute("href", "/")
   })
 
-  it("vscode and chat links shown", async () => {
+  it("header has Repo, VS Code, Chat and Start new build", async () => {
     api()
     renderAt("/p/demo-site/overview")
     await screen.findByRole("heading", { name: "demo-site" })
-    const code = screen.getAllByRole("link", { name: "Open in VS Code" })
-    expect(code[0]).toHaveAttribute("href", projects[0]!.vscode_url)
-    expect(code[0]).toHaveAttribute("target", "_blank")
-    expect(screen.getAllByRole("link", { name: "Chat" })[0]).toHaveAttribute("href", "https://claude.ai/code/session_demo_site")
+    const dock = within(screen.getByRole("group", { name: "Open project" }))
+    expect(dock.getByRole("link", { name: "Repo" })).toHaveAttribute("href", "https://github.com/rebirth-wd/demo-site")
+    expect(dock.getByRole("link", { name: "VS Code" })).toHaveAttribute("href", projects[0]!.vscode_url)
+    expect(dock.getByRole("link", { name: "VS Code" })).toHaveAttribute("target", "_blank")
+    expect(dock.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "https://claude.ai/code/session_demo_site")
+    expect(screen.getByRole("link", { name: "Start new build" })).toHaveAttribute("href", "/p/demo-site/build?new=1")
+    expect(screen.getByText("/srv/projects/demo-site")).toBeInTheDocument()
+  })
+
+  it("Start chat shows when the chat is off, and a missing repo is disabled", async () => {
+    api("notes-only")
+    renderAt("/p/notes-only/overview")
+    await screen.findByRole("heading", { name: "notes-only" })
+    const dock = within(screen.getByRole("group", { name: "Open project" }))
+    expect(dock.getByRole("button", { name: "Start chat" })).toBeEnabled()
+    expect(dock.getByRole("button", { name: "Repo" })).toBeDisabled()
   })
 })

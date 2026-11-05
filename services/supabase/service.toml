@@ -7,16 +7,51 @@ account_keys = ["SUPABASE_ACCESS_TOKEN"]
 hosts = ["supabase.co"]
 
 [[project_keys]]
-name = "SUPABASE_URL"
+name = "PUBLIC_SUPABASE_URL"
 secret = false
+public = true
+required = true
+help = "Project dashboard > Connect button (or Settings > API Keys): the project URL."
 
 [[project_keys]]
-name = "SUPABASE_ANON_KEY"
+name = "PUBLIC_SUPABASE_PUBLISHABLE_KEY"
 secret = false
+public = true
+required = true
+help = "Settings > API Keys: the publishable key, starts sb_publishable_."
 
 [[project_keys]]
-name = "SUPABASE_SERVICE_ROLE_KEY"
+name = "SUPABASE_SECRET_KEY"
 secret = true
+public = false
+required = false
+help = "Settings > API Keys: the secret key, starts sb_secret_. Only for server code that skips row security."
+
+[[project_keys]]
+name = "DATABASE_URL"
+secret = true
+public = false
+required = false
+help = "Connect button > pick Direct, Session or Transaction pooler. Includes the database password. Only for migrations or direct Postgres."
+
+[[project_keys]]
+name = "SUPABASE_PROJECT_REF"
+secret = false
+public = false
+required = false
+help = "The xxxx in xxxx.supabase.co (Settings > General). Only for CLI linking and type generation."
+
+
+[[account_settings]]
+name = "organisation"
+label = "Organisation"
+placeholder = "my-organisation"
+
+[[account_settings]]
+name = "default_region"
+label = "Default region"
+placeholder = "ap-southeast-2"
+help = "Where new Supabase projects are hosted (ap-southeast-2 is Sydney)."
 
 [proxy]
 upstream = "https://api.supabase.com"

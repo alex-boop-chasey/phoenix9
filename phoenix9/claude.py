@@ -29,6 +29,19 @@ from phoenix9 import atomic, paths, state
 from phoenix9.docker import Mount
 from phoenix9.scrub import Scrubber, read_env_file, scrub
 
+# The Claude Code tools Phoenix supports in `ai.tools` / `ai.tools_denied` (passed as-is to
+# --allowedTools / --disallowedTools). Each is (name, plain label, one-line explanation).
+SUPPORTED_TOOLS: list[tuple[str, str, str]] = [
+    ("Read", "Read files", "Look at files in the project."),
+    ("Edit", "Edit files", "Change parts of existing files."),
+    ("Write", "Write files", "Create new files or replace whole files."),
+    ("Glob", "Find files", "Find files by name pattern."),
+    ("Grep", "Search inside files", "Search the text of the project's files."),
+    ("Bash", "Run commands", "Run shell commands inside the step's container."),
+    ("WebFetch", "Fetch web pages", "Download and read a web page."),
+    ("WebSearch", "Search the web", "Search the internet."),
+]
+
 KINDS = ("ok", "error", "rate_limited", "model_unavailable", "crashed", "timed_out", "no_output")
 KILL_GRACE_S = 30        # seconds between SIGINT and SIGKILL
 RESET_MARGIN = timedelta(minutes=2)

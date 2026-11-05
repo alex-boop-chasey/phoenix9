@@ -25,29 +25,32 @@ const open = () => userEvent.click(screen.getByRole("button", { name: "Builder s
 
 test("collapsed by default", () => {
   setup()
-  expect(screen.queryByLabelText("Model")).toBeNull()
+  expect(screen.queryByLabelText("Primary model")).toBeNull()
   expect(screen.getByRole("button", { name: "Builder settings" })).toHaveAttribute("aria-expanded", "false")
 })
 
 test("shows effective values and provenance", async () => {
   setup()
   await open()
-  expect(screen.getByLabelText("Model")).toHaveAttribute("placeholder", "claude-sonnet-5-5")
-  expect(screen.getByLabelText("Fallback models")).toHaveAttribute("placeholder", "claude-haiku-5-5")
-  expect(screen.getByLabelText("Max turns")).toHaveAttribute("placeholder", "40")
+  expect(screen.getByLabelText("Primary model")).toHaveValue("claude-sonnet-5-5")
+  expect(screen.getByLabelText("Backup model (optional)")).toHaveValue("claude-haiku-5-5")
+  expect(screen.getByLabelText("Turn limit")).toHaveAttribute("placeholder", "40")
+  expect(screen.getByText(/whichever comes first/)).toBeInTheDocument()
   expect(screen.getByText("from: preset:full")).toBeInTheDocument()
   expect(screen.getByText("from: library")).toBeInTheDocument()
-  expect(document.querySelector("datalist#ai-builder-models option[value='claude-opus-5-5']")).not.toBeNull()
+  expect(screen.getAllByRole("option", { name: "claude-opus-5-5", hidden: true }).length).toBeGreaterThan(0)
 })
 
 test("editing model reports a dotted change", async () => {
   const onChange = setup()
   await open()
-  await userEvent.type(screen.getByLabelText("Model"), "x")
-  expect(onChange).toHaveBeenCalledWith("steps.builder.model", "x")
+  await userEvent.selectOptions(screen.getByLabelText("Primary model"), "claude-opus-5-5")
+  expect(onChange).toHaveBeenCalledWith("steps.builder.model", "claude-opus-5-5")
+  await userEvent.selectOptions(screen.getByLabelText("Backup model (optional)"), "None")
+  expect(onChange).toHaveBeenCalledWith("steps.builder.fallback_models", [])
   await userEvent.type(screen.getByLabelText("Tools"), "a")
   expect(onChange).toHaveBeenCalledWith("steps.builder.tools", ["a"])
-  await userEvent.type(screen.getByLabelText("Max turns"), "5")
+  await userEvent.type(screen.getByLabelText("Turn limit"), "5")
   expect(onChange).toHaveBeenCalledWith("steps.builder.max_turns", 5)
 })
 

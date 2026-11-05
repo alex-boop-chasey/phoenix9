@@ -472,3 +472,12 @@ def test_record_usage_adds_to_state_and_writes_result_json(tmp_path):
     saved = json.loads((attempt / "result.json").read_text())
     assert (saved["kind"], saved["session_id"], saved["turns"], saved["model"]) == ("ok", "s1", 4, "m")
     assert not (run / "tasks" / "1" / "attempt-2").exists()
+
+
+def test_supported_tools_are_unique_plain_names_with_text():
+    names = [n for n, _label, _help in claude.SUPPORTED_TOOLS]
+    assert len(names) == len(set(names)) and all(n.isalpha() for n in names)
+    assert all(label and help_ for _n, label, help_ in claude.SUPPORTED_TOOLS)
+    cmd = claude.build_command(dict(AI, tools=names[:2], tools_denied=[names[-1]]), "/p.md", "/r")
+    assert cmd[cmd.index("--allowedTools") + 1] == ",".join(names[:2])
+    assert cmd[cmd.index("--disallowedTools") + 1] == names[-1]

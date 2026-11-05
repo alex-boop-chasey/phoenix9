@@ -203,6 +203,19 @@ def read_global() -> dict:
         return {}
 
 
+def global_models() -> dict:
+    """{step: {model, fallback_models}} saved as Phoenix's default models in global.toml [models.<step>]."""
+    table = read_global().get("models")
+    out = {}
+    for step, row in (table.items() if isinstance(table, dict) else []):
+        if isinstance(row, dict) and isinstance(row.get("model"), str) and row["model"]:
+            fallbacks = row.get("fallback_models")
+            out[step] = {"model": row["model"],
+                         "fallback_models": [m for m in fallbacks if isinstance(m, str)]
+                         if isinstance(fallbacks, list) else []}
+    return out
+
+
 def update_settings() -> dict:
     """The [update] table of global.toml (project, repo, tag_prefix) with defaults filled in."""
     table = read_global().get("update")
@@ -412,6 +425,12 @@ def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> E
                 flat[path] = value
                 source[path] = label
 
+    for step, row in global_models().items():       # Phoenix's own default models sit above the library's
+        for key, value in row.items():
+            path = f"steps.{step}.{key}"
+            if path in flat:
+                flat[path] = list(value) if isinstance(value, list) else value
+                source[path] = "phoenix"
     profile = project.get("profile", "")
     if profile:
         data = load_profile(lib.root, profile)

@@ -99,6 +99,33 @@ def test_project_new_prefills_from_loader(phoenix_env):
     from phoenix9 import project_services
     project_services.set_services("demo", ["supabase"], "alex")
     rows = {r["name"]: r for r in keys.list_keys("demo")}
-    assert {n: rows[n]["secret"] for n in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY")} == {
-        "SUPABASE_URL": False, "SUPABASE_ANON_KEY": False, "SUPABASE_SERVICE_ROLE_KEY": True}
+    assert {n: rows[n]["secret"] for n in ("PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY")} == {
+        "PUBLIC_SUPABASE_URL": False, "PUBLIC_SUPABASE_PUBLISHABLE_KEY": False, "SUPABASE_SECRET_KEY": True}
     assert "supabase.co" in settings.load_project(folder)["domains"]["allow"]
+
+
+def test_every_service_key_has_help_and_public_keys_are_not_secret():
+    from phoenix9 import paths
+    for name, svc in services.load_library().items():
+        for k in svc["project_keys"]:
+            assert k["help"], f"{name} {k['name']} needs help text"
+            assert not (k["public"] and k["secret"]), k["name"]
+            assert k["public"] == k["name"].startswith("PUBLIC_"), k["name"]
+        if svc["project_keys"]:
+            assert (paths.library() / "services" / name / "install.md").is_file(), name
+
+
+def test_key_fields_default_and_optional_flags():
+    rows = {k["name"]: k for k in services.get("supabase")["project_keys"]}
+    assert rows["PUBLIC_SUPABASE_URL"]["public"] and rows["PUBLIC_SUPABASE_URL"]["required"]
+    assert not rows["DATABASE_URL"]["required"] and rows["DATABASE_URL"]["secret"]
+    assert services.get("mux")["project_keys"][0]["secret"] is False
+
+
+def test_public_and_secret_together_is_refused(tmp_path):
+    from pathlib import Path
+    folder = Path(tmp_path) / "x"
+    folder.mkdir()
+    data = {"name": "x", "title": "X", "project_keys": [{"name": "PUBLIC_X", "secret": True, "public": True}]}
+    values, problems = services._parse(data, folder, "x")
+    assert values is None and any("both public and secret" in p for p in problems)

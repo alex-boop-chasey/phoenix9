@@ -1,0 +1,43 @@
+/* Phoenix settings (mockup "global" section): health chips, service rows, Configure dialog, models grid, updates. */
+.health{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
+.hchip{display:inline-flex; gap:6px; align-items:center; height:30px; padding:0 10px; border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--line); font-size:13px; cursor:pointer; color:var(--text)}
+.hchip svg.i{width:15px; height:15px; color:var(--ok)}
+.hchip:hover{border-color:var(--accent)}
+.lrow{display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto; gap:8px 14px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); min-width:0}
+.lrow:last-child{border-bottom:0}
+.lrow .who{display:flex; gap:10px; align-items:center; min-width:0}
+.lrow .who .ico{width:34px; height:34px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line); display:grid; place-items:center; color:var(--text-2); flex:none}
+.lrow .who b{display:block; font-weight:600; font-size:14.5px}
+.lrow .who span{display:block; font-size:12.5px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lrow .st{display:flex; flex-direction:column; align-items:flex-start; gap:2px; font-size:12.5px; color:var(--text-2); min-width:0}
+@container well (max-width:640px){ .lrow{grid-template-columns:minmax(0,1fr) auto} .lrow .st{grid-column:1/-1; grid-row:2} }
+.lacts{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end}
+@container well (max-width:640px){ .lacts{grid-column:1/-1; justify-content:flex-start} }
+button.tab{border:0; border-bottom:2px solid transparent; background:transparent; cursor:pointer; font-family:inherit}
+.tab .tc.new{background:var(--accent-soft); color:var(--accent-text)}
+.gpanel{display:flex; flex-direction:column; gap:20px; min-width:0}
+.cfgdlg{width:min(560px,100%); max-height:calc(100vh - 32px); overflow:auto}
+.cfgdlg .dlg-h .ico{background:var(--accent-soft); color:var(--accent)}
+.cfgform{display:grid; gap:14px}
+.sealed{display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:8px 8px 8px 12px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line); font-size:13.5px}
+.sealed svg.i{color:var(--ok)}
+.sealed .btn{margin-left:auto}
+.cfgerr{color:var(--bad); font-size:13px; display:flex; gap:6px; align-items:center}
+.mgrid{width:100%; border-collapse:collapse; font-size:14px; min-width:560px}
+.mgrid th{text-align:left; font-size:12.5px; color:var(--text-2); font-weight:600; padding:8px 12px; border-bottom:1px solid var(--line)}
+.mgrid td{padding:8px 12px; border-bottom:1px solid var(--line)}
+.mgrid td:first-child{font-weight:600}
+.mgrid .select{height:36px; font-size:13px; font-family:var(--f-mono)}
+.trio{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px}
+.trio div{padding:12px 14px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface-2); min-width:0}
+.trio span{display:block; font-size:12.5px; color:var(--text-2)}
+.trio b{font:700 28px/1.1 var(--f-display)}
+.trio .new{border-color:var(--accent)} .trio .new b{color:var(--accent-text)}
+.hchip.bad svg.i{color:var(--bad)} .hchip.bad{border-color:var(--bad)}
+.hchip{font-family:inherit}
+@media (max-width:520px){ .lacts .btn{min-height:44px} .hchip{min-height:44px} button.tab{min-height:44px} .trio{grid-template-columns:1fr} }
+.thread{list-style:none; margin:0; padding:0}
+.thread li{display:grid; grid-template-columns:14px 92px minmax(0,1fr); gap:10px; padding:7px 0; font-size:14px; align-items:baseline}
+.thread li i{width:10px; height:10px; border-radius:50%; background:var(--surface); border:2px solid var(--line-strong); margin-top:5px}
+.thread time{font:400 12.5px/1.6 var(--f-mono); color:var(--text-3)}
+.thread li.bad i{border-color:var(--bad)}

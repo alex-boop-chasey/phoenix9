@@ -7,13 +7,14 @@ import secrets
 import threading
 import time
 import traceback
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, gates, github, keys, library, logs, projects, runs, services, settings, update
+from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, keys, library, logs, projects, runs, services, settings, update
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -111,8 +112,16 @@ def get_deploys(req, name):
 
 
 def get_projects(req):
-    """Reply with the project list rows."""
-    return projects.rows()
+    """Reply with the project rows; with search/filter parameters, {top, rest, total, counts} instead."""
+    keys = ("q", "status", "owner", "sort", "attention")
+    if not any(k in req.query for k in keys):
+        return projects.rows()
+    attention = req.query.get("attention", "")
+    if attention not in ("", "0", "1", "true", "false"):
+        raise BadRequest("'attention' should be 1 or 0.")
+    return projects.query(q=req.query.get("q", ""), status=req.query.get("status") or "all",
+                          owner=req.query.get("owner") or "all", sort=req.query.get("sort") or "name",
+                          attention=attention in ("1", "true"))
 
 
 def get_check_name(req):
@@ -218,9 +227,39 @@ def get_services_lib(req):
     return library.services()
 
 
+def get_tools_lib(req):
+    """Reply with the tools a step may use."""
+    return library.tools()
+
+
 def get_repos(req):
     """Reply with the GitHub repos Phoenix can see."""
     return github.repos()
+
+
+def get_global_services(req):
+    """Reply with the rows of Phoenix settings > Services (Claude, the library services, Telegram)."""
+    rows = services.list_global()
+    for row in rows:
+        row["endpoints"] = {"connect": f"services/{row['name']}/connect",
+                            "disconnect": f"services/{row['name']}/disconnect",
+                            "test": f"services/{row['name']}/test"}
+    return {"supported": True, "services": rows}
+
+
+def get_doctor(req):
+    """Run the health checks (?mode=quick by default, or full) and reply with the results."""
+    mode = req.query.get("mode") or "quick"
+    if mode not in ("quick", "full"):
+        raise BadRequest("'mode' should be quick or full.")
+    out = ops_doctor.run(mode=mode)
+    out["checked_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return out
+
+
+def get_update_history(req):
+    """Reply with the updater's past installs and roll-backs, newest first."""
+    return {"history": update.history()}
 
 
 def get_global(req):
@@ -428,6 +467,36 @@ def post_edit(req, name):
     return get_project(req, name)
 
 
+def post_remove(req, name):
+    """Remove a project from Phoenix (needs confirm); files are kept."""
+    if req.body.get("confirm") is not True and req.body.get("yes") is not True:
+        raise BadRequest("Removing a project needs \"confirm\": true.")
+    with req.server.write_lock:
+        return projects.remove(check_name(name), WHO)
+
+
+def post_chat_start(req, name):
+    """Switch the project's chat on; the reply says whether the link is known yet."""
+    with req.server.write_lock:
+        return projects.chat_start(check_name(name), WHO)
+
+
+def get_import_candidates(req):
+    """Reply with what can be imported."""
+    return projects.import_candidates()
+
+
+def get_folders(req):
+    """Reply with the sub-folders of a folder under the projects root."""
+    return projects.list_folders(req.query.get("path", ""))
+
+
+def post_import(req):
+    """Import a removed project or an unlisted folder."""
+    with req.server.write_lock:
+        return projects.import_(body_text(req, "target"), WHO)
+
+
 def post_keys_save(req, name):
     """Save project keys."""
     rows = req.body.get("rows")
@@ -503,6 +572,13 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def get_gate_review(req, gate_id):
+    """Reply with the merge review of a merge gate."""
+    if not GATE_ID_RE.match(gate_id):
+        raise BadRequest("That isn't a valid gate id.")
+    return gates.review(gate_id)
+
+
 def post_gate_answer(req, gate_id):
     """Answer a gate."""
     if not GATE_ID_RE.match(gate_id):
@@ -518,9 +594,28 @@ def post_service_connect(req, name):
     values = body_dict(req, "values")
     if not all(isinstance(v, str) for v in values.values()):
         raise BadRequest("'values' should map key names to text.")
+    extra = req.body.get("settings") or {}
+    if not isinstance(extra, dict):
+        raise BadRequest("'settings' should map setting names to text.")
     scrub.add_secrets(v for v in values.values() if v)
     with req.server.write_lock:
-        return services.connect(check_name(name), values, who=WHO)
+        return services.connect(check_name(name), values, who=WHO, settings_in=extra)
+
+
+def post_service_test(req, name):
+    """Try a service's key (the pasted one, else the saved one); nothing is saved."""
+    values = req.body.get("values") or {}
+    if not isinstance(values, dict) or not all(isinstance(v, str) for v in values.values()):
+        raise BadRequest("'values' should map key names to text.")
+    scrub.add_secrets(v for v in values.values() if v)
+    return services.test(check_name(name), values, who=WHO)
+
+
+def post_global_models(req):
+    """Save Phoenix's default models: {steps: {step: {model, fallback_models}}}."""
+    steps = body_dict(req, "steps")
+    with req.server.write_lock:
+        return app.set_default_models(steps, who=WHO)
 
 
 def post_service_disconnect(req, name):
@@ -537,6 +632,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/update/log", get_update_log),
     ("GET", rf"/api/projects/{NAME}/deploys", get_deploys),
     ("GET", r"/api/projects", get_projects),
+    ("GET", r"/api/import/candidates", get_import_candidates),
+    ("GET", r"/api/folders", get_folders),
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
@@ -550,22 +647,32 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/gates", get_gates),
+    ("GET", r"/api/gates/(?P<gate_id>[^/]+)/review", get_gate_review),
     ("GET", r"/api/library/steps", get_steps),
     ("GET", r"/api/library/profiles", get_profiles),
     ("GET", r"/api/library/presets", get_presets),
     ("GET", r"/api/library/templates", get_templates),
     ("GET", r"/api/library/services", get_services_lib),
+    ("GET", r"/api/library/tools", get_tools_lib),
     ("GET", r"/api/github/repos", get_repos),
     ("GET", r"/api/global", get_global),
+    ("GET", r"/api/global/services", get_global_services),
+    ("GET", r"/api/doctor", get_doctor),
+    ("GET", r"/api/update/history", get_update_history),
     ("GET", r"/api/services", get_services),
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/projects", post_create),
+    ("POST", r"/api/import", post_import),
+    ("POST", rf"/api/projects/{NAME}/remove", post_remove),
+    ("POST", rf"/api/projects/{NAME}/chat/start", post_chat_start),
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
+    ("POST", rf"/api/services/{NAME}/test", post_service_test),
+    ("POST", r"/api/global/models", post_global_models),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),

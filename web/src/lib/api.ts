@@ -1,9 +1,10 @@
 // The only place the web app talks to the server. Paths are relative to the page (path-prefix safe).
 import type {
-  CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GithubRepos, GlobalView,
+  DoctorResult, UpdateHistoryRow,
+  CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectRow, ChangelogLine, BuildRow, RunDetail, Service, ServicesView, KeysAudit, SettingsView,
-  SpecFile, StartRunBody, Template,
+  Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
+  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult, ChatStartResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -80,6 +81,9 @@ const e = encodeURIComponent
 export const api = {
   info: () => get<Info>("info"),
   projects: () => get<ProjectRow[]>("projects"),
+  searchProjects: (params: Record<string, string>) => get<ProjectQueryResult>("projects", params),
+  importCandidates: () => get<ImportCandidate[]>("import/candidates"),
+  folders: (path: string) => get<FolderListing>("folders", { path }),
   checkName: (name: string) => get<NameCheck>("projects/check-name", { name }),
   project: (name: string) => get<Project>(`projects/${e(name)}`),
   changelog: (name: string, limit = 20) => get<ChangelogLine[]>(`projects/${e(name)}/changelog`, { limit }),
@@ -90,14 +94,19 @@ export const api = {
   builds: (name: string) => get<BuildRow[]>(`projects/${e(name)}/runs`),
   run: (project: string, runId: string) => get<RunDetail>(`runs/${e(project)}/${e(runId)}`),
   gates: (project?: string) => get<Gate[]>("gates", { project }),
+  gateReview: (id: string) => get<GateReview>(`gates/${e(id)}/review`),
   librarySteps: () => get<{ steps: LibraryStep[]; problems: string[] }>("library/steps"),
   libraryProfiles: () => get<{ profiles: Profile[]; problems: string[] }>("library/profiles"),
   libraryPresets: () => get<{ presets: Preset[] }>("library/presets"),
   libraryTemplates: () => get<Template[]>("library/templates"),
   libraryServices: () => get<{ services: Service[]; problems: string[] }>("library/services"),
+  libraryTools: () => get<{ tools: LibraryTool[] }>("library/tools"),
   githubRepos: () => get<GithubRepos>("github/repos"),
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),
+  globalServices: () => get<ServicesView>("global/services"),
+  doctor: (mode: "quick" | "full" = "quick") => get<DoctorResult>("doctor", { mode }),
+  updateHistory: () => get<{ history: UpdateHistoryRow[] }>("update/history"),
   keysAudit: () => get<KeysAudit>("keys/audit"),
   update: (refresh = false) => get<UpdateStatus>("update", { refresh: refresh ? 1 : undefined }),
   deploys: (name: string) => get<DeployStatus>(`projects/${e(name)}/deploys`),
@@ -108,6 +117,9 @@ export const api = {
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
 
+  removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
+  importProject: (target: string) => post<ImportResult>("import", { target }),
+  chatStart: (name: string) => post<ChatStartResult>(`projects/${e(name)}/chat/start`, {}),
   createProject: (form: CreateForm) => post<{ job: string }>("projects", form),
   editProject: (name: string, body: EditBody) => post<Project>(`projects/${e(name)}/edit`, body),
   saveKeys: (name: string, rows: KeyInput[]) => post<KeyRow[]>(`projects/${e(name)}/keys/save`, { rows }),

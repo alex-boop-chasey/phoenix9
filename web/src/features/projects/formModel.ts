@@ -5,6 +5,7 @@ export type SourceKind = "empty" | "repo" | "template" | "code"
 
 export interface FormValues {
   name: string
+  /** Not asked on New project; project Settings edits it. */
   description: string
   source: SourceKind
   repo: string

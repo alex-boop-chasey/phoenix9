@@ -55,4 +55,18 @@ describe("DeployCard", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1100) })
     expect(await screen.findByText("Deployed to https://demo.example.")).toBeInTheDocument()
   })
+
+  it("shows a failed deploy in plain words with a link to the settings", async () => {
+    const reason = "Deploy isn't set up yet: choose the live port in Settings \u2192 Merge and deploy"
+    mockApi({
+      "GET /api/projects/demo/deploys": deploys({
+        recent: [{ at: "2026-10-01T10:00:00Z", commit: "abcdef1234", version: "", url: "", ok: false,
+          rolled_back: false, reason, who: "alex", deployer: "vps-docker" }],
+      }),
+    })
+    renderWithProviders(<DeployCard name="demo" />)
+    const link = await screen.findByRole("link", { name: "Settings \u2192 Merge and deploy" })
+    expect(link).toHaveAttribute("href", "/p/demo/settings#s-merge")
+    expect(screen.queryByText(/phoenix\.toml/)).toBeNull()
+  })
 })

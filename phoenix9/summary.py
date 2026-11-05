@@ -24,10 +24,21 @@ def _duration(start, end) -> str:
     a, b = _parse(start), _parse(end)
     if not a or not b:
         return ""
-    seconds = max(int((b - a).total_seconds()), 0)
-    hours, rest = divmod(seconds, 3600)
-    minutes, secs = divmod(rest, 60)
-    return (f"{hours}h " if hours else "") + (f"{minutes}m " if hours or minutes else "") + f"{secs}s"
+    return friendly_seconds(max(int((b - a).total_seconds()), 0))
+
+
+def friendly_seconds(seconds: int) -> str:
+    """Seconds in friendly units: '45s', '38 min', '2 h 10 min', '5 days'."""
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    if hours >= 24:
+        days = hours // 24
+        return f"{days} day{'' if days == 1 else 's'}"
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
 
 
 def _task_flag(task: dict) -> str:
@@ -79,6 +90,11 @@ def _screenshots(run_dir: Path) -> list:
                   if p.is_file() and not p.is_symlink())
 
 
+def _waiting(run_dir: Path) -> list:
+    """Titles of services this run built without their keys."""
+    return [e["title"] for e in atomic.read_json(Path(run_dir) / "deferred-services.json") or []]
+
+
 def facts(run_dir, screenshots: bool = False) -> dict:
     """Everything the summary shows, as plain values, from state.json, spec.json, the events and progress.md."""
     run_dir = Path(run_dir)
@@ -95,7 +111,7 @@ def facts(run_dir, screenshots: bool = False) -> dict:
         "status": st["status"], "preset": str(spec.get("preset") or frozen.get("preset") or "default"),
         "started": st.get("created", ""), "finished": finished,
         "duration": _duration(st.get("created"), finished or state.now()),
-        "tasks": tasks,
+        "tasks": tasks, "waiting_for_keys": _waiting(run_dir),
         "counts": {k: sum(1 for t in tasks if t["status"] == k) for k in ("passed", "failed", "skipped")},
         "escalations": _escalations(run_dir),
         "full_suite": _full_suite(st, run_dir),
@@ -146,6 +162,8 @@ def markdown(f: dict) -> str:
     out += [f"- {_escalation_line(e)}" for e in f["escalations"]] or ["Nothing."]
     out += ["", "## Things only you can do", ""]
     out += [f"- {x}" for x in _for_you(f)] or ["Nothing."]
+    if f.get("waiting_for_keys"):
+        out += ["", "## Waiting for keys", "", f"Waiting for keys: {', '.join(f['waiting_for_keys'])}"]
     if f["screenshots"]:
         out += ["", "## Screenshots", ""] + [f"- [{p}]({p})" for p in f["screenshots"]]
     return "\n".join(out) + "\n"
@@ -173,6 +191,8 @@ def html(f: dict) -> str:
         "sessions": e(f["sessions"]), "tasks": _items([_task_line(t) for t in f["tasks"]], "(no tasks)"),
         "escalations": _paragraph_or_list([_escalation_line(x) for x in f["escalations"]]),
         "for_you": _paragraph_or_list(_for_you(f)), "screenshots": shots,
+        "waiting": (f"<h2>Waiting for keys</h2>\n<p>Waiting for keys: {e(', '.join(f['waiting_for_keys']))}</p>\n"
+                    if f.get("waiting_for_keys") else ""),
     }
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), TEMPLATE.read_text())
 

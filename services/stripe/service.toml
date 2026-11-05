@@ -7,13 +7,23 @@ account_keys = []
 hosts = ["api.stripe.com"]
 
 [[project_keys]]
-name = "STRIPE_SECRET_KEY"
-secret = true
+name = "PUBLIC_STRIPE_PUBLISHABLE_KEY"
+secret = false
+public = true
+required = true
+help = "Dashboard > Developers > API keys: starts pk_test_ or pk_live_. Use test keys first."
 
 [[project_keys]]
-name = "STRIPE_PUBLISHABLE_KEY"
-secret = false
+name = "STRIPE_SECRET_KEY"
+secret = true
+public = false
+required = true
+help = "Same page. Prefer a restricted key (rk_...) with only the permissions the site needs. Use test keys first."
 
 [[project_keys]]
 name = "STRIPE_WEBHOOK_SECRET"
 secret = true
+public = false
+required = false
+help = "Dashboard > Webhooks > the endpoint > Signing secret (whsec_...). Only if the site handles webhooks."
+

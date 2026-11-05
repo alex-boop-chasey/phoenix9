@@ -1,16 +1,16 @@
 import { useEffect, useRef } from "react"
+import { useQuery } from "@tanstack/react-query"
 
 import { CopyButton } from "@/components/CopyButton"
 import { ErrorState } from "@/components/ErrorState"
-import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Skeleton } from "@/components/ui/skeleton"
+import { Icon } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
 import { api } from "@/lib/api"
-import { useQuery } from "@tanstack/react-query"
 
 import { DiffView } from "./DiffView"
+import { KIND_INFO } from "./LogFilters"
 
-/** The open log: title bar with Copy, then the text (newest at the bottom, diffs coloured). */
+/** The open log: header with kind tag, title and Copy, then the text (newest at the bottom, diffs coloured). */
 export function LogViewer({ project, id }: { project: string; id: string }) {
   // Not under the "logs" key, so live events refetch the list but not the open text.
   const q = useQuery({ queryKey: ["logtext", project, id], queryFn: () => api.readLog(project, id), enabled: !!id })
@@ -18,33 +18,31 @@ export function LogViewer({ project, id }: { project: string; id: string }) {
   const text = q.data?.text
 
   useEffect(() => {
-    const view = box.current?.querySelector("[data-slot=scroll-area-viewport]")
-    if (view) view.scrollTop = view.scrollHeight
+    if (box.current) box.current.scrollTop = box.current.scrollHeight
   }, [text])
 
-  if (!id) return <p className="p-4 text-sm text-muted-foreground">Pick a log to read it.</p>
-  if (q.error) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />
   const log = q.data
-  if (!log) return <Skeleton data-testid="log-loading" className="h-64 w-full" />
   return (
-    <div className="flex min-w-0 flex-col rounded-md border">
-      <div className="flex flex-wrap items-center gap-2 border-b p-2">
-        <Badge variant="secondary">{log.kind}</Badge>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">{log.title}</span>
-        {log.truncated && <span className="text-xs text-muted-foreground">Showing the last 2 MB</span>}
-        <CopyButton text={log.text} />
-      </div>
-      <div ref={box}>
-        <ScrollArea className="h-[60vh] [&>[data-slot=scroll-area-viewport]>div]:!block">
-          <div className="p-3">
-            {log.is_diff ? (
-              <DiffView text={log.text} />
-            ) : (
-              <pre className="font-mono text-xs whitespace-pre-wrap break-words">{log.text}</pre>
-            )}
+    <div className="reader" aria-live="polite">
+      {!id ? (
+        <p className="loading">Pick a log to read it.</p>
+      ) : q.error ? (
+        <ErrorState error={q.error} onRetry={() => void q.refetch()} />
+      ) : !log ? (
+        <div className="loading" data-testid="log-loading"><Wheel className="wheel-lg" />Loading log…</div>
+      ) : (
+        <>
+          <div className="reader-h">
+            <span className="tag"><Icon name={KIND_INFO[log.kind].icon} />{KIND_INFO[log.kind].label}</span>
+            <b>{log.title}</b>
+            {log.truncated && <span className="help">Showing the last 2 MB</span>}
+            <span style={{ marginLeft: "auto" }}><CopyButton text={log.text} /></span>
           </div>
-        </ScrollArea>
-      </div>
+          <div className="reader-body" ref={box}>
+            {log.is_diff ? <DiffView text={log.text} /> : <pre>{log.text}</pre>}
+          </div>
+        </>
+      )}
     </div>
   )
 }

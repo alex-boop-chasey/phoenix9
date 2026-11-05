@@ -49,44 +49,53 @@ function Where() {
 }
 const show = (route = "/p/demo-site/build?run=r-wait") =>
   renderWithProviders(<><BuildTab name="demo-site" /><Where /></>, { route })
-const blocks = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
-const stepRow = (block: string, step: string) =>
-  within(screen.getByRole("heading", { name: new RegExp(block) }).closest("section")!)
-    .getAllByText(step)[0]!.closest("[data-step]") as HTMLElement
+const headings = () => screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
+const taskBox = (n: number) => document.querySelector(`[data-task="${n}"]`) as HTMLElement
+const stepRow = (task: number | null, step: string) =>
+  [...(task === null ? document.body : taskBox(task)).querySelectorAll(`[data-step=${step}]`)].at(-1) as HTMLElement
 
-test("run-level steps once at top and bottom, task block per task", async () => {
+test("run-level steps once at top and bottom, task groups in between", async () => {
   mockApi(routes())
   show()
-  await screen.findByText("Pricing page")
-  expect(blocks()).toEqual(["At the start", "Task 1: Pricing table", "Task 2: Plan cards", "Task 3: Footer", "At the end"])
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(headings()[0]).toBe("At the start")
+  expect(headings().at(-1)).toBe("At the end")
   expect(screen.getAllByText("Planner")).toHaveLength(1)
   expect(screen.getAllByText("Summary")).toHaveLength(1)
-  expect(screen.getAllByText("Builder")).toHaveLength(3)
-  expect(screen.getByText("Task 2 of 3")).toBeInTheDocument()
+  expect(taskBox(1)).toHaveTextContent("Task 1 · Pricing table")
+  expect(taskBox(3)).toHaveTextContent("Task 3 · Footer")
 })
 
-test("badges per status incl spinner", async () => {
+test("summary aside shows the ring, badge, preset, cost and logs link", async () => {
+  mockApi(routes())
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const aside = screen.getByRole("complementary", { name: "Build summary" })
+  expect(within(aside).getByTestId("ring-text")).toHaveTextContent("1/3")
+  expect(within(aside).getByText("Waiting for you")).toBeInTheDocument()
+  expect(within(aside).getByText("full")).toBeInTheDocument()
+  expect(await within(aside).findByText("$0.80")).toBeInTheDocument()
+  expect(within(aside).getByText("30 min")).toBeInTheDocument()
+  // the ring has its own class, not the framework's "ring" box-shadow class
+  const ring = aside.querySelector(".sum-ring")!
+  expect(ring).not.toBeNull()
+  expect(aside.querySelector(".ring")).toBeNull()
+})
+
+test("running build: blue ring text, spinner on the running block", async () => {
   mockApi(routes({
     [`GET ${RUN}`]: runDetail({
       status: "running",
-      steps: [
-        line({ group: "run-start", task: null, step: "planner", status: "passed" }),
-        line({ task: 1, status: "running", finished: "" }),
-        line({ task: 1, step: "check", status: "waiting" }),
-        line({ task: 2, status: "failed" }),
-      ],
+      steps: [line({ task: 2, status: "running", finished: "" })],
       gates: [],
     }),
   }))
   show()
-  await screen.findByText("Pricing page")
-  expect(within(stepRow("Task 1", "Builder")).getByTestId("spinner")).toBeInTheDocument()
-  expect(stepRow("Task 1", "Check").querySelector('[data-status="waiting"]')).not.toBeNull()
-  expect(stepRow("Task 2", "Builder").querySelector('[data-status="failed"]')).not.toBeNull()
-  expect(stepRow("At the start", "Planner").querySelector('[data-status="passed"]')).not.toBeNull()
-  expect(stepRow("Task 2", "Check").querySelector('[data-status="pending"]')).not.toBeNull()
-  expect(stepRow("Task 3", "Builder").querySelector('[data-status="skipped"]')).not.toBeNull()
-  expect(within(screen.getByTestId("run-status")).getByTestId("spinner")).toBeInTheDocument()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(stepRow(2, "builder").querySelector('[data-indicator="running"]')).not.toBeNull()
+  const aside = screen.getByRole("complementary", { name: "Build summary" })
+  expect(within(aside).getByText("Running task 2 of 3")).toBeInTheDocument()
+  expect(within(aside).getByTestId("live-mode")).toBeInTheDocument()
 })
 
 test("escalation under failed step with Acknowledged posts acknowledged", async () => {
@@ -94,12 +103,12 @@ test("escalation under failed step with Acknowledged posts acknowledged", async 
     [`POST /api/gates/${openGate.id}/answer`]: { gate: openGate.id, action: "acknowledged", note: "", who: "web", at: "" },
   }))
   show()
-  await screen.findByText("Pricing page")
-  const row = stepRow("Task 2", "Builder")
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const row = stepRow(2, "builder")
   const buttons = within(row).getAllByRole("button").map((b) => b.textContent)
   expect(buttons[0]).toBe("Acknowledged")
   expect(buttons).toEqual(expect.arrayContaining(["Skip task", "Stop run"]))
-  expect(screen.getAllByText(`Needs you: ${openGate.title}`)).toHaveLength(1)
+  expect(screen.getAllByText(openGate.title)).toHaveLength(1)
   await userEvent.click(within(row).getByRole("button", { name: "Acknowledged" }))
   await waitFor(() => expect(calls.some((c) => c.path === `/api/gates/${openGate.id}/answer`)).toBe(true))
   const answer = calls.find((c) => c.path === `/api/gates/${openGate.id}/answer`)!
@@ -109,8 +118,8 @@ test("escalation under failed step with Acknowledged posts acknowledged", async 
 test("stop confirms then posts stop with confirm", async () => {
   const { calls } = mockApi(routes({ [`POST ${RUN}/stop`]: { run_id: "r-wait", status: "stopped", containers_removed: 1 } }))
   show()
-  await screen.findByText("Pricing page")
-  await userEvent.click(screen.getByRole("button", { name: "Stop" }))
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Stop build" }))
   expect(calls.some((c) => c.path.endsWith("/stop"))).toBe(false)
   const dialog = await screen.findByRole("alertdialog")
   await userEvent.click(within(dialog).getByRole("button", { name: "Stop build" }))
@@ -122,7 +131,7 @@ test("sse event refetches the run", async () => {
   vi.stubGlobal("EventSource", FakeEventSource)
   const { calls } = mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
   show()
-  await screen.findByText("Pricing page")
+  await screen.findByRole("heading", { name: "Pricing page" })
   expect(screen.getByTestId("live-mode")).toHaveTextContent("Live")
   const runCalls = () => calls.filter((c) => c.path === RUN).length
   const before = runCalls()
@@ -141,7 +150,7 @@ test("falls back to polling when the stream errors", async () => {
   vi.stubGlobal("EventSource", FakeEventSource)
   const { calls } = mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
   show()
-  await screen.findByText("Pricing page")
+  await screen.findByRole("heading", { name: "Pricing page" })
   const runCalls = () => calls.filter((c) => c.path === RUN).length
   await act(() => vi.advanceTimersByTimeAsync(8000))
   expect(runCalls()).toBe(1)
@@ -157,28 +166,25 @@ test("falls back to polling when the stream errors", async () => {
 test("queued message", async () => {
   mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "queued", steps: [], gates: [], plan_frozen: false, current: {} }) }))
   show()
-  expect(await screen.findByText("Queued: waiting for the runner to pick it up.")).toBeInTheDocument()
+  expect(await screen.findByText(/Starting… the first step runs/)).toBeInTheDocument()
   expect(screen.getByText("Planned steps; the runner fixes them when the build starts.")).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Stop build" })).toBeInTheDocument()
 })
 
-test("finished shows result, logs link and back to builds", async () => {
+test("finished shows result and logs link", async () => {
   mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "failed", gates: [] }) }))
   show()
-  expect(await screen.findByText("Result: 1 of 3 tasks failed")).toBeInTheDocument()
+  expect(await screen.findByTestId("result")).toHaveTextContent("Result: 1 of 3 tasks failed")
   expect(screen.getByRole("link", { name: "See this build's logs" })).toHaveAttribute("href", "/p/demo-site/logs?run=r-wait")
-  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull()
+  expect(screen.queryByRole("button", { name: "Stop build" })).toBeNull()
   expect(screen.queryByTestId("live-mode")).toBeNull()
-  await userEvent.click(screen.getByRole("link", { name: "Back to builds" }))
-  expect(screen.getByTestId("where")).toHaveTextContent("/p/demo-site/build?list=1")
-  expect(await screen.findByRole("button", { name: "Start new build" })).toBeEnabled()
 })
 
 test("build tab opens on the running view when a run is active", async () => {
   mockApi(routes())
   show("/p/demo-site/build")
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/p/demo-site/build?run=r-wait"))
-  expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument()
+  expect(await screen.findByRole("button", { name: "Stop build" })).toBeInTheDocument()
 })
 
 test("no active run opens on the list", async () => {
@@ -191,7 +197,15 @@ test("no active run opens on the list", async () => {
 test("header shows duration and cost from the builds list", async () => {
   mockApi(routes())
   show()
-  await screen.findByText("Pricing page")
-  expect(await screen.findByText("Duration: 30 min")).toBeInTheDocument()
-  expect(screen.getByText("Cost: $0.80")).toBeInTheDocument()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const aside = screen.getByRole("complementary", { name: "Build summary" })
+  expect(await within(aside).findByText("30 min")).toBeInTheDocument()
+  expect(within(aside).getByText("$0.80")).toBeInTheDocument()
+})
+
+test("header shows the run's branch", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.getByText("phoenix/r-wait")).toBeInTheDocument()
 })

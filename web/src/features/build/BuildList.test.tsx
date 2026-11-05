@@ -12,14 +12,7 @@ function Where() {
   return <p data-testid="where">{l.pathname + l.search}</p>
 }
 
-function setWidth(width: number) {
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: width >= 768, media: query, addEventListener: () => {}, removeEventListener: () => {},
-  }))
-}
 
-beforeEach(() => setWidth(1280))
-afterEach(() => vi.unstubAllGlobals())
 
 const show = (rows = BUILDS) =>
   renderWithProviders(<><BuildList name="demo-site" rows={rows} /><Where /></>, { route: "/p/demo-site/build" })
@@ -28,7 +21,7 @@ test("newest first with all columns", () => {
   show()
   const rows = screen.getAllByRole("row").slice(1)
   expect(rows.map((r) => within(r).getByRole("link").textContent)).toEqual(["Pricing page", "Blog section", "Contact form"])
-  for (const h of ["Date", "Spec", "Preset", "Result", "Duration", "Cost"]) {
+  for (const h of ["Build", "Preset", "Tasks", "Result", "Duration", "Cost"]) {
     expect(screen.getByRole("columnheader", { name: h })).toBeInTheDocument()
   }
   const first = within(rows[2]!)
@@ -66,10 +59,26 @@ test("empty state", () => {
   expect(screen.getByText("No builds yet")).toBeInTheDocument()
 })
 
-test("phone renders cards", () => {
-  setWidth(375)
-  show()
-  expect(screen.queryByRole("table")).toBeNull()
-  expect(screen.getAllByRole("listitem")).toHaveLength(3)
-  expect(screen.getByText("Pricing page")).toBeInTheDocument()
+test("task bar: green passed, red failed, grey pending, blue running, orange only when the merge waits", () => {
+  show([
+    build({ run_id: "a", title: "A", status: "running", tasks_total: 4, tasks_passed: 1, tasks_failed: 1 }),
+    build({ run_id: "b", title: "B", status: "waiting", tasks_total: 2, tasks_passed: 2, tasks_failed: 0 }),
+  ])
+  const bars = (id: string) =>
+    [...document.querySelector(`[data-run=${id}] .tbar`)!.children].map((c) => c.className)
+  expect(bars("a")).toEqual(["ok", "bad", "run", ""])
+  expect(bars("b")).toEqual(["ok", "ok", "need"])
+})
+
+test("coloured left edge by result, and the selected row is marked", () => {
+  show(BUILDS)
+  const row = document.querySelector("[data-run=r-wait]") as HTMLElement
+  expect(row.style.getPropertyValue("--spine")).toBe("var(--attn)")
+  expect((document.querySelector("[data-run=r-fail]") as HTMLElement).style.getPropertyValue("--spine")).toBe("var(--bad)")
+  expect((document.querySelector("[data-run=r-old]") as HTMLElement).style.getPropertyValue("--spine")).toBe("var(--ok)")
+})
+
+test("the selected build is highlighted", () => {
+  renderWithProviders(<BuildList name="demo-site" rows={BUILDS} selected="r-fail" />, { route: "/p/demo-site/build" })
+  expect(document.querySelector("tr.sel")).toHaveTextContent("Blog section")
 })

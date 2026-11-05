@@ -13,29 +13,35 @@ test("demo-site shows the escalation card and Acknowledged clears it", async ({ 
   await expectNoRawOutput(page)
 })
 
-test("phoenix9 shows the merge card and Send back needs a note", async ({ page }) => {
+test("phoenix9 shows the merge card with a Review and merge link", async ({ page }) => {
   await page.goto("/#/p/phoenix9/overview")
   await expect(page.getByText(/changes safety code/i).first()).toBeVisible()
-  await page.getByRole("button", { name: "Send back with a note" }).click()
-  const send = page.getByRole("button", { name: "Send back", exact: true })
-  await expect(send).toBeDisabled()
-  await page.getByLabel("Note for the builder").fill("Please add a test")
-  await expect(send).toBeEnabled()
+  await expect(page.getByRole("link", { name: "Review and merge" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0)
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
 
-test("phoenix9 shows the update panel with versions and a disabled Install while a build runs", async ({ page }) => {
+test("phoenix9 Overview has no updates panel", async ({ page }) => {
   await page.goto("/#/p/phoenix9/overview")
-  await expect(page.getByText("Installed: v9.1")).toBeVisible()
-  await expect(page.getByText("Previous: v9.0")).toBeVisible()
-  await expect(page.getByText("Newest: v9.2")).toBeVisible()
-  await expect(page.getByRole("button", { name: "Install update v9.2" })).toBeDisabled()
-  await expect(page.getByRole("button", { name: "Roll back to v9.0" })).toBeEnabled()
-  await page.getByText("Last update log").click()
-  await expect(page.getByText("installed v9.1")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Current build" })).toBeVisible()
+  await expect(page.getByText("Phoenix updates")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Install update/ })).toHaveCount(0)
   await expectNoHorizontalScroll(page)
-  await expectNoRawOutput(page)
+})
+
+test("header shows links, Start new build and tabs; About card shows setup", async ({ page }) => {
+  await page.goto("/#/p/demo-site/overview")
+  await expect(page.getByRole("heading", { name: "demo-site", level: 1 })).toBeVisible()
+  const dock = page.getByRole("group", { name: "Open project" })
+  await expect(dock.getByText("VS Code")).toBeVisible()
+  await expect(page.getByRole("link", { name: "Start new build" })).toBeVisible()
+  const tabs = page.getByRole("navigation", { name: "Project tabs" })
+  await expect(tabs.getByRole("link", { name: /^Overview/ })).toHaveAttribute("aria-current", "page")
+  await expect(page.getByLabel("Chosen at setup")).toBeVisible()
+  await expect(page.getByLabel("On this server")).toBeVisible()
+  await page.getByRole("link", { name: "Start new build" }).click()
+  await expect(page).toHaveURL(/#\/p\/demo-site\/build\?new=1/)
 })
 
 test("demo-site shows the Deploy card with its last deploy", async ({ page }) => {
@@ -43,6 +49,21 @@ test("demo-site shows the Deploy card with its last deploy", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Deploy now" })).toBeVisible()
   await expect(page.getByRole("link", { name: "https://demo-site.example.com" })).toBeVisible()
   await expect(page.getByText(/rolled back: the health check got a 502/)).toBeVisible()
+  await expectNoHorizontalScroll(page)
+  await expectNoRawOutput(page)
+})
+
+test("phoenix9: Review and merge opens the review on the Build tab", async ({ page }) => {
+  await page.goto("/#/p/phoenix9/overview")
+  await page.getByRole("link", { name: "Review and merge" }).click()
+  await expect(page).toHaveURL(/build\?run=/)
+  const room = page.locator("[data-review-room]")
+  await expect(room.getByText(/Changed files \(\d+\)/)).toBeVisible()
+  await room.locator(".files summary").first().click()
+  await expect(room.locator(".diff").first()).toBeVisible()
+  await expect(room.getByRole("button", { name: "Approve & merge" })).toBeVisible()
+  await room.getByRole("button", { name: "Send back", exact: true }).click()
+  await expect(room.getByRole("button", { name: "Send back note" })).toBeDisabled()
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })

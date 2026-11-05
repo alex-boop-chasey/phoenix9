@@ -32,7 +32,7 @@ test("saved secret shows dots with reveal and remove", async () => {
   await renderSaved()
   expect(screen.getByDisplayValue("••••••")).toHaveAttribute("readonly")
   expect(screen.getByRole("button", { name: "Reveal" })).toBeInTheDocument()
-  expect(screen.getAllByRole("button", { name: "Remove" })).toHaveLength(2)
+  expect(screen.getAllByRole("button", { name: "Remove key" })).toHaveLength(2)
 })
 
 test("saved non-secret shows its value", async () => {
@@ -106,7 +106,7 @@ test("empty value refused", async () => {
   const { calls } = await renderSaved()
   await userEvent.type(screen.getAllByLabelText("Name").at(-1)!, "NO_VALUE")
   await userEvent.click(screen.getByRole("button", { name: "Save" }))
-  expect(screen.getByText("Enter a value.")).toBeInTheDocument()
+  expect(screen.getByText("Type a value for NO_VALUE.")).toBeInTheDocument()
   expect(posts(calls)).toHaveLength(0)
 })
 
@@ -114,12 +114,12 @@ test("a saved row without a value says it needs one", async () => {
   await renderSaved([{ name: "SENTRY_DSN", secret: true, has_value: false, value_if_not_secret: null }])
   expect(screen.getByText("Needs a value")).toBeInTheDocument()
   await userEvent.click(screen.getByRole("button", { name: "Save" }))
-  expect(screen.getByText("Enter a value.")).toBeInTheDocument()
+  expect(screen.getByText("Type a value for SENTRY_DSN.")).toBeInTheDocument()
 })
 
 test("remove asks for confirmation then calls remove", async () => {
   const { calls } = await renderSaved(saved, { "POST /api/projects/demo/keys/remove": [saved[1]] })
-  await userEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!)
+  await userEvent.click(screen.getAllByRole("button", { name: "Remove key" })[0]!)
   const dialog = await screen.findByRole("alertdialog")
   expect(within(dialog).getByText("Remove key RESEND_API_KEY?")).toBeInTheDocument()
   expect(posts(calls)).toHaveLength(0)
@@ -141,7 +141,7 @@ test("local mode keeps rows in memory and never calls the api", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Reveal" }))
   expect(screen.getByDisplayValue("s3cret")).toBeInTheDocument()
   expect(seen.at(-1)).toEqual([{ name: "TOKEN", value: "s3cret", secret: true }])
-  await userEvent.click(screen.getByRole("button", { name: "Remove" }))
+  await userEvent.click(screen.getByRole("button", { name: "Remove key" }))
   await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remove" }))
   await waitFor(() => expect(screen.queryByDisplayValue("TOKEN")).toBeNull())
   expect(calls).toHaveLength(0)
@@ -157,4 +157,23 @@ test("value never written to localStorage", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Reveal" }))
   expect(setItem.mock.calls.flat().join(" ")).not.toContain("s3cret")
   setItem.mockRestore()
+})
+
+test("draft rows: no empty row, help and Optional tag show, a nameless row says what it needs", async () => {
+  mockApi({})
+  const wanted = [
+    { service: "x", name: "X_SECRET", secret: true, required: true, help: "Find it in the X dashboard." },
+    { service: "x", name: "X_OPTIONAL", secret: false, required: false, help: "Only if you use Y." },
+  ]
+  renderWithProviders(<KeysForm mode="local" draft wanted={wanted} />)
+  await waitFor(() => expect(screen.getAllByLabelText("Name")).toHaveLength(2))
+  expect(screen.getByText("Find it in the X dashboard.")).toBeInTheDocument()
+  expect(screen.getByText("Only if you use Y.")).toBeInTheDocument()
+  expect(screen.getAllByText("Optional")).toHaveLength(1)
+  expect((screen.getAllByLabelText("Value")[1] as HTMLInputElement).type).toBe("text")
+  await userEvent.click(screen.getByRole("button", { name: "Add" }))
+  expect(screen.getAllByLabelText("Name")).toHaveLength(3)
+  await userEvent.type(screen.getAllByLabelText("Value")[2]!, "abc")
+  await userEvent.click(screen.getByRole("button", { name: "Save" }))
+  expect(screen.getByText("Type a name for this key, or remove the row.")).toBeInTheDocument()
 })

@@ -2,7 +2,7 @@
 import importlib.util
 
 import phoenix9
-from phoenix9 import git, paths, settings
+from phoenix9 import git, paths, settings, tomlw
 from phoenix9.ops import common, github
 
 
@@ -44,19 +44,48 @@ def info() -> dict:
             "github": gh, "services": {"supported": True}}
 
 
-def _default_models() -> dict:
-    """{step: {model, fallback_models}} for each AI step, from the library defaults."""
+def _ai_steps() -> list:
+    return [s for s in common.library().steps if s.kind == "ai"]
+
+
+def default_models() -> dict:
+    """{step: {model, fallback_models, title, library}} for each AI step: Phoenix's saved defaults over the library's."""
+    saved = settings.global_models()
     out = {}
-    for step in common.library().steps:
-        if step.kind == "ai":
-            out[step.name] = {"model": step.ai.get("model", ""),
-                              "fallback_models": list(step.ai.get("fallback_models", []))}
+    for step in _ai_steps():
+        lib = {"model": step.ai.get("model", ""), "fallback_models": list(step.ai.get("fallback_models", []))}
+        out[step.name] = {**lib, **saved.get(step.name, {}), "title": getattr(step, "title", "") or step.name,
+                          "library": lib}
     return out
+
+
+def set_default_models(steps: dict, *, who: str) -> dict:
+    """Save Phoenix's default model (and up to two fallbacks) for AI steps into global.toml [models]."""
+    known = {s.name for s in _ai_steps()}
+    table = {}
+    for name, row in steps.items():
+        if name not in known:
+            raise common.OpsError(f"'{name}' is not an AI step. Choose from: {', '.join(sorted(known))}.")
+        model = row.get("model") if isinstance(row, dict) else None
+        fallbacks = row.get("fallback_models", []) if isinstance(row, dict) else None
+        if not isinstance(model, str) or not model.strip():
+            raise common.OpsError(f"Choose a model for {name}.")
+        if not isinstance(fallbacks, list) or not all(isinstance(m, str) and m.strip() for m in fallbacks):
+            raise common.OpsError(f"The fallback models for {name} should be a list of model names.")
+        chosen = [model.strip(), *[m.strip() for m in fallbacks]]
+        if len(set(chosen)) != len(chosen) or len(chosen) > 3:
+            raise common.OpsError(f"{name}: use each model once, with at most two fallbacks.")
+        table[name] = {"model": chosen[0], "fallback_models": chosen[1:]}
+    data = dict(settings.read_global())
+    data["models"] = {**(data.get("models") if isinstance(data.get("models"), dict) else {}), **table}
+    tomlw.dump(paths.config() / "global.toml", data)
+    common.record_command(who, "models set " + ", ".join(sorted(table)))
+    return {"saved": sorted(table), "default_models": default_models()}
 
 
 def global_view() -> dict:
     """Global settings (no secret values) and which parts are built yet."""
     values = settings.read_global()
-    return {"values": values, "github": github.status(), "default_models": _default_models(),
+    return {"values": values, "github": github.status(), "default_models": default_models(),
             "telegram": {"connected": (paths.secrets() / "telegram.env").is_file()},
             "supported": {"services": True, "update": _update_supported(), "secrets": False}}

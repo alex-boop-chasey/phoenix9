@@ -16,8 +16,9 @@ export function readTheme(): Theme {
   }
 }
 
-/** Put the theme on the page (the "dark" class on <html>). */
+/** Put the theme on the page: data-theme on <html> (the CSS tokens read it) plus the "dark" class. */
 export function applyTheme(theme: Theme) {
+  document.documentElement.dataset.theme = theme
   document.documentElement.classList.toggle("dark", theme === "dark")
 }
 

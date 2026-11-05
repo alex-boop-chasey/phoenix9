@@ -18,21 +18,21 @@ export function looksLikeDiff(text: string): boolean {
 }
 
 const LINE_CLASS: Record<DiffLineKind, string> = {
-  file: "mt-3 border-t pt-2 font-bold first:mt-0 first:border-t-0 first:pt-0",
+  file: "mt-3 border-t border-line pt-2 font-bold first:mt-0 first:border-t-0 first:pt-0",
   meta: "font-bold",
-  hunk: "bg-blue-500/10 text-blue-400",
-  add: "bg-green-500/15 text-green-400",
-  del: "bg-red-500/15 text-red-400",
+  hunk: "bg-info/10 text-info",
+  add: "bg-ok/15 text-ok",
+  del: "bg-bad/15 text-bad",
   plain: "",
 }
 
 /** Shows a diff with added lines green, removed lines red and headers picked out; plain text stays plain. */
 export function DiffView({ text }: { text: string }) {
   if (!looksLikeDiff(text)) {
-    return <pre className="font-mono text-xs whitespace-pre-wrap break-words">{text}</pre>
+    return <pre>{text}</pre>
   }
   return (
-    <div data-testid="diff" className="font-mono text-xs whitespace-pre-wrap break-words">
+    <div data-testid="diff" className="difft whitespace-pre-wrap break-words">
       {text.split("\n").map((line, i) => {
         const kind = diffLineKind(line)
         return (

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from helpers import scripted
-from phoenix9 import gates, keys, paths, project, runs, services, settings, state
+from phoenix9 import gates, keys, paths, project, runs, services, settings, state, summary
 from phoenix9.library import load_library
 from phoenix9.ops import common
 from phoenix9.ops import services as ops_services
@@ -90,14 +90,15 @@ def test_no_services_passes_with_fallback(tmp_path, adapters):
 
 def test_missing_keys_open_human_task_gate_listing_names(tmp_path, adapters):
     make_project()
-    keys.add_empty("proj", "SUPABASE_URL", False)
+    keys.add_empty("proj", "PUBLIC_SUPABASE_URL", False)
     run_dir = new_run(tmp_path)
     assert Runner(adapters, make_lib(tmp_path / "lib")).drive(run_dir) == "waiting"
     gate = open_gate(run_dir)
-    assert gate["kind"] == "human-task" and gate["actions"] == ["done", "skip", "stop"]
+    assert gate["kind"] == "human-task" and gate["actions"] == ["done", "defer", "skip", "stop"]
     assert gate["title"] == "Paste keys for Supabase"
-    for name in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"):
+    for name in ("PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY"):
         assert name in gate["why"]
+    assert "SUPABASE_SECRET_KEY" not in gate["why"]  # optional keys are not asked for
     assert "phoenix project keys proj set KEY" in gate["why"]
     assert SENTINEL not in json.dumps(gate)
 
@@ -112,7 +113,7 @@ def test_done_after_keys_pasted_passes(tmp_path, adapters):
     assert runner.drive(run_dir) == "done"
     assert step_line(run_dir)["status"] == "passed"
     notes = (run_dir / "services.md").read_text()
-    assert "Supabase" in notes and "SUPABASE_URL" in notes and SENTINEL not in notes
+    assert "Supabase" in notes and "PUBLIC_SUPABASE_URL" in notes and SENTINEL not in notes
 
 
 def test_done_without_keys_fails_naming_them(tmp_path, adapters):
@@ -120,13 +121,53 @@ def test_done_without_keys_fails_naming_them(tmp_path, adapters):
     run_dir = new_run(tmp_path)
     runner = Runner(adapters, make_lib(tmp_path / "lib"))
     runner.drive(run_dir)
-    keys.set_key("proj", "SUPABASE_URL", SENTINEL, secret=False)
+    keys.set_key("proj", "PUBLIC_SUPABASE_URL", SENTINEL, secret=False)
     gates.answer(open_gate(run_dir)["id"], "done")
     assert runner.drive(run_dir) == "failed"
     line = step_line(run_dir)
     assert line["status"] == "failed"
-    assert "SUPABASE_ANON_KEY" in line["note"] and "SUPABASE_SERVICE_ROLE_KEY" in line["note"]
-    assert "SUPABASE_URL" not in line["note"]
+    assert "PUBLIC_SUPABASE_PUBLISHABLE_KEY" in line["note"]
+    assert "PUBLIC_SUPABASE_URL" not in line["note"]
+
+
+def test_defer_carries_on_and_marks_service_waiting(tmp_path, adapters):
+    make_project()
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib", builder_real=True))
+    adapters.claude.sessions += [{"files": {"a.py": "x\n"}, "text": "STEP DONE"}]
+    assert runner.drive(run_dir) == "waiting"
+    gates.answer(open_gate(run_dir)["id"], "defer")
+    assert runner.drive(run_dir) == "done"
+    assert step_line(run_dir)["status"] == "passed"
+    notes = (run_dir / "services.md").read_text()
+    assert "Keys missing for now" in notes and "keep the site working" in notes and SENTINEL not in notes
+    prompt = (run_dir / "tasks" / "1" / "attempt-1" / "builder-prompt.md").read_text()
+    assert "Keys missing for now" in prompt
+    assert project.waiting_for_keys("proj") == ["Supabase"]
+    assert project.setup_facts(paths.projects() / "proj")["waiting_for_keys"] == ["Supabase"]
+    assert not project._meta(paths.projects() / "proj").get("services_set_up")
+    assert "Waiting for keys: Supabase" in summary.markdown(summary.facts(run_dir))
+    assert "Waiting for keys: Supabase" in summary.html(summary.facts(run_dir))
+    paste_all()
+    assert project.waiting_for_keys("proj") == []
+
+
+def test_later_run_with_keys_wires_the_service_fully(tmp_path, adapters):
+    folder = make_project()
+    lib = make_lib(tmp_path / "lib")
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, lib)
+    runner.drive(run_dir)
+    gates.answer(open_gate(run_dir)["id"], "defer")
+    assert runner.drive(run_dir) == "done"
+    paste_all()
+    second = new_run(tmp_path)
+    assert runner.drive(second) == "done"
+    notes = (second / "services.md").read_text()
+    assert "Keys missing for now" not in notes
+    assert [e["name"] for e in project._meta(folder)["services_set_up"]] == ["supabase"]
+    assert project._meta(folder)["services_deferred"] == []
+    assert not summary.facts(second)["waiting_for_keys"]
 
 
 def test_skip_continues_the_run(tmp_path, adapters):
@@ -155,6 +196,9 @@ def test_done_recorded_and_skipped_next_run(tmp_path, adapters):
         assert Runner(adapters, lib).drive(first) == "done"
         entries = project._meta(folder)["services_set_up"]
         assert entries[0]["name"] == "supabase" and entries[0]["run"] == first.name and entries[0]["at"]
+        assert entries[0]["run_name"]
+        shown = project.setup_facts(folder)["services_set_up"]
+        assert shown[0]["name"] == "supabase" and shown[0]["run_name"] == entries[0]["run_name"]
         second = new_run(tmp_path)
         assert Runner(adapters, lib).drive(second) == "done"
     finally:
@@ -235,7 +279,7 @@ def test_builder_prompt_contains_service_notes_without_values(tmp_path, adapters
     run_dir = new_run(tmp_path)
     Runner(adapters, make_lib(tmp_path / "lib", builder_real=True)).drive(run_dir)
     prompt = (run_dir / "tasks" / "1" / "attempt-1" / "builder-prompt.md").read_text()
-    assert "## Services this project uses" in prompt and "SUPABASE_SERVICE_ROLE_KEY" in prompt
+    assert "## Services this project uses" in prompt and "SUPABASE_SECRET_KEY" in prompt
     assert "@supabase/supabase-js" in prompt and SENTINEL not in prompt and "{{" not in prompt
 
 
@@ -264,3 +308,10 @@ def test_presets_still_resolve(tmp_path, preset, on):
         assert plan.sources["builder"]["service-notes"] == "step:service-setup"
     else:
         assert plan.sources["builder"]["service-notes"] == "fallback:no-services"
+
+
+def test_setup_facts_reads_old_string_entries(tmp_path):
+    folder = make_project()
+    project._save_meta(folder, services_set_up=["supabase"])
+    assert project.setup_facts(folder)["services_set_up"] == [
+        {"name": "supabase", "at": None, "run": None, "run_name": None}]

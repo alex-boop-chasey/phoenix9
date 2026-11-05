@@ -1,5 +1,8 @@
 import type { ReactNode } from "react"
 
+import { Icon } from "@/components/Icon"
+import { Wheel } from "@/components/Indicator"
+import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import type { RunStatus } from "@/lib/types"
 
@@ -56,4 +59,39 @@ export function ShortText({ text, max = 90, className }: { text: string; max?: n
 /** A muted note under a heading. */
 export function Muted({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>
+}
+
+/** The bar pieces for a build: one per task (done, failed, the running one), plus an orange piece when only the merge waits. */
+export function taskPieces(status: RunStatus, total: number, passed: number, failed: number): string[] {
+  const pieces: string[] = []
+  for (let i = 0; i < total; i++) {
+    if (i < passed) pieces.push("ok")
+    else if (i < passed + failed) pieces.push("bad")
+    else if (status === "running" && i === passed + failed) pieces.push("run")
+    else pieces.push("")
+  }
+  if (status === "waiting" && passed >= total) pieces.push("need")
+  return pieces
+}
+
+/** The colour word of a build's left edge and ring. */
+export function edgeOf(status: RunStatus): "ok" | "bad" | "need" | "run" | "none" {
+  if (status === "done") return "ok"
+  if (status === "failed") return "bad"
+  if (status === "waiting") return "need"
+  if (status === "running") return "run"
+  return "none"
+}
+
+/** A result badge whose words are the plain result ("Passed", "1 of 3 tasks failed", "Running task 2 of 4"). */
+export function ResultBadge({ status, text }: { status: RunStatus; text: string }) {
+  const edge = edgeOf(status)
+  const variant = edge === "ok" ? "ok" : edge === "bad" ? "bad" : edge === "need" ? "need" : edge === "run" ? "running" : "info"
+  const icon = edge === "ok" ? "check-circle" : edge === "bad" ? "x-circle" : edge === "need" ? "bell-ringing" : status === "stopped" ? "stop-circle" : "circle-dashed"
+  return (
+    <Badge variant={variant} data-status={status}>
+      {edge === "run" ? <Wheel /> : <Icon name={icon} />}
+      {text}
+    </Badge>
+  )
 }

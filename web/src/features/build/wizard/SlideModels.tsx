@@ -1,37 +1,31 @@
-// Slide 4: the model and tools of each AI step that will run, collapsed, with the preset's values shown.
+// Slide 4: one card per AI step that is switched on; each opens to its model, fallbacks, tools and limits.
 import { Skeleton } from "@/components/ui/skeleton"
-import { AiStepEditor } from "@/features/settings/AiStepEditor"
 
-import { enabledAiSteps } from "./model"
+import { AiCard } from "./AiCard"
+import { aiCards } from "./model"
 import type { SlideProps } from "./Wizard"
 
-/** One collapsed editor per enabled AI step. */
+/** The AI step cards, with defaults from the preset's (Phoenix settings') values. */
 export function SlideModels({ state, dispatch, plan, baseline }: SlideProps) {
   if (!plan) return <Skeleton className="h-40 w-full" />
-  const steps = enabledAiSteps(plan.steps)
-  if (!steps.length) return <p className="text-sm text-muted-foreground">No AI steps are on.</p>
+  const steps = aiCards(plan.steps, state.answers)
   const preset = (name: string) => (baseline?.steps.find((s) => s.name === name)?.ai ?? {}) as Record<string, unknown>
-  const models = [...new Set((baseline?.steps ?? []).flatMap((s) => {
+  const models = (baseline?.steps ?? []).flatMap((s) => {
     const ai = s.ai ?? {}
-    return [ai.model, ...(Array.isArray(ai.fallback_models) ? ai.fallback_models : [])].filter((m): m is string => typeof m === "string" && !!m)
-  }))]
+    return [ai.model, ...(Array.isArray(ai.fallback_models) ? ai.fallback_models : [])].filter((m): m is string => typeof m === "string")
+  })
   return (
-    <ul className="divide-y rounded-md border">
-      {steps.map((s) => {
-        const model = state.answers.ai[`steps.${s.name}.model`] || preset(s.name).model
-        return (
-          <li key={s.name} className="p-3" data-step={s.name}>
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-              <span className="font-medium">{s.title}</span>
-              <span className="min-w-0 break-all text-sm text-muted-foreground">Model: {String(model || "default")}</span>
-            </div>
-            <AiStepEditor
-              step={s.name} title={s.title} effective={preset(s.name)} source={{}} models={models}
-              changes={state.answers.ai} onChange={(key, value) => dispatch({ type: "ai", key, value })}
-            />
-          </li>
-        )
-      })}
-    </ul>
+    <div className="stackg">
+      <p className="small">Only the AI steps switched on for this build are listed. Open one to change its model and tools.</p>
+      {steps.length === 0 && <p className="small">No AI steps are on.</p>}
+      <div className="stackg">
+        {steps.map((s) => (
+          <AiCard
+            key={s.name} step={s} preset={preset(s.name)} models={models} edits={state.answers.ai}
+            onEdit={(key, value) => dispatch({ type: "ai", key, value })}
+          />
+        ))}
+      </div>
+    </div>
   )
 }

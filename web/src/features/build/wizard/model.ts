@@ -39,13 +39,15 @@ export interface Context {
 
 export interface WizardState {
   slide: number
+  /** The furthest slide reached; the outline lets you jump back to any slide up to here. */
+  seen: number
   answers: Answers
   remember: boolean
   error: string
 }
 
 export type Action =
-  | { type: "next" } | { type: "back" }
+  | { type: "next" } | { type: "back" } | { type: "goto"; slide: number }
   | { type: "source"; source: Answers["source"] }
   | { type: "spec"; path: string }
   | { type: "brief"; text: string }
@@ -150,8 +152,13 @@ export function reduce(state: WizardState, action: Action, ctx: Pick<Context, "p
   const a = state.answers
   const answers = (next: Answers): WizardState => ({ ...state, answers: next, error: "" })
   switch (action.type) {
-    case "next": return { ...state, slide: Math.min(SLIDE_COUNT, state.slide + 1) }
+    case "next": {
+      const slide = Math.min(SLIDE_COUNT, state.slide + 1)
+      return { ...state, slide, seen: Math.max(state.seen, slide) }
+    }
     case "back": return { ...state, slide: Math.max(1, state.slide - 1) }
+    case "goto":
+      return action.slide >= 1 && action.slide <= state.seen ? { ...state, slide: action.slide } : state
     case "source": return answers(chooseSource(a, action.source))
     case "spec": return answers({ ...a, spec: action.path })
     case "brief": return answers({ ...a, brief: action.text })
@@ -173,8 +180,8 @@ export function reduce(state: WizardState, action: Action, ctx: Pick<Context, "p
   }
 }
 
-/** A fresh wizard on slide 1, remembering as defaults (the harness spec's default). */
-export const startState = (answers: Answers): WizardState => ({ slide: 1, answers, remember: true, error: "" })
+/** A fresh wizard on slide 1, not remembering as defaults until asked. */
+export const startState = (answers: Answers): WizardState => ({ slide: 1, seen: 1, answers, remember: false, error: "" })
 
 function setNested(target: Record<string, unknown>, dotted: string, value: unknown) {
   const parts = dotted.split(".")
@@ -278,4 +285,62 @@ export function presetLabel(a: Pick<Answers, "preset" | "basedOn">, presets: Pre
     return t.charAt(0).toUpperCase() + t.slice(1)
   }
   return a.preset === "custom" ? `Custom, based on ${title(a.basedOn ?? "quick")}` : title(a.preset)
+}
+
+/** A step as the wizard's lists show it: the plan's row with the user's latest switch applied. */
+export function shownOn(step: PlanStep, a: Pick<Answers, "steps">): boolean {
+  if (step.default === "always") return true
+  if (!step.on && step.reason.startsWith("needs ")) return false
+  return a.steps[step.name] ?? step.on
+}
+
+export interface RunSummary {
+  /** Switched-on steps by group, in run order; empty groups are left out. */
+  groups: { group: StepGroup; title: string; names: string[] }[]
+  /** Switched-off step names, and why (empty when nothing is off). */
+  off: { names: string[]; note: string }
+  /** Shown instead of a reason when the preset is Custom. */
+  customHint: boolean
+}
+
+/** The "These steps will run" rail: on steps by group, then off steps with "Off in <preset>" or the Steps-page note. */
+export function runSummary(plan: PlanStep[], a: Pick<Answers, "steps" | "preset" | "basedOn">, presets: Preset[]): RunSummary {
+  const groups = planInOrder(plan)
+    .map((g) => ({ group: g.group, title: g.title, names: g.steps.filter((s) => shownOn(s, a)).map((s) => s.title) }))
+    .filter((g) => g.names.length)
+  const names = planInOrder(plan).flatMap((g) => g.steps.filter((s) => !shownOn(s, a)).map((s) => s.title))
+  const custom = a.preset === "custom"
+  const presetTitle = presetLabel({ preset: a.preset, basedOn: a.basedOn }, presets)
+  return {
+    groups, customHint: custom,
+    off: { names, note: custom ? "Switched off on the Steps page" : `Off in ${presetTitle}` },
+  }
+}
+
+/** The small note under a step on the Steps slide (brief forces Planner; a missing step it needs), or "". */
+export function stepNote(step: PlanStep, a: Pick<Answers, "source">, plan: PlanStep[]): string {
+  if (step.name === PLANNER && a.source === "brief") return "On because you chose to write a brief on step 1"
+  if (!step.on && step.reason.startsWith("needs ")) {
+    const need = /^needs ([a-z0-9-]+)/.exec(step.reason)?.[1]
+    const title = plan.find((s) => s.name === need)?.title ?? need
+    return `Can't run: needs ${title} (switch it on)`
+  }
+  return ""
+}
+
+/** The AI steps to show cards for: every AI step that is switched on in the shown list. */
+export const aiCards = (plan: PlanStep[], a: Pick<Answers, "steps">) =>
+  plan.filter((s) => s.kind === "ai" && shownOn(s, a))
+    .sort((x, y) => GROUP_RANK[x.group] - GROUP_RANK[y.group] || x.order - y.order)
+
+/** Add, move or remove one entry of a list (fallback models). */
+export function editList(list: string[], op: { add: string } | { up: number } | { down: number } | { remove: number }): string[] {
+  const out = [...list]
+  if ("add" in op) return op.add && !out.includes(op.add) ? [...out, op.add] : out
+  if ("remove" in op) return out.filter((_, i) => i !== op.remove)
+  const i = "up" in op ? op.up : op.down
+  const j = "up" in op ? i - 1 : i + 1
+  if (j < 0 || j >= out.length || i < 0 || i >= out.length) return out
+  ;[out[i], out[j]] = [out[j]!, out[i]!]
+  return out
 }

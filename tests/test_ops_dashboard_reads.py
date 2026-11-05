@@ -265,3 +265,16 @@ def test_state_failed_and_gate_open_is_need(env):
     newer = queue_run(env)
     gates_core.open_gate(runs_core.find_run(newer), kind="merge", title="Merge?", why="because")
     assert _state() == "need"
+
+
+def test_answered_waiting_run_shows_as_running(tmp_path):
+    """A waiting run with no open question left shows as running (carrying on) without the runner."""
+    from phoenix9.ops import runs as ops_runs
+    st = {"run_id": "r1", "status": "waiting", "steps": [{"step": "merge", "status": "waiting"}],
+          "tasks": {"1": {"status": "waiting"}, "2": {"status": "passed"}}}
+    asking = ops_runs.with_answers_applied(st, {"r1"})
+    assert asking["status"] == "waiting"
+    out = ops_runs.with_answers_applied(st, set())
+    assert out["status"] == "running" and out["carrying_on"] is True
+    assert out["steps"][0]["status"] == "running" and out["steps"][0]["answered"] is True
+    assert out["tasks"]["1"]["answered"] is True and out["tasks"]["2"]["status"] == "passed"

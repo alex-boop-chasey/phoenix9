@@ -62,6 +62,34 @@ def demo_adapters() -> Adapters:
                     clock=Clock(), notify=FakeNotify(), chat=FakeChat(), proxy=FakeProxyFactory())
 
 
+def move_run_on(gate: dict, action: str) -> None:
+    """Demo only: change the run the way the runner would once a gate is answered."""
+    from phoenix9 import runs, state
+    folder = runs.find_run(gate["run"])
+    if folder is None:
+        return
+    final = {"approve": "passed", "acknowledged": "running", "back": "running"}.get(action, "skipped")
+
+    def change(st):
+        for item in [*st.get("steps", []), *st.get("tasks", {}).values()]:
+            if item["status"] == "waiting" or (item.get("gate") == gate["id"] and item["status"] == "failed"):
+                item["status"] = final
+        st["status"] = {"back": "running", "acknowledged": "running", "stop": "stopped"}.get(action, "done")
+    state.update(folder, change)
+
+
+def answering_moves_run(answer, home: str):
+    """Wrap the gate answer so the demo run moves on afterwards, only while PHOENIX_HOME is the demo home."""
+    def wrapped(gate_id, action, note="", who="cli"):
+        from phoenix9 import gates as core
+        gate = next((g for g in core.list_gates(open_only=False) if g["id"] == gate_id), None)
+        result = answer(gate_id, action, note, who)
+        if gate is not None and os.environ.get("PHOENIX_HOME") == home:
+            move_run_on(gate, action)
+        return result
+    return wrapped
+
+
 def build_server(home: Path, projects: Path, port: int):
     """Seed the folders when they are empty, put the demo adapters in, and return the (not started) server."""
     from phoenix9.api import server
@@ -74,6 +102,8 @@ def build_server(home: Path, projects: Path, port: int):
     adapters = demo_adapters()
     adapters.host.files[os.environ["PHOENIX_CLAUDE_JSON"]] = '{"projects": {}}'
     common.make_adapters = lambda: adapters
+    from phoenix9.ops import gates as ops_gates
+    ops_gates.answer = answering_moves_run(ops_gates.answer, str(home))
     return server.make_server(port)
 
 

@@ -189,6 +189,7 @@ export interface BuildRow {
   duration: string
   cost: string
   tasks_failed: number
+  carrying_on?: boolean
 }
 
 export interface RunTask {
@@ -201,6 +202,7 @@ export interface RunTask {
   flagged?: string | null
   gate?: string | null
   note?: string | null
+  answered?: boolean
 }
 
 export interface StepLine {
@@ -213,6 +215,8 @@ export interface StepLine {
   finished: string
   note?: string
   gate?: string | null
+  /** The question this step was waiting on has been answered; the runner has not moved on yet. */
+  answered?: boolean
 }
 
 export interface PlanStep {
@@ -255,6 +259,8 @@ export interface RunDetail {
   steps: StepLine[]
   usage: Usage
   gates: Gate[]
+  /** Every question of the run is answered but the runner has not moved on yet. */
+  carrying_on?: boolean
   recent_events: PhoenixEvent[]
   plan: Partial<PlanView> & { off?: string[]; sources?: Record<string, unknown> }
   plan_frozen: boolean

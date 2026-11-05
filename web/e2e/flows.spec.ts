@@ -42,3 +42,36 @@ test("configure a service: connected and unconnected rows, then save a key", asy
   await expect(dlg).toBeHidden({ timeout: 15_000 })
   await expectNoHorizontalScroll(page)
 })
+
+test("answering each kind of question clears 'waiting' everywhere", async ({ page }) => {
+  // demo-site: a question card (Skip), no review panel
+  await page.goto("/#/p/demo-site/overview")
+  await page.getByRole("article", { name: /Needs you/ }).getByRole("button", { name: "Skip task" }).click()
+  await expect(page.getByText("Answered: Phoenix is carrying on").first()).toBeVisible({ timeout: 15_000 })
+  await page.goto("/#/p/demo-site/build")
+  await expect(page.getByText(/Waiting for you/)).toHaveCount(0)
+  await page.goto("/")
+  await expect(page.locator('[data-row="demo-site"]').getByText("Needs you")).toHaveCount(0)
+
+  // phoenix9: the merge, answered in the Build tab
+  await page.goto("/#/p/phoenix9/overview")
+  await page.getByRole("link", { name: "Review and merge" }).click()
+  await page.locator("[data-review-room]").getByRole("button", { name: "Approve & merge" }).click()
+  await expect(page.getByText(/Merged into main/).first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(/Waiting for you/)).toHaveCount(0)
+  await page.goto("/#/p/phoenix9/overview")
+  await expect(page.getByRole("link", { name: "Review and merge" })).toHaveCount(0)
+  await page.goto("/")
+  await expect(page.locator('[data-row="phoenix9"]').getByText("Needs you")).toHaveCount(0)
+})
+
+test("the merge review keeps its buttons when the review can't load", async ({ page }) => {
+  await page.route("**/api/gates/*/review", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ ok: false, error: "git is busy" }) }))
+  await page.goto("/#/p/phoenix9/overview")
+  await page.getByRole("link", { name: "Review and merge" }).click()
+  const room = page.locator("[data-review-room]")
+  await expect(room.getByText(/Couldn't load the changes/)).toBeVisible()
+  await expect(room.getByRole("button", { name: "Approve & merge" })).toBeVisible()
+  await expect(room.getByRole("button", { name: "Send back" })).toBeVisible()
+  await expect(room.getByRole("button", { name: "Don't merge" })).toBeVisible()
+})

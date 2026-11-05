@@ -28,6 +28,7 @@ function taskBar(build: BuildRow | undefined, run: NonNullable<ProjectRow["run"]
 }
 
 function nowLine(row: ProjectRow, build: BuildRow | undefined, waiting: boolean): string {
+  if (build?.carrying_on) return "Now: answered, Phoenix is carrying on."
   if (waiting && build?.current?.step) return `Now: the ${build.current.step} step is waiting for you.`
   if (waiting) return "Now: waiting for you."
   const run = row.run

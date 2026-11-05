@@ -125,7 +125,10 @@ def rows() -> list:
     open_gates = gates.list_gates()
     active = {}
     last_failed = {}
+    asking = {g["run"] for g in open_gates}
     for r in runs.list_runs():     # newest first, so the first match per project is the newest
+        if r["status"] == "waiting" and r["run_id"] not in asking:      # every question answered
+            r = {**r, "status": "running"}
         if r["status"] in ACTIVE_RUN:
             if r["project"] not in active:
                 active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],

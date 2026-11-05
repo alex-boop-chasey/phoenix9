@@ -138,8 +138,8 @@ describe("NeedsYouCard", () => {
     mockApi(answerRoute("r.1"))
     renderWithProviders(<NeedsYouCard gate={merge} />)
     fireEvent.click(button("Approve"))
-    expect(await screen.findByText("Answered: Approve")).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText("Answered: Approve")).toBeNull(), { timeout: 3000 })
+    expect(await screen.findByText("Answered: Phoenix is carrying on")).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText("Answered: Phoenix is carrying on")).toBeNull(), { timeout: 3000 })
     expect(screen.queryByText(/Needs you:/)).toBeNull()
   })
 

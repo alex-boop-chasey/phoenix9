@@ -32,6 +32,7 @@ const RING_COLOUR = { ok: "var(--ok)", bad: "var(--bad)", need: "var(--attn)", r
 /** The summary line under the ring, in plain words. */
 function sumLine(d: RunDetail, total: number, passed: number): string {
   const current = d.current?.step
+  if (d.carrying_on) return "Answered: Phoenix is carrying on"
   switch (d.status) {
     case "done": return `All ${total} tasks done`
     case "waiting": return passed >= total && total > 0 ? `All ${total} tasks done; merge waiting` : "A step is waiting for you"

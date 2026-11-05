@@ -6,9 +6,8 @@ import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Icon } from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { useAnswerGate, useGateReview } from "@/lib/queries"
-import type { Gate, GateAction, ReviewFile } from "@/lib/types"
+import type { Gate, GateAction, GateReview, ReviewFile } from "@/lib/types"
 
 /** A diff line's class: hunk header, added, removed or plain. */
 function lineClass(line: string): "h" | "a" | "d" | "c" {
@@ -55,54 +54,14 @@ function FileRow({ file }: { file: ReviewFile }) {
   )
 }
 
-/** The merge review inside the Merge step: summary, facts, changed files and the three answers. */
-export function MergeReview({ gate }: { gate: Gate }) {
-  const review = useGateReview(gate.id)
-  const answer = useAnswerGate(gate.project)
-  const [noting, setNoting] = useState(false)
-  const [note, setNote] = useState("")
-  const [confirmSkip, setConfirmSkip] = useState(false)
-  const [pressed, setPressed] = useState<GateAction | null>(null)
-  const [done, setDone] = useState<GateAction | null>(null)
-  const [error, setError] = useState("")
-
-  if (review.isError) return <NeedsYouCard gate={gate} compact />
-  const r = review.data
-  if (!r) return <p className="small" role="status">Loading the review…</p>
-
-  const send = (action: GateAction, text = "") => {
-    setPressed(action)
-    setError("")
-    answer.mutate(
-      { id: gate.id, action, note: text },
-      {
-        onSuccess: () => {
-          setDone(action)
-          if (action === "approve") toast.success("Merged into main", { description: `${r.title.replace(/^Merge |\?$/g, "")} is on main.` })
-          else if (action === "back") toast.success("Sent back", { description: "Your note was posted on the merge request." })
-          else toast.info("Not merged", { description: "The branch is kept." })
-        },
-        onError: (err) => setError(err instanceof Error && err.message ? err.message : "Something went wrong."),
-        onSettled: () => setPressed(null),
-      },
-    )
-  }
-
-  const busy = answer.isPending
+/** The summary, facts and changed files of a loaded merge review. */
+function ReviewDetails({ r }: { r: GateReview }) {
   const retried = r.tasks.retried.map((t) => `task ${t.number}`).join(", ")
   const suiteOk = r.full_suite.status === "passed"
   const suiteBad = r.full_suite.status === "failed"
   const tasksOk = r.tasks.passed === r.tasks.total
-
-  if (done) {
-    const text = done === "approve" ? "Merged into main" : done === "back" ? "Sent back" : "Not merged"
-    return <p role="status" className={done === "approve" ? "review-done" : "small"}>
-      {done === "approve" && <Icon name="check-circle" />}{text}
-    </p>
-  }
-
   return (
-    <div className="review" aria-label="Review the merge">
+    <>
       <div>
         <h3 className="h3" style={{ fontSize: 20 }}>{r.title}</h3>
         {r.summary && <p className="muted" style={{ marginTop: 6, maxWidth: "72ch", whiteSpace: "pre-line" }}>{r.summary}</p>}
@@ -131,6 +90,63 @@ export function MergeReview({ gate }: { gate: Gate }) {
         </div>
         <div className="files">{r.files.map((f) => <FileRow key={f.path} file={f} />)}</div>
       </div>
+    </>
+  )
+}
+
+/** The merge review inside the Merge step: summary, facts, changed files and the three answers. */
+export function MergeReview({ gate }: { gate: Gate }) {
+  const review = useGateReview(gate.id)
+  const answer = useAnswerGate(gate.project)
+  const [noting, setNoting] = useState(false)
+  const [note, setNote] = useState("")
+  const [confirmSkip, setConfirmSkip] = useState(false)
+  const [pressed, setPressed] = useState<GateAction | null>(null)
+  const [done, setDone] = useState<GateAction | null>(null)
+  const [error, setError] = useState("")
+
+  const r = review.data
+  const title = r?.title ?? gate.title
+
+  const send = (action: GateAction, text = "") => {
+    setPressed(action)
+    setError("")
+    answer.mutate(
+      { id: gate.id, action, note: text },
+      {
+        onSuccess: () => {
+          setDone(action)
+          if (action === "approve") toast.success("Merged into main", { description: `${title.replace(/^Merge |\?$/g, "")} is on main.` })
+          else if (action === "back") toast.success("Sent back", { description: "Your note was posted on the merge request." })
+          else toast.info("Not merged", { description: "The branch is kept." })
+        },
+        onError: (err) => setError(err instanceof Error && err.message ? err.message : "Something went wrong."),
+        onSettled: () => setPressed(null),
+      },
+    )
+  }
+
+  const busy = answer.isPending
+
+  const mergeRequest = r?.merge_request || gate.links[0]?.url || ""
+
+  if (done) {
+    const text = done === "approve" ? "Merged into main" : done === "back" ? "Sent back" : "Not merged"
+    return <p role="status" className={done === "approve" ? "review-done" : "small"}>
+      {done === "approve" && <Icon name="check-circle" />}{text}
+    </p>
+  }
+
+  return (
+    <div className="review" aria-label="Review the merge">
+      {r ? <ReviewDetails r={r} /> : review.isError ? (
+        <p className="small" role="alert" style={{ color: "var(--bad)" }}>
+          Couldn't load the changes: {review.error instanceof Error && review.error.message ? review.error.message : "something went wrong"}.{" "}
+          <a href="#retry" onClick={(e) => { e.preventDefault(); void review.refetch() }}>Retry</a>
+        </p>
+      ) : (
+        <p className="small" role="status">Loading the review…</p>
+      )}
       {noting && (
         <div className="note">
           <label className="lbl" htmlFor={`note-${gate.id}`}>Note for the builder</label>
@@ -151,8 +167,8 @@ export function MergeReview({ gate }: { gate: Gate }) {
         </Button>
         <Button variant="secondary" disabled={busy} onClick={() => setNoting(true)}>Send back</Button>
         <Button variant="ghost" disabled={busy} onClick={() => setConfirmSkip(true)}>Don't merge</Button>
-        {r.merge_request && (
-          <a className="end" href={r.merge_request} target="_blank" rel="noreferrer">
+        {mergeRequest && (
+          <a className="end" href={mergeRequest} target="_blank" rel="noreferrer">
             <Icon name="git-pull-request" size="sm" /> Merge request on GitHub
           </a>
         )}

@@ -84,12 +84,16 @@ interface Shown {
   text: string
 }
 
+/** What a step says once its question is answered and the runner has not picked it up yet. */
+export const CARRYING_ON = "Answered: Phoenix is carrying on"
+
 function describe(line: StepLine | undefined, off: PlanStep | undefined, task: RunTask | undefined): Shown {
   if (off && !off.on && !line) return { status: "skipped", text: `Switched off (${off.reason || "switched off"})` }
   if (!line) {
     if (task?.status === "skipped") return { status: "skipped", text: task.note || "skipped" }
     return { status: "pending", text: "" }
   }
+  if (line.answered) return { status: "running", text: CARRYING_ON }
   const note = line.note?.split("\n")[0] ?? ""
   if (note) return { status: line.status, text: note }
   switch (line.status) {
@@ -160,6 +164,7 @@ interface Props {
 
 function timeOf(line: StepLine | undefined, shown: Shown): string {
   if (!line) return shown.status === "skipped" ? "Off" : "Pending"
+  if (line.status === "running" && line.answered) return "Answered"
   if (line.status === "running") return line.started ? `Started ${relativeTime(line.started)}` : "Running"
   if (line.status === "waiting") return line.started ? `Waiting ${relativeTime(line.started).replace(/ ago$/, "")}` : "Waiting"
   return took(line) || (shown.status === "skipped" ? "Skipped" : "")

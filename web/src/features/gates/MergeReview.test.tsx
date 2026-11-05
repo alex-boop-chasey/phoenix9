@@ -68,4 +68,15 @@ describe("MergeReview", () => {
     fireEvent.click(buttons[buttons.length - 1]!)
     await waitFor(() => expect(JSON.stringify(calls)).toContain("skip"))
   })
+
+  it("still shows the three answers and the merge request link when the review can't load", async () => {
+    mockApi({ ...routes, "GET /api/gates/r.1/review": () => { throw new Error("git is busy") } })
+    renderWithProviders(<MergeReview gate={{ ...gate, links: [{ label: "Merge request", url: "https://github.com/x/y/pull/7" }] }} />)
+    expect(await screen.findByText(/Couldn't load the changes/)).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Retry" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Approve & merge" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Send back" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Don't merge" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: /Merge request on GitHub/ })).toHaveAttribute("href", "https://github.com/x/y/pull/7")
+  })
 })

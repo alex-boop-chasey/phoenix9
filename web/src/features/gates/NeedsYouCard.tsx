@@ -104,7 +104,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
 
   let body
   if (done) {
-    body = <p role="status" className="font-semibold">Answered: {labelOf(done)}</p>
+    body = <p role="status" className="font-semibold">Answered: Phoenix is carrying on</p>
   } else if (already) {
     body = <p role="status" className="font-semibold">Someone already answered this.</p>
   } else {

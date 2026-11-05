@@ -1,9 +1,14 @@
 # Adding Sentry to a project
 
 Packages:
-- web / node profiles: `@sentry/node` or `@sentry/react` (add with pnpm, pinned version).
+- web (Astro) profile: `@sentry/astro` (add with pnpm, pinned version) and add `sentry()` to the Astro integrations.
+- node profile: `@sentry/node` (add with pnpm, pinned version).
 - python profiles: `sentry-sdk` (add to the requirements file, pinned version).
 
-Config: read `SENTRY_DSN`, `SENTRY_ORG` and `SENTRY_PROJECT` from the environment (all public). Start
-Sentry only when `SENTRY_DSN` is set, so tests and local runs send nothing. List the names in
-`.env.example` with empty values.
+Config: read these from the environment.
+- `PUBLIC_SENTRY_DSN` (safe in the browser): start Sentry only when it is set, so tests and local runs send nothing.
+- `SENTRY_ORG` and `SENTRY_PROJECT` (optional, not secret) and `SENTRY_AUTH_TOKEN` (optional, secret): only for
+  uploading source maps at build time. Astro config files do not read `.env` by themselves, so load them with
+  Vite `loadEnv` or use a `.env.sentry-build-plugin` file that is never committed.
+
+List the names in `.env.example` with empty values.

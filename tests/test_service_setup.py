@@ -90,14 +90,15 @@ def test_no_services_passes_with_fallback(tmp_path, adapters):
 
 def test_missing_keys_open_human_task_gate_listing_names(tmp_path, adapters):
     make_project()
-    keys.add_empty("proj", "SUPABASE_URL", False)
+    keys.add_empty("proj", "PUBLIC_SUPABASE_URL", False)
     run_dir = new_run(tmp_path)
     assert Runner(adapters, make_lib(tmp_path / "lib")).drive(run_dir) == "waiting"
     gate = open_gate(run_dir)
     assert gate["kind"] == "human-task" and gate["actions"] == ["done", "skip", "stop"]
     assert gate["title"] == "Paste keys for Supabase"
-    for name in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"):
+    for name in ("PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY"):
         assert name in gate["why"]
+    assert "SUPABASE_SECRET_KEY" not in gate["why"]  # optional keys are not asked for
     assert "phoenix project keys proj set KEY" in gate["why"]
     assert SENTINEL not in json.dumps(gate)
 
@@ -112,7 +113,7 @@ def test_done_after_keys_pasted_passes(tmp_path, adapters):
     assert runner.drive(run_dir) == "done"
     assert step_line(run_dir)["status"] == "passed"
     notes = (run_dir / "services.md").read_text()
-    assert "Supabase" in notes and "SUPABASE_URL" in notes and SENTINEL not in notes
+    assert "Supabase" in notes and "PUBLIC_SUPABASE_URL" in notes and SENTINEL not in notes
 
 
 def test_done_without_keys_fails_naming_them(tmp_path, adapters):
@@ -120,13 +121,13 @@ def test_done_without_keys_fails_naming_them(tmp_path, adapters):
     run_dir = new_run(tmp_path)
     runner = Runner(adapters, make_lib(tmp_path / "lib"))
     runner.drive(run_dir)
-    keys.set_key("proj", "SUPABASE_URL", SENTINEL, secret=False)
+    keys.set_key("proj", "PUBLIC_SUPABASE_URL", SENTINEL, secret=False)
     gates.answer(open_gate(run_dir)["id"], "done")
     assert runner.drive(run_dir) == "failed"
     line = step_line(run_dir)
     assert line["status"] == "failed"
-    assert "SUPABASE_ANON_KEY" in line["note"] and "SUPABASE_SERVICE_ROLE_KEY" in line["note"]
-    assert "SUPABASE_URL" not in line["note"]
+    assert "PUBLIC_SUPABASE_PUBLISHABLE_KEY" in line["note"]
+    assert "PUBLIC_SUPABASE_URL" not in line["note"]
 
 
 def test_skip_continues_the_run(tmp_path, adapters):
@@ -238,7 +239,7 @@ def test_builder_prompt_contains_service_notes_without_values(tmp_path, adapters
     run_dir = new_run(tmp_path)
     Runner(adapters, make_lib(tmp_path / "lib", builder_real=True)).drive(run_dir)
     prompt = (run_dir / "tasks" / "1" / "attempt-1" / "builder-prompt.md").read_text()
-    assert "## Services this project uses" in prompt and "SUPABASE_SERVICE_ROLE_KEY" in prompt
+    assert "## Services this project uses" in prompt and "SUPABASE_SECRET_KEY" in prompt
     assert "@supabase/supabase-js" in prompt and SENTINEL not in prompt and "{{" not in prompt
 
 

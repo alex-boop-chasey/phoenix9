@@ -418,6 +418,9 @@ export interface Template {
 export interface ServiceKey {
   name: string
   secret: boolean
+  public?: boolean
+  required?: boolean
+  help?: string
 }
 
 /** A Claude Code tool a step may use, with a plain label and a one-line explanation. */

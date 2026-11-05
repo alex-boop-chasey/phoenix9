@@ -14,9 +14,9 @@ def _done_names(meta: dict) -> set:
 
 
 def _missing_keys(ctx, svc) -> list[str]:
-    """Expected project keys of the service that have no value yet (names only)."""
+    """Required project keys of the service that have no value yet (names only)."""
     have = {k["name"]: k["has_value"] for k in keys.list_keys(ctx.project.name)}
-    return [k["name"] for k in svc["project_keys"] if not have.get(k["name"])]
+    return [k["name"] for k in svc["project_keys"] if k["required"] and not have.get(k["name"])]
 
 
 def _allow_hosts(ctx, chosen: list, lib: dict) -> None:

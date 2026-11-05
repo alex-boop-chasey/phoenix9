@@ -294,8 +294,11 @@ secrets_file = "service-supabase.env"      # default "service-<name>.env"; githu
 hosts = ["supabase.co"]           # added to a project's allowed domains (bare names, suffix match)
 
 [[project_keys]]                  # rows pre-filled in the project keys form
-name = "SUPABASE_URL"
-secret = false
+name = "PUBLIC_SUPABASE_URL"     # the exact env var name the project code reads
+secret = false                    # default true
+public = true                     # default false: safe in browser code (never together with secret = true)
+required = true                   # default true; false = optional, a project can build without it
+help = "Project dashboard > Connect: the project URL."   # one line: where to find it in the provider dashboard
 
 [proxy]                           # store-and-wire only: the account API, through the key proxy
 upstream = "https://api.supabase.com"
@@ -328,7 +331,7 @@ line per finished install or roll-back to `HOME/update/history.jsonl` (`at, acti
 
 Rules (checked by `phoenix9/services.py`; a broken folder is reported and skipped, never a crash):
 name = folder name; `support` is one of the two values; `account_keys` match `^[A-Z][A-Z0-9_]*$`;
-`[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
+`[[project_keys]]` rows: `name` matches `^[A-Z][A-Z0-9_]*$`, `secret` (default true), `public` (default false, not with `secret`), `required` (default true), `help`. Names are final env var names: a browser-safe value carries the web profile's `PUBLIC_` prefix in its name (no per-profile prefixing; services are used by the web profile). `[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
 `account_keys`; `[proxy]` is checked by `proxy.spec_from_service` (so rules by `proxy.parse_rules`: no
 trailing `/` in a path); `hosts` are bare domain names (no scheme, port, path or `*`; subdomains match by
 suffix, and each name must resolve on its own). Beside it: `install.md` (store-and-wire: plain

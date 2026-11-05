@@ -94,7 +94,8 @@ def _row(svc: dict, registry: dict) -> dict:
             "account_keys": list(svc["account_keys"]),
             "checked": "not checked" if only else entry.get("checked", "not checked"),
             "checked_at": entry.get("checked_at", ""),
-            "project_keys": [{"name": k["name"], "secret": k["secret"]} for k in svc["project_keys"]],
+            "project_keys": [{"name": k["name"], "secret": k["secret"], "public": k["public"], "required": k["required"],
+                              "help": k["help"]} for k in svc["project_keys"]],
             "hosts": list(svc["hosts"]), "used_by": used_by(svc["name"])}
 
 

@@ -15,8 +15,9 @@ def demo(phoenix_env):
 
 def test_library_loads_nine_services():
     assert sorted(services.load_library()) == ["clerk", "github", "mux", "openrouter", "resend", "sanity", "sentry", "stripe", "supabase"]
-    assert services.get("resend")["project_keys"] == [{"name": "RESEND_API_KEY", "secret": True},
-                                                         {"name": "RESEND_FROM", "secret": False}]
+    rows = [(k["name"], k["secret"], k["required"]) for k in services.get("resend")["project_keys"]]
+    assert rows == [("RESEND_API_KEY", True, True), ("RESEND_FROM", False, True),
+                    ("RESEND_WEBHOOK_SECRET", True, False)]
     assert services.get("nope") is None
 
 
@@ -26,9 +27,10 @@ def test_set_services_writes_toml_rows_domains_decision(demo):
     assert data["services"] == ["supabase", "resend"] and data["preset"] == "quick"
     assert data["domains"]["allow"] == ["supabase.co", "api.resend.com"]
     names = {r["name"]: r for r in keys.list_keys("demo")}
-    assert set(names) == {"SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY", "RESEND_API_KEY",
+    assert set(names) == {"PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SECRET_KEY", "DATABASE_URL",
+                         "SUPABASE_PROJECT_REF", "RESEND_WEBHOOK_SECRET", "RESEND_API_KEY",
                          "RESEND_FROM"}
-    assert names["SUPABASE_URL"]["secret"] is False and names["RESEND_API_KEY"]["has_value"] is False
+    assert names["PUBLIC_SUPABASE_URL"]["secret"] is False and names["RESEND_API_KEY"]["has_value"] is False
     assert "uses Supabase and Resend (chosen by alex)" in (demo / "notes" / "decisions.md").read_text()
     assert "services set to supabase, resend" in (demo / "notes" / "changelog.md").read_text()
 

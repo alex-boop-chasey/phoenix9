@@ -21,7 +21,9 @@ SETTING_FIELDS = [Field("name", str, required=True), Field("label", str, require
                   Field("kind", str, default="text", choices=("text", "select")),
                   Field("options", list, default=[], list_of=str), Field("default", str, default=""),
                   Field("placeholder", str, default=""), Field("help", str, default="")]
-KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=True)]
+KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=True),
+              Field("public", bool, default=False), Field("required", bool, default=True),
+              Field("help", str, default="")]
 CHECK_FIELDS = [Field("method", str, required=True), Field("path", str, required=True),
                 Field("expect", list, default=[200], list_of=int)]
 
@@ -34,6 +36,16 @@ def _check_names(values: dict, where: str) -> list[str]:
         if not HOST_NAME.match(host):
             problems.append(f"{where}: host '{host}' must be a bare domain name like example.com "
                             "(no scheme, port, path or *)")
+    return problems
+
+
+def _check_key(key: dict, where: str) -> list[str]:
+    """Problems with one [[project_keys]] row (name shape, and a public key cannot be secret)."""
+    problems = []
+    if not KEY_NAME.match(key["name"]):
+        problems.append(f"{where}: project key '{key['name']}' must be CAPITAL_LETTERS_AND_UNDERSCORES")
+    if key["public"] and key["secret"]:
+        problems.append(f"{where}: project key '{key['name']}' cannot be both public and secret")
     return problems
 
 
@@ -86,6 +98,8 @@ def _parse(data: dict, folder, where: str):
         for item in values["project_keys"]:
             key, bad = library.check_fields(item, KEY_FIELDS, f"{where} project_keys")
             problems += bad
+            if not bad:
+                problems += _check_key(key, where)
             keys.append(key)
         problems += _check_names(values, where) + _check_proxy(values, where)
         values["account_settings"] = _check_settings(values, where, problems)

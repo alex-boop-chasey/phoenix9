@@ -44,7 +44,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |
 | GET | `/api/library/presets` | `ops.library.presets` | | `{presets: [{name, title, has_file, description, steps}]}` (`title` and `description` come from the preset file; `steps` = `{step: on}` the preset file sets; the wizard needs it because a project's own `steps.<name>.on` sits above the preset layer in `/plan`) | |
 | GET | `/api/library/templates` | `ops.projects.templates_menu` | | list of `{name, title, profile, kind, check}` | |
-| GET | `/api/library/services` | `ops.library.services` | | `{services: [{name, title, project_keys}], problems}` | |
+| GET | `/api/library/services` | `ops.library.services` | | `{services: [{name, title, project_keys}], problems}`; each project key = `{name, secret, public, required, help}` | |
 | GET | `/api/library/tools` | `ops.library.tools` | | `{tools: [{name, label, help}]}`: the Claude Code tools Phoenix supports (`claude.SUPPORTED_TOOLS`: Read, Edit, Write, Glob, Grep, Bash, WebFetch, WebSearch). `ai.tools` empty = the step's defaults; `ai.tools_denied` names tools passed to `--disallowedTools` | |
 | GET | `/api/github/repos` | `ops.github.repos` | | `{connected, repos: [{full_name, owner, private}]}` | |
 | GET | `/api/global` | `ops.app.global_view` | | Global view; `default_models` is `{step: {model, fallback_models, title, library {model, fallback_models}}}` (Phoenix's saved defaults over the library's) | |

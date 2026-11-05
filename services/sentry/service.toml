@@ -8,21 +8,44 @@ account_keys = ["SENTRY_AUTH_TOKEN"]
 hosts = []
 
 [[project_keys]]
-name = "SENTRY_DSN"
+name = "PUBLIC_SENTRY_DSN"
 secret = false
+public = true
+required = true
+help = "Project Settings > Client Keys (DSN). Safe in the browser: it only lets events in."
 
 [[project_keys]]
 name = "SENTRY_ORG"
 secret = false
+public = false
+required = false
+help = "Your organisation slug (in the Sentry address). Only for uploading source maps."
 
 [[project_keys]]
 name = "SENTRY_PROJECT"
 secret = false
+public = false
+required = false
+help = "Project Settings > General: the project slug. Only for uploading source maps."
+
+[[project_keys]]
+name = "SENTRY_AUTH_TOKEN"
+secret = true
+public = false
+required = false
+help = "Settings > Auth Tokens: a narrow organisation token with release and source map rights. Only for source map upload at build time."
+
 
 [[account_settings]]
 name = "organisation"
 label = "Organisation slug"
 placeholder = "my-organisation"
+
+[[account_settings]]
+name = "default_team"
+label = "Default team"
+placeholder = "my-team"
+help = "The team slug new Sentry projects are created under."
 
 [proxy]
 upstream = "https://sentry.io/api/0"

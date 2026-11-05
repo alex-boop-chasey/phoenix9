@@ -13,8 +13,8 @@ def demo(phoenix_env):
     return folder
 
 
-def test_library_loads_nine_services():
-    assert sorted(services.load_library()) == ["clerk", "github", "mux", "openrouter", "resend", "sanity", "sentry", "stripe", "supabase"]
+def test_library_loads_ten_services():
+    assert sorted(services.load_library()) == ["clerk", "cloudflare", "github", "mux", "openrouter", "resend", "sanity", "sentry", "stripe", "supabase"]
     rows = [(k["name"], k["secret"], k["required"]) for k in services.get("resend")["project_keys"]]
     assert rows == [("RESEND_API_KEY", True, True), ("RESEND_FROM", False, True),
                     ("RESEND_WEBHOOK_SECRET", True, False)]

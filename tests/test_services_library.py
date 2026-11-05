@@ -3,11 +3,11 @@ import pytest
 
 from phoenix9 import keys, proxy, services, settings
 
-STORE = ["github", "openrouter", "resend", "sentry", "supabase"]
+STORE = ["cloudflare", "github", "openrouter", "resend", "sentry", "supabase"]
 KEYS_ONLY = ["clerk", "mux", "sanity", "stripe"]
 
 
-def test_all_nine_services_load_without_errors():
+def test_all_ten_services_load_without_errors():
     assert sorted(services.load_library()) == sorted(STORE + KEYS_ONLY)
     assert services.load_problems() == []
 

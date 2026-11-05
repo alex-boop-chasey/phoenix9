@@ -2,7 +2,7 @@
 import type { IconName } from "@/components/Icon"
 
 const ICONS: Record<string, IconName> = {
-  claude: "sparkle", github: "github-logo", supabase: "hard-drives", resend: "plugs-connected",
+  claude: "sparkle", cloudflare: "cloud", github: "github-logo", supabase: "hard-drives", resend: "plugs-connected",
   sentry: "warning-octagon", stripe: "coins", telegram: "telegram-logo",
 }
 

@@ -30,7 +30,7 @@ export const PROFILE_LOOK: Record<string, { title: string; hint: string; icon: I
 }
 
 export const SERVICE_ICON: Record<string, IconName> = {
-  github: "github-logo", supabase: "hard-drives", sentry: "warning-octagon",
+  github: "github-logo", supabase: "hard-drives", sentry: "warning-octagon", cloudflare: "cloud",
 }
 
 /** One open tile: a hidden radio or checkbox inside a label; the name is the input's accessible name. */

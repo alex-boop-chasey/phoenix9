@@ -1,0 +1,74 @@
+name = "cloudflare"
+title = "Cloudflare"
+description = "DNS, Pages and Workers hosting."
+support = "store-and-wire"
+docs = "https://developers.cloudflare.com/api/"
+account_keys = ["CLOUDFLARE_API_TOKEN"]
+# No hosts: account calls go only through the key proxy. A wrangler deploy from inside a step container will
+# need api.cloudflare.com; the deployer adds that when it is built, not this service.
+hosts = []
+
+[[account_settings]]
+name = "account_id"
+label = "Account ID"
+placeholder = "32-character hex id"
+help = "Cloudflare dashboard > any domain > Overview, right-hand column (or Workers & Pages > Overview)."
+
+[[project_keys]]
+name = "CLOUDFLARE_ACCOUNT_ID"
+secret = false
+public = false
+required = true
+help = "Cloudflare dashboard > any domain > Overview, right-hand column (or Workers & Pages > Overview)."
+
+[[project_keys]]
+name = "CLOUDFLARE_API_TOKEN"
+secret = true
+public = false
+required = false
+help = "A token scoped to this site only: My Profile > API Tokens > Create Token, template 'Edit Cloudflare Workers' or custom with Pages: Edit. Only needed when the build deploys with wrangler."
+
+[[project_keys]]
+name = "CLOUDFLARE_ZONE_ID"
+secret = false
+public = false
+required = false
+help = "The domain's Zone ID (domain Overview page). Only for DNS changes."
+
+[proxy]
+upstream = "https://api.cloudflare.com/client/v4"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "CLOUDFLARE_API_TOKEN"
+extra_headers = {}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/user/tokens/verify"
+[[proxy.allow]]
+method = "GET"
+path = "/accounts"
+[[proxy.allow]]
+method = "GET"
+path = "/accounts/*/pages/projects"
+[[proxy.allow]]
+method = "POST"
+path = "/accounts/*/pages/projects"
+[[proxy.allow]]
+method = "GET"
+path = "/accounts/*/pages/projects/*"
+[[proxy.allow]]
+method = "GET"
+path = "/zones"
+[[proxy.allow]]
+method = "GET"
+path = "/zones/*/dns_records"
+[[proxy.allow]]
+method = "POST"
+path = "/zones/*/dns_records"
+
+[check]
+method = "GET"
+path = "/user/tokens/verify"
+expect = [200]

@@ -1,4 +1,4 @@
-// The New project order sheet: seven numbered steps made of open tiles.
+// The New project order sheet: six numbered steps made of open tiles.
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { Link } from "react-router"
 
@@ -10,7 +10,7 @@ import {
 } from "@/features/projects/formModel"
 import { KeysForm, type RowsSummary, type WantedKey } from "@/features/keys/KeysForm"
 import { useGithubRepos, useInfo, useLibraryProfiles, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
-import type { KeyInput } from "@/lib/types"
+import type { KeyInput, ServiceKey } from "@/lib/types"
 
 
 const SOURCES: { value: SourceKind; label: string; hint: string; icon: IconName }[] = [
@@ -70,7 +70,7 @@ function Step({ n, id, children }: { n: number; id: string; children: ReactNode 
   )
 }
 
-/** Step 1 and 2: the name (with the live check) and the description. */
+/** Step 1: the name (with the live check). */
 function NameSteps({ value, set, onNameOk }: Props) {
   const check = useNameCheck(value.name, true)
   useEffect(() => onNameOk(check.ok && !!value.name), [check.ok, value.name, onNameOk])
@@ -93,18 +93,11 @@ function NameSteps({ value, set, onNameOk }: Props) {
           </span>
         </div>
       </Step>
-      <Step n={2} id="np-step-desc">
-        <div className="field">
-          <label htmlFor="pf-desc">Description</label>
-          <textarea className="textarea" id="pf-desc" rows={3} value={value.description} onChange={(e) => set({ description: e.target.value })} />
-          <span className="help">A few lines. They go into the project's CLAUDE.md.</span>
-        </div>
-      </Step>
     </>
   )
 }
 
-/** Step 3: where the code comes from, with its follow-up. */
+/** Step 2: where the code comes from, with its follow-up. */
 function SourceStep({ value, set }: Props) {
   const github = useGithubRepos()
   const templates = useLibraryTemplates()
@@ -120,7 +113,7 @@ function SourceStep({ value, set }: Props) {
   }
 
   return (
-    <Step n={3} id="np-step-source">
+    <Step n={2} id="np-step-source">
       <span className="lbl" id="srcL">Where does the code come from?</span>
       <div className="tiles" role="radiogroup" aria-labelledby="srcL">
         {SOURCES.map((s) => (
@@ -173,12 +166,12 @@ function SourceStep({ value, set }: Props) {
   )
 }
 
-/** Step 4: what kind of project (the profiles from the library). */
+/** Step 3: what kind of project (the profiles from the library). */
 function ProfileStep({ value, set }: Props) {
   const profiles = useLibraryProfiles()
   const names = profiles.data?.profiles.map((p) => p.name) ?? [...PROFILES]
   return (
-    <Step n={4} id="np-step-profile">
+    <Step n={3} id="np-step-profile">
       <span className="lbl" id="profL">What kind of project?</span>
       <div className="tiles" role="radiogroup" aria-labelledby="profL">
         {names.map((n) => {
@@ -196,7 +189,7 @@ function ProfileStep({ value, set }: Props) {
   )
 }
 
-/** Step 5: the new GitHub repo switch and the owner tiles. */
+/** Step 4: the new GitHub repo switch and the owner tiles. */
 function RepoStep({ value, set }: Props) {
   const info = useInfo()
   const github = useGithubRepos()
@@ -211,7 +204,7 @@ function RepoStep({ value, set }: Props) {
   })
 
   return (
-    <Step n={5} id="np-step-repo">
+    <Step n={4} id="np-step-repo">
       {!newRepoApplies(value.source) ? (
         <p className="small">An existing repo or folder keeps its own repo, so no new one is made.</p>
       ) : !connected ? (
@@ -246,7 +239,7 @@ function RepoStep({ value, set }: Props) {
 
 /** The keys the ticked services ask for (each name once). */
 export function wantedKeys(
-  services: { name: string; project_keys: { name: string; secret: boolean }[] }[] | undefined, ticked: string[],
+  services: { name: string; project_keys: ServiceKey[] }[] | undefined, ticked: string[],
 ): WantedKey[] {
   const out: WantedKey[] = []
   for (const s of services ?? []) {
@@ -256,29 +249,37 @@ export function wantedKeys(
   return out
 }
 
-/** Step 6: services as multi-select tiles with a connection dot. */
+/** Step 5: services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
 function ServicesStep({ value, set }: Props) {
   const library = useLibraryServices()
   const status = useServices()
   const github = useGithubRepos()
-  const connectedOf = (name: string): boolean =>
-    name === "github" ? !!github.data?.connected : !!status.data?.services.find((s) => s.name === name)?.connected
+  // Only a service that needs Phoenix-wide account keys can be "not set up yet"; keys-only ones are always fine.
+  const needsSetup = (name: string): boolean => {
+    if (name === "github") return github.data ? !github.data.connected : false
+    const row = status.data?.services.find((s) => s.name === name)
+    return !!row && !row.connected && (row.account_keys?.length ?? 0) > 0
+  }
   const toggle = (name: string, on: boolean) =>
     set({ services: on ? [...value.services, name] : value.services.filter((x) => x !== name) })
   const n = value.services.length
   const rows = wantedKeys(library.data?.services, value.services).length
   return (
-    <Step n={6} id="np-step-services">
+    <Step n={5} id="np-step-services">
       <span className="lbl" id="svcL">Services</span>
       <div className="tiles" role="group" aria-labelledby="svcL">
         {library.data?.services.map((s) => {
-          const on = connectedOf(s.name)
+          const setup = needsSetup(s.name)
           return (
             <Tile
               key={s.name} type="checkbox" name={`sv-${s.name}`} title={s.title} multi icon={SERVICE_ICON[s.name] ?? "plugs-connected"}
               checked={value.services.includes(s.name)} onChange={(c) => toggle(s.name, c)}
             >
-              <span className={`cdot${on ? "" : " no"}`}><i />{on ? "Connected" : "Not connected"}</span>
+              {setup && (
+                <small className="reason">
+                  <Link to="/settings" onClick={(e) => e.stopPropagation()}>Set up in Phoenix settings first</Link>
+                </small>
+              )}
             </Tile>
           )
         })}
@@ -294,7 +295,7 @@ interface Props {
   onNameOk: (ok: boolean) => void
 }
 
-/** The seven steps of the order sheet, in order. */
+/** The six steps of the order sheet, in order. */
 export function OrderSheet({
   value, onChange, onNameOk, onRows,
 }: {
@@ -313,7 +314,7 @@ export function OrderSheet({
       <ProfileStep {...props} />
       <RepoStep {...props} />
       <ServicesStep {...props} />
-      <Step n={7} id="np-step-keys">
+      <Step n={6} id="np-step-keys">
         <span className="lbl">Project keys</span>
         <KeysForm mode="local" draft onRowsChange={onRows} wanted={wanted} />
       </Step>

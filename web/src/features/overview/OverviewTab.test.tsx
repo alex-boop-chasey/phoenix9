@@ -50,6 +50,13 @@ describe("OverviewTab", () => {
     expect(newer.compareDocumentPosition(older) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
+  it("a project with no builds offers to start the first one", async () => {
+    mockApi(routes("notes-only", { "GET /api/gates": [], "GET /api/projects/notes-only/runs": [] }))
+    renderWithProviders(<OverviewTab name="notes-only" />)
+    const link = await screen.findByRole("link", { name: "Start the first build" })
+    expect(link).toHaveAttribute("href", "/p/notes-only/build?new=1")
+  })
+
   it("empty states", async () => {
     mockApi(routes("notes-only", { "GET /api/gates": [] }))
     renderWithProviders(<OverviewTab name="notes-only" />)

@@ -1,6 +1,6 @@
 // New project: the order sheet on the left, the receipt "What Phoenix will make" on the right.
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Link } from "react-router"
+import { useNavigate } from "react-router"
 import { toast } from "sonner"
 
 import { Icon } from "@/components/Icon"
@@ -25,7 +25,7 @@ function missingOf(v: FormValues, nameOk: boolean, pending: boolean): Missing[] 
     const what = v.source === "repo" ? "Choose the GitHub repo." : v.source === "template" ? "Choose a template." : "Type the folder path."
     out.push({ text: what, target: "np-step-source", focus: v.source === "code" ? "pf-path" : "" })
   }
-  if (pending) out.push({ text: "Save the key rows before creating.", target: "np-step-keys", focus: "" })
+  if (pending) out.push({ text: "Press Save under Project keys before creating.", target: "np-step-keys", focus: "" })
   return out
 }
 
@@ -75,6 +75,7 @@ export default function NewProjectPage() {
   const github = useGithubRepos()
   const job = useJob(jobId)
   const toasted = useRef("")
+  const navigate = useNavigate()
 
   const onRows = useCallback((rows: KeyInput[], p: boolean, s: RowsSummary) => { setKeyRows(rows); setPending(p); setSummary(s) }, [])
 
@@ -87,9 +88,10 @@ export default function NewProjectPage() {
   useEffect(() => {
     if (done && toasted.current !== jobId) {
       toasted.current = jobId
-      toast.success(`Project ${name} created`, { description: "Its chat is live." })
+      toast.success(`Project ${name} created`, { description: "Its chat is live. Start the first build when you are ready." })
+      void navigate(`/p/${encodeURIComponent(name)}/overview`, { replace: true })
     }
-  }, [done, jobId, name])
+  }, [done, jobId, name, navigate])
 
   const missing = missingOf(values, nameOk, pending)
   const ready = missing.length === 0 && !create.isPending && !started
@@ -102,8 +104,24 @@ export default function NewProjectPage() {
     })
   }
 
+  const creating = started && !failed
   return (
-    <main>
+    <>
+      {creating && (
+      <main>
+        <div className="title-row">
+          <div>
+            <h1 className="h1">{done ? `${name} is ready` : `Creating ${name}…`}</h1>
+            <p className="lead">{done ? "Opening the project…" : "Phoenix is setting up the folder, repo and chat. This takes a moment."}</p>
+          </div>
+          <span className="area"><Icon name="plus-circle" />Create</span>
+        </div>
+        <section className="card stackg" aria-label="Creating the project">
+          <CreateProgress steps={j?.steps ?? []} />
+        </section>
+      </main>
+      )}
+      <main hidden={creating}>
       <div className="title-row">
         <div>
           <h1 className="h1">New project</h1>
@@ -112,28 +130,20 @@ export default function NewProjectPage() {
         <span className="area"><Icon name="plus-circle" />Create</span>
       </div>
       <form className="order" onSubmit={(e) => { e.preventDefault(); if (ready) submit() }}>
-        <fieldset disabled={started && !failed} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+        <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
           <OrderSheet value={values} onChange={setValues} onNameOk={setNameOk} onRows={onRows} />
         </fieldset>
         <aside className="receipt" aria-label="What Phoenix will make">
           <div className="receipt-h"><h2 className="h2" style={{ fontSize: 22 }}>What Phoenix will make</h2></div>
-          {started && j ? (
+          {failed && j ? (
             <div className="receipt-f" style={{ borderTop: 0 }}>
-              <p className="lbl">{done ? `Made ${name}` : `Making ${name}`}</p>
+              <p className="lbl">Could not make {name}</p>
               <CreateProgress steps={j.steps} />
-              {failed && (
-                <div role="alert" className="stackg">
-                  <p className="reason">{j.message || "Creating the project failed."}</p>
-                  <p className="small">Nothing was left half-made.</p>
-                  <button type="button" className="btn btn-secondary" onClick={() => setJobId("")}>Back to the form</button>
-                </div>
-              )}
-              {done && (
-                <div className="stackg">
-                  <b>{name} is ready</b>
-                  <Link className="btn btn-primary" to={`/p/${name}/overview`}>Open {name}</Link>
-                </div>
-              )}
+              <div role="alert" className="stackg">
+                <p className="reason">{j.message || "Creating the project failed."}</p>
+                <p className="small">Nothing was left half-made.</p>
+                <button type="button" className="btn btn-secondary" onClick={() => setJobId("")}>Back to the form</button>
+              </div>
             </div>
           ) : (
             <>
@@ -155,5 +165,6 @@ export default function NewProjectPage() {
         </aside>
       </form>
     </main>
+    </>
   )
 }

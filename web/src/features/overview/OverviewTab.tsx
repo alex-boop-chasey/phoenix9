@@ -1,6 +1,7 @@
 // The Overview tab: open questions, the current build, recent changes, and the About card.
 import { Link } from "react-router"
 
+import { Icon } from "@/components/Icon"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Tag } from "@/components/Tag"
 import { DeployCard } from "@/features/deploy/DeployCard"
@@ -36,7 +37,7 @@ function nowLine(row: ProjectRow, build: BuildRow | undefined, waiting: boolean)
   return `Now: ${run?.status ?? "idle"}.`
 }
 
-function CurrentBuild({ name, row, builds }: { name: string; row: ProjectRow | undefined; builds: BuildRow[] }) {
+function CurrentBuild({ name, row, builds, loaded }: { name: string; row: ProjectRow | undefined; builds: BuildRow[]; loaded: boolean }) {
   const run = row?.run ?? null
   const build = run ? builds.find((b) => b.run_id === run.run_id) : undefined
   const waiting = run?.status === "waiting"
@@ -61,6 +62,13 @@ function CurrentBuild({ name, row, builds }: { name: string; row: ProjectRow | u
           </p>
           <p className="small">{nowLine(row, build, waiting)}</p>
         </>
+      ) : loaded && builds.length === 0 ? (
+        <div className="stackg">
+          <p className="small">This project has no builds yet. A build turns your spec into working code, step by step.</p>
+          <Link className="btn btn-primary" to={`/p/${encodeURIComponent(name)}/build?new=1`}>
+            <Icon name="hammer" />Start the first build
+          </Link>
+        </div>
       ) : (
         <p className="small">No build running.</p>
       )}
@@ -83,7 +91,7 @@ export function OverviewTab({ name }: { name: string }) {
     <div className="ov">
       <div className="ov-main">
         {open.map((g) => <NeedsYouCard key={g.id} gate={g} reviewHref={`/p/${name}/build?run=${g.run}`} />)}
-        <CurrentBuild name={name} row={row} builds={builds.data ?? []} />
+        <CurrentBuild name={name} row={row} builds={builds.data ?? []} loaded={!!builds.data} />
         <section className="card" aria-labelledby="ov-rc">
           <h2 className="h2" id="ov-rc" style={{ fontSize: 22, marginBottom: 10 }}>Recent changes</h2>
           {recent.length === 0 ? (

@@ -1,13 +1,15 @@
 import { expect, expectNoHorizontalScroll, expectNoRawOutput, test } from "./fixtures"
 
-test("creates a project and shows it ready and opens its Overview", async ({ page }) => {
+test("creates a project, shows the creating view, then lands on its Overview with a first-build button", async ({ page }) => {
   await page.goto("/#/new")
   await page.locator("#pf-name").fill("e2e-new")
-  await page.getByLabel("Description").fill("Made by the browser test")
+  await expect(page.getByLabel("Description")).toHaveCount(0)
   await page.locator("label.tile", { has: page.getByRole("radio", { name: "Empty" }) }).click()
   await page.locator("label.tile", { has: page.getByRole("radio", { name: "Python script" }) }).click()
   await expect(page.getByRole("radio", { name: "Python script" })).toBeChecked()
 
+  await expect(page.getByPlaceholder("NAME", { exact: true })).toHaveCount(0) // no empty key row until Add
+  await page.getByRole("button", { name: "Add" }).click()
   await page.getByLabel("Name", { exact: true }).last().fill("E2E_KEY")
   await page.getByLabel("Value").last().fill("secret-e2e-value")
   await page.getByRole("button", { name: "Add" }).click()
@@ -17,10 +19,8 @@ test("creates a project and shows it ready and opens its Overview", async ({ pag
   await expectNoHorizontalScroll(page)
 
   await page.getByRole("button", { name: "Create project" }).click()
-  await expect(page.getByRole("list", { name: "Progress" })).toBeVisible()
-  await expect(page.getByText("e2e-new is ready")).toBeVisible({ timeout: 30_000 })
-  await page.getByRole("link", { name: "Open e2e-new" }).dispatchEvent("click") // the toast can sit on top on a phone
-  await expect(page).toHaveURL(/#\/p\/e2e-new\/overview/)
+  await expect(page).toHaveURL(/#\/p\/e2e-new\/overview/, { timeout: 30_000 })
+  await expect(page.getByRole("link", { name: "Start the first build" })).toBeVisible()
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
@@ -38,17 +38,20 @@ test("choosing a service adds its key rows and unticking removes the empty ones"
   await page.goto("/#/new")
   const names = page.getByPlaceholder("NAME", { exact: true })
   await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
-  await expect(page.getByText("1 selected · adds 2 key rows below")).toBeVisible()
-  await expect(names.nth(0)).toHaveValue("CLERK_SECRET_KEY")
-  await expect(names.nth(1)).toHaveValue("CLERK_PUBLISHABLE_KEY")
-  await expect(page.getByLabel("Value").nth(0)).toHaveAttribute("type", "password")
-  await expect(page.getByLabel("Value").nth(1)).toHaveAttribute("type", "text")
-  await expect(page.getByRole("complementary", { name: "What Phoenix will make" })).toContainText("2 rows (2 need a value)")
+  await expect(page.getByText("1 selected · adds 3 key rows below")).toBeVisible()
+  await expect(names.nth(0)).toHaveValue("PUBLIC_CLERK_PUBLISHABLE_KEY")
+  await expect(names.nth(1)).toHaveValue("CLERK_SECRET_KEY")
+  await expect(names.nth(2)).toHaveValue("CLERK_WEBHOOK_SIGNING_SECRET")
+  await expect(page.getByText("Optional", { exact: true })).toHaveCount(1)
+  await expect(page.getByText(/Clerk Dashboard > API keys/)).toBeVisible()
+  await expect(page.getByLabel("Value").nth(0)).toHaveAttribute("type", "text")
+  await expect(page.getByLabel("Value").nth(1)).toHaveAttribute("type", "password")
+  await expect(page.getByRole("complementary", { name: "What Phoenix will make" })).toContainText("3 rows (3 need a value)")
   await expectNoHorizontalScroll(page)
 
-  await page.getByLabel("Value").nth(1).fill("pk_test_123")
+  await page.getByLabel("Value").nth(0).fill("pk_test_123")
   await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
-  await expect(names.nth(0)).toHaveValue("CLERK_PUBLISHABLE_KEY")
-  await expect(names).toHaveCount(2) // the kept row and the empty one
-  await expect(page.getByRole("status")).toContainText("Kept CLERK_PUBLISHABLE_KEY")
+  await expect(names.nth(0)).toHaveValue("PUBLIC_CLERK_PUBLISHABLE_KEY")
+  await expect(names).toHaveCount(1) // only the kept row, no empty one
+  await expect(page.getByRole("status")).toContainText("Kept PUBLIC_CLERK_PUBLISHABLE_KEY")
 })

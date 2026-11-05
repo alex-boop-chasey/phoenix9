@@ -27,6 +27,9 @@ interface Row {
   revealed: boolean
   /** The service that added this draft row (cleared once the row is kept on its own). */
   service?: string
+  /** The service's one-line help for this key, and whether it can be left out. */
+  help?: string
+  optional?: boolean
 }
 
 /** A key a ticked service asks for. */
@@ -34,6 +37,8 @@ export interface WantedKey {
   service: string
   name: string
   secret: boolean
+  required?: boolean
+  help?: string
 }
 
 /** How many key rows there are and how many still need a value. */
@@ -65,10 +70,11 @@ export function validateKeyRows(rows: Row[], mode: "local" | "saved" = "saved"):
   const seen = new Set<string>()
   for (const r of rows.filter((x) => !isBlank(x))) {
     const name = r.name.trim()
-    if (!NAME_RE.test(name)) errors[r.id] = "Name can use letters, digits and underscores, and cannot start with a digit."
+    if (!name) errors[r.id] = "Type a name for this key, or remove the row."
+    else if (!NAME_RE.test(name)) errors[r.id] = `"${name}" is not a good name: use letters, digits and underscores, and do not start with a digit.`
     else if (seen.has(name)) errors[r.id] = `There are two keys named ${name}.`
     else if (/[\r\n]/.test(r.value)) errors[r.id] = "The value cannot have line breaks."
-    else if (!(keepsSavedValue(r) && (mode === "saved")) && !r.value) errors[r.id] = "Enter a value."
+    else if (!(keepsSavedValue(r) && (mode === "saved")) && !r.value) errors[r.id] = `Type a value for ${name}.`
     seen.add(name)
   }
   return errors
@@ -96,7 +102,7 @@ export function KeysForm({
   const query = useKeyRows(mode === "saved" ? project : "")
   const library = useLibraryServices(mode === "saved")
   const usedFor = (name: string) => library.data?.services.find((s) => s.project_keys.some((k) => k.name === name))?.title
-  const [rows, setRows] = useState<Row[]>(() => [blankRow()])
+  const [rows, setRows] = useState<Row[]>(() => (mode === "local" && draft ? [] : [blankRow()]))
   const [errors, setErrors] = useState<Record<number, string>>({})
   const [problem, setProblem] = useState("")
   const [busy, setBusy] = useState(false)
@@ -135,9 +141,10 @@ export function KeysForm({
       const rest = rs
         .filter((r) => !(r.service && !names.has(r.service) && !r.value))
         .map((r) => (r.service && !names.has(r.service) ? { ...r, service: undefined } : r))
-      const fresh = added.map((w) => ({ ...blankRow(), name: w.name, secret: w.secret, service: w.service }))
-      const blank = rest.filter(isBlank)
-      return [...rest.filter((r) => !isBlank(r)), ...fresh, ...(blank.length ? blank : [blankRow()])]
+      const fresh = added.map((w) => ({
+        ...blankRow(), name: w.name, secret: w.secret, service: w.service, help: w.help, optional: w.required === false,
+      }))
+      return [...rest, ...fresh]
     })
   }, [mode, wanted])
 
@@ -217,7 +224,7 @@ export function KeysForm({
     }
     setRows((rs) => {
       const rest = rs.filter((x) => x.id !== r.id)
-      return rest.length ? rest : [blankRow()]
+      return rest.length || draft ? rest : [blankRow()]
     })
   }
 
@@ -230,6 +237,7 @@ export function KeysForm({
       )}
       {draft ? (
         <ul className="stackg">
+          {rows.length === 0 && <li className="small">No keys yet. Pick a service above, or press Add.</li>}
           {rows.map((r) => (
             <KeyRowView
               key={r.id} row={r} error={errors[r.id]}
@@ -306,10 +314,13 @@ function KeyRowView({
   return (
     <li className="space-y-1">
       <div className={`krow${row.saved ? " saved" : ""}`}>
-        <Input
-          aria-label="Name" placeholder="NAME" value={row.name} readOnly={row.saved} autoComplete="off"
-          aria-invalid={!!error} onChange={(e) => onName(e.target.value)}
-        />
+        <div className="row" style={{ gap: 6, flexWrap: "nowrap", minWidth: 0 }}>
+          <Input
+            aria-label="Name" placeholder="NAME" value={row.name} readOnly={row.saved} autoComplete="off"
+            aria-invalid={!!error} onChange={(e) => onName(e.target.value)}
+          />
+          {row.optional && <span className="tag">Optional</span>}
+        </div>
         <Input
           aria-label="Value" autoComplete="off" aria-invalid={!!error}
           type={row.secret && !row.revealed && !dots ? "password" : "text"}
@@ -333,6 +344,7 @@ function KeyRowView({
           {row.saved && <Button type="button" size="sm" variant="outline" onClick={onRemove}>Remove</Button>}
         </div>
       </div>
+      {row.help && <p className="help">{row.help}</p>}
       {needsValue && !error && <p className="text-xs text-muted-foreground">Needs a value</p>}
       {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
     </li>

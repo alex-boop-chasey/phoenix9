@@ -9,18 +9,10 @@ import { SwitchRow } from "./Choice"
 import { useLibraryTools } from "@/lib/queries"
 import { switchTool, toolState, usesDefaults } from "@/lib/tools"
 
-import { editList } from "./model"
-
-/** Models offered when the presets name none. */
-const KNOWN_MODELS = ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]
+import { ModelPicker } from "./ModelPicker"
 
 const asList = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
 const asNumber = (v: unknown): number | undefined => (typeof v === "number" && !Number.isNaN(v) ? v : undefined)
-
-/** The model choices: the known ones plus anything the presets or this card already use. */
-export function modelChoices(...used: (string | undefined)[][]): string[] {
-  return [...new Set([...KNOWN_MODELS, ...used.flat().filter((m): m is string => !!m)])]
-}
 
 /** A card for one AI step; `preset` holds the defaults (from Phoenix settings), `edits` what was changed here. */
 export function AiCard({ step, preset, edits, models, onEdit }: {
@@ -39,7 +31,6 @@ export function AiCard({ step, preset, edits, models, onEdit }: {
   const lists = { tools: asList(value("tools")), denied: asList(value("tools_denied")) }
   const library = useLibraryTools().data?.tools ?? []
   const edited = Object.keys(edits).some((k) => k.startsWith(`steps.${step.name}.`))
-  const choices = modelChoices([model], fallbacks, models)
   const setList = (k: string, list: string[]) => onEdit(key(k), list)
   const setNumber = (k: string, text: string) => onEdit(key(k), text === "" ? undefined : Number(text))
   const body = `${uid}-body`
@@ -58,49 +49,10 @@ export function AiCard({ step, preset, edits, models, onEdit }: {
       </div>
       {open && (
         <div className="aic-b" id={body}>
-          <div className="field">
-            <label htmlFor={`${uid}-model`}>Model</label>
-            <select
-              id={`${uid}-model`} className="select" style={{ fontFamily: "var(--f-mono)" }} value={model}
-              onChange={(e) => onEdit(key("model"), e.target.value)}
-            >
-              {choices.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-          <div className="lane" role="group" aria-label="Fallback models">
-            {fallbacks.map((f, i) => (
-              <div className="lane-row" key={`${i}-${f}`}>
-                <span className="n">{i + 1}</span>
-                <select
-                  className="select" style={{ fontFamily: "var(--f-mono)" }} aria-label={`Fallback model ${i + 1}`} value={f}
-                  onChange={(e) => setList("fallback_models", fallbacks.map((x, j) => (j === i ? e.target.value : x)))}
-                >
-                  {modelChoices([f], choices).map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-                <span className="ctl">
-                  <Button variant="ghost" size="icon-sm" aria-label={`Move fallback ${i + 1} up`} disabled={i === 0}
-                    onClick={() => setList("fallback_models", editList(fallbacks, { up: i }))}>
-                    <Icon name="caret-down" className="rotate-180" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={`Move fallback ${i + 1} down`} disabled={i === fallbacks.length - 1}
-                    onClick={() => setList("fallback_models", editList(fallbacks, { down: i }))}>
-                    <Icon name="caret-down" />
-                  </Button>
-                  <Button variant="ghost" size="icon-sm" aria-label={`Remove fallback ${i + 1}`}
-                    onClick={() => setList("fallback_models", editList(fallbacks, { remove: i }))}>
-                    <Icon name="x" />
-                  </Button>
-                </span>
-              </div>
-            ))}
-            <Button
-              variant="ghost" size="sm" style={{ justifySelf: "start" }}
-              onClick={() => setList("fallback_models", editList(fallbacks, { add: choices.find((m) => m !== model && !fallbacks.includes(m)) ?? "" }))}
-            >
-              <Icon name="plus" />Add a fallback model
-            </Button>
-            <p className="help">Tried in this order if the first one is unavailable.</p>
-          </div>
+          <ModelPicker
+            model={model} backups={fallbacks} models={models}
+            onModel={(m) => onEdit(key("model"), m)} onBackups={(l) => setList("fallback_models", l)}
+          />
           <span className="lbl">Tools it may use</span>
           {usesDefaults(lists) && <p className="help">Using this step's default tools. Switch one off to deny it.</p>}
           <div className="rail choices">
@@ -122,7 +74,7 @@ export function AiCard({ step, preset, edits, models, onEdit }: {
                 id={`${uid}-turns`} className="input" inputMode="numeric"
                 value={String(asNumber(value("max_turns")) ?? "")} onChange={(e) => setNumber("max_turns", e.target.value)}
               />
-              <span className="help">How many back-and-forth turns the AI may take before it stops.</span>
+              <span className="help">The AI stops when it has used this many turns or this many minutes, whichever comes first.</span>
             </div>
             <div className="field">
               <label htmlFor={`${uid}-time`}>Time limit (minutes)</label>

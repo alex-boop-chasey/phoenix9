@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { ModelPicker } from "@/features/build/wizard/ModelPicker"
 import { getPath, listText, parseList } from "@/features/settings/dotted"
 import type { LibraryTool, SettingSource } from "@/lib/types"
 import { switchTool, toolState, usesDefaults } from "@/lib/tools"
@@ -139,17 +140,14 @@ export function AiStepEditor(props: AiStepEditorProps) {
       </CollapsibleTrigger>
       <CollapsibleContent className="w-full space-y-4 pt-2">
         <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-1">
-            <Label htmlFor={id("model")}>Model</Label>
-            <Input
-              id={id("model")} list={id("models")} disabled={readOnly} autoComplete="off"
-              placeholder={placeholder("model")} value={String(current("model") ?? "")}
-              onChange={(e) => set("model", e.target.value)}
+          <div className="md:col-span-2">
+            <ModelPicker
+              model={String(current("model") ?? getPath(effective, "model") ?? "")} models={models} disabled={readOnly}
+              backups={asStrings(current("fallback_models") ?? getPath(effective, "fallback_models"))}
+              onModel={(m) => set("model", m)} onBackups={(l) => set("fallback_models", l)}
             />
-            <datalist id={id("models")}>{models.map((m) => <option key={m} value={m} />)}</datalist>
             {from("model")}
           </div>
-          {listField("fallback_models", "Fallback models")}
           {toolList ? toolSwitches(toolList) : <>{listField("tools", "Tools")}{listField("tools_denied", "Tools denied")}</>}
           {listField("mcp_servers", "MCP servers")}
           {listField("skills", "Skills")}
@@ -166,8 +164,9 @@ export function AiStepEditor(props: AiStepEditorProps) {
             </Select>
             {from("claude_md")}
           </div>
-          {numberField("max_turns", "Max turns")}
-          {numberField("timeout", "Timeout (minutes)")}
+          {numberField("max_turns", "Turn limit")}
+          {numberField("timeout", "Time limit (minutes)")}
+          <span className="block text-xs text-muted-foreground md:col-span-2">The AI stops when it has used this many turns or this many minutes, whichever comes first.</span>
         </div>
 
         <fieldset className="space-y-3 rounded-md border p-3">
@@ -225,6 +224,8 @@ export function AiStepEditor(props: AiStepEditorProps) {
     </Collapsible>
   )
 }
+
+const asStrings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
 
 /** Remembers the text typed into list boxes so a trailing comma is not eaten while typing. */
 function useDrafts() {

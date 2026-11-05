@@ -61,11 +61,11 @@ test("build save sends only changed dotted keys", async () => {
   await userEvent.click(screen.getByRole("radio", { name: /Ask me first/ }))
   await userEvent.click(screen.getByRole("switch", { name: "Reviewer" }))
   await userEvent.click(screen.getByRole("button", { name: "Reviewer settings" }))
-  await userEvent.type(screen.getByLabelText("Model"), "claude-x")
+  await userEvent.selectOptions(screen.getByLabelText("Primary model"), "claude-fable-5-1")
   await userEvent.click(screen.getByRole("button", { name: "Save build settings" }))
   await waitFor(() => expect(posts(calls)).toHaveLength(1))
   expect(posts(calls)[0]!.body).toEqual({
-    set: { merge: "ask", "steps.reviewer.on": false, "steps.reviewer.model": "claude-x" },
+    set: { merge: "ask", "steps.reviewer.on": false, "steps.reviewer.model": "claude-fable-5-1" },
   })
   await waitFor(() => expect(screen.queryByRole("button", { name: "Save build settings" })).toBeNull())
 })

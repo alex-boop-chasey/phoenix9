@@ -16,8 +16,8 @@ tools_denied = []
 mcp_servers = []
 claude_md = "library"
 skills = []
-max_turns = 200
-timeout = 60
+max_turns = 30
+timeout = 15
 
 [ai.advisor]
 on = false

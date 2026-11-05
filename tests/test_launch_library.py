@@ -69,12 +69,15 @@ def test_red_check_off_when_check_writer_off(lib, tmp_path, preset):
     assert not plan.is_on("check-writer") and not plan.is_on("red-check")
 
 
+LIMITS = {"planner": (40, 20), "check-writer": (40, 20), "builder": (80, 45), "reviewer": (30, 15)}
+
+
 def test_ai_defaults(lib):
     for step in lib.steps:
         if step.kind != "ai":
             continue
         assert step.ai["fallback_models"] == ["claude-opus-5-5"]
-        assert step.ai["max_turns"] == 200 and step.ai["timeout"] == 60
+        assert (step.ai["max_turns"], step.ai["timeout"]) == LIMITS[step.name]
         assert step.ai["advisor"] == {"on": False, "model": "claude-opus-5-5",
                                       "when": ["blocked"], "instructions": ""}
     assert lib.step("builder").ai["model"] == "claude-fable-5-1"

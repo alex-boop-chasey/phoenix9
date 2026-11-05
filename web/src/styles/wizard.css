@@ -74,3 +74,6 @@
   .wdock .btn,.rrow,.aic .btn{min-height:44px}
   .outline button{min-height:44px}
 }
+.mpick{display:grid; gap:12px; grid-template-columns:minmax(0,1fr)}
+.mpick .select{width:100%; text-overflow:clip; font-family:var(--f-mono); font-size:14px}
+@media (max-width:640px){ .mpick .select{min-height:44px} }

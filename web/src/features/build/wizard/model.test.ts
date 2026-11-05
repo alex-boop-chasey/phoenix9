@@ -218,6 +218,20 @@ test("AI cards: only AI steps that are switched on", () => {
   expect(names(run(start(), { type: "preset", preset: preset("full") }))).toEqual(["planner", "check-writer", "builder", "reviewer"])
 })
 
+test("AI cards follow random custom mixes of switches", () => {
+  let seed = 7
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648
+  for (let i = 0; i < 30; i++) {
+    const steps: Record<string, boolean> = {}
+    for (const s of plan()) if (rnd() < 0.5) steps[s.name] = rnd() < 0.5
+    const a = { ...start(), preset: "custom", steps }
+    const cards = aiCards(plan(), a).map((s) => s.name)
+    const expected = plan().filter((s) => s.kind === "ai" && shownOn(s, a)).map((s) => s.name)
+    expect([...cards].sort()).toEqual([...expected].sort())
+    expect(plan().filter((s) => s.kind !== "ai").some((s) => cards.includes(s.name))).toBe(false)
+  }
+})
+
 test("fallback model list: add, move and remove", () => {
   const l = ["a", "b", "c"]
   expect(editList(l, { add: "d" })).toEqual(["a", "b", "c", "d"])

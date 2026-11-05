@@ -6,7 +6,7 @@ import { toast } from "sonner"
 import { Icon } from "@/components/Icon"
 import { post } from "@/lib/api"
 import { useGlobal } from "@/lib/queries"
-import { modelChoices } from "@/features/build/wizard/AiCard"
+import { modelChoices } from "@/features/build/wizard/ModelPicker"
 
 const NONE = ""
 type Draft = Record<string, [string, string, string]>

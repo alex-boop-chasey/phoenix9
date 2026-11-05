@@ -192,20 +192,23 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
         const many = list.length > 1 || (line?.attempt ?? 1) > 1
         const heading = many && line?.attempt ? `${title(name)}, attempt ${line.attempt}` : title(name)
         const mergeRoom = line?.status === "waiting" && name === "merge"
+        const block = (
+          <Block
+            title={heading} line={shown.text} time={timeOf(line, shown)} status={shown.status}
+            plan={planRow(run, name)} room={mergeRoom}
+          />
+        )
+        const room = (
+          <div className="review-room" data-review-room>
+            {showGate && (showGate.kind === "merge"
+              ? <MergeReview gate={showGate} />
+              : <NeedsYouCard gate={showGate} compact />)}
+            {line && renderUnderStep?.(line)}
+          </div>
+        )
         return (
           <div key={`${name}-${line?.attempt ?? 0}`} data-step={name}>
-            <Block
-              title={heading} line={shown.text} time={timeOf(line, shown)} status={shown.status}
-              plan={planRow(run, name)} room={mergeRoom}
-            />
-            {mergeRoom && (
-              <div className="review-room" data-review-room>
-                {showGate && (showGate.kind === "merge"
-                  ? <MergeReview gate={showGate} />
-                  : <NeedsYouCard gate={showGate} compact />)}
-                {line && renderUnderStep?.(line)}
-              </div>
-            )}
+            {mergeRoom ? <div className="need-card">{block}{room}</div> : block}
             {!mergeRoom && showGate && <div className="pt-2"><NeedsYouCard gate={showGate} compact /></div>}
             {!mergeRoom && line && renderUnderStep?.(line)}
           </div>

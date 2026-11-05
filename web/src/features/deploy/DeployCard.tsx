@@ -1,6 +1,7 @@
 // The Deploy card on a project's Overview: deployer, live address, last deploy and a Deploy now button.
 import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
+import { Link } from "react-router"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -20,6 +21,21 @@ function lastLine(r: DeployRecord): string {
 function resultLine(status: string, message: string, url?: string): string {
   if (status === "done") return url ? `Deployed to ${url}.` : "Deployed."
   return message || "The deploy failed."
+}
+
+const SETTINGS_HINT = "Settings \u2192 Merge and deploy"
+
+/** A message, with a link to the deploy settings when it tells the reader to go there. */
+function WithSettingsLink({ text, name }: { text: string; name: string }) {
+  if (!text.includes(SETTINGS_HINT)) return <>{text}</>
+  const [before, after] = text.split(SETTINGS_HINT)
+  return (
+    <>
+      {before}
+      <Link to={`/p/${encodeURIComponent(name)}/settings#s-merge`}>{SETTINGS_HINT}</Link>
+      {after}
+    </>
+  )
 }
 
 /** Deploy card for a project whose deployer is not "none". */
@@ -72,14 +88,14 @@ export function DeployCard({ name }: { name: string }) {
                 <span className="text-muted-foreground">not deployed yet</span>
               )}
             </p>
-            <p>Last deploy: {last ? lastLine(last) : <span className="text-muted-foreground">none yet</span>}</p>
+            <p>Last deploy: {last ? <WithSettingsLink text={lastLine(last)} name={name} /> : <span className="text-muted-foreground">none yet</span>}</p>
             <div>
               <button type="button" className="btn btn-primary" disabled={running} onClick={() => setConfirm(true)}>Deploy now</button>
             </div>
             {running && <p role="status">Deploying…</p>}
             {job && job.status !== "running" && (
               <p role="status" className={job.status === "failed" ? "text-destructive" : undefined}>
-                {resultLine(job.status, job.message, job.result?.url)}
+                <WithSettingsLink text={resultLine(job.status, job.message, job.result?.url)} name={name} />
               </p>
             )}
           </>

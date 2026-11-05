@@ -35,8 +35,12 @@
 .blk.st-pend .blk-t b{color:var(--text-2); font-weight:500}
 .blk.st-need{border-color:var(--attn-edge); padding-left:24px; background:linear-gradient(var(--attn-soft),var(--attn-soft)),var(--surface)}
 .blk.st-need::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--attn); border-radius:var(--r-sm) 0 0 var(--r-sm)}
-.blk.st-need.has-room{border-radius:var(--r-sm) var(--r-sm) 0 0}
-.review-room{border:1px solid var(--attn-edge); border-top:0; border-radius:0 0 var(--r-md) var(--r-md); background:var(--surface); padding:12px 20px 12px 24px; margin-bottom:6px}
+.need-card{position:relative; overflow:hidden; border:1px solid var(--attn-edge); border-radius:var(--r-sm); background:var(--surface); box-shadow:var(--shadow-1)}
+.need-card::before{content:""; position:absolute; left:0; top:0; bottom:0; width:8px; background:var(--attn); z-index:1}
+.need-card > .blk{border:0; border-radius:0; box-shadow:none}
+.need-card > .blk::before{display:none}
+.review-room{border-top:1px solid var(--attn-edge); background:var(--surface); padding:12px 20px 12px 24px}
+.review-room:empty{display:none}
 details.tg{min-width:0}
 details.tg > summary{list-style:none; cursor:pointer}
 details.tg > summary::-webkit-details-marker{display:none}
@@ -45,11 +49,11 @@ details.tg[open] > summary .car{transform:rotate(90deg)}
 details.tg .tg-in{display:flex; flex-direction:column; gap:6px; padding:6px 0 4px 20px; border-left:2px solid var(--line); margin-left:10px}
 @container well (max-width:520px){ .blk{grid-template-columns:22px minmax(0,1fr)} .blk-r{grid-column:2; align-items:flex-start; flex-direction:row; gap:10px; flex-wrap:wrap} }
 .run-sum{display:flex; flex-direction:column; gap:14px}
-.ring{position:relative; width:84px; height:84px; flex:none}
-.ring svg{width:84px; height:84px; transform:rotate(-90deg)}
-.ring circle{fill:none; stroke-width:8}
-.ring .tr{stroke:var(--surface-3)} .ring .vl{stroke:var(--ring, var(--accent)); stroke-linecap:round; transition:stroke-dasharray .9s var(--ease)}
-.ring b{position:absolute; inset:0; display:grid; place-items:center; font:700 22px/1 var(--f-display)}
+.sum-ring{position:relative; outline:0; border:0; background:none; box-shadow:none; width:84px; height:84px; flex:none}
+.sum-ring svg{width:84px; height:84px; transform:rotate(-90deg)}
+.sum-ring circle{fill:none; stroke-width:8}
+.sum-ring .tr{stroke:var(--surface-3)} .sum-ring .vl{stroke:var(--ring-colour, var(--accent)); stroke-linecap:round; transition:stroke-dasharray .9s var(--ease)}
+.sum-ring b{position:absolute; inset:0; display:grid; place-items:center; font:700 22px/1 var(--f-display)}
 .live{display:inline-flex; gap:8px; align-items:center; font-size:13px; color:var(--text-2)}
 .live i{width:8px; height:8px; border-radius:50%; background:var(--accent-3); animation:pulse 1.6s ease-in-out infinite}
 .run-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:20px}

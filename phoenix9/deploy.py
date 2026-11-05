@@ -120,6 +120,15 @@ def merge_settings(deployer: dict, given: Any, where: str = "phoenix.toml [deplo
     return values, problems
 
 
+def plain_settings_problem(deployer: dict, merged: dict) -> str:
+    """Plain words (no config paths) for bad deploy settings, saying where to fix them."""
+    missing = [k.replace("_", " ") for k in deployer["required_settings"] if merged.get(k) in (0, "", None, [])]
+    where = "in Settings \u2192 Merge and deploy"
+    if missing:
+        return f"Deploy isn't set up yet: choose the {' and the '.join(missing)} {where}"
+    return f"Deploy isn't set up properly: check the deploy settings {where}"
+
+
 def settings_problems(data: dict, where: str = "phoenix.toml") -> list[str]:
     """Problems with deploy.with and deploy.settings in a project's phoenix.toml data."""
     table = data.get("deploy", {})
@@ -241,7 +250,8 @@ def _attempt(adapters, project: str, deployer: dict, module, *, who, run_id, com
     record = {"at": _now(), "deployer": deployer["name"], "commit": commit, "version": "", "url": "", "ok": False,
               "rolled_back": False, "reason": "", "who": who, "run": run_id, "kind": kind}
     if bad:
-        record["reason"] = "; ".join(bad)
+        _logger(_log_path(project, run_id))("deploy settings problem: " + "; ".join(bad))
+        record["reason"] = plain_settings_problem(deployer, merged)
         return record
     previous = last_good(project)
     scrub.add_secrets(keys.secret_values(project))     # so nothing the deployer logs can carry a key

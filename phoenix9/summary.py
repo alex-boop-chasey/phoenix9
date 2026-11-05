@@ -24,10 +24,21 @@ def _duration(start, end) -> str:
     a, b = _parse(start), _parse(end)
     if not a or not b:
         return ""
-    seconds = max(int((b - a).total_seconds()), 0)
-    hours, rest = divmod(seconds, 3600)
-    minutes, secs = divmod(rest, 60)
-    return (f"{hours}h " if hours else "") + (f"{minutes}m " if hours or minutes else "") + f"{secs}s"
+    return friendly_seconds(max(int((b - a).total_seconds()), 0))
+
+
+def friendly_seconds(seconds: int) -> str:
+    """Seconds in friendly units: '45s', '38 min', '2 h 10 min', '5 days'."""
+    if seconds < 60:
+        return f"{seconds}s"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    if hours >= 24:
+        days = hours // 24
+        return f"{days} day{'' if days == 1 else 's'}"
+    return f"{hours} h {rest} min" if rest else f"{hours} h"
 
 
 def _task_flag(task: dict) -> str:

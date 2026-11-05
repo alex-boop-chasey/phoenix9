@@ -76,6 +76,10 @@ test("summary aside shows the ring, badge, preset, cost and logs link", async ()
   expect(within(aside).getByText("full")).toBeInTheDocument()
   expect(await within(aside).findByText("$0.80")).toBeInTheDocument()
   expect(within(aside).getByText("30 min")).toBeInTheDocument()
+  // the ring has its own class, not the framework's "ring" box-shadow class
+  const ring = aside.querySelector(".sum-ring")!
+  expect(ring).not.toBeNull()
+  expect(aside.querySelector(".ring")).toBeNull()
 })
 
 test("running build: blue ring text, spinner on the running block", async () => {

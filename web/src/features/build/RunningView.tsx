@@ -56,7 +56,7 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
   return (
     <aside className="card run-sum" aria-label="Build summary">
       <div className="row" style={{ gap: 16 }}>
-        <div className="ring" style={{ ["--ring" as string]: RING_COLOUR[edge] }}>
+        <div className="sum-ring" style={{ ["--ring-colour" as string]: RING_COLOUR[edge] }}>
           <svg viewBox="0 0 84 84" aria-hidden="true">
             <circle className="tr" cx="42" cy="42" r="36" />
             <circle className="vl" cx="42" cy="42" r="36" strokeDasharray={`${total ? RING * (passed / total) : 0} ${RING}`} />

@@ -14,7 +14,7 @@ export function formatBytes(bytes: number | null | undefined): string {
   return `${value >= 10 ? Math.round(value) : value.toFixed(1)} ${units[i]}`
 }
 
-/** Seconds as "45s", "14 min" or "2 h 5 min". */
+/** Seconds as "45s", "14 min", "2 h 5 min" or "5 days". */
 export function formatDuration(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return "-"
   const total = Math.round(seconds)
@@ -22,6 +22,10 @@ export function formatDuration(seconds: number | null | undefined): string {
   const minutes = Math.floor(total / 60)
   if (minutes < 60) return `${minutes} min`
   const hours = Math.floor(minutes / 60)
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24)
+    return `${days} day${days === 1 ? "" : "s"}`
+  }
   const rest = minutes % 60
   return rest ? `${hours} h ${rest} min` : `${hours} h`
 }

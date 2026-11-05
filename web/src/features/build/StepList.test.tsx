@@ -84,6 +84,10 @@ test("a waiting merge step leaves room under it for the review", () => {
   show(run)
   expect(stepRow(null, "merge").querySelector("[data-review-room]")).not.toBeNull()
   expect(stepRow(null, "merge")).toHaveTextContent("you")
+  // the block and its review share one outlined card, so the orange edge sits inside it
+  const card = stepRow(null, "merge").querySelector(".need-card")!
+  expect(card.querySelector(".blk")).not.toBeNull()
+  expect(card.querySelector("[data-review-room]")).not.toBeNull()
 })
 
 test("the waiting merge step shows the open merge question as the review", async () => {

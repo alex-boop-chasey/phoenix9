@@ -246,3 +246,19 @@ def test_no_secret_in_deploy_log(phoenix_env, lib, adapters, script):
     deploy.run_deploy(adapters, "demo", who="t", commit="c1")
     log = paths.logs() / "deploy-demo.log"
     assert "using key" in log.read_text() and SENTINEL not in log.read_text()
+
+
+def test_friendly_durations():
+    from phoenix9.summary import friendly_seconds
+    assert friendly_seconds(38 * 60 + 5) == "38 min"
+    assert friendly_seconds(2 * 3600 + 10 * 60) == "2 h 10 min"
+    assert friendly_seconds(109 * 3600 + 39 * 60 + 56) == "4 days"
+    assert friendly_seconds(45) == "45s"
+
+
+def test_unset_deploy_settings_are_explained_in_plain_words(phoenix_env, lib, adapters, script):
+    folder = make_project(phoenix_env)
+    (folder / "phoenix.toml").write_text('[deploy]\nwith = "scripted"\n')
+    record = deploy.run_deploy(adapters, "demo", who="t", commit="c1")
+    assert record["reason"] == "Deploy isn't set up yet: choose the live port in Settings \u2192 Merge and deploy"
+    assert "phoenix.toml" not in record["reason"]

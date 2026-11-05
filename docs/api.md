@@ -192,7 +192,7 @@ serves it on fake adapters (no systemd, GitHub, Docker or Claude). Fixed times.
 **Project search** (`GET /api/projects` with any of `q`, `status`, `owner`, `sort`, `attention`; with none of them the reply is
 the plain list of rows). `q` = text in name or description (case-insensitive); `status` = `all|run|fail|idle|need`
 (need = open question or run waiting; fail = failed or paused at a limit; run = running or queued); `owner` = `all`, `none`
-(no repo) or a GitHub owner; `sort` = `name|active` (most recently used first)`|size` (largest first); `attention=1` puts the
+(no repo) or a GitHub owner; `sort` = `name|active` (most recently used first)`|size` (largest first)`|created` (newest first, from `.phoenix/project.json`)`|modified` (newest first: latest of last run, changelog and project file changes); `attention=1` puts the
 "need" projects in `top` (in sort order), the rest in `rest` (otherwise `top` is empty). Reply: `{top: [row], rest: [row],
 total, counts: {all, run, fail, idle, need}}`; `total` = rows in top + rest; `counts` follow `q` and `owner` but ignore `status`
 (so the status tabs can show their numbers). Bad `status`, `sort` or `attention` values answer 400.

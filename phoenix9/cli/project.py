@@ -14,7 +14,7 @@ def add(sub, common) -> None:
     p.add_argument("--filter", default="", metavar="TEXT", help="only projects whose name or description has this text")
     p.add_argument("--status", default="all", help="all, run, fail, idle or need")
     p.add_argument("--owner", default="all", help="all, none (no repo) or a GitHub owner")
-    p.add_argument("--sort", default="name", help="name, active or size")
+    p.add_argument("--sort", default="name", help="name, active, size, created or modified")
     p.add_argument("--attention", action="store_true", help="put projects that need you first")
     p.set_defaults(func=list_)
     p = group.add_parser("show", parents=[common], help="show one project")

@@ -1,5 +1,5 @@
 // The home page: every project on the server, with search, filters, the Add project menu and live status.
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
@@ -43,8 +43,6 @@ export default function ProjectsPage() {
     return () => document.removeEventListener("keydown", onKey)
   }, [])
 
-  const owners = useMemo(() => [...new Set((all.data ?? []).map((r) => r.repo_owner).filter(Boolean))].sort(), [all.data])
-
   const confirmRemove = (name: string) => {
     setAsking(null)
     remove.mutate(name, {
@@ -77,7 +75,7 @@ export default function ProjectsPage() {
         </div>
       )
     }
-    const { top, rest, total, counts } = found.data
+    const { top, rest, total } = found.data
     const totalAll = all.data.length
     if (totalAll === 0) {
       return (
@@ -92,20 +90,13 @@ export default function ProjectsPage() {
     const countText = total === totalAll ? `${total} project${total === 1 ? "" : "s"}` : `${total} of ${totalAll} projects`
     return (
       <>
-        <ProjectsFilters ref={search} query={query} counts={counts} owners={owners} countText={countText} onChange={update} />
+        <ProjectsFilters ref={search} query={query} countText={countText} onChange={update} />
         {total === 0 ? (
           <div className="empty">
             <span className="ec"><Icon name="magnifying-glass" /></span>
             <b className="h3">No projects match</b>
             <p className="small">Try another word or clear the filters.</p>
             <button type="button" className="btn btn-secondary" onClick={clear}>Clear filters</button>
-          </div>
-        ) : query.attention ? (
-          <div className="plist">
-            <div className="grp-h"><Icon name="bell-ringing" />Needs you · {top.length}</div>
-            {top.length ? top.map(card) : <p className="small">Nothing needs you right now.</p>}
-            <div className="divider" role="separator">Everything else · {rest.length}</div>
-            {rest.map(card)}
           </div>
         ) : (
           <div className="plist">{[...top, ...rest].map(card)}</div>

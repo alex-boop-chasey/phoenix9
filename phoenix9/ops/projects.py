@@ -145,7 +145,8 @@ def rows() -> list:
 
 
 STATUSES = ("all", "run", "fail", "idle", "need")
-SORTS = ("name", "active", "size")
+SORTS = ("name", "active", "size", "created", "modified")
+SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")
 
 
 def state_of(row: dict) -> str:
@@ -162,12 +163,52 @@ def state_of(row: dict) -> str:
     return "idle"
 
 
+def created_at(row: dict) -> float:
+    """When the project was created: the date in .phoenix/project.json, else that file's change time (0 if unknown)."""
+    import datetime
+    import json
+    meta_file = Path(row["path"]) / ".phoenix" / "project.json"
+    try:
+        made = json.loads(meta_file.read_text(encoding="utf-8")).get("created")
+        if made:
+            return datetime.datetime.fromisoformat(str(made)).timestamp()
+    except (OSError, ValueError):
+        pass
+    try:
+        return meta_file.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def modified_at(row: dict) -> float:
+    """When the project last changed: the latest of its last run, its changelog and its project files."""
+    import os
+    folder = Path(row["path"])
+    latest = float(row.get("last_used_at") or 0)
+    try:
+        latest = max(latest, (folder / "notes" / "changelog.md").stat().st_mtime)
+    except OSError:
+        pass
+    for here, dirs, files in os.walk(folder):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for f in files:
+            try:
+                latest = max(latest, os.stat(os.path.join(here, f), follow_symlinks=False).st_mtime)
+            except OSError:
+                pass
+    return latest
+
+
 def _sorted(found: list, sort: str) -> list:
-    """Rows in the chosen order: name, most recently active first, or largest first."""
+    """Rows in the chosen order: name, recently active, largest, newest created or most recently modified."""
     if sort == "active":
         return sorted(found, key=lambda r: (-(r.get("last_used_at") or 0), r["name"]))
     if sort == "size":
         return sorted(found, key=lambda r: (-(r.get("size") or 0), r["name"]))
+    if sort == "created":
+        return sorted(found, key=lambda r: (-created_at(r), r["name"]))
+    if sort == "modified":
+        return sorted(found, key=lambda r: (-modified_at(r), r["name"]))
     return sorted(found, key=lambda r: r["name"])
 
 

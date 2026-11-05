@@ -24,19 +24,20 @@ test("rows show path, repo and the three buttons", async ({ page }) => {
   await expectNoRawOutput(page)
 })
 
-test("owner filter leaves only demo-site", async ({ page }) => {
-  await page.getByLabel("Owner").selectOption("rebirth-wd")
+test("Show: Needs you leaves only projects that need you", async ({ page }) => {
+  await page.getByLabel("Show").selectOption("need")
   await expect(row(page, "demo-site")).toBeVisible()
   await expect(row(page, "tiny-tool")).toHaveCount(0)
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
 
-test("demo-site shows Needs you and the attention toggle groups it", async ({ page }) => {
+test("demo-site shows Needs you and the old attention controls are gone", async ({ page }) => {
   await expect(row(page, "demo-site").getByText("Needs you")).toBeVisible()
-  await page.getByRole("button", { name: /Needs my attention/ }).click()
-  await expect(page.getByText(/^Needs you · \d+/)).toBeVisible()
-  await expect(page.getByRole("separator")).toContainText("Everything else")
+  await expect(page.getByRole("button", { name: /Needs my attention/ })).toHaveCount(0)
+  await expect(page.getByLabel("Owner")).toHaveCount(0)
+  await page.getByLabel("Sort").selectOption("created")
+  await expect(page).toHaveURL(/sort=created/)
   await expectNoHorizontalScroll(page)
 })
 

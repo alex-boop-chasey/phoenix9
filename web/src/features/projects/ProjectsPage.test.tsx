@@ -105,34 +105,32 @@ test("clicking a row opens the project; clicking a button does not", async () =>
   expect(await screen.findByText("project page")).toBeInTheDocument()
 })
 
-test("status segments show counts and keep the choice in the address", async () => {
+test("the Show dropdown filters by state and keeps the choice in the address", async () => {
   mockApi(routes())
   renderPage()
   await screen.findByText("4 projects")
-  const segs = within(screen.getByRole("group", { name: "Status" }))
-  expect(segs.getByRole("button", { name: /All/ })).toHaveTextContent("4")
-  expect(segs.getByRole("button", { name: /Running/ })).toHaveTextContent("1")
-  expect(segs.getByRole("button", { name: /Idle/ })).toHaveTextContent("1")
-  fireEvent.click(segs.getByRole("button", { name: /Running/ }))
+  expect(screen.queryByRole("button", { name: /Needs my attention/ })).toBeNull()
+  expect(screen.queryByLabelText("Owner")).toBeNull()
+  const show = screen.getByLabelText("Show")
+  expect(within(show).getAllByRole("option").map((o) => o.textContent))
+    .toEqual(["All projects", "Needs you", "Running", "Failed", "Idle"])
+  fireEvent.change(show, { target: { value: "run" } })
   expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
   expect(rowOf("tiny-tool")).toBeTruthy()
   expect(rowOf("demo-site")).toBeNull()
   expect(screen.getByTestId("where").textContent).toBe("/?status=run")
 })
 
-test("Needs my attention shows the group, the divider and the count", async () => {
+test("Show: Needs you lists only the projects that need you", async () => {
   mockApi(routes())
   renderPage()
   await screen.findByText("4 projects")
-  const toggle = screen.getByRole("button", { name: /Needs my attention/ })
-  expect(toggle).toHaveTextContent("2")
-  fireEvent.click(toggle)
-  expect(await screen.findByText("Needs you · 2")).toBeInTheDocument()
-  expect(screen.getByRole("separator")).toHaveTextContent("Everything else · 2")
-  expect(toggle).toHaveAttribute("aria-pressed", "true")
+  fireEvent.change(screen.getByLabelText("Show"), { target: { value: "need" } })
+  expect(await screen.findByText("2 of 4 projects")).toBeInTheDocument()
+  expect(screen.queryByText(/Everything else/)).toBeNull()
 })
 
-test("search, owner and sort selects work; Clear filters resets", async () => {
+test("search and Sort work; Clear filters resets", async () => {
   mockApi(routes())
   renderPage()
   await screen.findByText("4 projects")
@@ -140,13 +138,11 @@ test("search, owner and sort selects work; Clear filters resets", async () => {
   expect(await screen.findByText("No projects match")).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Clear filters" }))
   expect(await screen.findByText("4 projects")).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "rebirth-wd" } })
-  expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
-  fireEvent.change(screen.getByLabelText("Owner"), { target: { value: "none" } })
-  await waitFor(() => expect(rowOf("notes-only")).toBeTruthy())
-  expect(rowOf("demo-site")).toBeNull()
-  fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "size" } })
-  expect(screen.getByTestId("where").textContent).toContain("sort=size")
+  const sort = screen.getByLabelText("Sort")
+  expect(within(sort).getAllByRole("option").map((o) => o.textContent))
+    .toEqual(["Name", "Last active", "Date created", "Date modified"])
+  fireEvent.change(sort, { target: { value: "created" } })
+  expect(screen.getByTestId("where").textContent).toContain("sort=created")
 })
 
 test("the / key focuses the search box", async () => {
@@ -159,7 +155,7 @@ test("the / key focuses the search box", async () => {
 
 test("the filters are read from the address", async () => {
   mockApi(routes())
-  renderPage("/?owner=rebirth-wd&q=site")
+  renderPage("/?q=site")
   expect(await screen.findByText("1 of 4 projects")).toBeInTheDocument()
   expect(screen.getByRole("searchbox")).toHaveValue("site")
 })

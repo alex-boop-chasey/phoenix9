@@ -10,13 +10,13 @@ function setup(url: string) {
 }
 
 test("reads values from the address", () => {
-  const { result } = setup("/?q=bill&status=need&owner=acme&sort=size&attention=1")
-  expect(result.current.query).toEqual({ q: "bill", status: "need", owner: "acme", sort: "size", attention: true })
+  const { result } = setup("/?q=bill&status=need&sort=created")
+  expect(result.current.query).toEqual({ q: "bill", status: "need", sort: "created" })
 })
 
 test("no parameters gives the defaults; bad values fall back", () => {
   expect(setup("/").result.current.query).toEqual(DEFAULT_QUERY)
-  expect(parseQuery(new URLSearchParams("status=zzz&sort=zzz&attention=yes"))).toEqual(DEFAULT_QUERY)
+  expect(parseQuery(new URLSearchParams("status=zzz&sort=zzz&attention=1&owner=x"))).toEqual(DEFAULT_QUERY)
 })
 
 test("update writes only non-default values and keeps others", () => {
@@ -29,11 +29,11 @@ test("update writes only non-default values and keeps others", () => {
 })
 
 test("clear removes every filter value", () => {
-  const { result } = setup("/?q=a&sort=active&attention=1")
+  const { result } = setup("/?q=a&sort=active&attention=1&owner=x")
   act(() => result.current.clear())
   expect(result.current.loc.search).toBe("")
 })
 
 test("apiParams sends all five values", () => {
-  expect(apiParams({ ...DEFAULT_QUERY, attention: true })).toEqual({ q: "", status: "all", owner: "all", sort: "name", attention: "1" })
+  expect(apiParams({ ...DEFAULT_QUERY, sort: "modified" })).toEqual({ q: "", status: "all", owner: "all", sort: "modified", attention: "0" })
 })

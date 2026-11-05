@@ -180,8 +180,8 @@ export function reduce(state: WizardState, action: Action, ctx: Pick<Context, "p
   }
 }
 
-/** A fresh wizard on slide 1, remembering as defaults (the harness spec's default). */
-export const startState = (answers: Answers): WizardState => ({ slide: 1, seen: 1, answers, remember: true, error: "" })
+/** A fresh wizard on slide 1, not remembering as defaults until asked. */
+export const startState = (answers: Answers): WizardState => ({ slide: 1, seen: 1, answers, remember: false, error: "" })
 
 function setNested(target: Record<string, unknown>, dotted: string, value: unknown) {
   const parts = dotted.split(".")

@@ -287,9 +287,15 @@ test("review lists the plan in order with off steps greyed", async () => {
   const reviewer = plan.querySelector("[data-step=reviewer]")!
   expect(reviewer).toHaveAttribute("data-on", "false")
   expect(reviewer).toHaveClass("line-through")
+  for (const t of ["What to build", "Preset", "Steps", "Models and tools", "Failures", "Finish"]) {
+    expect(screen.getByRole("button", { name: `Edit ${t}` })).toBeInTheDocument()
+  }
+  expect(screen.getByText("Tries per task").closest("[data-fact]")).toBeInTheDocument()
   expect(plan.querySelector("[data-step=verify]")).toHaveAttribute("data-on", "true")
   expect(screen.getByText("Reading plan (specs/reading-plan.md)")).toBeInTheDocument()
-  expect(screen.getByRole("switch", { name: "Remember these as this project's defaults" })).toBeChecked()
+  expect(screen.getByRole("checkbox", { name: "Use these choices for this project's next builds" })).not.toBeChecked()
+  await userEvent.click(screen.getByRole("button", { name: "Edit Failures" }))
+  expect(title()).toBe("Failures")
 })
 
 test("submit with remember posts defaults then runs then shows running view", async () => {
@@ -305,8 +311,9 @@ test("submit with remember posts defaults then runs then shows running view", as
   await userEvent.type(tries, "2")
   await next()
   await next()
+  await userEvent.click(screen.getByRole("checkbox", { name: "Use these choices for this project's next builds" }))
   await userEvent.click(screen.getByRole("button", { name: "Start build" }))
-  await screen.findByText("Queued: waiting for the runner to pick it up.")
+  await screen.findByText(/Starting… the first step runs/)
   expect(screen.getByTestId("where")).toHaveTextContent(`/p/${P}/build?run=r-new`)
   const posts = calls.filter((c) => c.method === "POST" && !c.path.endsWith("/plan"))
   expect(posts.map((c) => c.path)).toEqual([`/api/projects/${P}/defaults`, `/api/projects/${P}/runs`])
@@ -323,7 +330,6 @@ test("submit without remember posts only runs", async () => {
   }))
   show()
   await goTo(7)
-  await userEvent.click(screen.getByRole("switch", { name: "Remember these as this project's defaults" }))
   await userEvent.click(screen.getByRole("button", { name: "Start build" }))
   await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("run=r-new"))
   const posts = calls.filter((c) => c.method === "POST" && !c.path.endsWith("/plan")).map((c) => c.path)

@@ -166,7 +166,7 @@ test("falls back to polling when the stream errors", async () => {
 test("queued message", async () => {
   mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "queued", steps: [], gates: [], plan_frozen: false, current: {} }) }))
   show()
-  expect(await screen.findByText("Queued: waiting for the runner to pick it up.")).toBeInTheDocument()
+  expect(await screen.findByText(/Starting… the first step runs/)).toBeInTheDocument()
   expect(screen.getByText("Planned steps; the runner fixes them when the build starts.")).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Stop build" })).toBeInTheDocument()
 })

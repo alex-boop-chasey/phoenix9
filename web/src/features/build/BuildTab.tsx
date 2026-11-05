@@ -29,6 +29,7 @@ export function modeFrom(params: URLSearchParams): Mode | null {
 export function BuildTab({ name }: { name: string }) {
   const [params] = useSearchParams()
   const navigate = useNavigate()
+  const justStarted = (useLocation().state as { started?: boolean } | null)?.started === true
   const onBuildTab = useLocation().pathname.endsWith("/build")
   const builds = useBuilds(name)
   const live = useLiveEvents(name)
@@ -41,11 +42,20 @@ export function BuildTab({ name }: { name: string }) {
     if (onBuildTab && !asked && active) void navigate(`${base}?run=${encodeURIComponent(active.run_id)}`, { replace: true })
   }, [onBuildTab, asked, active, base, navigate])
 
+  const selectedRun = asked?.kind === "run" ? asked.runId : undefined
+  useEffect(() => {
+    // A build that was just started shows from its top.
+    if (justStarted && selectedRun) window.scrollTo?.(0, 0)
+  }, [justStarted, selectedRun])
+
   if (asked?.kind === "wizard") {
     return (
       <Wizard
         name={name} onCancel={() => void navigate(`${base}?list=1`)}
-        onStarted={(id) => void navigate(`${base}?run=${encodeURIComponent(id)}`, { replace: true })}
+        onStarted={(id) => {
+          window.scrollTo?.(0, 0)
+          void navigate(`${base}?run=${encodeURIComponent(id)}`, { replace: true, state: { started: true } })
+        }}
       />
     )
   }

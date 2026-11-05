@@ -15,7 +15,7 @@ import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { useBuilds, useStopRun } from "@/lib/queries"
 import type { RunDetail } from "@/lib/types"
 
-import { edgeOf, Muted, ResultBadge } from "./parts"
+import { edgeOf, ResultBadge } from "./parts"
 import { StepList } from "./StepList"
 import { runSummary, useRunLive } from "./useRunLive"
 
@@ -39,7 +39,7 @@ function sumLine(d: RunDetail, total: number, passed: number): string {
     case "running": return current ? `The ${current} step is working${d.current?.task ? ` on task ${d.current.task}` : ""}` : "Running"
     case "failed": return "The build failed"
     case "stopped": return "The build was stopped"
-    default: return "Waiting for the runner"
+    default: return "Starting: the first step runs in a moment"
   }
 }
 
@@ -52,7 +52,7 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
   const edge = edgeOf(d.status)
   const failed = tasks.filter((t) => t.status === "failed").length
   const text = d.status === "running" && taskLine ? `Running ${taskLine.toLowerCase()}` : undefined
-  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Queued")
+  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
   return (
     <aside className="card run-sum" aria-label="Build summary">
       <div className="row" style={{ gap: 16 }}>
@@ -118,7 +118,9 @@ export function RunningView({ name, runId, mode }: Props) {
       {stop.error && (
         <Alert variant="destructive"><AlertDescription>{stop.error.message}</AlertDescription></Alert>
       )}
-      {s.waitingForRunner && <Muted>Queued: waiting for the runner to pick it up.</Muted>}
+      {s.waitingForRunner && (
+        <p className="row small" role="status" data-testid="starting"><Wheel />Starting… the first step runs in a moment.</p>
+      )}
       {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} />)}
       <div className="run">
         <StepList run={d} />

@@ -66,3 +66,21 @@ test("notes-only: wizard to a queued run, remembered as defaults", async ({ page
   await page.getByRole("navigation", { name: "Project tabs" }).getByRole("link", { name: "Settings" }).click()
   await expect(page.getByLabel("Tries per task")).toHaveValue("2")
 })
+
+test("every Next lands with the progress header at the top of the screen", async ({ page }) => {
+  await page.goto("/#/p/notes-only/build")
+  await page.getByRole("button", { name: "Start new build" }).click()
+  await page.getByRole("radiogroup", { name: "Spec" }).getByText("Reading plan", { exact: true }).click()
+  for (let n = 1; n < 7; n++) {
+    await page.getByRole("button", { name: "Next" }).click()
+    await expect(page.getByText(`Step ${n + 1} of 7`)).toBeVisible()
+    await expect.poll(async () => (await page.getByTestId("wizard-progress").boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(0)
+    // At the top below the sticky header, unless the page is too short to scroll that far (then it is at the very end).
+    await expect.poll(() => page.evaluate(() => {
+      const y = document.querySelector(".wiz")!.getBoundingClientRect().top
+      const end = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2
+      return y >= 0 && y < window.innerHeight && (y < 140 || end)
+    })).toBe(true)
+    await expect(page.getByRole("heading", { level: 2 }).first()).toBeFocused()
+  }
+})

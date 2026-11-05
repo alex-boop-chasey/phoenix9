@@ -16,6 +16,7 @@ export function SlideSteps({ state, dispatch, plan, presets }: SlideProps) {
   if (!plan) return <Skeleton className="h-40 w-full" />
   const description = (name: string) => library.data?.steps.find((s) => s.name === name)?.description ?? ""
   const forced = plan.steps.filter((s) => !s.on && s.reason.startsWith("needs "))
+  const always = planInOrder(plan.steps).flatMap((g) => g.steps.filter((s) => s.default === "always"))
   return (
     <div className="stackg">
       <p className="small">
@@ -34,19 +35,31 @@ export function SlideSteps({ state, dispatch, plan, presets }: SlideProps) {
           <ul className="list-disc pl-4">{forced.map((s) => <li key={s.name}>{s.title}: {s.reason}</li>)}</ul>
         </InfoBlock>
       )}
+      {always.length > 0 && (
+        <section className="always" aria-label="Always runs">
+          <h3>Always runs</h3>
+          <ul>
+            {always.map((s) => (
+              <li key={s.name} data-step={s.name}>
+                <b>{s.title}</b>
+                {description(s.name) && <small>{description(s.name)}</small>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       <div className="rail">
-        {planInOrder(plan.steps).map((g) => g.steps.length > 0 && (
+        {planInOrder(plan.steps.filter((s) => s.default !== "always")).map((g) => g.steps.length > 0 && (
           <section key={g.group} aria-label={GROUP_TITLES[g.group]} className="contents">
             <h3 className="rail-h">{g.title}</h3>
             {g.steps.map((s) => {
-              const locked = s.default === "always"
               const forcedOff = !s.on && s.reason.startsWith("needs ")
               const briefLock = s.name === "planner" && a.source === "brief"
               const on = shownOn(s, a)
               const note = stepNote(s, a, plan.steps)
               const id = `wz-step-${s.name}`
               return (
-                <label key={s.name} htmlFor={id} data-step={s.name} className={cn("rrow", forcedOff && "off", locked && "locked")}>
+                <label key={s.name} htmlFor={id} data-step={s.name} className={cn("rrow", forcedOff && "off")}>
                   <span className="node" style={{ width: 12, height: 12, marginLeft: 5 }} />
                   <span className="rt">
                     <b>
@@ -58,10 +71,9 @@ export function SlideSteps({ state, dispatch, plan, presets }: SlideProps) {
                     {note && (forcedOff ? <span className="reason"><Icon name="warning-circle" size="xs" />{note}</span> : <span className="note">{note}</span>)}
                   </span>
                   <span className="rr">
-                    {locked && <Tag><Icon name="lock" />always on</Tag>}
                     <input
                       id={id} type="checkbox" role="switch" className="switch" aria-label={s.title}
-                      checked={on} disabled={locked || forcedOff || briefLock}
+                      checked={on} disabled={forcedOff || briefLock}
                       onChange={(e) => dispatch({ type: "step", name: s.name, on: e.target.checked })}
                     />
                   </span>

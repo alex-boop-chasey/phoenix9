@@ -115,16 +115,32 @@ test("effective step list refetched (debounced) when answers change", async () =
   expect(rail.querySelector("[data-off]")).toBeNull()
 })
 
-test("always-on steps locked", async () => {
+test("always-on steps are listed plainly, with no switch", async () => {
   mockApi(routes())
   show()
   await goTo(3)
-  await waitFor(() => expect(sw("Builder")).toBeChecked())
-  expect(sw("Builder")).toBeDisabled()
-  const row = sw("Builder").closest("label")!
-  expect(within(row).getByText("always on")).toBeInTheDocument()
+  const always = await screen.findByRole("region", { name: "Always runs" })
+  expect(within(always).getByText("Builder")).toBeInTheDocument()
+  expect(within(always).queryByRole("switch")).toBeNull()
+  expect(screen.queryByRole("switch", { name: "Builder" })).toBeNull()
+  expect(screen.queryByText("always on")).toBeNull()
   expect(sw("Verify")).toBeEnabled()
   expect(within(sw("Verify").closest("label")!).getByText("Safety")).toBeInTheDocument()
+})
+
+test("every step change scrolls the progress header to the top and focuses the title", async () => {
+  mockApi(routes())
+  const scroll = vi.fn()
+  Element.prototype.scrollIntoView = scroll
+  show()
+  await goTo(2)
+  expect(scroll).toHaveBeenCalled()
+  expect(screen.getByTestId("wizard-progress")).toHaveTextContent("Step 2 of 7")
+  expect(screen.getByRole("heading", { level: 2 })).toHaveFocus()
+  scroll.mockClear()
+  await userEvent.click(screen.getByRole("button", { name: /Back/ }))
+  expect(scroll).toHaveBeenCalledTimes(1)
+  expect(screen.getByTestId("wizard-progress")).toHaveTextContent("Step 1 of 7")
 })
 
 test("forced-off step shows reason", async () => {

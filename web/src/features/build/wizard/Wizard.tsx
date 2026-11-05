@@ -1,5 +1,5 @@
 // The build wizard: seven Next/Back slides over one reducer, then Submit (remember defaults, start the run).
-import { useMemo, useReducer, useState, type ComponentType, type Dispatch } from "react"
+import { useEffect, useMemo, useReducer, useRef, useState, type ComponentType, type Dispatch } from "react"
 
 import { ErrorState } from "@/components/ErrorState"
 import { Button } from "@/components/ui/button"
@@ -71,6 +71,17 @@ function WizardForm({
   const saveDefaults = useSaveDefaults(name)
   const startRun = useStartRun(name)
   const [busy, setBusy] = useState(false)
+  const top = useRef<HTMLDivElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const shownSlide = useRef(state.slide)
+
+  // Every step change lands on the progress header (below the sticky header) with focus on the step title.
+  useEffect(() => {
+    if (shownSlide.current === state.slide) return
+    shownSlide.current = state.slide
+    top.current?.scrollIntoView?.({ block: "start" })
+    heading.current?.focus({ preventScroll: true })
+  }, [state.slide])
 
   const problems = validateSlide(state.slide, a, plan.data)
   // On the Steps slide, Next waits until the step list matches the latest switches (no slipping past an error).
@@ -97,7 +108,7 @@ function WizardForm({
 
   return (
     <>
-      <div className="wiz">
+      <div className="wiz" ref={top}>
         <ol className="outline" aria-label="Build wizard steps">
           {SLIDE_TITLES.map((title, i) => {
             const n = i + 1
@@ -117,11 +128,19 @@ function WizardForm({
             )
           })}
         </ol>
+        <div className="wmain">
+        <div className="wprog" data-testid="wizard-progress">
+          <p className="small">Step {state.slide} of {SLIDE_COUNT}<span className="wp-title"> · {SLIDE_TITLES[state.slide - 1]}</span></p>
+          <div className="wbar" role="progressbar" aria-label="Wizard progress" aria-valuemin={1} aria-valuemax={SLIDE_COUNT} aria-valuenow={state.slide}>
+            {SLIDE_TITLES.map((title, i) => (
+              <span key={title} className={i + 1 < state.slide ? "done" : i + 1 === state.slide ? "now" : ""} />
+            ))}
+          </div>
+        </div>
         <section className="canvas" aria-label="Build wizard">
           <div className="canvas-h">
             <div>
-              <p className="small">Step {state.slide} of {SLIDE_COUNT}</p>
-              <h2 className="h2">{SLIDE_TITLES[state.slide - 1]}</h2>
+              <h2 className="h2" ref={heading} tabIndex={-1}>{SLIDE_TITLES[state.slide - 1]}</h2>
             </div>
             <span className="area"><Icon name="hammer" />Build</span>
           </div>
@@ -130,6 +149,7 @@ function WizardForm({
             presets={presets} specs={specs}
           />
         </section>
+        </div>
       </div>
       <div className="wdock">
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>

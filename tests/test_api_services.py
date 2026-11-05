@@ -12,7 +12,7 @@ CHECK_URL = "http://proxy.fake/supabase/v1/projects"
 def test_get_services(api):
     status, body = api("/api/services")
     rows = {r["name"]: r for r in body["data"]["services"]}
-    assert status == 200 and body["data"]["supported"] is True and len(rows) == 9
+    assert status == 200 and body["data"]["supported"] is True and len(rows) == 10
     assert rows["supabase"]["endpoints"] == {"connect": "services/supabase/connect",
                                              "disconnect": "services/supabase/disconnect"}
     assert rows["supabase"]["connected"] is False and rows["stripe"]["connected"] is True

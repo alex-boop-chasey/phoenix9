@@ -33,7 +33,7 @@ def test_list_shows_names_never_values(capsys, fakes):
     assert main(["services", "list", "--json"]) == 0
     js = capsys.readouterr()
     rows = {r["name"]: r for r in json.loads(js.out)}
-    assert len(rows) == 9 and rows["supabase"]["account_keys"] == ["SUPABASE_ACCESS_TOKEN"]
+    assert len(rows) == 10 and rows["supabase"]["account_keys"] == ["SUPABASE_ACCESS_TOKEN"]
     assert rows["stripe"]["connected"] is True and rows["github"]["connected"] is False
     assert SENTINEL not in plain.out + plain.err + js.out + js.err
 

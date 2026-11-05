@@ -124,12 +124,12 @@
   }
   html {
     -webkit-text-size-adjust: 100%;
+    overflow-x: clip;
   }
   body {
     @apply bg-background text-foreground;
     margin: 0;
     font: 400 15px/1.6 var(--f-body);
-    overflow-x: hidden;
     font-feature-settings: "tnum" 1;
   }
   a {

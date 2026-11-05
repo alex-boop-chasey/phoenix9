@@ -1,5 +1,5 @@
 // The "Add project" split button: the main part goes to Create new, the chevron opens two mini cards.
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
@@ -13,6 +13,27 @@ const ITEMS: { to: string; icon: IconName; title: string; line: string }[] = [
 export function AddProjectMenu() {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+
+  const menu = useRef<HTMLDivElement>(null)
+
+  // Place the menu under the button, right edges lined up, then keep it inside the screen.
+  useLayoutEffect(() => {
+    if (!open) return
+    const place = () => {
+      const el = menu.current, anchor = box.current
+      if (!el || !anchor) return
+      const gutter = 16, r = anchor.getBoundingClientRect(), vw = document.documentElement.clientWidth
+      const width = Math.min(360, vw - gutter * 2)
+      const left = Math.max(gutter, Math.min(r.right - width, vw - gutter - width))
+      el.style.width = `${width}px`
+      el.style.left = `${left}px`
+      el.style.top = `${r.bottom + 8}px`
+    }
+    place()
+    window.addEventListener("resize", place)
+    window.addEventListener("scroll", place, true)
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true) }
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -32,7 +53,7 @@ export function AddProjectMenu() {
       >
         <Icon name="caret-down" />
       </button>
-      <div className={`menu${open ? " open" : ""}`} role="menu">
+      <div ref={menu} className={`menu${open ? " open" : ""}`} role="menu">
         {ITEMS.map((it) => (
           <Link key={it.to} className="mini" role="menuitem" to={it.to} onClick={() => setOpen(false)} tabIndex={open ? 0 : -1}>
             <span className="ico"><Icon name={it.icon} /></span>

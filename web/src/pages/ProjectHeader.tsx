@@ -1,5 +1,6 @@
 // The header every project tab shares: name, state, Repo / VS Code / Chat, Start new build, details and tabs.
-import { Link, NavLink } from "react-router"
+import { useEffect, useRef } from "react"
+import { Link, NavLink, useLocation } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
 import { StateBadge } from "@/features/projects/ProjectRowCard"
@@ -43,6 +44,14 @@ function Dock({ row }: { row: ProjectRow }) {
 /** The project header with its four tabs. */
 export function ProjectHeader({ row }: { row: ProjectRow }) {
   const base = `/p/${encodeURIComponent(row.name)}`
+  const tabs = useRef<HTMLElement>(null)
+  const { pathname } = useLocation()
+  useEffect(() => {
+    // Scroll the tab bar itself (never the page) so the current tab is in view.
+    const bar = tabs.current, cur = bar?.querySelector<HTMLElement>('[aria-current="page"]')
+    if (!bar || !cur) return
+    bar.scrollLeft = Math.max(0, cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2)
+  }, [pathname])
   return (
     <div className="phead">
       <div className="ph-row">
@@ -59,7 +68,7 @@ export function ProjectHeader({ row }: { row: ProjectRow }) {
         <span className="mono"><Icon name="github-logo" size="xs" /><span>{row.repo || "No repo"}</span></span>
         <span>{row.size == null ? "Measuring size…" : formatBytes(row.size)}</span>
       </div>
-      <nav className="tabs" aria-label="Project tabs">
+      <nav className="tabs" ref={tabs} aria-label="Project tabs">
         {TABS.map((t) => (
           <NavLink key={t} to={`${base}/${t}`} className="tab" end>
             <Icon name={TAB_ICON[t]} />{TAB_LABEL[t]}

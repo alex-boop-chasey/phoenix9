@@ -11,13 +11,15 @@
 .dock a + a,.dock a + button,.dock button + button,.dock button + a{border-left:1px solid var(--input-border)}
 .dock a:hover,.dock button:hover:not(:disabled){background:var(--accent-soft); color:var(--accent-text)}
 .dock button:disabled{opacity:.5; cursor:not-allowed}
-.tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); overflow-x:auto; scrollbar-width:none; margin-top:6px}
+.tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); overflow-x:auto; overflow-y:hidden; overscroll-behavior:contain; touch-action:pan-x pan-y; scroll-snap-type:x proximity; scrollbar-width:none; margin-top:6px; max-width:100%}
+.tabs .tab{scroll-snap-align:center; flex:none}
 .tabs::-webkit-scrollbar{display:none}
 .tab{display:inline-flex; align-items:center; gap:8px; height:44px; padding:0 14px; color:var(--text-2); text-decoration:none; font-weight:500; font-size:14px; border-bottom:2px solid transparent; margin-bottom:-1px; white-space:nowrap; border-radius:var(--r-sm) var(--r-sm) 0 0}
 .tab svg.i{width:18px; height:18px}
 .tab:hover{color:var(--text); background:var(--surface-2)}
 .tab[aria-current="page"]{color:var(--text); font-weight:600; border-bottom-color:var(--accent)}
 .tab .tc{min-width:20px; height:20px; padding:0 6px; border-radius:10px; font:700 11.5px/20px var(--f-body); text-align:center; background:var(--attn); color:var(--attn-ink)}
+@media (max-width:520px){ .tabs{gap:0; justify-content:space-between} .tab{position:relative; gap:5px; padding:0 8px; font-size:13px} .tab svg.i{width:16px; height:16px} .tab .tc{position:absolute; top:3px; right:-2px; min-width:16px; height:16px; padding:0 4px; font-size:10.5px; line-height:16px} }
 @container well (max-width:640px){ .ph-r{margin-left:0; width:100%} .ph-r .btn-primary{flex:1} .dock a,.dock button{height:44px} }
 
 .ov{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}

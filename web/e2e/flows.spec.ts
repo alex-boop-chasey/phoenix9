@@ -47,7 +47,8 @@ test("answering each kind of question clears 'waiting' everywhere", async ({ pag
   // demo-site: a question card (Skip), no review panel
   await page.goto("/#/p/demo-site/overview")
   await page.getByRole("article", { name: /Needs you/ }).getByRole("button", { name: "Skip task" }).click()
-  await expect(page.getByText("Answered: Phoenix is carrying on").first()).toBeVisible({ timeout: 15_000 })
+  // The demo server moves the run on at once, so the "Answered" text can be gone before we look: the card must be.
+  await expect(page.getByRole("article", { name: /Needs you/ })).toHaveCount(0, { timeout: 15_000 })
   await page.goto("/#/p/demo-site/build")
   await expect(page.getByText(/Waiting for you/)).toHaveCount(0)
   await page.goto("/")

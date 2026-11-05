@@ -4,7 +4,8 @@ description = "User sign-in and accounts."
 support = "keys-only"
 docs = "https://clerk.com/docs"
 account_keys = []
-hosts = ["api.clerk.com", "clerk.accounts.dev"]
+# clerk.com: the Clerk CLI talks to clerk.com and api.clerk.com; clerk.accounts.dev serves development instances.
+hosts = ["clerk.com", "api.clerk.com", "clerk.accounts.dev"]
 
 [[project_keys]]
 name = "PUBLIC_CLERK_PUBLISHABLE_KEY"

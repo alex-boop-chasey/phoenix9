@@ -134,8 +134,8 @@ svg.i.sm{width:16px; height:16px} svg.i.xs{width:14px; height:14px} svg.i.lg{wid
 .area svg.i{width:14px; height:14px; color:var(--accent)}
 
 /* cards / boards */
-.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-1); padding:20px; min-width:0}
-.board{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); min-width:0}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-1); padding:20px; min-width:0; contain:layout paint}
+.board{background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); box-shadow:var(--shadow-1); min-width:0; contain:layout paint}
 .board-h{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:16px 20px; border-bottom:1px solid var(--line)}
 .board-h .h2{font-size:22px}
 .board-h .sp{margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap}
@@ -194,7 +194,7 @@ svg.i.sm{width:16px; height:16px} svg.i.xs{width:14px; height:14px} svg.i.lg{wid
 .toast:hover .ttl{animation-play-state:paused}
 .toast.info{--tc:var(--accent)} .toast.out{animation:toastOut .2s ease forwards}
 @keyframes spin{to{transform:rotate(360deg)}}
-@keyframes heatshift{to{background-position:200% 0}}
+@keyframes heatshift{to{transform:translateX(-50%)}}
 @keyframes pulse{50%{opacity:.35}}
 @keyframes arrive{0%{box-shadow:0 0 0 0 rgba(255,122,0,.55),var(--shadow-2)} 100%{box-shadow:0 0 0 14px rgba(255,122,0,0),var(--shadow-2)}}
 @keyframes toastIn{from{opacity:0; transform:translateY(12px)}}
@@ -203,6 +203,7 @@ svg.i.sm{width:16px; height:16px} svg.i.xs{width:14px; height:14px} svg.i.lg{wid
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important}
   .ind-run,.wheel{border-right-color:var(--accent) !important}
+  .wire.on::before,.spin,.ind-run,.wheel,.tbar i.run,.live i{animation:none !important}
   }
 }
 

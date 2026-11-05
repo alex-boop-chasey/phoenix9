@@ -3,7 +3,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef, useState } from "react"
 
 import { api, eventsUrl } from "@/lib/api"
-import { keys } from "@/lib/queries"
+import { keys, liveMode } from "@/lib/queries"
 import type { PhoenixEvent } from "@/lib/types"
 
 export const POLL_MS = 4000
@@ -63,6 +63,7 @@ export function useLiveEvents(project?: string, onEvent?: (ev: PhoenixEvent) => 
     const startPolling = () => {
       source?.close()
       source = null
+      liveMode.current = "polling"
       setMode("polling")
       void poll()
     }
@@ -71,7 +72,7 @@ export function useLiveEvents(project?: string, onEvent?: (ev: PhoenixEvent) => 
       startPolling()
     } else {
       source = new EventSource(eventsUrl(project))
-      source.onopen = () => setMode("live")
+      source.onopen = () => { liveMode.current = "live"; setMode("live") }
       source.onmessage = (m: MessageEvent) => onFrame(m)
       source.onerror = () => startPolling()
     }

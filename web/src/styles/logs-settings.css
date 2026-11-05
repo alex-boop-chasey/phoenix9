@@ -25,7 +25,7 @@
 .keys{width:100%; border-collapse:collapse; font-size:14px; min-width:520px}
 .keys th{text-align:left; font-size:12.5px; color:var(--text-2); font-weight:600; padding:6px 10px; border-bottom:1px solid var(--line)}
 .keys td{padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:middle}
-.savebar{position:sticky; bottom:12px; z-index:6; margin-top:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line-strong); box-shadow:var(--shadow-3)}
+.savebar{position:sticky; bottom:12px; z-index:6; margin-top:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-radius:var(--r-lg); background:var(--surface); border:1px solid var(--line-strong); box-shadow:var(--shadow-2); will-change:transform}
 .savebar .unsaved{display:flex; gap:8px; align-items:center; font-size:14px; font-weight:600; margin-right:auto}
 .savebar .unsaved i{width:9px; height:9px; border-radius:50%; background:var(--accent-3)}
 .lfil{display:flex; gap:8px; flex-wrap:wrap; align-items:center}

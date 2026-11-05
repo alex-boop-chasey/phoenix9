@@ -1,10 +1,19 @@
 // react-query hooks with stable keys, and mutations that refresh the right keys.
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
+import { useCallback } from "react"
 
 import { api } from "@/lib/api"
 import type {
   CreateForm, EditBody, GateAction, KeyInput, Overrides, StartRunBody,
 } from "@/lib/types"
+
+/** Whether the event stream is connected ("live") or we are polling; set by useLiveEvents, read by refreshMs(). */
+export const liveMode: { current: "live" | "polling" } = { current: "polling" }
+
+/** How often the project lists refetch: 30 s when live events arrive, 10 s when only polling. */
+export function refreshMs(): number {
+  return liveMode.current === "live" ? 30_000 : 10_000
+}
 
 const REFRESH_MS = 10_000
 
@@ -45,9 +54,9 @@ export const useUpdate = (enabled = true) =>
 export const useDeploys = (name: string, enabled = true) =>
   useQuery({ queryKey: ["deploys", name], queryFn: () => api.deploys(name), enabled: !!name && enabled })
 export const useProjects = () =>
-  useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: REFRESH_MS })
+  useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: () => refreshMs() })
 export const useProjectSearch = (params: Record<string, string>) =>
-  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: REFRESH_MS, placeholderData: keepPreviousData })
+  useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: () => refreshMs(), placeholderData: keepPreviousData })
 /** The sub-folders of a folder under the projects folder (empty path = the projects folder). */
 export const useFolders = (path: string) =>
   useQuery({ queryKey: ["folders", path], queryFn: () => api.folders(path), retry: false })
@@ -115,13 +124,13 @@ export function useRemoveProject() {
   return useMutation({ mutationFn: (name: string) => api.removeProject(name) })
 }
 
-/** A function that refreshes the project lists and the import lists. */
+/** A function (stable between renders) that refreshes the project lists and the import lists. */
 export function useRefreshProjects() {
   const qc = useQueryClient()
-  return () => {
+  return useCallback(() => {
     void qc.invalidateQueries({ queryKey: keys.projects() })
     void qc.invalidateQueries({ queryKey: ["import-candidates"] })
-  }
+  }, [qc])
 }
 
 /** Import a removed project or a folder; the lists refresh afterwards. */

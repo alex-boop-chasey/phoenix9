@@ -1,5 +1,5 @@
 // One project as a horizontal card: state edge, name and path, status, repo and the Remove, Chat and VS Code buttons.
-import type { MouseEvent } from "react"
+import { memo, type MouseEvent } from "react"
 import { Link, useNavigate } from "react-router"
 
 import { Icon } from "@/components/Icon"
@@ -52,12 +52,12 @@ function CodeButton({ row }: { row: ProjectRow }) {
   return <a className="btn btn-secondary" href={row.vscode_url} target="_blank" rel="noreferrer"><Icon name="code" />VS Code</a>
 }
 
-/** A project row; clicking anywhere except its links and buttons opens the project. */
-export function ProjectRowCard({ row, gone, onRemove, onStartChat }: {
+/** A project row; clicking anywhere except its links and buttons opens the project. Memoised: the callbacks take the project name so the parent can keep them stable. */
+export const ProjectRowCard = memo(function ProjectRowCard({ row, gone, onRemove, onStartChat }: {
   row: ProjectRow
   gone: boolean
-  onRemove: () => void
-  onStartChat: () => void
+  onRemove: (name: string) => void
+  onStartChat: (name: string) => void
 }) {
   const navigate = useNavigate()
   const open = (e: MouseEvent) => {
@@ -72,10 +72,10 @@ export function ProjectRowCard({ row, gone, onRemove, onStartChat }: {
       </div>
       <div className="p-meta"><span><StateBadge row={row} /></span><RepoPart row={row} /></div>
       <div className="p-acts">
-        <button type="button" className="btn btn-ghost" onClick={onRemove}><Icon name="trash" />Remove</button>
-        <ChatButton row={row} onStart={onStartChat} />
+        <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>
+        <ChatButton row={row} onStart={() => onStartChat(row.name)} />
         <CodeButton row={row} />
       </div>
     </div>
   )
-}
+})

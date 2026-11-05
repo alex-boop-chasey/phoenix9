@@ -14,12 +14,12 @@
 .fbar-2 .select{width:auto; height:38px; font-size:14px}
 .fbar-2 .count{margin-left:auto; font-size:13px; color:var(--text-2)}
 .plist{display:flex; flex-direction:column; gap:8px}
-.prow{position:relative; display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:14px 16px 14px 22px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-1); cursor:pointer; transition:border-color var(--dur-fast),background-color var(--dur-fast),opacity var(--dur-base),transform var(--dur-base)}
+.prow{position:relative; display:grid; grid-template-columns:minmax(0,1fr); gap:10px; padding:14px 16px 14px 22px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); box-shadow:var(--shadow-1); cursor:pointer; contain:layout paint; transition:border-color var(--dur-fast),background-color var(--dur-fast)}
 .prow::before{content:""; position:absolute; left:0; top:0; bottom:0; width:6px; border-radius:var(--r-md) 0 0 var(--r-md); background:var(--spine, transparent)}
 .prow:hover{border-color:var(--line-strong); background:color-mix(in srgb, var(--surface) 70%, var(--surface-2))}
 .prow.s-need{--spine:var(--attn); border-color:color-mix(in srgb, var(--attn) 55%, var(--line))}
 .prow.s-run{--spine:var(--accent)} .prow.s-fail{--spine:var(--bad)}
-.prow.gone{opacity:0; transform:scaleY(.6)}
+.prow.gone{opacity:0; transform:scaleY(.6); transition:opacity var(--dur-base),transform var(--dur-base)}
 .p-main{display:flex; flex-direction:column; min-width:0}
 .p-name{font:700 19px/1.25 var(--f-display); letter-spacing:.02em; color:var(--text); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .p-name::after{content:""; position:absolute; inset:0}
@@ -47,7 +47,7 @@
 .menu{position:fixed; z-index:25; top:60px; left:16px; width:min(360px,calc(100vw - 32px)); max-width:calc(100vw - 32px); background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-lg); padding:8px; box-shadow:var(--shadow-3); display:grid; gap:6px; opacity:0; transform:translateY(-4px) scale(.98); transform-origin:top right; pointer-events:none; visibility:hidden; transition:opacity var(--dur-base),transform var(--dur-base),visibility 0s var(--dur-base)}
 .menu.open{opacity:1; transform:none; pointer-events:auto; visibility:visible; transition:opacity var(--dur-base),transform var(--dur-base)}
 .mini{display:flex; align-items:center; gap:12px; padding:8px; min-height:56px; border-radius:var(--r-md); border:1px solid var(--line); background:var(--surface); color:var(--text); text-align:left; width:100%; cursor:pointer; text-decoration:none; transition:background-color var(--dur-fast),border-color var(--dur-fast),transform var(--dur-fast)}
-.mini .ico{width:36px; height:36px; border-radius:var(--r-sm); display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--line); color:var(--text-2); flex:none; transition:all var(--dur-fast)}
+.mini .ico{width:36px; height:36px; border-radius:var(--r-sm); display:grid; place-items:center; background:var(--surface-2); border:1px solid var(--line); color:var(--text-2); flex:none; transition:background-color var(--dur-fast),color var(--dur-fast),border-color var(--dur-fast)}
 .mini .t{display:flex; flex-direction:column; min-width:0; flex:1}
 .mini .t b{font-weight:600; font-size:14px}
 .mini .t span{font-size:12.5px; line-height:1.35; color:var(--text-2)}

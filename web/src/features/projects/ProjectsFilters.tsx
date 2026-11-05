@@ -1,5 +1,5 @@
 // The filter bar above the projects list: search box, "Show" and "Sort" dropdowns and the count.
-import { forwardRef } from "react"
+import { forwardRef, useEffect, useRef, useState } from "react"
 
 import { Icon } from "@/components/Icon"
 
@@ -13,12 +13,47 @@ const SORT_LABEL: Record<(typeof SORTS)[number], string> = {
   name: "Name", active: "Last active", created: "Date created", modified: "Date modified",
 }
 
+/** How long typing can pause before the search text goes to the address (and the server). */
+export const SEARCH_DEBOUNCE_MS = 250
+
+/** The typed search text: shown at once, sent on (via onCommit) after a pause or on Enter; follows outside changes. */
+function useDebouncedSearch(value: string, onCommit: (q: string) => void) {
+  const [text, setText] = useState(value)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const commit = useRef(onCommit)
+  useEffect(() => {
+    commit.current = onCommit
+  })
+  const cancel = () => {
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = undefined
+  }
+  useEffect(() => {
+    // The address changed (a link, Clear filters, or our own commit): show that text and drop any pending commit.
+    cancel()
+    setText(value)
+  }, [value])
+  useEffect(() => cancel, [])
+  const type = (next: string) => {
+    setText(next)
+    cancel()
+    timer.current = setTimeout(() => { timer.current = undefined; commit.current(next) }, SEARCH_DEBOUNCE_MS)
+  }
+  const flush = () => {
+    if (!timer.current) return
+    cancel()
+    commit.current(text)
+  }
+  return { text, type, flush }
+}
+
 /** The search box, the Show and Sort dropdowns, and the count text. */
 export const ProjectsFilters = forwardRef<HTMLInputElement, {
   query: ProjectQuery
   countText: string
   onChange: (patch: Partial<ProjectQuery>) => void
 }>(function ProjectsFilters({ query, countText, onChange }, ref) {
+  const search = useDebouncedSearch(query.q, (q) => onChange({ q }))
   return (
     <div className="fbar" role="search" aria-label="Search and filter projects">
       <div className="fbar-1">
@@ -27,7 +62,8 @@ export const ProjectsFilters = forwardRef<HTMLInputElement, {
           <label className="sr" htmlFor="pSearch">Search projects</label>
           <input
             ref={ref} className="input" id="pSearch" type="search" placeholder="Search projects"
-            value={query.q} onChange={(e) => onChange({ q: e.target.value })}
+            value={search.text} onChange={(e) => search.type(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") search.flush() }}
           />
           <span className="kbd">/</span>
         </div>

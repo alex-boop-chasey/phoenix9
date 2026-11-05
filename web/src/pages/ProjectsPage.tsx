@@ -1,5 +1,5 @@
 // The home page: every project on the server, with search, filters, the Add project menu and live status.
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
@@ -58,11 +58,11 @@ export default function ProjectsPage() {
     })
   }
 
+  // Stable callbacks (they take the project name) so the memoised rows only re-render when their row changes.
+  const askRemove = useCallback((name: string) => setAsking(name), [])
+  const chatFor = useCallback((name: string) => void startChat(name, refresh), [refresh])
   const card = (row: ProjectRow) => (
-    <ProjectRowCard
-      key={row.name} row={row} gone={gone.includes(row.name)}
-      onRemove={() => setAsking(row.name)} onStartChat={() => void startChat(row.name, refresh)}
-    />
+    <ProjectRowCard key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} onStartChat={chatFor} />
   )
 
   const body = () => {

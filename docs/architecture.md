@@ -332,8 +332,8 @@ line per finished install or roll-back to `HOME/update/history.jsonl` (`at, acti
 Rules (checked by `phoenix9/services.py`; a broken folder is reported and skipped, never a crash):
 name = folder name; `support` is one of the two values; `account_keys` match `^[A-Z][A-Z0-9_]*$`;
 `[[project_keys]]` rows: `name` matches `^[A-Z][A-Z0-9_]*$`, `secret` (default true), `public` (default false, not with `secret`), `required` (default true), `help`. Names are final env var names: a browser-safe value carries the web profile's `PUBLIC_` prefix in its name (no per-profile prefixing; services are used by the web profile). `[proxy]` and `[check]` are required for store-and-wire and forbidden for keys-only; `proxy.key` is in
-`account_keys`; `[proxy]` is checked by `proxy.spec_from_service` (so rules by `proxy.parse_rules`: no
-trailing `/` in a path); `hosts` are bare domain names (no scheme, port, path or `*`; subdomains match by
+`account_keys`; `[proxy]` is checked by `proxy.spec_from_service` (so rules by `proxy.parse_rules`: no `//`;
+a trailing `/` is allowed only as the whole last part, for APIs like Sentry's that need it, and then only matches a request with it); `hosts` are bare domain names (no scheme, port, path or `*`; subdomains match by
 suffix, and each name must resolve on its own). Beside it: `install.md` (store-and-wire: plain
 instructions for the Builder: package names per profile, where config goes, env var names, never values)
 and an optional `recipe.py` (`def wire(ctx, service, proxy) -> dict`). Services with account API access

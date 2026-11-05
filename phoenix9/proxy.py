@@ -104,13 +104,16 @@ def _check_upstream(url: str, *, allow_plain_http: bool = False) -> None:
 
 
 def _check_pattern(path) -> None:
-    """Raise ValueError unless the pattern is a clean /a/*/b or /a/** style path."""
+    """Raise ValueError unless the pattern is a clean /a/*/b or /a/** style path (one trailing / is allowed:
+    some APIs, like Sentry's, need it; the path then only matches a request with the same trailing /)."""
     if not isinstance(path, str) or not path.startswith("/"):
         raise ValueError(f"rule path {path!r} must start with /")
     segments = path.split("/")[1:]
+    if len(segments) > 1 and segments[-1] == "" and segments[-2] not in ("", "**"):
+        segments = segments[:-1]
     for i, seg in enumerate(segments):
         if seg == "":
-            raise ValueError(f"rule path {path} has an empty part (// or a trailing /)")
+            raise ValueError(f"rule path {path} has an empty part (// or a / after **)")
         if seg in (".", ".."):
             raise ValueError(f"rule path {path} must not contain . or .. parts")
         if seg == "**" and i != len(segments) - 1:

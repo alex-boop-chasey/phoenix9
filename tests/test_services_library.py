@@ -37,6 +37,10 @@ def test_check_call_is_an_allowed_rule():
 
 def test_sentry_hosts_empty():
     assert services.get("sentry")["hosts"] == []
+    # Sentry's API answers 404 without the trailing slash, so its paths keep it (and the folder still loads).
+    sentry = services.get("sentry")
+    assert sentry["check"]["path"] == "/organizations/" and services.load_problems() == []
+    assert [r["path"] for r in sentry["proxy"]["allow"]] == ["/organizations/", "/organizations/*/projects/"]
     assert services.get("github")["hosts"] == [] and services.get("github")["secrets_file"] == "github.env"
     assert services.get("supabase")["secrets_file"] == "service-supabase.env"
 
@@ -63,7 +67,7 @@ BAD = {
     "bad support": (GOOD.replace('"store-and-wire"', '"sometimes"'), "support"),
     "proxy on keys-only": (GOOD.replace('"store-and-wire"', '"keys-only"'), "keys-only"),
     "key not in account_keys": (GOOD.replace('key = "DEMO_TOKEN"', 'key = "OTHER"'), "account_keys"),
-    "bad rule": (GOOD.replace('path = "/things"\n[check]', 'path = "/things/"\n[check]'), "empty part"),
+    "bad rule": (GOOD.replace('path = "/things"\n[check]', 'path = "/things//x"\n[check]'), "empty part"),
     "host with scheme": (GOOD.replace('"demo.example.com"', '"https://demo.example.com"'), "bare domain"),
     "wildcard host": (GOOD.replace('"demo.example.com"', '"*.example.com"'), "bare domain"),
     "name differs from folder": (GOOD.replace('name = "demo"', 'name = "other"'), "folder name"),

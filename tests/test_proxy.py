@@ -386,7 +386,8 @@ def test_plain_http_upstream_refused_unless_loopback_and_flag(log_path):
     {"method": "GET", "path": "/a/**/b"},
     {"method": "GET", "path": "/a//b"},
     {"method": "GET", "path": "/a/../b"},
-    {"method": "GET", "path": "/a/b/"},
+    {"method": "GET", "path": "/a/**/"},
+    {"method": "GET", "path": "/a/b//"},
     {"method": "GET", "path": "/a/b*"},
     {"method": "GET", "path": "/a", "upstream": "http://uploads.example.com"},
     {"method": "GET", "path": "/a", "extra": 1},
@@ -394,6 +395,14 @@ def test_plain_http_upstream_refused_unless_loopback_and_flag(log_path):
 def test_parse_rules_rejects_bad_rules(item):
     with pytest.raises(ValueError):
         proxy.parse_rules([item])
+
+
+def test_trailing_slash_rule_matches_only_the_same_path():
+    rules = proxy.parse_rules([{"method": "GET", "path": "/organizations/"}, {"method": "GET", "path": "/teams"}])
+    assert proxy.find_rule(rules, "GET", "/organizations/") is rules[0]
+    assert proxy.find_rule(rules, "GET", "/organizations") is None
+    assert proxy.find_rule(rules, "GET", "/teams/") is None and proxy.find_rule(rules, "GET", "/teams") is rules[1]
+    assert proxy.path_is_safe("/organizations/") and not proxy.path_is_safe("/organizations//")
 
 
 def test_fake_proxy_factory_never_keeps_key(tmp_path):

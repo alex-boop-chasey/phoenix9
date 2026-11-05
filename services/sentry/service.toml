@@ -55,14 +55,15 @@ key = "SENTRY_AUTH_TOKEN"
 extra_headers = {}
 
 # Starting list from the service's public API docs; checked on first real use.
+# Sentry needs the trailing slash: GET /organizations answers 404, /organizations/ answers properly.
 [[proxy.allow]]
 method = "GET"
-path = "/organizations"
+path = "/organizations/"
 [[proxy.allow]]
 method = "GET"
-path = "/organizations/*/projects"
+path = "/organizations/*/projects/"
 
 [check]
 method = "GET"
-path = "/organizations"
+path = "/organizations/"
 expect = [200]

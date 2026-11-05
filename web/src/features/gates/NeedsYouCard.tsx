@@ -19,6 +19,7 @@ const LABEL: Record<string, string> = {
   stop: "Stop run",
   acknowledged: "Acknowledged",
   done: "Done, keys pasted",
+  defer: "Build without it for now",
 }
 
 const KNOWN: GateAction[] = ["approve", "back", "skip", "stop", "acknowledged"]
@@ -28,6 +29,8 @@ const labelOf = (action: GateAction) => LABEL[action] ?? action
 
 const ESCALATION_HELP =
   "Fix it (for example with the project's chat), then press Acknowledged; the task runs once more."
+const DEFER_HELP =
+  "\"Build without it for now\" carries on and builds the site so it still works without these keys. Phoenix shows \"Waiting for keys\" until you save them; the next build then switches the service on."
 const DELEGATED_HELP =
   "The project's chat is working on it; it will answer this itself if it fixes it."
 const DELEGATED_FLAG = "delegated to project chat"
@@ -121,6 +124,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
           </div>
         )}
         {escalation && <p className="text-sm text-muted-foreground">{ESCALATION_HELP}</p>}
+        {offers("defer") && <p className="text-sm text-muted-foreground">{DEFER_HELP}</p>}
         {gate.flags.includes(DELEGATED_FLAG) && <p className="text-sm text-muted-foreground">{DELEGATED_HELP}</p>}
         {gate.links.length > 0 && (
           <div className="links">

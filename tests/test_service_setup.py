@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from helpers import scripted
-from phoenix9 import gates, keys, paths, project, runs, services, settings, state
+from phoenix9 import gates, keys, paths, project, runs, services, settings, state, summary
 from phoenix9.library import load_library
 from phoenix9.ops import common
 from phoenix9.ops import services as ops_services
@@ -94,7 +94,7 @@ def test_missing_keys_open_human_task_gate_listing_names(tmp_path, adapters):
     run_dir = new_run(tmp_path)
     assert Runner(adapters, make_lib(tmp_path / "lib")).drive(run_dir) == "waiting"
     gate = open_gate(run_dir)
-    assert gate["kind"] == "human-task" and gate["actions"] == ["done", "skip", "stop"]
+    assert gate["kind"] == "human-task" and gate["actions"] == ["done", "defer", "skip", "stop"]
     assert gate["title"] == "Paste keys for Supabase"
     for name in ("PUBLIC_SUPABASE_URL", "PUBLIC_SUPABASE_PUBLISHABLE_KEY"):
         assert name in gate["why"]
@@ -128,6 +128,46 @@ def test_done_without_keys_fails_naming_them(tmp_path, adapters):
     assert line["status"] == "failed"
     assert "PUBLIC_SUPABASE_PUBLISHABLE_KEY" in line["note"]
     assert "PUBLIC_SUPABASE_URL" not in line["note"]
+
+
+def test_defer_carries_on_and_marks_service_waiting(tmp_path, adapters):
+    make_project()
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib", builder_real=True))
+    adapters.claude.sessions += [{"files": {"a.py": "x\n"}, "text": "STEP DONE"}]
+    assert runner.drive(run_dir) == "waiting"
+    gates.answer(open_gate(run_dir)["id"], "defer")
+    assert runner.drive(run_dir) == "done"
+    assert step_line(run_dir)["status"] == "passed"
+    notes = (run_dir / "services.md").read_text()
+    assert "Keys missing for now" in notes and "keep the site working" in notes and SENTINEL not in notes
+    prompt = (run_dir / "tasks" / "1" / "attempt-1" / "builder-prompt.md").read_text()
+    assert "Keys missing for now" in prompt
+    assert project.waiting_for_keys("proj") == ["Supabase"]
+    assert project.setup_facts(paths.projects() / "proj")["waiting_for_keys"] == ["Supabase"]
+    assert not project._meta(paths.projects() / "proj").get("services_set_up")
+    assert "Waiting for keys: Supabase" in summary.markdown(summary.facts(run_dir))
+    assert "Waiting for keys: Supabase" in summary.html(summary.facts(run_dir))
+    paste_all()
+    assert project.waiting_for_keys("proj") == []
+
+
+def test_later_run_with_keys_wires_the_service_fully(tmp_path, adapters):
+    folder = make_project()
+    lib = make_lib(tmp_path / "lib")
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, lib)
+    runner.drive(run_dir)
+    gates.answer(open_gate(run_dir)["id"], "defer")
+    assert runner.drive(run_dir) == "done"
+    paste_all()
+    second = new_run(tmp_path)
+    assert runner.drive(second) == "done"
+    notes = (second / "services.md").read_text()
+    assert "Keys missing for now" not in notes
+    assert [e["name"] for e in project._meta(folder)["services_set_up"]] == ["supabase"]
+    assert project._meta(folder)["services_deferred"] == []
+    assert not summary.facts(second)["waiting_for_keys"]
 
 
 def test_skip_continues_the_run(tmp_path, adapters):

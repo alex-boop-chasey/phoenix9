@@ -112,6 +112,8 @@ export interface ProjectSetup {
   created: string | null
   /** Services Service setup has wired; older projects have name only (the rest null). */
   services_set_up?: SetUpService[]
+  /** Titles of services built without their keys that still have no values. */
+  waiting_for_keys?: string[]
 }
 
 export interface SetUpService {

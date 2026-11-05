@@ -740,7 +740,18 @@ def setup_facts(folder: Path) -> dict:
         own = {}
     return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
             "preset": own.get("preset") or None, "merge": own.get("merge") or None,
-            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta)}
+            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta),
+            "waiting_for_keys": waiting_for_keys(folder.name)}
+
+
+def waiting_for_keys(name: str) -> list:
+    """Titles of services built without their keys that still have a required key with no value."""
+    from phoenix9 import keys
+    entries = _meta(paths.projects() / name).get("services_deferred") or []
+    if not entries:
+        return []
+    have = {k["name"]: k["has_value"] for k in keys.list_keys(name)}
+    return [e["title"] for e in entries if any(not have.get(k) for k in e.get("keys") or [])]
 
 
 def _set_up_entries(meta: dict) -> list:

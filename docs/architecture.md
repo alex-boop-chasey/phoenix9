@@ -192,7 +192,7 @@ model = "claude-sonnet-5-5"
   (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
 - Service setup is a run-start step at `order = 50`, after Branch (40) and Planner (45), `proxy =
   ["@project"]`, on by default. Per chosen service (phoenix.toml `services`): unknown service fails;
-  project keys without a value open a `human-task` gate (actions `done`, `skip`, `stop`; `done` calls
+  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
   the step again and it re-checks, still missing = fail; `skip` continues without them); hosts missing
   from the project's `[domains] allow` are added (and to this run's frozen settings); the service's
   `recipe.py` `wire(ctx, service, proxy)` runs once (recorded in `.phoenix/project.json`

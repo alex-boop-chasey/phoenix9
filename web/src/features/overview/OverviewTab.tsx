@@ -86,11 +86,20 @@ export function OverviewTab({ name }: { name: string }) {
   const row = project.data
   const open = (gates.data ?? []).filter((g) => g.project === name && !g.answered)
   const recent = [...(changes.data ?? [])].reverse()
+  const waitingKeys = project.data?.setup?.waiting_for_keys ?? []
 
   return (
     <div className="ov">
       <div className="ov-main">
         {open.map((g) => <NeedsYouCard key={g.id} gate={g} reviewHref={`/p/${name}/build?run=${g.run}`} />)}
+        {waitingKeys.length > 0 && (
+          <section className="card stackg" aria-label="Waiting for keys">
+            <p className="small"><b>Waiting for keys: {waitingKeys.join(", ")}</b></p>
+            <p className="small">Phoenix built the site without {waitingKeys.length === 1 ? "it" : "them"}. Save the keys in
+              {" "}<Link to={`/p/${encodeURIComponent(name)}/settings`}>Settings</Link>, then start a new build to switch
+              {waitingKeys.length === 1 ? " it" : " them"} on.</p>
+          </section>
+        )}
         <CurrentBuild name={name} row={row} builds={builds.data ?? []} loaded={!!builds.data} />
         <section className="card" aria-labelledby="ov-rc">
           <h2 className="h2" id="ov-rc" style={{ fontSize: 22, marginBottom: 10 }}>Recent changes</h2>

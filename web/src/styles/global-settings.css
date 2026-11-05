@@ -5,12 +5,15 @@
 .hchip:hover{border-color:var(--accent)}
 .lrow{display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto; gap:8px 14px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); min-width:0}
 .lrow:last-child{border-bottom:0}
+/* A list of rows sharing one set of columns (subgrid), so the status column lines up even on rows without buttons. */
+.llist{display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) auto; min-width:0}
+.llist > .lrow{grid-column:1/-1; grid-template-columns:subgrid}
 .lrow .who{display:flex; gap:10px; align-items:center; min-width:0}
 .lrow .who .ico{width:34px; height:34px; border-radius:var(--r-sm); background:var(--surface-2); border:1px solid var(--line); display:grid; place-items:center; color:var(--text-2); flex:none}
 .lrow .who b{display:block; font-weight:600; font-size:14.5px}
 .lrow .who span{display:block; font-size:12.5px; color:var(--text-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .lrow .st{display:flex; flex-direction:column; align-items:flex-start; gap:2px; font-size:12.5px; color:var(--text-2); min-width:0}
-@container well (max-width:640px){ .lrow{grid-template-columns:minmax(0,1fr) auto} .lrow .st{grid-column:1/-1; grid-row:2} }
+@container well (max-width:640px){ .lrow{grid-template-columns:minmax(0,1fr) auto} .llist{grid-template-columns:minmax(0,1fr) auto} .llist > .lrow{grid-template-columns:subgrid} .lrow .st{grid-column:1/-1; grid-row:2} }
 .lacts{display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end}
 @container well (max-width:640px){ .lacts{grid-column:1/-1; justify-content:flex-start} }
 button.tab{border:0; border-bottom:2px solid transparent; background:transparent; cursor:pointer; font-family:inherit}

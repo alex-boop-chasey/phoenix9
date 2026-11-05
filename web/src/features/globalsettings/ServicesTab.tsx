@@ -85,7 +85,7 @@ export function ServicesTab() {
         </div>
         {q.isError && <ErrorState error={q.error} onRetry={() => void q.refetch()} />}
         {q.isLoading && <p className="small" style={{ padding: 20 }}>Loading…</p>}
-        <div id="svcRows">
+        <div id="svcRows" className="llist">
           {rows.map((s) => <Row key={s.name} s={s} onConfigure={() => setCfg(s.name)} onDisconnect={() => setDisc(s)} />)}
         </div>
       </section>

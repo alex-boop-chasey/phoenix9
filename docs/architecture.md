@@ -578,7 +578,7 @@ Done when:
   kind returned by a step needs no runner change. The runner never blocks on a gate: `drive()`
   returns "waiting" and the service loop drives the run again when `current.gate` is answered
   (an answer written while the runner was down is acted on the same way). `phoenix run stop` on a
-  waiting run ends it; a later answer is ignored.
+  waiting run ends it and closes its question; a later answer is refused.
 - **One truth (2026-11-06).** A question is *open* only when (a) it has no answer file, (b) its run is not
   `done | failed | stopped`, and (c) the run waits on it: `current.gate`, a task's `gate` or a `waiting`
   step line holding it, or (a waiting run that holds nothing, after a crash) the run's newest unanswered
@@ -591,6 +591,17 @@ Done when:
   "answered, carrying on" view of a waiting run whose questions are all answered is `status.seen_run`.
 - Answer file `gates/<gate-id>.answer.json`: `{action, note, who, at}`. Written only by
   `gates.answer()` (CLI `phoenix gate answer`, API, Home chat through the CLI). The runner polls for it.
+- **Question lifecycle**: open (rule above) -> answered (an answer file written by `gates.answer`) or
+  closed. Every way a run ends (done, failed, stopped; the runner's end, `watch._fail`, `phoenix run stop`)
+  closes its unanswered questions with `gates.close_questions`: answer file `{action: "closed", reason:
+  "run stopped" | "run failed" | "run done", note: "", who, at}` and a `gate.answered` event with
+  `action: closed, reason`. The gate log reads "Answer: closed: run stopped" and the summary
+  "Task n: closed: run stopped". Answering a closed question, a question of an ended run, or one the run no
+  longer waits on is refused (`gates.NotOpen`; the API answers 409) with a plain message, e.g. "Run X is
+  already stopped; its question X.1 cannot be answered any more." Start-up catch-up: when the runner
+  service starts (`watch.watch_forever` -> `watch.catch_up`), it closes the open questions of runs that
+  already ended (who = `phoenix`, one event each), so questions left by older code disappear without
+  hand edits.
   Gate ids: `<run-id>.<n>`.
 
 ## 8.5 The API (phoenix-api, phase 3)

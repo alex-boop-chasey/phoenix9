@@ -131,6 +131,7 @@ class Runner:
     def _finish(self, run_dir: Path, project: str, run_id: str, status: str, reason: str = "") -> str:
         """Set the final run status and emit run.finished."""
         state.set_status(run_dir, status)
+        gates.close_questions(run_dir, f"run {status}")
         data = {"reason": reason} if reason else {}
         events.emit("run.finished", project=project, run=run_id, status=status, **data)
         summary.refresh(run_dir, self.lib.root)   # a summary written mid-run gets its final status

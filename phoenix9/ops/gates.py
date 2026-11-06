@@ -16,11 +16,12 @@ def list_(project: str | None = None) -> list:
 
 
 def answer(gate_id: str, action: str, note: str = "", who: str = "cli") -> dict:
-    """Answer an open gate (the runner picks the answer up)."""
+    """Answer an open gate (the runner picks the answer up). A closed question, or one of a run that has
+    ended or moved on, is refused (Conflict) with a plain message."""
     gate = next((g for g in core.list_gates(open_only=False) if g["id"] == gate_id), None)
     if gate is None:
         raise common.NotFound(f"There is no gate called '{gate_id}'.")
-    if gate.get("answered"):
+    if gate.get("state") == "answered":
         raise common.Conflict(f"Gate {gate_id} is already answered.")
     try:
         project_settings = settings.load_project(common.project_dir(gate["project"]))
@@ -30,6 +31,8 @@ def answer(gate_id: str, action: str, note: str = "", who: str = "cli") -> dict:
         raise OpsError(f"'{who}' may not answer {gate['kind']} questions in {gate['project']}.")
     try:
         result = core.answer(gate_id, action, note=note, who=who)
+    except core.NotOpen as err:
+        raise common.Conflict(str(err)) from None
     except ValueError as err:
         raise OpsError(str(err)) from None
     common.record_command(who, f"gate answer {gate_id} {action}", gate["project"],

@@ -64,6 +64,7 @@ def _fail(adapters, s: dict, reason: str) -> str:
         st["status"] = "failed"
         st["error"] = reason
     state.update(run_dir, change)
+    gates.close_questions(run_dir, "run failed")
     events.emit("run.finished", project=s["project"], run=s["run_id"], status="failed", reason=reason)
     adapters.notify.send(f"Phoenix run {s['run_id']} failed: {reason}")
     return "failed"
@@ -147,9 +148,19 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     return chosen["run_id"]
 
 
+def catch_up() -> list[str]:
+    """Close the open questions of runs that already ended (left by older code); one event each, who = phoenix."""
+    closed = []
+    for s in all_states():
+        if s["status"] in gates.ENDED:
+            closed += gates.close_questions(_run_dir(s), f"run {s['status']}", who="phoenix")
+    return closed
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
-    """Remove leftover containers once, then run a round every interval_s seconds, forever."""
+    """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     docker_mod.cleanup_orphans(adapters.docker)
+    catch_up()
     memory = Memory()
     while True:
         watch_once(adapters, runner, memory)

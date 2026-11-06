@@ -162,6 +162,7 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
     state.set_status(folder, "stopped")
+    gates_core.close_questions(folder, "run stopped", who=who)
     adapters = common.make_adapters()
     removed = docker.cleanup_orphans(adapters.docker, run_id)
     notes = core.discard_branch(adapters, st["project"], run_id)

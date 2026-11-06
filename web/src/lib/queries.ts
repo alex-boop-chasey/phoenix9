@@ -239,8 +239,9 @@ export function useStopRun(project: string) {
 export function useDiscardRun(project: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (runId: string) => api.discardRun(project, runId),
-    onSuccess: (_d, runId) => {
+    mutationFn: ({ runId, force = false }: { runId: string; force?: boolean }) =>
+      api.discardRun(project, runId, force),
+    onSuccess: (_d, { runId }) => {
       invalidateProject(qc, project)
       void qc.invalidateQueries({ queryKey: keys.run(project, runId) })
     },

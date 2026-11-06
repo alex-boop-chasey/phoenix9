@@ -145,3 +145,64 @@ def test_api_discard(demo, tmp_path, api):
     assert status == 200 and body["data"]["discarded"] is True and not work.exists()
     status, body = api(f"/api/runs/demo/{run_id}/discard", "POST", POST_HEADERS, {"confirm": True})
     assert status == 409
+
+
+# ---- discard refuses to lose work (open merge request, commits not on main) unless forced ----
+
+def commit_on_branch(work):
+    (work / "new.py").write_text("print('work')\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "work")
+
+
+def test_discard_refuses_a_branch_with_commits_not_on_main(demo, tmp_path):
+    run_id, folder, work = failed_run(demo, tmp_path)
+    commit_on_branch(work)
+    with pytest.raises(ops_runs.WouldLoseWork, match="1 commit") as err:
+        ops_runs.discard(run_id)
+    assert isinstance(err.value, common.Conflict) and err.value.lost
+    assert work.exists() and branches(demo) != "" and not state.load(folder).get("discarded")
+    r = ops_runs.discard(run_id, force=True)
+    assert r["discarded"] is True and not work.exists() and branches(demo) == ""
+
+
+@pytest.mark.parametrize("answer", [(0, "OPEN\n", ""), (1, "", "no network")])
+def test_discard_refuses_an_open_or_unknown_merge_request(demo, tmp_path, answer):
+    run_id, folder, work = failed_run(demo, tmp_path)
+    url = "https://github.com/rebirth-wd/demo/pull/7"
+    (folder / "merge-request.txt").write_text(url + "\n")
+    demo["adapters"].host.script(["gh", "pr", "view", url], *answer)
+    with pytest.raises(ops_runs.WouldLoseWork, match="merge request") as err:
+        ops_runs.discard(run_id)
+    assert url in str(err.value) and work.exists()
+    assert ops_runs.discard(run_id, force=True)["discarded"] is True
+
+
+def test_discard_allows_a_merged_merge_request(demo, tmp_path):
+    run_id, folder, work = failed_run(demo, tmp_path)
+    url = "https://github.com/rebirth-wd/demo/pull/7"
+    (folder / "merge-request.txt").write_text(url + "\n")
+    demo["adapters"].host.script(["gh", "pr", "view", url], 0, "MERGED\n", "")
+    assert ops_runs.discard(run_id)["discarded"] is True and not work.exists()
+
+
+def test_cli_discard_needs_force_to_lose_work(demo, tmp_path, capsys):
+    run_id, _, work = failed_run(demo, tmp_path)
+    commit_on_branch(work)
+    code, _, err = run_cmd(capsys, "run", "discard", run_id, "--yes")
+    assert code == 1 and "--force" in err and "1 commit" in err and work.exists()
+    code, out, _ = run_cmd(capsys, "run", "discard", run_id, "--yes", "--force", "--json")
+    assert code == 0 and json.loads(out)["discarded"] is True and not work.exists()
+
+
+def test_api_discard_needs_force_to_lose_work(demo, tmp_path, api):
+    from test_api_server import POST_HEADERS
+    run_id, _, work = failed_run(demo, tmp_path)
+    commit_on_branch(work)
+    status, body = api(f"/api/runs/demo/{run_id}/discard", "POST", POST_HEADERS, {"confirm": True})
+    assert status == 409 and body["needs_force"] is True and "1 commit" in body["message"]
+    assert body["would_lose"] and work.exists()
+    status, body = api(f"/api/runs/demo/{run_id}/discard", "POST", POST_HEADERS, {"confirm": True, "force": "yes"})
+    assert status == 400 and work.exists()
+    status, body = api(f"/api/runs/demo/{run_id}/discard", "POST", POST_HEADERS, {"confirm": True, "force": True})
+    assert status == 200 and body["data"]["discarded"] is True and not work.exists()

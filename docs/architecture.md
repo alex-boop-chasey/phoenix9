@@ -619,7 +619,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
   update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded command`.
-  `run.discarded {who, notes}` (project and run set) is written by `phoenix run discard`.
+  `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
   previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|
@@ -1058,6 +1058,12 @@ Discarding a run: a failed run keeps its worktree and branch (so it can be repai
 <run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"
 button on a failed or stopped build) throws them away with the same `runs.discard_branch` (worktree, local
 branch, GitHub branch when it was pushed). Only `failed` and `stopped` runs can be discarded (queued,
-running, waiting, paused-limit and done are refused; a second discard is a conflict). It sets state.json
-`discarded: true`, `discarded_at`, `discarded_by` (the status stays as it was), writes a `run.discarded` event
+running, waiting, paused-limit and done are refused; a second discard is a conflict). A failed run can still
+hold work: the Merge step may have opened a merge request before a task failed the run. So discard refuses
+(`WouldLoseWork`, API 409 `needs_force`) when the run's merge-request.txt names a request GitHub doesn't report
+as MERGED or CLOSED (no answer counts as open) or when the run branch (local, else origin's copy) has commits
+main lacks, unless `--force` / `force: true`. The Build tab's dialog says this up front; on the refusal it shows
+a second dialog listing what would be lost, whose button "Discard anyway and lose this work" sends `force`.
+It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
+status stays as it was), writes a `run.discarded` event
 and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".

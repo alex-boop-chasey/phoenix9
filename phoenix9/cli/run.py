@@ -38,6 +38,8 @@ def add(sub, common) -> None:
                          help="throw away a failed or stopped run's worktree and branch (here and on GitHub)")
     p.add_argument("run_id")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.add_argument("--force", action="store_true",
+                   help="also when the run has an open merge request or commits not on main (that work is lost)")
     p.set_defaults(func=discard)
 
 
@@ -146,6 +148,6 @@ def discard(args) -> int:
     if not args.yes:
         return problem(args, f"This deletes run {args.run_id}'s worktree and branch, here and on GitHub. "
                              "Add --yes to go ahead.")
-    r = runs.discard(args.run_id, who=args.who)
+    r = runs.discard(args.run_id, who=args.who, force=args.force)
     words = f"Discarded the work of run {r['run_id']}."
     return show(args, r, "\n".join([words, *(f"Note: {n}" for n in r["notes"])]))

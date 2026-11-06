@@ -679,8 +679,11 @@ def post_run_discard(req, project, run_id):
     """Discard a failed or stopped run's worktree and branch."""
     if req.body.get("confirm") is not True:
         raise BadRequest("Discarding a run's work needs confirmation.")
+    force = req.body.get("force", False)
+    if not isinstance(force, bool):
+        raise BadRequest("force has to be true or false.")
     with req.server.write_lock:
-        return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project))
+        return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project), force=force)
 
 
 def get_gate_review(req, gate_id):
@@ -897,6 +900,8 @@ class Handler(BaseHTTPRequestHandler):
                                  "needs_confirm": True})
         except common.NotFound as err:
             self.fail(404, str(err))
+        except runs.WouldLoseWork as err:
+            self.send_json(409, {"ok": False, "message": str(err), "needs_force": True, "would_lose": err.lost})
         except common.Conflict as err:
             self.fail(409, str(err))
         except common.OpsError as err:

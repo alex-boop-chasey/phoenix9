@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { useLocation } from "react-router"
 
 import { BUILDS, build, line, openGate, runDetail } from "@/test/buildFixtures"
-import { mockApi } from "@/test/mockApi"
+import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 import { BuildTab } from "./BuildTab"
@@ -233,6 +233,31 @@ test("a failed build offers Discard work, which confirms then posts discard", as
   await userEvent.click(within(dialog).getByRole("button", { name: "Discard work" }))
   await waitFor(() => expect(calls.some((c) => c.path === `${RUN}/discard`)).toBe(true))
   expect(calls.find((c) => c.path === `${RUN}/discard`)!.body).toEqual({ confirm: true })
+})
+
+test("discard that would lose work explains what and needs a second, clearly-labelled confirm", async () => {
+  const failed = runDetail({ status: "failed", gates: [] })
+  const lost = ["its branch has 2 commits that main doesn't have"]
+  const { calls } = mockApi(routes({
+    [`GET ${RUN}`]: failed,
+    [`POST ${RUN}/discard`]: (req: { body: unknown }) => (req.body as { force?: boolean }).force
+      ? { run_id: "r-wait", status: "failed", discarded: true, notes: [] }
+      : failure(409, "Run r-wait still has work that would be lost.", { needs_force: true, would_lose: lost }),
+  }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Discard work" }))
+  const first = await screen.findByRole("alertdialog")
+  expect(first).toHaveTextContent(/open merge request|not on main/)
+  await userEvent.click(within(first).getByRole("button", { name: "Discard work" }))
+  const second = await screen.findByRole("alertdialog", { name: "This build has work that isn't on main" })
+  expect(second).toHaveTextContent("its branch has 2 commits that main doesn't have")
+  const posts = () => calls.filter((c) => c.path === `${RUN}/discard`)
+  expect(posts()).toHaveLength(1)
+  expect(posts()[0]!.body).toEqual({ confirm: true })
+  await userEvent.click(within(second).getByRole("button", { name: "Discard anyway and lose this work" }))
+  await waitFor(() => expect(posts()).toHaveLength(2))
+  expect(posts()[1]!.body).toEqual({ confirm: true, force: true })
 })
 
 test("a discarded build says work discarded and has no Discard button", async () => {

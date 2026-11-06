@@ -10,6 +10,13 @@ export interface MockRequest {
 }
 
 export type Route = unknown | ((req: MockRequest) => unknown)
+
+/** A route answer that is a failure: the server's `{ok: false, message, ...extra}` with this HTTP status. */
+export class Failure {
+  constructor(public status: number, public message: string, public extra: Record<string, unknown> = {}) {}
+}
+export const failure = (status: number, message: string, extra: Record<string, unknown> = {}) =>
+  new Failure(status, message, extra)
 export interface Call extends MockRequest {}
 
 /** Replace fetch with the routes table; unknown routes throw loudly. Returns the recorded calls. */
@@ -30,6 +37,10 @@ export function mockApi(routes: Record<string, Route>) {
       throw new Error(`mockApi: no route for ${method} ${path}`)
     }
     const data = typeof route === "function" ? (route as (r: MockRequest) => unknown)(req) : route
+    if (data instanceof Failure) {
+      return new Response(JSON.stringify({ ok: false, message: data.message, ...data.extra }),
+        { status: data.status, headers: { "Content-Type": "application/json" } })
+    }
     return new Response(JSON.stringify({ ok: true, data }), { status: 200, headers: { "Content-Type": "application/json" } })
   })
   vi.stubGlobal("fetch", fn)

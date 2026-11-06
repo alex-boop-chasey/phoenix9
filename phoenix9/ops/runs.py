@@ -200,8 +200,65 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
 DISCARDABLE = ("failed", "stopped")
 
 
-def discard(run_id: str, who: str = "cli", project: str | None = None) -> dict:
-    """Throw away a failed or stopped run's work: its worktree, local branch and GitHub branch (if pushed)."""
+class WouldLoseWork(common.Conflict):
+    """Discarding would lose work (an open merge request, or commits not on main); `lost` lists it in plain words."""
+
+    def __init__(self, message: str, lost: list[str]):
+        super().__init__(message)
+        self.lost = lost
+
+
+def _open_merge_request(adapters, folder: Path) -> str | None:
+    """The run's merge request URL while it may still be open (an unknown state counts as open), else None."""
+    mr = folder / "merge-request.txt"
+    if not mr.is_file():
+        return None
+    url = mr.read_text(encoding="utf-8", errors="replace").strip()
+    if not url:
+        return None
+    try:
+        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state")
+    except Exception:   # noqa: BLE001 - no answer means we cannot prove it is closed
+        rc, out = 1, ""
+    if rc == 0 and out.strip().upper() in ("MERGED", "CLOSED"):
+        return None
+    return url
+
+
+def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
+    """How many commits the run's branch (local, else its pushed copy) has that main does not."""
+    from phoenix9 import git as gitmod
+    code = common.project_dir(project) / "code"
+    if not (code / ".git").exists():
+        return 0
+    try:
+        branch = gitmod.branch_name(run_id)
+        main = adapters.git.default_branch(code)
+        for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+            if gitmod.git(code, "rev-parse", "-q", "--verify", ref, check=False).strip():
+                count = gitmod.git(code, "rev-list", "--count", f"{main}..{ref}", check=False).strip()
+                return int(count) if count.isdigit() else 0
+    except (gitmod.GitError, OSError, ValueError):
+        return 0
+    return 0
+
+
+def would_lose(adapters, folder: Path, project: str, run_id: str) -> list[str]:
+    """What discarding this run would throw away, in plain words (empty when nothing unmerged would be lost)."""
+    lost = []
+    url = _open_merge_request(adapters, folder)
+    if url:
+        lost.append(f"its merge request {url} is still open (deleting the branch closes it)")
+    count = _commits_not_on_main(adapters, project, run_id)
+    if count:
+        lost.append(f"its branch has {count} commit{'s' if count != 1 else ''} that main doesn't have")
+    return lost
+
+
+def discard(run_id: str, who: str = "cli", project: str | None = None, force: bool = False) -> dict:
+    """Throw away a failed or stopped run's work: its worktree, local branch and GitHub branch (if pushed).
+
+    Refused (WouldLoseWork) when the run has an open merge request or commits not on main, unless `force`."""
     folder = _run_folder(run_id)
     if project is not None and folder.parent.name != project:
         raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
@@ -212,13 +269,19 @@ def discard(run_id: str, who: str = "cli", project: str | None = None) -> dict:
         why = ("its work was merged or waits as a merge request" if st["status"] == "done"
                else "stop it first with `phoenix run stop`")
         raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
-    notes = core.discard_branch(common.make_adapters(), st["project"], run_id)
+    adapters = common.make_adapters()
+    if not force:
+        lost = would_lose(adapters, folder, st["project"], run_id)
+        if lost:
+            raise WouldLoseWork(f"Run {run_id} still has work that would be lost: " + "; ".join(lost)
+                                + ". Discard it anyway only if you mean to throw that away (--force).", lost)
+    notes = core.discard_branch(adapters, st["project"], run_id)
     stamp = state.now()
 
     def mark(s: dict) -> None:
-        s.update(discarded=True, discarded_at=stamp, discarded_by=who)
+        s.update(discarded=True, discarded_at=stamp, discarded_by=who, **({"discard_forced": True} if force else {}))
     state.update(folder, mark)
-    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes)
+    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
     common.record_command(who, f"run discard {run_id}", st["project"], f"discarded the work of run {run_id}")
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 

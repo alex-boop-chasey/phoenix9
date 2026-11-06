@@ -5,6 +5,7 @@ ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match image/versions.env (one source of truth)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PNPM_VERSION=12.16.1
 ARG RUST_VERSION=1.91.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,7 +19,7 @@ ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
 RUN mkdir -p /usr/local/share/npm-global /workspace /home/node/.claude && \
   chown -R node:node /usr/local/share/npm-global /workspace /home/node/.claude
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=$PATH:/usr/local/cargo/bin
-RUN corepack enable && curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain ${RUST_VERSION} \
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION} && curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain ${RUST_VERSION} \
   && chmod -R a+rX /usr/local/rustup /usr/local/cargo && chown -R node:node /usr/local/cargo
 USER node
 RUN test -n "$CLAUDE_CODE_VERSION" && \

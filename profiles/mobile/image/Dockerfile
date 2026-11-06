@@ -5,6 +5,7 @@ ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match image/versions.env (one source of truth)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PNPM_VERSION=12.16.1
 ARG EAS_CLI_VERSION=16.28.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +18,7 @@ ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
     DISABLE_AUTOUPDATER=1
 RUN mkdir -p /usr/local/share/npm-global /workspace /home/node/.claude && \
   chown -R node:node /usr/local/share/npm-global /workspace /home/node/.claude
-RUN corepack enable
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION}   # plain pnpm (not corepack): it switches to the version a project pins
 RUN npm install -g eas-cli@${EAS_CLI_VERSION}
 USER node
 RUN test -n "$CLAUDE_CODE_VERSION" && \

@@ -73,9 +73,21 @@ def _now(adapters) -> datetime:
     return datetime.fromtimestamp(adapters.clock.now(), timezone.utc)
 
 
+class _Ended(Exception):
+    """The paused run was stopped (or ended) from outside while it waited for the usage limit."""
+
+
+def _still_paused(run_dir: Path) -> bool:
+    st = state.load(run_dir) or {}
+    return st.get("status") not in runend.ENDED and runend.stop_requested(run_dir) is None
+
+
 def wait_out_limit(adapters, s: dict, result) -> bool:
-    """Pause the run, wait for Claude to answer again (telling Alex once if over an hour); True = resume."""
+    """Pause the run, wait for Claude to answer again (telling Alex once if over an hour); True = resume.
+    A run stopped during the wait is left stopped (never set back to running); a stop request ends it."""
     run_dir = _run_dir(s)
+    if not _still_paused(run_dir):
+        return _end_paused(adapters, s)
     state.set_status(run_dir, "paused-limit")
     waited, told = [0.0], [False]
 
@@ -87,13 +99,34 @@ def wait_out_limit(adapters, s: dict, result) -> bool:
             adapters.notify.send(f"Phoenix run {s['run_id']} is waiting more than an hour for Claude's "
                                  f"usage limit (resets at {when}).")
         adapters.clock.sleep(seconds)
+        if not _still_paused(run_dir):
+            raise _Ended
 
-    ok = claude_mod.wait_for_limit(result, adapters.claude.probe, lambda: _now(adapters), sleep)
+    try:
+        ok = claude_mod.wait_for_limit(result, adapters.claude.probe, lambda: _now(adapters), sleep)
+    except _Ended:
+        return _end_paused(adapters, s)
     if not ok:
         _fail(adapters, s, "Claude's usage limit did not clear in time.")
         return False
-    state.set_status(run_dir, "running")
-    return True
+
+    def resume(st):
+        if st["status"] == "paused-limit":
+            st["status"] = "running"
+    return state.update(run_dir, resume)["status"] == "running"
+
+
+def _end_paused(adapters, s: dict) -> bool:
+    """A paused run with a stop request is stopped the one clean way; one that already ended is left alone."""
+    run_dir = _run_dir(s)
+    asked = runend.stop_requested(run_dir)
+    if asked is not None and (state.load(run_dir) or {}).get("status") not in runend.ENDED:
+        from phoenix9.runner import Runner
+        try:
+            Runner(adapters, paths.library()).stop_now(run_dir, who=asked.get("who") or "cli")
+        except TimeoutError:
+            pass
+    return False
 
 
 def _crashed(adapters, s: dict, memory: Memory, err: Exception) -> str | None:

@@ -8,6 +8,10 @@ class NotOpen(ValueError):
     """The question cannot be answered any more: it was closed, its run has ended, or the run moved on."""
 
 
+class RunHasEnded(ValueError):
+    """A gate cannot be opened: the run is already done, failed or stopped."""
+
+
 KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step")
 DEFAULT_ACTIONS = ["approve", "back", "skip", "stop"]
 ESCALATION_ACTIONS = ["acknowledged", "skip", "stop"]
@@ -31,6 +35,8 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
         raise ValueError(f"unknown gate kind {kind!r}; use one of {', '.join(KINDS)}")
     run_dir = Path(run_dir)
     st = state.load(run_dir)
+    if st["status"] in ENDED:
+        raise RunHasEnded(f"run {st['run_id']} is already {st['status']}; no question is opened")
     gdir = _gates_dir(run_dir)
     gdir.mkdir(parents=True, exist_ok=True)
     if actions is None:
@@ -41,11 +47,19 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
             "created": state.now(), "answered": False}
     atomic.write_json(gdir / f"{gate['id']}.json", gate)
 
+    ended = []
+
     def change(s):
+        if s["status"] in ENDED:          # it ended a moment ago: never turn it back into waiting
+            ended.append(s["status"])
+            return
         s["status"] = "waiting"
         if task is not None and str(task) in s["tasks"]:
             s["tasks"][str(task)]["status"] = "waiting"
     state.update(run_dir, change)
+    if ended:
+        close_questions(run_dir, f"run {ended[0]}")
+        raise RunHasEnded(f"run {st['run_id']} is already {ended[0]}; no question is opened")
     events.emit("gate.opened", project=gate["project"], run=gate["run"], task=task, step=step,
                 gate=gate["id"], kind=kind, title=title)
     return gate

@@ -123,20 +123,32 @@ class Runner:
         except Exception as err:  # bad settings or an impossible plan end the run, they do not crash it
             return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
         things = atomic.read_json(run_dir / "things.json", {})
+        try:
+            return self._walk_to_end(run_dir, setup, things, project, run_id)
+        except runend.StopRequested as asked:     # a stop from outside, seen at a boundary
+            return self._stop(run_dir, setup, things, who=asked.who)
+        except runend.RunEnded as ended:          # someone else ended it: leave it exactly as it is
+            return ended.status
+
+    def _walk_to_end(self, run_dir: Path, setup: dict, things: dict, project: str, run_id: str) -> str:
+        """Walk until the run waits or ends; re-reads the run before finishing (runend.check)."""
         while True:
             try:
                 outcome = self._walk(run_dir, setup, things)
             except RunFailed as err:
+                runend.check(run_dir)
                 self._skip_all(run_dir, state.load(run_dir))
                 return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
             if outcome != "waiting" or gates.current_answer(run_dir) is None:
                 break
+            runend.check(run_dir)
             state.set_status(run_dir, "running")   # answered at once (e.g. by the project chat)
         if outcome == "waiting":
             self.check_waiting(run_dir)
             return "waiting"
         if outcome == "stopped":
             return self._stop(run_dir, setup, things)
+        runend.check(run_dir)
         return self._finish(run_dir, project, run_id, "failed" if outcome == "failed" else "done")
 
     def stop_now(self, run_dir, who: str = "cli", wait: float = runend.LOCK_WAIT_S) -> dict:
@@ -412,7 +424,10 @@ class Runner:
     # ------------------------------------------------------------------ one step
     def _do_step(self, run_dir: Path, setup: dict, things: dict, group: str, name: str,
                  task: dict | None, attempt: int | None = None) -> Outcome:
-        """Run one step (or act on the answer to the gate it opened) with its state line and events."""
+        """Run one step (or act on the answer to the gate it opened) with its state line and events.
+        Every step start is a boundary: an ended run or a stop request stops the walk (runend.check)."""
+        if not self._ending:
+            runend.check(run_dir)
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
         number = task["number"] if task else None
@@ -612,8 +627,14 @@ class Runner:
 def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -> dict:
     """Open a gate (gates.open_gate takes `fields`) and, in ONE state update, record who holds it:
     holder ("task", n) sets the task's `gate`; ("line", index) sets that step line's `gate` and
-    status waiting. `extra` fields go onto the holder too. current.gate is set either way."""
-    gate = gates.open_gate(run_dir, **fields)
+    status waiting. `extra` fields go onto the holder too. current.gate is set either way.
+    Opening a gate is a boundary: an ended run or a stop request stops here, before anything is
+    written (runend.check)."""
+    runend.check(run_dir)
+    try:
+        gate = gates.open_gate(run_dir, **fields)
+    except gates.RunHasEnded:
+        raise runend.RunEnded(state.load(Path(run_dir))["status"]) from None
 
     def change(s):
         if holder[0] == "task":

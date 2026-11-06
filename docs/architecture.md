@@ -899,7 +899,10 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   rolled-back-unhealthy | rolled-back-manual | refused | recovered | needs-person` (`request` returns `queued: true`
   and `result: null`). `status(refresh)` returns `{supported, installed: {tag, commit}|null,
   previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase,
-  interrupted, last, log_tail}`; `running` = the lock is held (read-only probe); `interrupted` = a job
+  interrupted, last, log_tail, off_release, off_release_note}`; `off_release` = the installed copy's HEAD
+  has no `v9.<n>` tag (installed tag `unknown`), and `off_release_note` then reads "Installed copy is on
+  commit <sha>, not a release. Run `phoenix update release` then `phoenix update install`." (printed by
+  `phoenix update status`, shown on the Updates panel); `running` = the lock is held (read-only probe); `interrupted` = a job
   is recorded but the lock is free (the updater died: request `recover`); `refresh` runs `git
   ls-remote --tags origin "v9.*"` and caches `newest` (skipped quietly when HOME/update is not
   writable).

@@ -814,6 +814,12 @@ def _log_tail(n: int = LOG_TAIL) -> list[str]:
         return []
 
 
+def off_release_note(installed: dict) -> str:
+    """The sentence `update status` shows when the installed copy is not on a release tag."""
+    return (f"Installed copy is on commit {installed['commit'][:10]}, not a release. "
+            "Run `phoenix update release` then `phoenix update install`.")
+
+
 def status(adapters, *, refresh: bool = False) -> dict:
     """Installed / previous / newest version, whether an update or rollback is possible, and the log tail.
     `interrupted` = a job is recorded but no updater holds the lock (it died; request "recover")."""
@@ -845,7 +851,9 @@ def status(adapters, *, refresh: bool = False) -> dict:
         refused = None
     if isinstance(refused, dict):    # a refusal newer than any locked result (see _refuse_request)
         last = refused
+    off = bool(installed and installed["tag"] == "unknown")
     return {"supported": True, "installed": installed, "previous": previous, "newest": newest,
+            "off_release": off, "off_release_note": off_release_note(installed) if off else "",
             "update_available": update_available, "can_rollback": previous is not None and not running,
             "busy": busy, "busy_reason": why, "running": running,
             "waiting": (st.get("waiting") or "") if running else "", "phase": job.get("phase"),

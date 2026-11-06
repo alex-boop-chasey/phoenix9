@@ -312,6 +312,9 @@ export interface UpdateStatus {
   waiting: string
   phase: string | null
   interrupted: boolean
+  /** True when the installed copy is not on a release tag; the note says how to get back. */
+  off_release?: boolean
+  off_release_note?: string
   last: { action: string; tag: string | null; result: string; reason: string; at?: string } | null
   log_tail: string[]
 }

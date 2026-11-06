@@ -117,3 +117,29 @@ def test_cli_rejects_value_as_argument(capsys):
               and a.metavar not in (None, "PATH") and a.dest not in ("help",)]
     assert valued == []
     assert [a.option_strings for a in connect._actions if a.metavar == "PATH"] == [["--from-file"]]
+
+
+CF_USER = "http://proxy.fake/cloudflare/user/tokens/verify"
+CF_ACCOUNT = "http://proxy.fake/cloudflare/accounts/acc123/tokens/verify"
+
+
+def test_cloudflare_user_token_passes_on_first_path(fakes):
+    fakes.http.script("GET", CF_USER, 200, body=b"{}")
+    r = ops.test("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli")
+    assert r["ok"] is True and [c["url"] for c in fakes.http.calls] == [CF_USER]
+
+
+def test_cloudflare_account_token_passes_on_fallback(fakes):
+    fakes.http.script("GET", CF_USER, 401)
+    fakes.http.script("GET", CF_ACCOUNT, 200, body=b"{}")
+    r = ops.connect("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli", settings_in={"account_id": "acc123"})
+    assert r["checked"] == "ok" and [c["url"] for c in fakes.http.calls] == [CF_USER, CF_ACCOUNT]
+    assert [x.path for x in fakes.proxy.started[0]["rules"]] == [
+        "/user/tokens/verify", "/accounts/*/tokens/verify"]
+
+
+def test_cloudflare_account_token_without_account_id_gets_plain_message(fakes):
+    fakes.http.script("GET", CF_USER, 401)
+    r = ops.test("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli")
+    assert r["ok"] is False and "fill in the Account ID setting first" in r["message"]
+    assert len(fakes.http.calls) == 1

@@ -323,6 +323,8 @@ path = "/v1/projects"             # optional per-rule: upstream = "https://other
 method = "GET"
 path = "/v1/projects"             # must match one proxy.allow rule
 expect = [200]
+fallback_path = "/accounts/{account_id}/tokens/verify"   # optional: tried when path gives no expected status;
+                                  # {name} is filled from the service's saved account settings (must be an allowed call)
 
 [[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
 name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]

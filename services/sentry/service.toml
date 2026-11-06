@@ -62,6 +62,12 @@ path = "/organizations/"
 [[proxy.allow]]
 method = "GET"
 path = "/organizations/*/projects/"
+[[proxy.allow]]
+method = "POST"
+path = "/teams/*/*/projects/"
+[[proxy.allow]]
+method = "GET"
+path = "/projects/*/*/keys/"
 
 [check]
 method = "GET"

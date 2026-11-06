@@ -240,6 +240,17 @@ def test_hand_to_agent_chowns_only_as_root(adapters, tmp_path, monkeypatch):
     assert [c for c in d.calls if c[0] == "chown"]
 
 
+def test_hand_writable_mounts_chowns_only_writable_folders(adapters, tmp_path, monkeypatch):
+    d = adapters.docker
+    monkeypatch.setattr(docker.os, "getuid", lambda: 0)
+    out, ro, f = tmp_path / "out", tmp_path / "ro", tmp_path / "file.txt"
+    out.mkdir(); ro.mkdir(); f.write_text("x")
+    docker.hand_writable_mounts(d, [docker.Mount(out, "/out", ro=False), docker.Mount(ro, "/in"),
+                                    docker.Mount(f, "/f", ro=False), docker.Mount("vol", "/v", ro=False)])
+    chowned = [c for c in d.calls if c[0] == "chown"]
+    assert len(chowned) == 1 and str(out) in str(chowned[0])
+
+
 def test_probe_that_never_ran_reports_one_stopped_early_line(adapters):
     d = adapters.docker
     d.outputs, d.exit_codes = ["hands: firewall setup failed:\nERROR: bad proxy line\nsomething else\n"], [90]

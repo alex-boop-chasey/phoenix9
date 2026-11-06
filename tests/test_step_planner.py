@@ -143,6 +143,18 @@ def test_good_plan_opens_plan_gate(tmp_path, setup):
     assert launch["workspace_ro"] is True
 
 
+def test_planner_out_folder_is_handed_to_the_session_user(tmp_path, setup, monkeypatch):
+    """Phoenix runs as root; the session runs as uid 1000, so /out must be chowned or the plan can't be written."""
+    from phoenix9 import docker
+    monkeypatch.setattr(docker.os, "getuid", lambda: 0)
+    runner = setup()
+    runner.adapters.claude.sessions += [planner()]
+    run_dir = start(tmp_path)
+    runner.drive(run_dir)
+    chowned = [c[1][0] for c in runner.adapters.docker.calls if c[0] == "chown"]
+    assert str((run_dir / "planner-out").resolve()) in [str(type(run_dir)(p).resolve()) for p in chowned]
+
+
 def test_back_reruns_with_note(tmp_path, setup):
     runner = setup()
     runner.adapters.claude.sessions += [planner(), planner()]

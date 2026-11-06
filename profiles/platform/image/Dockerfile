@@ -1,5 +1,5 @@
-# Platform profile (full-stack): Node 24 + Python 3 + pytest + pnpm via corepack. Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
-FROM node:24-bookworm
+# Platform profile (full-stack): Node 24 + Python 3.13 (Debian 13) + pytest + pnpm via corepack. Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
+FROM node:24-trixie
 
 ARG TZ=Australia/Brisbane
 ENV TZ=$TZ

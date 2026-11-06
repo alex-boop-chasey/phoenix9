@@ -1072,7 +1072,8 @@ Branch tidiness: main is the only long-lived branch. New GitHub repos get "autom
 Discarding a run: a failed run keeps its worktree and branch (so it can be repaired) until `phoenix run discard
 <run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"
 button on a failed or stopped build) throws them away with the same `runs.discard_branch` (worktree, local
-branch, GitHub branch when it was pushed). Only `failed` and `stopped` runs can be discarded (queued,
+branch, GitHub branch when it was pushed). The caller is checked like a stop (`ops.runs._may_stop`: a `chat:*` caller needs
+the project's `home_chat_may_answer` to list `escalation`). Only `failed` and `stopped` runs can be discarded (queued,
 running, waiting, paused-limit and done are refused; a second discard is a conflict). A failed run can still
 hold work: the Merge step may have opened a merge request before a task failed the run. So discard refuses
 (`WouldLoseWork`, API 409 `needs_force`) when the run's merge-request.txt names a request GitHub doesn't report

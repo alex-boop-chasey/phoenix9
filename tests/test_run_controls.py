@@ -206,3 +206,19 @@ def test_api_discard_needs_force_to_lose_work(demo, tmp_path, api):
     assert status == 400 and work.exists()
     status, body = api(f"/api/runs/demo/{run_id}/discard", "POST", POST_HEADERS, {"confirm": True, "force": True})
     assert status == 200 and body["data"]["discarded"] is True and not work.exists()
+
+
+def test_discard_checks_the_same_permission_as_stop(demo, tmp_path):
+    run_id, folder, work = failed_run(demo, tmp_path)
+    with pytest.raises(common.OpsError, match="may not discard"):
+        ops_runs.discard(run_id, who="chat:home")
+    assert work.exists() and not state.load(folder).get("discarded")
+    toml = demo["folder"] / "phoenix.toml"
+    toml.write_text(toml.read_text() + 'home_chat_may_answer = ["escalation"]\n')
+    assert ops_runs.discard(run_id, who="chat:home")["discarded"] is True
+
+
+@pytest.mark.parametrize("who", ["cli", "dashboard", "chat:delegate"])
+def test_discard_allowed_callers(demo, tmp_path, who):
+    run_id, _, _ = failed_run(demo, tmp_path)
+    assert ops_runs.discard(run_id, who=who)["discarded"] is True

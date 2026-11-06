@@ -269,6 +269,8 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
         why = ("its work was merged or waits as a merge request" if st["status"] == "done"
                else "stop it first with `phoenix run stop`")
         raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
+    if not _may_stop(st["project"], who):        # the same rule as stop: chat:* callers need the project's permission
+        raise OpsError(f"'{who}' may not discard runs in {st['project']}.")
     adapters = common.make_adapters()
     if not force:
         lost = would_lose(adapters, folder, st["project"], run_id)

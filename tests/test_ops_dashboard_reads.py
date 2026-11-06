@@ -9,6 +9,7 @@ import pytest
 import phoenix9
 from phoenix9 import atomic, gates as gates_core, keys as keys_core, runs as runs_core, state
 from phoenix9.__main__ import main
+from phoenix9.ops.common import OpsError
 from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_ops, projects, runs as runs_ops
 
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
@@ -34,6 +35,7 @@ def make(env, name="demo", repo="(none yet)"):
     folder = env["projects"] / name
     (folder / "notes").mkdir(parents=True)
     (folder / "CLAUDE.md").write_text(f"# {name}\n\nAbout {name}.\n\n- Profile: python-script\n- Repo: {repo}\n")
+    (folder / "phoenix.toml").write_text('profile = "python-script"\n')
     if "/" in repo:
         atomic.write_json(folder / ".phoenix" / "project.json", {"repo": repo})
     return folder
@@ -305,3 +307,19 @@ def test_last_used_picks_newer_of_phoenix_and_proj_records(env):
     mine.unlink()
     theirs.unlink()
     assert project.last_used("demo", 9060) == (None, "never")
+
+
+def test_run_start_without_a_project_type_is_refused(env):
+    folder = make(env)
+    (folder / "phoenix.toml").unlink()
+    spec = env["tmp"] / "spec.md"
+    spec.write_text(SPEC)
+    with pytest.raises(OpsError, match="demo has no project type yet.*phoenix settings set demo profile"):
+        runs_ops.start("demo", spec)
+    assert not (folder / ".phoenix" / "last-used").exists()
+    assert runs_ops.start("demo", spec, {"profile": "web"})["status"] == "queued"   # a per-run profile counts
+
+
+def test_run_start_with_a_project_type_proceeds(env):
+    make(env)
+    assert queue_run(env)

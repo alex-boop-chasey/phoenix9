@@ -283,6 +283,10 @@ when Alex sent this step back with `back` and the runner calls it again).
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
+A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
+per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
+image never reaches docker.
+
 ### 4.6 Service folder: `services/<name>/service.toml`
 
 ```toml

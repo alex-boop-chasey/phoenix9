@@ -168,6 +168,8 @@ class Runner:
             plan = resolve(self.lib, enabled).to_json()
             atomic.write_json(pfile, plan)
         profile_name = values.get("profile") or ""
+        if not profile_name and any(r.get("kind") == "ai" for r in plan.get("steps", [])):
+            raise RunFailed(settings.no_profile_message(project))   # an AI step would launch docker with no image
         profile = settings.load_profile(self.lib.root, profile_name) if profile_name else {}
         info = ProjectInfo(name=project, dir=project_dir, code_dir=project_dir / "code",
                            settings=values, profile=profile)

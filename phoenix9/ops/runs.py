@@ -38,6 +38,12 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
     try:
+        profile = settings.effective(folder, common.library(), overrides or None).get("profile")
+    except settings.SettingsError as err:
+        raise OpsError(f"The project's settings have problems: {err}") from None
+    if not profile:
+        raise OpsError(settings.no_profile_message(project))
+    try:
         run_dir = core.create_run(project, Path(spec_path), overrides)
     except (ValueError, OSError) as err:
         raise OpsError(f"I could not start the run: {err}") from None

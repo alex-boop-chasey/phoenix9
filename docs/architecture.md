@@ -58,6 +58,9 @@ phoenix9/                      the Python package
   state.py                     state.json read/update
   events.py                    events.jsonl append/read/tail (section 8)
   gates.py                     gate files and answers (section 8)
+  status.py                    what a project is doing now, worked out once (section 8, "One truth")
+  runend.py                    how a run ends: run lock, stop request, end_run (section 7)
+  heartbeat.py                 the runner service's heartbeat (section 7)
   runner.py                    the step runner (phase 1 = run-level + simple task loop; phase 2 = full)
   failmodes.py                 retry / escalation / on_failure handling (section 7)
   aistep.py                    prompt rendering and helpers shared by the ai steps
@@ -121,6 +124,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
+| runner | HOME/runner | | `heartbeat.json` `{at, pid}` (the runner service is alive; section 7) |
 | projects | `/srv/projects` | `PHOENIX_PROJECTS` | one folder per project |
 | install | `/opt/phoenix9` | `PHOENIX_INSTALL` | the installed copy (updater only) |
 | install neighbours | `<install>-next`, `-prev`, `-failed` | | the candidate being tested; the copy before the last swap (rollback point); a copy that failed its health check (kept for inspection) |
@@ -466,7 +470,8 @@ Done when:
   `spec.md` (copy, read-only), `spec.json`, `settings.json` (frozen effective settings), `plan.json`
   (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`,
   `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
-  `gates/<gate-id>.answer.json`, `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
+  `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
+  `{who, at}` (only until the runner acts on it), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
   (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,

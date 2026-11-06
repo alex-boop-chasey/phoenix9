@@ -26,3 +26,11 @@ def test_atomic_roundtrip(tmp_path):
 def test_main_runs(capsys):
     assert main([]) == 0
     assert "phoenix" in capsys.readouterr().out
+
+
+def test_version_matches_pyproject():
+    """The package version and pyproject's version are the same number."""
+    import re
+    from pathlib import Path
+    text = (Path(__file__).parent.parent / "pyproject.toml").read_text()
+    assert re.search(r'^version = "([^"]+)"', text, re.M).group(1) == __version__

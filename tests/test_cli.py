@@ -26,7 +26,7 @@ def demo(phoenix_env, tmp_path, monkeypatch):
     folder = phoenix_env["projects"] / "demo"
     folder.mkdir()
     (folder / "CLAUDE.md").write_text("# Demo\n\nA small demo project.\nSecond line.\n\nOther.\n")
-    (folder / "phoenix.toml").write_text('preset = "quick"\n')
+    (folder / "phoenix.toml").write_text('preset = "quick"\nprofile = "python-script"\n')
     spec = tmp_path / "spec.md"
     spec.write_text(SPEC)
     return {"folder": folder, "spec": str(spec), "fakes": fakes}

@@ -9,6 +9,7 @@ import pytest
 import phoenix9
 from phoenix9 import atomic, gates as gates_core, keys as keys_core, runs as runs_core, state
 from phoenix9.__main__ import main
+from phoenix9.ops.common import OpsError
 from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_ops, projects, runs as runs_ops
 
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
@@ -34,6 +35,7 @@ def make(env, name="demo", repo="(none yet)"):
     folder = env["projects"] / name
     (folder / "notes").mkdir(parents=True)
     (folder / "CLAUDE.md").write_text(f"# {name}\n\nAbout {name}.\n\n- Profile: python-script\n- Repo: {repo}\n")
+    (folder / "phoenix.toml").write_text('profile = "python-script"\n')
     if "/" in repo:
         atomic.write_json(folder / ".phoenix" / "project.json", {"repo": repo})
     return folder
@@ -49,6 +51,7 @@ def test_info_reports_version_and_update_not_installed(env):
     env["host"].script(["gh", "auth", "status"], rc=1)
     data = app.info()
     assert data["version"] == phoenix9.__version__
+    assert data["label"] == "v9.1" and app.info("v9.2")["label"] == "v9.2"
     assert data["update"]["supported"] is True and data["update"]["available"] is False
     assert data["update"]["can_install"] is False and "not installed" in data["update"]["reason"]
     assert data["github"] == {"connected": False, "accounts": []}
@@ -278,3 +281,45 @@ def test_answered_waiting_run_shows_as_running(tmp_path):
     assert out["status"] == "running" and out["carrying_on"] is True
     assert out["steps"][0]["status"] == "running" and out["steps"][0]["answered"] is True
     assert out["tasks"]["1"]["answered"] is True and out["tasks"]["2"]["status"] == "passed"
+
+
+def test_run_start_marks_project_used(env):
+    folder = make(env)
+    queue_run(env)
+    assert (folder / ".phoenix" / "last-used").exists()
+
+
+def test_last_used_picks_newer_of_phoenix_and_proj_records(env):
+    import os
+    from phoenix9 import project
+    folder = make(env)
+    mine = folder / ".phoenix" / "last-used"
+    mine.parent.mkdir(exist_ok=True)
+    mine.touch()
+    theirs = env["projects"] / ".proj" / "demo.used"
+    theirs.parent.mkdir()
+    theirs.touch()
+    os.utime(mine, (1000, 1000))
+    os.utime(theirs, (5000, 5000))
+    assert project.last_used("demo", 5060)[0] == 5000
+    os.utime(mine, (9000, 9000))
+    assert project.last_used("demo", 9060)[0] == 9000
+    mine.unlink()
+    theirs.unlink()
+    assert project.last_used("demo", 9060) == (None, "never")
+
+
+def test_run_start_without_a_project_type_is_refused(env):
+    folder = make(env)
+    (folder / "phoenix.toml").unlink()
+    spec = env["tmp"] / "spec.md"
+    spec.write_text(SPEC)
+    with pytest.raises(OpsError, match="demo has no project type yet.*phoenix settings set demo profile"):
+        runs_ops.start("demo", spec)
+    assert not (folder / ".phoenix" / "last-used").exists()
+    assert runs_ops.start("demo", spec, {"profile": "web"})["status"] == "queued"   # a per-run profile counts
+
+
+def test_run_start_with_a_project_type_proceeds(env):
+    make(env)
+    assert queue_run(env)

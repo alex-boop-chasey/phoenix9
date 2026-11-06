@@ -1,4 +1,5 @@
 """Ops for account-level services: list, connect (with a key check), disconnect, recipes, proxy spec."""
+import re
 from datetime import datetime, timezone
 
 from phoenix9 import keys, paths, proxy, scrub, services, settings
@@ -86,7 +87,7 @@ def _row(svc: dict, registry: dict) -> dict:
     only = _keys_only(svc)
     connected = True if only else _is_connected(svc, entry)
     return {"name": svc["name"], "title": svc["title"], "description": svc["description"],
-            "support": svc["support"], "connected": connected,
+            "support": svc["support"], "website": svc.get("website", ""), "connected": connected,
             "can_test": bool(svc["check"]),
             "ends_in": {} if only or not connected else _ends_in(svc),
             "account_settings": _setting_rows(svc, entry),
@@ -113,18 +114,43 @@ def list_global() -> list[dict]:
     return rows + [_row(BUILTIN["telegram"], registry)]
 
 
-def _check(svc: dict, key: str, adapters) -> str:
-    """Call the service's [check] through a proxy that allows only that call; returns the result words."""
+def _fallback_path(svc: dict, settings_now: dict) -> tuple[str, str]:
+    """(fallback path with the saved account settings filled in, plain problem); both empty without a fallback."""
+    raw = svc["check"].get("fallback_path", "")
+    labels = {x["name"]: x["label"] for x in svc["account_settings"]}
+    for name in services.PLACEHOLDER.findall(raw):
+        value = settings_now.get(name, "")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            return "", f"fill in the {labels.get(name, name)} setting first, so the token can be checked"
+    return services.PLACEHOLDER.sub(lambda m: settings_now[m.group(1)], raw), ""
+
+
+def _try_path(check: dict, path: str, handle, adapters) -> int:
+    """Make one check call through the proxy and return the HTTP status."""
+    status, _, _ = adapters.http.request(check["method"], handle.url + path,
+                                         headers={TOKEN_HEADER: handle.token}, timeout=20)
+    return status
+
+
+def _check(svc: dict, key: str, adapters, settings_now: dict | None = None) -> str:
+    """Call the service's [check] (then its fallback_path) through a proxy that allows only those calls."""
     check = svc["check"]
-    rule = proxy.find_rule(proxy.spec_from_service(svc).rules, check["method"], check["path"])
+    fallback, missing = _fallback_path(svc, settings_now or {})
+    paths_to_try = [check["path"]] + ([fallback] if fallback else [])
     spec = proxy.spec_from_service(svc)
+    rules = tuple(proxy.find_rule(spec.rules, check["method"], p) for p in paths_to_try)
     spec = proxy.ProxySpec(service=spec.service, upstream=spec.upstream, auth_header=spec.auth_header,
-                           auth_format=spec.auth_format, rules=(rule,), extra_headers=spec.extra_headers)
+                           auth_format=spec.auth_format, rules=rules, extra_headers=spec.extra_headers)
     handle = adapters.proxy.start(spec, key, log_path=paths.logs() / "proxy-services.jsonl",
                                   step="services-connect", bind="127.0.0.1")
     try:
-        status, _, _ = adapters.http.request(check["method"], handle.url + check["path"],
-                                             headers={TOKEN_HEADER: handle.token}, timeout=20)
+        status = _try_path(check, check["path"], handle, adapters)
+        if status in check["expect"]:
+            return "ok"
+        if missing:
+            return f"failed: HTTP {status}; {missing}"
+        if fallback:
+            status = _try_path(check, fallback, handle, adapters)
         return "ok" if status in check["expect"] else f"failed: HTTP {status}"
     except Exception as err:   # the check must never break saving the key
         return scrub.scrub(f"failed: {type(err).__name__}")
@@ -177,7 +203,7 @@ def connect(name: str, values: dict, *, who: str, check: bool = True, settings_i
     key_name = (svc["proxy"] or {}).get("key")
     if check and svc["check"]:
         key = (values or _guard(keys.read_secret_file, svc["secrets_file"])).get(key_name, "")
-        result = _check(svc, key, common.make_adapters())
+        result = _check(svc, key, common.make_adapters(), {**(registry.get(name, {}).get("settings") or {}), **extra})
     else:
         result = "not checked"
     old = registry.get(name, {})
@@ -197,7 +223,7 @@ def connect(name: str, values: dict, *, who: str, check: bool = True, settings_i
 
 
 def test(name: str, values: dict | None = None, *, who: str) -> dict:
-    """Try a service's key (a pasted one, else the saved one) without saving anything; {ok, message}."""
+    """Try a service's key (a pasted one, else the saved one) saving the result only when it is the saved key; {ok, message}."""
     svc = _service(name)
     if not svc["check"]:
         raise common.OpsError(f"{svc['title']} has no connection test; its key is only saved.")
@@ -207,7 +233,11 @@ def test(name: str, values: dict | None = None, *, who: str) -> dict:
                                    if (paths.secrets() / svc["secrets_file"]).is_file() else {}).get(key_name, "")
     if not key:
         raise common.OpsError(f"Paste the {key_name} first, then test.")
-    result = _check(svc, key, common.make_adapters())
+    registry = services.read_registry()
+    result = _check(svc, key, common.make_adapters(), registry.get(name, {}).get("settings") or {})
+    if not values.get(key_name) and name in registry and _is_connected(svc, registry[name]):
+        registry[name] = {**registry[name], "checked": result, "checked_at": _now()}
+        services.write_registry(registry)
     common.record_command(who, f"services test {name}")
     ok = result == "ok"
     message = (f"{svc['title']}: the key works." if ok

@@ -18,7 +18,7 @@ export interface FormValues {
 }
 
 export const emptyForm: FormValues = {
-  name: "", description: "", source: "empty", repo: "", template: "", path: "", profile: "web",
+  name: "", description: "", source: "empty", repo: "", template: "", path: "", profile: "",
   newRepo: true, owner: "", services: [],
 }
 
@@ -64,7 +64,7 @@ export function toCreateForm(v: FormValues, keys: KeyInput[], githubConnected: b
   if (v.source === "code") source.path = v.path.trim()
   const on = githubConnected && newRepoApplies(v.source) && v.newRepo
   return {
-    name: v.name, description: v.description, source, profile: v.profile,
+    name: v.name, description: v.description, source, ...(v.source === "template" && v.profile ? { profile: v.profile } : {}),
     new_repo: on ? { on: true, owner: v.owner } : { on: false, owner: "" },
     services: v.services, keys,
   }

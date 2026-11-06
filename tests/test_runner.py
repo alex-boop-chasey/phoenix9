@@ -235,6 +235,13 @@ def test_spec_check_fails_a_bad_spec(tmp_path, project, adapters, lib):
     assert not (run_dir / "spec.json").exists()
 
 
+def give_profile(lib, project):
+    """A tiny profile (with an image) for the project, so AI steps may start."""
+    (lib / "profiles" / "py").mkdir(parents=True, exist_ok=True)
+    (lib / "profiles" / "py" / "profile.toml").write_text('image = "img:1"\n')
+    (project / "phoenix.toml").write_text('profile = "py"\n')
+
+
 def add_ai_step(lib, after=None):
     d = lib / "steps" / "reviewer"
     d.mkdir()
@@ -247,6 +254,7 @@ def add_ai_step(lib, after=None):
 
 
 def test_ai_step_renders_prompt_and_launches_session(tmp_path, project, adapters, lib):
+    give_profile(lib, project)
     add_ai_step(lib)
     shutil.rmtree(lib / "steps" / "branch")        # the worktree comes from the real step in this test
     shutil.copytree(REPO / "steps" / "branch", lib / "steps" / "branch")
@@ -263,6 +271,7 @@ def test_ai_step_renders_prompt_and_launches_session(tmp_path, project, adapters
 
 
 def test_ai_step_fails_when_session_is_not_ok_and_after_can_judge(tmp_path, project, adapters, lib):
+    give_profile(lib, project)
     add_ai_step(lib)
     shutil.rmtree(lib / "steps" / "branch")
     shutil.copytree(REPO / "steps" / "branch", lib / "steps" / "branch")

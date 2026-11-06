@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import atomic, events, paths, spec as spec_mod, state
+from . import atomic, events, git as git_mod, paths, spec as spec_mod, state
 
 
 def slugify(text: str, limit: int = 30) -> str:
@@ -93,3 +93,24 @@ def adopt_plan(run_dir, plan_path) -> int:
     tasks = _tasks_from_spec(parsed)
     state.update(run_dir, lambda s: s.__setitem__("tasks", tasks))
     return len(tasks)
+
+
+def discard_branch(adapters, project: str, run_id: str) -> list[str]:
+    """Delete a stopped run's worktree and branch (and its GitHub branch when pushed); returns notes, never raises."""
+    code, notes = paths.projects() / project / "code", []
+    if not (code / ".git").exists():
+        return notes
+    git = adapters.git
+    try:
+        branch = git.branch_name(run_id)
+        work = paths.work(project, run_id)
+        if work.exists():
+            git.remove_worktree(code, work)
+        git.git(code, "branch", "-D", branch, check=False)
+        if git.remote_url(code) and git.git(code, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", check=False).strip():
+            rc, out, err = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch], timeout=120)
+            if rc != 0:
+                notes.append(f"the branch {branch} was not deleted on GitHub")
+    except Exception as err:
+        notes.append(f"the run's branch was not cleaned up: {err}")
+    return notes

@@ -94,7 +94,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 **Project row** (`ops.projects.rows`): every field of `phoenix9/project.py:info()` unchanged:
 `name`, `description`, `path`, `repo` (string, `""` when none; may be a URL), `repo_owner`, `repo_name`,
 `profile`, `services` (list), `size` (int bytes or null), `chat {state: "on"|"off", kind: "session"|"environment"|"none", url}` (`url` is null when the chat is off or no
-environment id is known: the page then shows "Start chat"; the id is read from the journal of `claude-rc@<name>`
+environment id is known: the page then shows "Start chat" only if the chat is on; new and imported projects get no chat service, so a project whose chat is off shows no chat button; the id is read from the journal of `claude-rc@<name>`
 since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
 `vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
 `harness` (a string: "idle" | "queued" | "running task N of M" | "needs you"), `has_phoenix_toml`;
@@ -109,7 +109,7 @@ plus:
 
 `vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
 
-**Info** (`/api/info`): `version` (`phoenix9.__version__`), `update {supported, installed, newest,
+**Info** (`/api/info`): `version` (`phoenix9.__version__`), `label` (what the header shows: the install tag, else `v` + major.minor, e.g. `v9.1`), `update {supported, installed, newest,
 available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true).
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,

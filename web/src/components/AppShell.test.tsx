@@ -27,6 +27,11 @@ test("shows version", async () => {
   expect(await screen.findByText("0.9.0")).toBeInTheDocument()
 })
 
+test("shows the version label", async () => {
+  setup({ info: { ...info, label: "v9.1" } })
+  expect(await screen.findByText("v9.1")).toBeInTheDocument()
+})
+
 test("update pill hidden when no update is available", async () => {
   setup({ info: withUpdate({ supported: true, available: false }) })
   await screen.findByText("0.9.0")

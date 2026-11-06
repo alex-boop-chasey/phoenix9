@@ -31,7 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import reports, summary
+from phoenix9 import reports, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod, stepproxy
@@ -151,7 +151,8 @@ class Runner:
         for name in setup["plan"]["groups"]["run-finish"]:
             if self._step_settings(setup, name).get("after_stop"):
                 self._do_step(run_dir, setup, things, "run-finish", name, None)
-        return self._finish(run_dir, st["project"], st["run_id"], "stopped")
+        notes = runs_mod.discard_branch(self.adapters, st["project"], st["run_id"])
+        return self._finish(run_dir, st["project"], st["run_id"], "stopped", "; ".join(notes))
 
     def _setup(self, run_dir: Path, project: str, run_id: str) -> dict:
         """Load (or, on first drive, make and save) the frozen settings and the plan."""
@@ -168,6 +169,8 @@ class Runner:
             plan = resolve(self.lib, enabled).to_json()
             atomic.write_json(pfile, plan)
         profile_name = values.get("profile") or ""
+        if not profile_name and any(r.get("kind") == "ai" for r in plan.get("steps", [])):
+            raise RunFailed(settings.no_profile_message(project))   # an AI step would launch docker with no image
         profile = settings.load_profile(self.lib.root, profile_name) if profile_name else {}
         info = ProjectInfo(name=project, dir=project_dir, code_dir=project_dir / "code",
                            settings=values, profile=profile)

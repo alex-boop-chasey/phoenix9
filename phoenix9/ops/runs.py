@@ -38,10 +38,18 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
     try:
+        profile = settings.effective(folder, common.library(), overrides or None).get("profile")
+    except settings.SettingsError as err:
+        raise OpsError(f"The project's settings have problems: {err}") from None
+    if not profile:
+        raise OpsError(settings.no_profile_message(project))
+    try:
         run_dir = core.create_run(project, Path(spec_path), overrides)
     except (ValueError, OSError) as err:
         raise OpsError(f"I could not start the run: {err}") from None
     run_id = run_dir.name
+    from phoenix9 import project as project_core
+    project_core.mark_used(project)
     common.record_command(who, f"run start {project}", project, f"started run {run_id}")
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
 
@@ -176,10 +184,12 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
     state.set_status(folder, "stopped")
-    removed = docker.cleanup_orphans(common.make_adapters().docker, run_id)
+    adapters = common.make_adapters()
+    removed = docker.cleanup_orphans(adapters.docker, run_id)
+    notes = core.discard_branch(adapters, st["project"], run_id)
     events.emit("run.finished", project=st["project"], run=run_id, status="stopped", who=who)
     common.record_command(who, f"run stop {run_id}", st["project"], f"stopped run {run_id}")
-    return {"run_id": run_id, "status": "stopped", "containers_removed": removed}
+    return {"run_id": run_id, "status": "stopped", "containers_removed": removed, "notes": notes}
 
 
 list = list_

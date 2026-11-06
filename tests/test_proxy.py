@@ -748,3 +748,15 @@ def test_real_adapter_uses_the_configured_range(log_path, phoenix_env):
 def test_bad_range_refused(log_path):
     with pytest.raises(ValueError):
         proxy.serve(make_spec("https://api.example.com"), KEY, log_path=log_path, step="s", ports=(5000, 4000))
+
+
+def test_shipped_sentry_and_cloudflare_rules_match_new_calls():
+    from phoenix9 import services
+    sentry = proxy.parse_rules(services.get("sentry")["proxy"]["allow"])
+    assert proxy.find_rule(sentry, "POST", "/teams/org/team/projects/")
+    assert proxy.find_rule(sentry, "GET", "/projects/org/slug/keys/")
+    assert proxy.find_rule(sentry, "POST", "/teams/org/team/projects") is None
+    assert proxy.find_rule(sentry, "GET", "/projects/org/slug/keys") is None
+    cloudflare = proxy.parse_rules(services.get("cloudflare")["proxy"]["allow"])
+    assert proxy.find_rule(cloudflare, "GET", "/accounts/abc123/tokens/verify")
+    assert proxy.find_rule(cloudflare, "POST", "/accounts/abc123/tokens/verify") is None

@@ -33,7 +33,7 @@ def make_project(name="proj", services='["supabase"]', extra=""):
     (code / "README.md").write_text("hello\n")
     git(code, "add", "-A")
     git(code, "commit", "-q", "-m", "first")
-    (folder / "phoenix.toml").write_text(f"services = {services}\n{extra}")
+    (folder / "phoenix.toml").write_text(f'profile = "python-script"\nservices = {services}\n{extra}')
     (folder / ".phoenix").mkdir()
     (folder / ".phoenix" / "project.json").write_text(json.dumps({"repo": "", "services_set_up": []}))
     return folder
@@ -44,9 +44,9 @@ def make_lib(root, builder_real=False):
     scripted.make_library(root, steps)
     shutil.copytree(REPO / "steps" / "service-setup", root / "steps" / "service-setup")
     shutil.copytree(REPO / "services", root / "services")
+    shutil.copytree(REPO / "profiles", root / "profiles")
     if builder_real:
         shutil.copytree(REPO / "steps" / "builder", root / "steps" / "builder")
-        shutil.copytree(REPO / "profiles", root / "profiles")
     return root
 
 

@@ -32,7 +32,8 @@ def project():
     (code / "README.md").write_text("hello\n")
     git(code, "add", "-A")
     git(code, "commit", "-q", "-m", "first")
-    (paths.projects() / "proj" / "phoenix.toml").write_text('services = ["supabase", "resend", "stripe"]\n')
+    (paths.projects() / "proj" / "phoenix.toml").write_text(
+        'profile = "python-script"\nservices = ["supabase", "resend", "stripe"]\n')
     return paths.projects() / "proj"
 
 
@@ -51,6 +52,7 @@ def make_lib(root, proxy=None, kind="script"):
     """The scripted library; its builder step carries `proxy` (a toml list text) and may be an ai step."""
     scripted.make_library(root)
     shutil.copytree(REPO / "services", root / "services")
+    shutil.copytree(REPO / "profiles", root / "profiles")
     line = f"proxy = {proxy}\n" if proxy else ""
     folder = root / "steps" / "builder"
     if kind == "ai":

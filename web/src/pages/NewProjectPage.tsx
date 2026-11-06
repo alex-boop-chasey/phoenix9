@@ -44,7 +44,7 @@ function Receipt({ v, summary, github }: { v: FormValues; summary: RowsSummary; 
       : v.source === "repo" ? (v.repo ? `Copy of ${v.repo}` : "Copy of a GitHub repo")
         : v.source === "template" ? `${templates.data?.find((t) => t.name === v.template)?.title ?? (v.template || "A template")} template`
           : (v.path ? `Code in ${v.path}` : "Code already on this server")
-  const kind = profiles.data?.profiles.find((p) => p.name === v.profile)?.title ?? v.profile
+  const kind = v.profile ? (profiles.data?.profiles.find((p) => p.name === v.profile)?.title ?? v.profile) : "Worked out later"
   const newRepo = github && newRepoApplies(v.source) && v.newRepo
   const { total, needValue } = summary
   return (

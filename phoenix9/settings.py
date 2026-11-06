@@ -324,6 +324,7 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "image": _spec(""),
     "allowed_domains": _spec([], item_type=str),
     "diff_allow_extra": _spec([], item_type=str),
+    "lockfiles": _spec([], item_type=str),
     "screenshots": _spec(False),
     "suggested_deployer": _spec("none"),
     "test.cmd": _spec(""),
@@ -406,6 +407,14 @@ def _layer(data: dict, specs: dict[str, Spec], where: str) -> dict[str, Any]:
     if problems:
         raise SettingsError("; ".join(problems))
     return _flatten(data)
+
+
+def no_profile_message(name: str) -> str:
+    """The plain refusal for a build in a project that has no project type."""
+    return (f"{name} has no project type yet, so Phoenix doesn't know which build tools to use. "
+            "Choose one (web, platform, mobile, desktop, python-script, research) with "
+            f"`phoenix settings set {name} profile <type>` or in the project's settings, "
+            "then start the build again.")
 
 
 def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> Effective:

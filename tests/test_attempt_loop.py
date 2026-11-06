@@ -481,6 +481,9 @@ def test_run_stop_while_waiting(tmp_path, runner, adapters, monkeypatch):
     assert runner.drive(run_dir) == "waiting"
     ops_runs.stop(run_dir.name)
     assert runner.drive(run_dir) == "stopped"
+    assert not worktree(run_dir).exists()
+    code = paths.projects() / "proj" / "code"
+    assert git(code, "branch", "--list", f"phoenix/{run_dir.name}").strip() == ""
     gates.answer(open_gate(run_dir)["id"], "acknowledged")
     assert watch.watch_once(adapters, runner) is None
     assert runner.drive(run_dir) == "stopped"
@@ -593,3 +596,19 @@ def test_real_chat_reaps_finished_sessions(tmp_path):
     chat._started[str(proc.pid)] = proc
     assert chat.status(str(proc.pid)) == "exited"
     assert str(proc.pid) not in chat._started
+
+
+def test_discard_deletes_a_pushed_branch_on_the_remote(tmp_path, runner, adapters):
+    code = paths.projects() / "proj" / "code"
+    origin = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)], check=True)
+    git(code, "remote", "add", "origin", str(origin))
+    run_dir = start(tmp_path)
+    branch = f"phoenix/{run_dir.name}"
+    git(code, "branch", branch)
+    git(code, "push", "-q", "origin", branch)
+    adapters.host = type("H", (), {"run": lambda self, argv, timeout=60: (lambda p: (p.returncode, p.stdout, p.stderr))(
+        subprocess.run(argv, capture_output=True, text=True))})()
+    assert runs.discard_branch(adapters, "proj", run_dir.name) == []
+    assert git(origin, "branch", "--list", branch).strip() == ""
+    assert git(code, "branch", "--list", branch).strip() == ""

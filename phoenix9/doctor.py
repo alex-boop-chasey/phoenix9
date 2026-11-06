@@ -24,7 +24,7 @@ CHECKS_BY_MODE = {
     "quick": ("services", "api", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "api", "home", "secrets", "images", "proxy-rule", "firewall",
-             "claude", "advisor", "disk", "updater", "project-links"),
+             "claude", "advisor", "disk", "updater", "project-links", "memory-files"),
 }
 
 
@@ -348,10 +348,19 @@ def check_project_links(ctx):
                    "Switch the chat on with `phoenix project open <name>`, or press Start chat on the project.")
 
 
+def check_memory_files(ctx):
+    """Every project has its memory files."""
+    from phoenix9 import project_removal
+    lacking = {n: project_removal.missing_memory_files(n) for n in project.project_names()}
+    problems = [f"{n}: {', '.join(m)}" for n, m in lacking.items() if m]
+    return _result(not problems, "every project has its memory files" if not problems else "; ".join(problems),
+                   "Run `phoenix project check-files --all` to add what is missing.")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
-          "project-links": check_project_links}
+          "project-links": check_project_links, "memory-files": check_memory_files}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

@@ -2,6 +2,7 @@ name = "supabase"
 title = "Supabase"
 description = "Postgres database, auth and file storage."
 support = "store-and-wire"
+website = "https://supabase.com/dashboard/account/tokens"
 docs = "https://supabase.com/docs"
 account_keys = ["SUPABASE_ACCESS_TOKEN"]
 hosts = ["supabase.co"]

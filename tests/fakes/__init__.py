@@ -15,6 +15,7 @@ class FakeHost:
         self.responses: list[tuple[list[str], tuple[int, str, str]]] = []
         self.sizes: dict[str, int] = {}
         self.files: dict[str, str] = {}      # host files (read_text / write_text), by path
+        self.lines_read = 0                  # lines first_match() looked at
         self.cwds: list = []                 # the cwd of each run() call, in step with .calls
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
@@ -36,6 +37,18 @@ class FakeHost:
                     return answer.pop(0) if len(answer) > 1 else answer[0]
                 return answer
         return 0, "", ""
+
+    def first_match(self, argv, pattern, timeout=120):
+        """Record the call, then scan the scripted output line by line and stop at the first match."""
+        rc, out, _ = self.run(argv, timeout)
+        if rc != 0:
+            return ""
+        for line in out.splitlines():
+            self.lines_read += 1
+            found = pattern.search(line)
+            if found:
+                return found.group(0)
+        return ""
 
     def systemctl(self, *args):
         """Same as run(['systemctl', ...])."""

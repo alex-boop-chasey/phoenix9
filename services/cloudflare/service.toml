@@ -2,6 +2,7 @@ name = "cloudflare"
 title = "Cloudflare"
 description = "DNS, Pages and Workers hosting."
 support = "store-and-wire"
+website = "https://dash.cloudflare.com/profile/api-tokens"
 docs = "https://developers.cloudflare.com/api/"
 account_keys = ["CLOUDFLARE_API_TOKEN"]
 # No hosts: account calls go only through the key proxy. A wrangler deploy from inside a step container will
@@ -48,6 +49,9 @@ method = "GET"
 path = "/user/tokens/verify"
 [[proxy.allow]]
 method = "GET"
+path = "/accounts/*/tokens/verify"
+[[proxy.allow]]
+method = "GET"
 path = "/accounts"
 [[proxy.allow]]
 method = "GET"
@@ -71,4 +75,6 @@ path = "/zones/*/dns_records"
 [check]
 method = "GET"
 path = "/user/tokens/verify"
+# Account tokens (cfat_) fail the user check; they are verified under the account instead.
+fallback_path = "/accounts/{account_id}/tokens/verify"
 expect = [200]

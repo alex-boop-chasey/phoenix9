@@ -2,6 +2,7 @@ name = "sanity"
 title = "Sanity"
 description = "Content management."
 support = "keys-only"
+website = "https://www.sanity.io/manage"
 docs = "https://www.sanity.io/docs"
 account_keys = []
 hosts = ["sanity.io"]

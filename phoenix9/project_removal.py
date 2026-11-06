@@ -119,12 +119,14 @@ def _add_missing(path: Path, text: str) -> bool:
     return True
 
 
-def add_standard_files(folder: Path, name: str, repo: str) -> list:
-    """Add the standard workspace files that are missing (never overwrites); returns what was added."""
+def add_memory_files(folder: Path, name: str, repo: str) -> list:
+    """Add the memory files and notes folders that are missing (never overwrites); returns what was added."""
     added = []
     notes = folder / "notes"
     for sub in project.NOTES_SUBFOLDERS:
-        (notes / sub).mkdir(parents=True, exist_ok=True)
+        if not (notes / sub).is_dir():
+            (notes / sub).mkdir(parents=True, exist_ok=True)
+            added.append(f"notes/{sub}/")
     today = common._today()
     files = {
         "CLAUDE.md": f"# {name}\n\n{name}: an existing project brought into Phoenix.\n\n- Code: code/\n"
@@ -136,20 +138,24 @@ def add_standard_files(folder: Path, name: str, repo: str) -> list:
     for rel, text in files.items():
         if _add_missing(folder / rel, text):
             added.append(rel)
+    return added
+
+
+def add_standard_files(folder: Path, name: str, repo: str) -> list:
+    """Add the standard workspace files that are missing (never overwrites); returns what was added."""
+    added = add_memory_files(folder, name, repo)
+    today = common._today()
     meta = folder / ".phoenix" / "project.json"
     if not meta.exists():
         atomic.write_json(meta, {"created": today, "who": "import", "source": "import", "template": None,
                                  "profile": None, "repo": repo or None, "code": "code/",
                                  "chat_session_url": None, "environment_id": None, "services_set_up": []})
         added.append(".phoenix/project.json")
-    if not (folder / ".vscode" / "tasks.json").exists():
-        project._vscode_task(folder, name)
-        added.append(".vscode/tasks.json")
     return added
 
 
 def import_(name_or_path: str, who: str, adapters) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix and set its chat up again."""
+    """Bring a removed project or an unlisted folder into Phoenix (no chat service is started)."""
     name = _find(name_or_path)
     folder = paths.projects() / name
     if not folder.is_dir():
@@ -164,10 +170,29 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
     repo = _folder_repo(folder)
     added = add_standard_files(folder, name, repo)
     _save_removed([r for r in removed_list() if r["name"] != name])
-    project.switch_on(adapters.host, adapters.clock, name, folder, [])
+    project.trust(adapters.host, folder)
     project.mark_used(name)
     events.emit("project.changed", project=name, who=who, what="imported")
     common.record_command(who, f"project import {name}", name,
-                          change="imported into Phoenix (chat set up and started)")
+                          change="imported into Phoenix (no chat service)")
     return {"name": name, "path": str(folder), "repo": repo or None, "was_removed": was_removed,
-            "added": added, "chat": "on"}
+            "added": added, "chat": "off"}
+
+
+def check_files(name: str, who: str) -> dict:
+    """Add the memory files one project is missing (no build settings); returns {name, added}."""
+    folder = paths.projects() / name
+    if not (folder / "CLAUDE.md").is_file():
+        raise NotFound(f"There is no project called '{name}' (no CLAUDE.md in its folder).")
+    added = add_memory_files(folder, name, _folder_repo(folder))
+    if added:
+        common.record_command(who, f"project check-files {name}", name, change="added " + ", ".join(added))
+    return {"name": name, "added": added}
+
+
+def missing_memory_files(name: str) -> list:
+    """The memory files and folders a project lacks, without adding anything."""
+    folder = paths.projects() / name
+    files = ["CLAUDE.md", "notes/NOW.md", "notes/decisions.md", "notes/changelog.md"]
+    lacking = [f for f in files if not (folder / f).exists()]
+    return lacking + [f"notes/{s}/" for s in project.NOTES_SUBFOLDERS if not (folder / "notes" / s).is_dir()]

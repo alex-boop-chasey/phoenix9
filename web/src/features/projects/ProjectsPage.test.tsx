@@ -196,8 +196,16 @@ test("phoenix9 shows the can't-be-removed dialog and never calls the API", async
   expect(calls.some((c) => c.path.endsWith("/remove"))).toBe(false)
 })
 
-test("a Chat that is off starts the chat", async () => {
-  const { calls } = mockApi(routes(projects, {
+test("a Chat that is off has no button", async () => {
+  mockApi(routes(projects))
+  renderPage()
+  await screen.findByText("4 projects")
+  expect(within(rowOf("notes-only")).queryByRole("button", { name: /Chat/ })).toBeNull()
+})
+
+test("a Chat that is on but has no link yet gets its link", async () => {
+  const on: ProjectRow[] = projects.map((p) => (p.name === "notes-only" ? { ...p, chat: { state: "on" as const, kind: "none" as const, url: null } } : p))
+  const { calls } = mockApi(routes(on, {
     "POST /api/projects/notes-only/chat/start": { project: "notes-only", already: false, chat: { state: "on", kind: "session", url: "https://claude.ai/code/s1" } },
   }))
   renderPage()

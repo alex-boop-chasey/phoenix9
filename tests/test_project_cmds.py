@@ -1,5 +1,6 @@
 """phoenix project list / show / edit / open / close / set-chat."""
 import json
+import time
 
 import pytest
 
@@ -116,7 +117,7 @@ def test_chat_link_prefers_session_url(env):
 def test_chat_link_parses_environment_from_journalctl(env):
     folder = make(env, "alpha", meta={})
     env["host"].script(["journalctl", "-u", "claude-rc@alpha.service"],
-                       out="x https://claude.ai/code?environment=env_OLD1\nhttps://claude.ai/code?environment=env_NEW2 y\n")
+                       out="https://claude.ai/code?environment=env_NEW2 y\nx https://claude.ai/code?environment=env_OLD1\n")
     link = project.chat_link("alpha", env["fakes"])
     assert link == {"state": "on", "kind": "environment", "url": "https://claude.ai/code?environment=env_NEW2"}
     assert json.loads((folder / ".phoenix/project.json").read_text())["environment_id"] == "env_NEW2"
@@ -347,3 +348,51 @@ def test_chat_start_switches_on_and_returns_chat(env):
     assert out["chat"]["url"].endswith("env_S1") and out["already"] is False
     assert ["systemctl", "start", "claude-rc@alpha.service"] in env["host"].calls
     assert meta_of(folder)["environment_id"] == "env_S1"
+
+
+def test_journal_search_stops_at_first_match(env):
+    env["host"].script(["journalctl"], out="a\nhttps://claude.ai/code?environment=env_A1\n" + "more\n" * 1000)
+    assert project._env_id_in_journal(env["host"], "alpha", "") == "env_A1"
+    assert env["host"].lines_read == 2
+    assert "-r" in journal_calls(env["host"])[0]
+
+
+def test_real_first_match_stops_a_endless_command():
+    import re
+    import sys
+    from phoenix9.adapters import Host
+    code = "import sys\nprint('hi')\nprint('id=X1')\nwhile True: print('x')"
+    assert Host().first_match([sys.executable, "-c", code], re.compile(r"id=\w+"), timeout=20) == "id=X1"
+
+
+def test_list_does_not_search_the_journal_in_the_request(env):
+    import threading
+    folder = make(env, "alpha", meta={})
+    gate, started = threading.Event(), threading.Event()
+    host = env["host"]
+    real = host.first_match
+
+    def blocked(argv, pattern, timeout=120):
+        started.set()
+        gate.wait(10)
+        return real(argv, pattern, timeout)
+    host.first_match = blocked
+    host.script(["journalctl"], out="https://claude.ai/code?environment=env_Z9\n")
+    try:
+        rows = project.list_projects(env["fakes"], wait=0.05)
+        assert rows[0]["chat"] == {"state": "on", "kind": "none", "url": None}
+        assert started.wait(5)
+    finally:
+        gate.set()
+    for _ in range(100):
+        if meta_of(folder).get("environment_id"):
+            break
+        time.sleep(0.05)
+    assert project.list_projects(env["fakes"], wait=0.05)[0]["chat"]["url"].endswith("env_Z9")
+
+
+def test_list_skips_journal_when_chat_is_off(env):
+    make(env, "alpha", meta={})
+    env["host"].script(["systemctl", "is-active"], rc=3)
+    project.list_projects(env["fakes"])
+    assert journal_calls(env["host"]) == []

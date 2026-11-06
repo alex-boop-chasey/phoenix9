@@ -49,18 +49,27 @@ def test_new_empty_no_repo(env):
     assert "created from an empty folder, profile python-script" in (folder / "notes/decisions.md").read_text()
     assert "· alex · created by alex" in (folder / "notes/changelog.md").read_text()
     data = settings.load_project(folder)
-    assert data["preset"] == "quick" and data["profile"] == "python-script"
+    assert data == {"profile": "python-script"}
+    assert (folder / "phoenix.toml").read_text().count("preset") == 0
     info = json.loads((folder / ".phoenix/project.json").read_text())
     assert info["who"] == "alex" and info["source"] == "empty" and info["chat_session_url"] is None
     assert info["services_set_up"] == [] and info["repo"] is None
     assert git.git(folder / "code", "rev-list", "--count", "HEAD").strip() == "1"
-    assert calls(env, "systemctl", "enable") and calls(env, "systemctl", "start", "claude-rc@demo.service")
+    assert not calls(env, "systemctl", "enable") and not calls(env, "systemctl", "start")
     trusted = json.loads(env["host"].files[env["claude"]])["projects"]
     assert trusted[str(folder)]["hasTrustDialogAccepted"] is True
-    assert "phoenix project open demo" in (folder / ".vscode/tasks.json").read_text()
+    assert not (folder / ".vscode").exists()
     assert "| demo |" in (env["projects"] / "INDEX.md").read_text()
     types = [json.loads(x)["type"] for x in paths.events().read_text().splitlines()]
     assert "project.created" in types and "command" in types
+
+
+def test_new_without_profile_writes_no_phoenix_toml(env):
+    create(env)
+    folder = env["projects"] / "demo"
+    assert not (folder / "phoenix.toml").exists()
+    assert json.loads((folder / ".phoenix/project.json").read_text())["profile"] == ""
+    assert "created from an empty folder\n" in (folder / "notes/decisions.md").read_text()
 
 
 def test_new_from_python_cli_template_runs_offline(env):
@@ -112,6 +121,42 @@ def test_new_repo_creates_and_pushes_via_gh(env):
     assert "- Repo: alex/demo" in (folder / "CLAUDE.md").read_text()
 
 
+def test_new_repo_switches_on_branch_auto_delete(env):
+    create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    create(env, name="a", profile="web", template="alex/starter", no_new_repo=False, new_repo="alex")
+    assert calls(env, "gh", "repo", "edit", "alex/demo", "--delete-branch-on-merge")
+    assert calls(env, "gh", "repo", "edit", "alex/a", "--delete-branch-on-merge")
+
+
+def test_branch_auto_delete_failure_is_a_warning(env):
+    env["host"].script(["gh", "repo", "edit"], rc=1, err="HTTP 403: no admin rights\n")
+    result = create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    assert result["repo"] == "alex/demo"
+    assert any(line.startswith("Warning:") and "HTTP 403" in line for line in result["steps"])
+
+
+def test_new_repo_gets_dependabot_for_detected_ecosystems(env):
+    create(env, name="a", template="python-cli", no_new_repo=False, new_repo="alex")
+    text = (env["projects"] / "a/code/.github/dependabot.yml").read_text()
+    assert text.startswith("version: 2\nupdates:\n")
+    assert 'package-ecosystem: "pip"' in text and 'interval: "weekly"' in text
+    assert "open-pull-requests-limit: 5" in text and 'directory: "/"' in text
+    assert ".github/dependabot.yml" in git.git(env["projects"] / "a/code", "ls-files")
+
+
+def test_dependabot_falls_back_to_profile(env):
+    create(env, name="d", profile="desktop", no_new_repo=False, new_repo="alex")
+    text = (env["projects"] / "d/code/.github/dependabot.yml").read_text()
+    assert 'package-ecosystem: "npm"' in text and 'package-ecosystem: "cargo"' in text
+
+
+def test_no_dependabot_when_nothing_detected_or_no_new_repo(env):
+    create(env, name="n", no_new_repo=False, new_repo="alex")
+    assert not (env["projects"] / "n/code/.github").exists()
+    create(env, name="m", profile="web")
+    assert not (env["projects"] / "m/code/.github").exists()
+
+
 def test_github_template_with_and_without_new_repo(env):
     create(env, name="a", profile="web", template="alex/starter", no_new_repo=False, new_repo="alex")
     assert calls(env, "gh", "repo", "create", "alex/a", "--private", "--template", "alex/starter")
@@ -159,17 +204,16 @@ def test_failure_after_folder_undoes_everything(env, tmp_path):
     kf = tmp_path / "k.toml"
     kf.write_text('[[key]]\nname = "A_KEY"\nvalue = "v-12345678"\n')
     (env["projects"] / "INDEX.md").write_text("| other | - | (new) |\n")
-    env["host"].script(["systemctl", "start"], 1, "", "Failed to start unit\nmore")
-    with pytest.raises(OpsError, match="Could not start claude-rc@demo.service: Failed to start unit"):
+    env["host"].files[env["claude"]] = "not json"
+    with pytest.raises(OpsError, match="is not valid JSON; cannot mark"):
         create(env, profile="python-script", keys_file=str(kf))
     assert not (env["projects"] / "demo").exists()
     assert not (paths.keys() / "demo.toml").exists()
     assert (env["projects"] / "INDEX.md").read_text() == "| other | - | (new) |\n"
-    assert calls(env, "systemctl", "disable")
 
 
 def test_failure_after_repo_created_says_repo_left(env):
-    env["host"].script(["systemctl", "start"], 1, "", "boom")
+    env["host"].files[env["claude"]] = "not json"
     with pytest.raises(OpsError) as err:
         create(env, profile="python-script", no_new_repo=False, new_repo="alex")
     assert "GitHub repo alex/demo was created and left in place; delete it by hand if you don't want it" in str(err.value)
@@ -180,7 +224,7 @@ def test_failure_after_repo_created_says_repo_left(env):
 def test_cli_new_json_and_progress_lines(env, capsys):
     assert main(["project", "new", "demo", "--profile", "python-script", "--template", "python-cli", "--no-new-repo"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "- Checking the form" and any("Switching the project chat on" in x for x in out)
+    assert out[0] == "- Checking the form" and not any("chat on" in x for x in out)
     assert out[-1].startswith("Created ") and out[-1].endswith("/demo")
     assert main(["project", "new", "demo2", "--profile", "python-script", "--no-new-repo", "--services", "github", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

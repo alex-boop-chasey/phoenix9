@@ -82,12 +82,12 @@ describe("ProjectPage", () => {
     expect(screen.getByText("/srv/projects/demo-site")).toBeInTheDocument()
   })
 
-  it("Start chat shows when the chat is off, and a missing repo is disabled", async () => {
+  it("no Start chat when the chat is off, and a missing repo is disabled", async () => {
     api("notes-only")
     renderAt("/p/notes-only/overview")
     await screen.findByRole("heading", { name: "notes-only" })
     const dock = within(screen.getByRole("group", { name: "Open project" }))
-    expect(dock.getByRole("button", { name: "Start chat" })).toBeEnabled()
+    expect(dock.queryByRole("button", { name: "Start chat" })).toBeNull()
     expect(dock.getByRole("button", { name: "Repo" })).toBeDisabled()
   })
 })

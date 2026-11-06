@@ -60,7 +60,7 @@ def make_project(name):
     folder = paths.projects() / name
     (folder / "notes").mkdir(parents=True)
     (folder / "CLAUDE.md").write_text(f"# {name}\n\nAbout {name}.\n\n- Profile: python-script\n- Repo: (none yet)\n")
-    settings.save_project(folder, {})
+    settings.save_project(folder, {"profile": "python-script"})
     return folder
 
 

@@ -2,6 +2,7 @@ name = "sentry"
 title = "Sentry"
 description = "Error reporting and tracing."
 support = "store-and-wire"
+website = "https://sentry.io/settings/account/api/auth-tokens/"
 docs = "https://docs.sentry.io"
 account_keys = ["SENTRY_AUTH_TOKEN"]
 # sentry.io is not opened to step containers: its ingest subdomains are an exfiltration route (V8 firewall note).
@@ -62,6 +63,12 @@ path = "/organizations/"
 [[proxy.allow]]
 method = "GET"
 path = "/organizations/*/projects/"
+[[proxy.allow]]
+method = "POST"
+path = "/teams/*/*/projects/"
+[[proxy.allow]]
+method = "GET"
+path = "/projects/*/*/keys/"
 
 [check]
 method = "GET"

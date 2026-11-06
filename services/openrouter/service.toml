@@ -2,6 +2,7 @@ name = "openrouter"
 title = "OpenRouter"
 description = "One API for many AI models."
 support = "store-and-wire"
+website = "https://openrouter.ai/settings/keys"
 docs = "https://openrouter.ai/docs"
 account_keys = ["OPENROUTER_API_KEY"]
 hosts = ["openrouter.ai"]

@@ -32,11 +32,11 @@ function Dock({ row }: { row: ProjectRow }) {
       )}
       {chatOn ? (
         <a href={row.chat.url ?? undefined} target="_blank" rel="noreferrer"><Icon name="chat-circle-text" size="sm" />Chat</a>
-      ) : (
+      ) : row.chat.state === "on" ? (
         <button type="button" title="Start the chat" onClick={() => void startChat(row.name, refresh)}>
           <Icon name="play-circle" size="sm" />Start chat
         </button>
-      )}
+      ) : null}
     </div>
   )
 }

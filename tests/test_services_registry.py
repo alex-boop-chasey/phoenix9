@@ -117,3 +117,55 @@ def test_cli_rejects_value_as_argument(capsys):
               and a.metavar not in (None, "PATH") and a.dest not in ("help",)]
     assert valued == []
     assert [a.option_strings for a in connect._actions if a.metavar == "PATH"] == [["--from-file"]]
+
+
+CF_USER = "http://proxy.fake/cloudflare/user/tokens/verify"
+CF_ACCOUNT = "http://proxy.fake/cloudflare/accounts/acc123/tokens/verify"
+
+
+def test_cloudflare_user_token_passes_on_first_path(fakes):
+    fakes.http.script("GET", CF_USER, 200, body=b"{}")
+    r = ops.test("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli")
+    assert r["ok"] is True and [c["url"] for c in fakes.http.calls] == [CF_USER]
+
+
+def test_cloudflare_account_token_passes_on_fallback(fakes):
+    fakes.http.script("GET", CF_USER, 401)
+    fakes.http.script("GET", CF_ACCOUNT, 200, body=b"{}")
+    r = ops.connect("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli", settings_in={"account_id": "acc123"})
+    assert r["checked"] == "ok" and [c["url"] for c in fakes.http.calls] == [CF_USER, CF_ACCOUNT]
+    assert [x.path for x in fakes.proxy.started[0]["rules"]] == [
+        "/user/tokens/verify", "/accounts/*/tokens/verify"]
+
+
+def test_cloudflare_account_token_without_account_id_gets_plain_message(fakes):
+    fakes.http.script("GET", CF_USER, 401)
+    r = ops.test("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli")
+    assert r["ok"] is False and "fill in the Account ID setting first" in r["message"]
+    assert len(fakes.http.calls) == 1
+
+
+def test_every_library_service_has_a_website_and_rows_serve_it(fakes):
+    lib = services.load_library()
+    assert all(s["website"].startswith("https://") for s in lib.values())
+    rows = {r["name"]: r for r in ops.list_global()}
+    assert rows["sentry"]["website"] == "https://sentry.io/settings/account/api/auth-tokens/"
+    assert rows["claude"]["website"] == ""
+
+
+def test_testing_the_saved_key_stores_the_result(fakes):
+    ops.connect("supabase", {"SUPABASE_ACCESS_TOKEN": SENTINEL}, who="cli")
+    fakes.http.script("GET", CHECK_URL, 401)
+    assert ops.test("supabase", who="cli")["ok"] is False
+    assert services.read_registry()["supabase"]["checked"] == "failed: HTTP 401"
+    fakes.http.script("GET", CHECK_URL, 200, body=b"[]")
+    ops.test("supabase", who="cli")
+    entry = services.read_registry()["supabase"]
+    assert entry["checked"] == "ok" and entry["checked_at"]
+
+
+def test_testing_a_pasted_key_saves_nothing(fakes):
+    ops.connect("supabase", {"SUPABASE_ACCESS_TOKEN": SENTINEL}, who="cli")
+    fakes.http.script("GET", CHECK_URL, 401)
+    ops.test("supabase", {"SUPABASE_ACCESS_TOKEN": "other"}, who="cli")
+    assert services.read_registry()["supabase"]["checked"] == "ok"

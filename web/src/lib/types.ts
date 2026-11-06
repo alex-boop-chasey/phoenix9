@@ -7,6 +7,7 @@ export type StepGroup = "run-start" | "task" | "run-finish"
 
 export interface Info {
   version: string
+  label?: string
   update: {
     supported: boolean
     installed: string
@@ -475,6 +476,8 @@ export interface ServiceStatus {
   name: string
   title: string
   description?: string
+  /** Page where the service's key is made. */
+  website?: string
   support?: "store-and-wire" | "keys-only"
   connected: boolean
   /** Shown instead of a badge, e.g. "no account connection needed". */
@@ -524,7 +527,7 @@ export interface CreateForm {
   name: string
   description: string
   source: { kind: "empty" | "repo" | "template" | "code"; repo?: string; template?: string; path?: string }
-  profile: string
+  profile?: string
   new_repo: { on: boolean; owner: string }
   services: string[]
   keys: KeyInput[]

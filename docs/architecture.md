@@ -102,6 +102,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
   images build                                build the step images, label `phoenix9.commit`
+  project check-files [NAME | --all]          add missing memory files (CLAUDE.md, notes/*); never overwrites, no phoenix.toml
   doctor [--quick|--for-update]               the checks in section 15
 (reference/ held read-only copies of V8, proj and the project-selector for porting; it was removed at
  the end of phase 4. `# ported from reference/...` comments remain as history.)
@@ -116,7 +117,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
-| work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed when the run ends; the branch stays) |
+| work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -137,7 +138,8 @@ Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `ph
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
 chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
-fields in section 4.7).
+fields in section 4.7). The environment id is found by a background journal search (newest first, stops at the first
+hit, skipped when the chat is off) that the Projects list waits for at most 1 s, like folder sizes; until found the chat link reads as not ready.
 
 ## 4. The plug-in libraries
 
@@ -270,6 +272,9 @@ when Alex sent this step back with `back` and the runner calls it again).
 ### 4.5 Profile folder: `profiles/<name>/profile.toml`
 
 `title`, `image` (step image tag), `allowed_domains` (list), `diff_allow_extra` (list),
+`lockfiles` (list of accepted lockfile names; replaces the defaults of the Lockfile check finish step, which
+fails a run whose root `package.json` / `Cargo.toml` / dependency-declaring `pyproject.toml` has no
+committed lockfile),
 `screenshots` (bool), `suggested_deployer`, and a `[test]` block:
 - `cmd` (full suite command, = `{{suite_command}}`), `task_cmd` (optional, a single task's checks);
 - `report`: one of `pytest-junit | vitest-json | playwright-json | exit-code`, or a list of them
@@ -281,6 +286,10 @@ when Alex sent this step back with `back` and the runner calls it again).
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
+A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
+per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
+image never reaches docker.
+
 ### 4.6 Service folder: `services/<name>/service.toml`
 
 ```toml
@@ -289,6 +298,7 @@ title = "Supabase"
 description = "Postgres database, auth and file storage."
 support = "store-and-wire"        # "store-and-wire" | "keys-only"
 docs = "https://supabase.com/docs"
+website = "https://supabase.com/dashboard/account/tokens"   # optional: where the key is made; shown as a "Website" link
 account_keys = ["SUPABASE_ACCESS_TOKEN"]   # names stored in HOME/secrets/<secrets_file>
 secrets_file = "service-supabase.env"      # default "service-<name>.env"; github: "github.env"
 hosts = ["supabase.co"]           # added to a project's allowed domains (bare names, suffix match)
@@ -314,6 +324,8 @@ path = "/v1/projects"             # optional per-rule: upstream = "https://other
 method = "GET"
 path = "/v1/projects"             # must match one proxy.allow rule
 expect = [200]
+fallback_path = "/accounts/{account_id}/tokens/verify"   # optional: tried when path gives no expected status;
+                                  # {name} is filled from the service's saved account settings (must be an allowed call)
 
 [[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
 name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]
@@ -377,6 +389,10 @@ library step defaults → profile (`profiles/<p>/profile.toml` `[steps.*]`) → 
 every value, which layer set it (for `explain`).
 
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
+
+When Phoenix creates a new GitHub repo (empty or non-GitHub template source), it writes `code/.github/dependabot.yml` before the first commit, so it is in the first push: one weekly entry (directory `/`, 5 open PRs) per ecosystem found in code/ (package.json → npm, Cargo.toml → cargo, pyproject.toml/requirements.txt → pip), else from the profile (web/mobile/platform → npm, desktop → npm+cargo, python-script → pip). Nothing is written when none is found, and existing repos and `--code` folders are never touched.
+
+New projects get a `phoenix.toml` only when a profile is known (from `--profile` or the template), and then it holds just `profile = "<name>"`. With no profile there is no `phoenix.toml`; `.phoenix/project.json` records the profile as an empty string.
 
 ```toml
 preset = "quick"              # simple | quick | full | custom
@@ -918,3 +934,7 @@ profiles/<p>/image/Dockerfile -t <profile.toml image> --label phoenix9.commit=<H
 the base image (`phoenix9-step:base`, context `image/`) only with `--profile base` or `--all`. Default =
 profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
+
+New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
+
+Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).

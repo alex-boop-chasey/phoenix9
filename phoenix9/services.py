@@ -11,7 +11,8 @@ KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 HOST_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
           Field("description", str, default=""), Field("support", str, default="keys-only", choices=SUPPORTS),
-          Field("docs", str, default=""), Field("account_keys", list, default=[], list_of=str),
+          Field("docs", str, default=""), Field("website", str, default=""),
+          Field("account_keys", list, default=[], list_of=str),
           Field("secrets_file", str, default=""),
           Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
           Field("proxy", dict, default=None), Field("check", dict, default=None),
@@ -25,7 +26,8 @@ KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=T
               Field("public", bool, default=False), Field("required", bool, default=True),
               Field("help", str, default="")]
 CHECK_FIELDS = [Field("method", str, required=True), Field("path", str, required=True),
-                Field("expect", list, default=[200], list_of=int)]
+                Field("expect", list, default=[200], list_of=int), Field("fallback_path", str, default="")]
+PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*)\}")
 
 
 def _check_names(values: dict, where: str) -> list[str]:
@@ -85,7 +87,21 @@ def _check_proxy(values: dict, where: str) -> list[str]:
     got, bad = library.check_fields(check, CHECK_FIELDS, f"{where} [check]")
     if not bad and proxy.find_rule(spec.rules, got["method"], got["path"]) is None:
         bad = [f"{where}: the [check] call {got['method']} {got['path']} is not one of the allowed calls"]
+    if not bad and got["fallback_path"]:
+        bad = _check_fallback(got, values, spec, where)
     return problems + bad
+
+
+def _check_fallback(got: dict, values: dict, spec, where: str) -> list[str]:
+    """Problems with a [check] fallback_path: known {setting} names, and the filled path must be an allowed call."""
+    names = {s.get("name") for s in values["account_settings"]}
+    unknown = sorted(set(PLACEHOLDER.findall(got["fallback_path"])) - names)
+    if unknown:
+        return [f"{where}: [check] fallback_path uses {{{unknown[0]}}}, which is not an account setting"]
+    filled = PLACEHOLDER.sub("x", got["fallback_path"])
+    if proxy.find_rule(spec.rules, got["method"], filled) is None:
+        return [f"{where}: the [check] fallback {got['method']} {got['fallback_path']} is not one of the allowed calls"]
+    return []
 
 
 def _parse(data: dict, folder, where: str):

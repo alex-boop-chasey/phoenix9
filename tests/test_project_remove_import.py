@@ -1,4 +1,4 @@
-"""Remove a project from Phoenix and import it back: nothing is deleted, the chat is set up again."""
+"""Remove a project from Phoenix and import it back: nothing is deleted, no chat service is started."""
 import json
 
 import pytest
@@ -79,11 +79,11 @@ def test_import_removed_project_restores_it(env):
     projects.remove("alpha", "tester")
     env["host"].calls.clear()
     r = projects.import_("alpha", "tester")
-    assert r["was_removed"] and r["chat"] == "on"
+    assert r["was_removed"] and r["chat"] == "off"
     assert [x["name"] for x in projects.list_()] == ["alpha"]
     assert "removed_projects" not in settings.read_global()
-    assert calls(env["host"], "systemctl", "enable", "-q", "claude-rc@alpha.service")
-    assert calls(env["host"], "systemctl", "start", "claude-rc@alpha.service")
+    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
+    assert not (folder / ".vscode" / "tasks.json").exists()
     assert trusted(env, folder)
     assert "imported into Phoenix" in (folder / "notes" / "changelog.md").read_text()
 
@@ -97,7 +97,8 @@ def test_import_unlisted_folder_by_path_adds_files_without_overwriting(env):
     assert (folder / "notes" / "NOW.md").read_text() == "mine"
     assert (folder / "CLAUDE.md").is_file()
     assert [x["name"] for x in projects.list_()] == ["loose"]
-    assert calls(env["host"], "systemctl", "start", "claude-rc@loose.service")
+    assert not calls(env["host"], "systemctl", "start")
+    assert ".vscode/tasks.json" not in r["added"]
 
 
 def test_import_never_overwrites_existing_claude_md(env):
@@ -118,13 +119,12 @@ def test_import_refuses_listed_missing_and_outside(env, tmp_path):
         projects.import_(str(tmp_path / "elsewhere"), "tester")
 
 
-def test_create_sets_up_and_starts_chat(env):
+def test_create_does_not_start_a_chat(env):
     from test_project_cmds import off_until_started
     off_until_started(env["host"])
     projects.new({"name": "fresh", "description": "x", "source": {"kind": "empty"}, "profile": "python-script",
                   "template": None, "services": [], "new_repo": None, "no_new_repo": True}, "tester")
-    assert calls(env["host"], "systemctl", "enable", "-q", "claude-rc@fresh.service")
-    assert calls(env["host"], "systemctl", "start", "claude-rc@fresh.service")
+    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
     assert trusted(env, env["projects"] / "fresh")
 
 
@@ -208,3 +208,33 @@ def test_api_folders(api):
     assert status == 200 and [f["name"] for f in body["data"]["folders"]] == ["alpha"]
     status, body = api("/api/folders?path=/etc")
     assert status == 400
+
+
+def test_check_files_adds_only_what_is_missing(env, capsys):
+    folder = make(env, "alpha", text="# alpha\n\nmy words\n")
+    (folder / "notes" / "NOW.md").write_text("mine")
+    code, out, _ = run_cmd(capsys, "project", "check-files", "alpha")
+    assert code == 0 and "alpha: added" in out and "notes/decisions.md" in out and "notes/NOW.md" not in out
+    assert (folder / "CLAUDE.md").read_text() == "# alpha\n\nmy words\n"
+    assert (folder / "notes" / "NOW.md").read_text() == "mine"
+    assert all((folder / "notes" / s).is_dir() for s in project.NOTES_SUBFOLDERS)
+    assert not (folder / "phoenix.toml").exists()
+    code, out, _ = run_cmd(capsys, "project", "check-files", "alpha")
+    assert code == 0 and "alpha: nothing missing" in out
+
+
+def test_check_files_all_skips_folders_without_claude_md_and_removed(env, capsys):
+    make(env, "alpha")
+    make(env, "beta")
+    (env["projects"] / "loose").mkdir()
+    projects.remove("beta", "tester")
+    code, out, _ = run_cmd(capsys, "project", "check-files", "--all")
+    assert code == 0 and "alpha: added" in out and "beta" not in out and "loose" not in out
+    assert not (env["projects"] / "loose" / "CLAUDE.md").exists()
+
+
+def test_check_files_needs_a_name_or_all_and_a_real_project(env, capsys):
+    code, _, err = run_cmd(capsys, "project", "check-files")
+    assert code == 1 and "--all" in err
+    with pytest.raises(common.NotFound):
+        projects.check_files("ghost", "tester")

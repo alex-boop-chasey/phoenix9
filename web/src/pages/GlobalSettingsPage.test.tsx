@@ -57,7 +57,7 @@ describe("GlobalSettingsPage", () => {
     expect(await screen.findByText("1 of 2 connected")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Disconnect Claude" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Connect Resend" })).toBeInTheDocument()
-    expect(screen.getAllByRole("button", { name: /^Configure/ })).toHaveLength(2)
+    expect(screen.getAllByRole("button", { name: /^Configure/ })).toHaveLength(1)
     expect(screen.getByText(/Used by alpha/)).toBeInTheDocument()
     expect(screen.getByText("No account needed")).toBeInTheDocument()
   })

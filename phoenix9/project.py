@@ -1,10 +1,11 @@
-"""Creating a project (proj folded in): folder, notes, code, settings, keys, repo, chat service; undo on failure."""
+"""Creating a project (proj folded in): folder, notes, code, settings, keys, repo; undo on failure."""
 import json
 import os
 import re
 import shlex
 import shutil
 import threading
+import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,10 +81,10 @@ def _source(opts: dict) -> str:
 
 
 def _profile(opts: dict, tpl: dict | None) -> str:
-    """The profile: the form's, else the menu template's; OpsError when unknown or missing."""
+    """The profile: the form's, else the menu template's, else "" (none yet); OpsError when unknown."""
     profile = opts.get("profile") or (tpl["profile"] if tpl else "")
     if not profile:
-        raise OpsError("Say which profile to use (--profile); there is no template to take it from.")
+        return ""
     lib = paths.library()
     if not (lib / "profiles" / profile / "profile.toml").is_file():
         known = sorted(p.name for p in (lib / "profiles").iterdir() if p.is_dir()) if (lib / "profiles").is_dir() else []
@@ -189,7 +190,27 @@ def _first_commit(code: Path) -> None:
     git.commit(code, "Project created by Phoenix 9", {}, skip_env=True)
 
 
-def _get_code(opts, facts, folder: Path, host, made: list) -> str:
+PROFILE_ECOSYSTEMS = {"web": ("npm",), "mobile": ("npm",), "platform": ("npm",), "desktop": ("npm", "cargo"), "python-script": ("pip",)}
+FILE_ECOSYSTEMS = (("package.json", "npm"), ("Cargo.toml", "cargo"), ("pyproject.toml", "pip"), ("requirements.txt", "pip"))
+
+
+def _dependabot_ecosystems(code: Path, profile: str) -> list[str]:
+    """Package ecosystems for Dependabot: from the files in code/, else from the profile."""
+    found = [eco for file, eco in FILE_ECOSYSTEMS if (code / file).is_file()]
+    return list(dict.fromkeys(found or PROFILE_ECOSYSTEMS.get(profile, ())))
+
+
+def _write_dependabot(code: Path, profile: str) -> None:
+    """Write .github/dependabot.yml for a repo Phoenix is creating (nothing when no ecosystem is known)."""
+    ecosystems = _dependabot_ecosystems(code, profile)
+    if not ecosystems:
+        return
+    entries = "".join(f'  - package-ecosystem: "{eco}"\n    directory: "/"\n    schedule:\n      interval: "weekly"\n'
+                      f'    open-pull-requests-limit: 5\n' for eco in ecosystems)
+    atomic.write_text(code / ".github" / "dependabot.yml", f"version: 2\nupdates:\n{entries}")
+
+
+def _get_code(opts, facts, folder: Path, host, made: list, say) -> str:
     """Make code/ (or note where the code is); returns the repo name used ('' when none yet)."""
     code, source, tpl = folder / "code", facts["source"], facts["template"]
     if source == "repo":
@@ -199,7 +220,7 @@ def _get_code(opts, facts, folder: Path, host, made: list) -> str:
     if source == "code":
         return ""
     if source == "template" and tpl is None:        # a GitHub template repo
-        return _from_github_template(opts, facts, code, host, made)
+        return _from_github_template(opts, facts, code, host, made, say)
     code.mkdir()
     values = _placeholders(opts)
     if tpl and tpl["kind"] == "files":
@@ -209,12 +230,13 @@ def _get_code(opts, facts, folder: Path, host, made: list) -> str:
     return ""
 
 
-def _from_github_template(opts, facts, code: Path, host, made: list) -> str:
+def _from_github_template(opts, facts, code: Path, host, made: list, say) -> str:
     """Use a GitHub template repo: a new repo made from it, or a plain copy with its history dropped."""
     if facts["new_repo"]:
         full = f"{facts['new_repo']}/{opts['name']}"
         _run(host, f"Could not create GitHub repo {full}", ["gh", "repo", "create", full, "--private", "--template", opts["template"]])
         made.append(("repo", full))
+        _auto_delete_branches(host, full, say)
         _run(host, f"Could not copy {full} into code/", ["gh", "repo", "clone", full, str(code), "--", "-q"])
         code.mkdir(exist_ok=True)
         return full
@@ -224,11 +246,19 @@ def _from_github_template(opts, facts, code: Path, host, made: list) -> str:
     return ""
 
 
-def _make_repo(opts, facts, code: Path, host, made: list) -> str:
+def _auto_delete_branches(host, full: str, warn) -> None:
+    """Switch on GitHub's "delete head branches after merge" for the repo; a failure is only a warning."""
+    rc, out, err = host.gh("repo", "edit", full, "--delete-branch-on-merge")
+    if rc != 0:
+        warn(f"Warning: could not switch on automatic branch clean-up on GitHub: {_first_error(rc, out, err)}")
+
+
+def _make_repo(opts, facts, code: Path, host, made: list, say) -> str:
     """Create the private GitHub repo for a fresh code/, set origin, push; returns OWNER/NAME."""
     full = f"{facts['new_repo']}/{opts['name']}"
     _run(host, f"Could not create GitHub repo {full}", ["gh", "repo", "create", full, "--private"])
     made.append(("repo", full))
+    _auto_delete_branches(host, full, say)
     git.git(code, "remote", "add", "origin", f"https://github.com/{full}.git")
     _run(host, f"Could not push to {full}", ["git", *SAFE, "-C", str(code), "push", "-u", "origin", "main"], 300)
     return full
@@ -240,7 +270,7 @@ def _claude_md(opts, facts, repo: str) -> str:
     services_line = ", ".join(opts.get("services") or []) or "none"
     template = opts["template"] if facts["source"] == "template" else "none"
     about = (opts.get("description") or "").strip() or f"{name}: a new project."
-    return (f"# {name}\n\n{about}\n\n- Code: {where}\n- Repo: {repo or '(none yet)'}\n- Profile: {facts['profile']}\n"
+    return (f"# {name}\n\n{about}\n\n- Code: {where}\n- Repo: {repo or '(none yet)'}\n- Profile: {facts['profile'] or '(not set yet)'}\n"
             f"- Services: {services_line}\n- Template: {template}\n\n@notes/NOW.md\n")
 
 
@@ -279,14 +309,6 @@ def _save_key_rows(name: str, rows: list, made: list) -> None:
             keys.set_key(name, row["name"], row["value"], bool(row.get("secret", True)))
         except keys.KeyError_ as err:
             raise OpsError(f"Keys: {err}") from None
-
-
-def _vscode_task(folder: Path, name: str) -> None:
-    task = {"version": "2.0.0", "tasks": [{
-        "label": f"Make sure {name} is on for the Claude app", "type": "shell",
-        "command": f"phoenix project open {name}", "runOptions": {"runOn": "folderOpen"},
-        "presentation": {"reveal": "silent", "panel": "dedicated", "close": True}, "problemMatcher": []}]}
-    atomic.write_json(folder / ".vscode" / "tasks.json", task)
 
 
 def trust(host, folder: Path) -> None:
@@ -381,14 +403,17 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
     _make_folders(folder)
     _write_notes(folder, opts, facts, today)
     say("Getting the code")
-    repo = _get_code(opts, facts, folder, host, made)
+    repo = _get_code(opts, facts, folder, host, made, say)
     code = folder / "code"
     if facts["source"] in ("empty", "template") and not (code / ".git").exists():
+        if facts["new_repo"] and not repo:
+            _write_dependabot(code, facts["profile"])
         _first_commit(code)
     say("Writing CLAUDE.md")
     atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo or opts.get("repo") or ""))
-    say("Writing phoenix.toml")
-    settings.save_project(folder, {"preset": "quick", "profile": facts["profile"]})
+    if facts["profile"]:
+        say("Writing phoenix.toml")
+        settings.save_project(folder, {"profile": facts["profile"]})
     if opts.get("services"):
         project_services.set_services(name, list(opts["services"]), who)
     if opts.get("keys_file") or opts.get("keys"):
@@ -406,14 +431,11 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
         "chat_session_url": None, "environment_id": None, "services_set_up": []})
     if facts["new_repo"] and facts["source"] in ("empty", "template") and not repo:
         say("Creating the GitHub repo")
-        repo = _make_repo(opts, facts, code, host, made)
+        repo = _make_repo(opts, facts, code, host, made, say)
         project = json.loads((folder / ".phoenix" / "project.json").read_text(encoding="utf-8"))
         atomic.write_json(folder / ".phoenix" / "project.json", {**project, "repo": repo})
         atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo))
-    _vscode_task(folder, name)
-    if opts.get("chat", True):
-        say("Switching the project chat on")
-        switch_on(host, adapters.clock, name, folder, made)
+    trust(host, folder)
     return {"repo": repo or opts.get("repo") or "", "today": today}
 
 
@@ -437,8 +459,9 @@ def create(opts: dict, adapters, who: str, progress=None) -> dict:
         line = _index_line(name, result["repo"] or (opts.get("code") or ""))
         _add_index(line)
         made.append(("index", line))
-        words = f"created from template {opts['template']}, profile {facts['profile']}" if facts["source"] == "template" \
-            else f"created from {_source_words(opts, facts['source'])}, profile {facts['profile']}"
+        kind = f", profile {facts['profile']}" if facts["profile"] else ""
+        words = f"created from template {opts['template']}{kind}" if facts["source"] == "template" \
+            else f"created from {_source_words(opts, facts['source'])}{kind}"
         _add_decision(folder, words)
         events.emit("project.created", project=name, who=who, source=facts["source"], profile=facts["profile"],
                     template=opts.get("template") if facts["source"] == "template" else None)
@@ -555,6 +578,35 @@ def size(name: str, adapters) -> int:
 
 
 # ----------------------------------------------------------------------------- chat link
+_searching: set = set()
+_searching_lock = threading.Lock()
+
+
+def _search_chat_ids(names: list, adapters) -> None:
+    """Read the journal for each name's chat id (saved in project.json); one search per project at a time."""
+    for n in names:
+        with _searching_lock:
+            if n in _searching:
+                continue
+            _searching.add(n)
+        try:
+            chat_link(n, adapters)
+        except Exception:      # a failed search must not break the page; the link just stays "not ready"
+            pass
+        finally:
+            with _searching_lock:
+                _searching.discard(n)
+
+
+def _needs_chat_search(name: str, adapters) -> bool:
+    """True when the chat is on, has no session link, and no id was saved since its last start."""
+    meta = _meta(paths.projects() / name)
+    if meta.get("chat_session_url") or not is_on(adapters.host, name):
+        return False
+    since = _unit_started_at(adapters.host, name)
+    return not (meta.get("environment_id") and since and meta.get("chat_env_start") == since)
+
+
 def _unit_started_at(host, name: str) -> str:
     """When the chat service last started (systemd's own words), or '' when unknown."""
     rc, out, _ = host.systemctl("show", "-p", "ActiveEnterTimestamp", "--value", unit(name))
@@ -562,11 +614,10 @@ def _unit_started_at(host, name: str) -> str:
 
 
 def _env_id_in_journal(host, name: str, since: str) -> str:
-    """The newest chat environment id the service logged since its last start ('' when none)."""
-    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager"]
-    rc, out, _ = host.run(argv + ["--since", since] if since else argv)
-    found = ENV_URL_RE.findall(out) if rc == 0 else []
-    return found[-1].split("environment=", 1)[1] if found else ""
+    """The newest chat environment id the service logged since its last start ('' when none); stops at the first hit."""
+    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager", "-r"]
+    hit = host.first_match(argv + ["--since", since] if since else argv, ENV_URL_RE)
+    return hit.split("environment=", 1)[1] if hit else ""
 
 
 def _refresh_env_id(name: str, adapters, folder: Path, meta: dict) -> str:
@@ -588,15 +639,17 @@ def _iso(now: float) -> str:
     return datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def chat_link(name: str, adapters) -> dict:
-    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known."""
+def chat_link(name: str, adapters, search: bool = True) -> dict:
+    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known.
+
+    With search=False the journal is never read: only an id already saved in project.json is used."""
     folder = paths.projects() / name
     if not is_on(adapters.host, name):
         return {"state": "off", "kind": "none", "url": None}
     meta = _meta(folder)
     if meta.get("chat_session_url"):
         return {"state": "on", "kind": "session", "url": meta["chat_session_url"]}
-    env_id = _refresh_env_id(name, adapters, folder, meta)
+    env_id = _refresh_env_id(name, adapters, folder, meta) if search else (meta.get("environment_id") or "")
     if not env_id:
         return {"state": "on", "kind": "none", "url": None}
     return {"state": "on", "kind": "environment", "url": f"https://claude.ai/code?environment={env_id}"}
@@ -654,11 +707,16 @@ def mark_used(name: str) -> None:
 
 
 def last_used(name: str, now: float):
-    """(seconds-since-epoch or None, '3h ago' style words or 'never')."""
-    path = _used_file(name)
-    if not path.exists():
+    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's records."""
+    stamps = []
+    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used"):
+        try:
+            stamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    if not stamps:
         return None, "never"
-    at = path.stat().st_mtime
+    at = max(stamps)
     secs = max(0, int(now - at))
     if secs < 3600:
         words = f"{secs // 60}m ago"
@@ -695,10 +753,14 @@ def info(name: str, adapters, size_wait: bool = True) -> dict:
     on = is_on(host, name)
     at, words = last_used(name, adapters.clock.now())
     nbytes = size(name, adapters) if size_wait else cached_size(name)
+    if size_wait and _needs_chat_search(name, adapters):
+        worker = threading.Thread(target=_search_chat_ids, args=([name], adapters), daemon=True)
+        worker.start()
+        worker.join(SIZE_WAIT)
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
             "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
-            "chat": chat_link(name, adapters), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
+            "chat": chat_link(name, adapters, search=False), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
             "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
             "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
@@ -719,15 +781,19 @@ def _refresh_sizes(names: list, adapters) -> None:
         size(n, adapters)
 
 
-def list_projects(adapters, wait: float = SIZE_WAIT) -> list:
-    """info for every project; sizes come from the cache and stale or missing ones refresh in the background."""
-    names = project_names()
+def list_projects(adapters, wait: float = SIZE_WAIT, names: list | None = None) -> list:
+    """info for every project (or just `names`); sizes and chat ids come from the cache, missing ones load in the background."""
+    names = project_names() if names is None else names
     now = adapters.clock.now()
     stale = [n for n in names if cached_size(n, now, SIZE_MAX_AGE) is None]
-    if stale:
-        worker = threading.Thread(target=_refresh_sizes, args=(stale, adapters), daemon=True)
-        worker.start()
-        worker.join(wait)
+    lookups = [n for n in names if _needs_chat_search(n, adapters)]
+    workers = [threading.Thread(target=target, args=(todo, adapters), daemon=True)
+               for target, todo in ((_refresh_sizes, stale), (_search_chat_ids, lookups)) if todo]
+    for w in workers:
+        w.start()
+    deadline = time.monotonic() + wait
+    for w in workers:
+        w.join(max(0.0, deadline - time.monotonic()))
     return [info(n, adapters, size_wait=False) for n in names]
 
 
@@ -816,6 +882,8 @@ def edit(name: str, adapters, who: str, description_text=None, profile=None, rep
     if description_text is not None and not description_text.strip():
         raise OpsError("The description cannot be empty.")
     if profile is not None:
+        if not profile:
+            raise OpsError("Say which profile to use.")
         _profile({"profile": profile}, None)
     if repo is not None:
         if not REPO_RE.match(repo):

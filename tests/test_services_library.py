@@ -40,7 +40,11 @@ def test_sentry_hosts_empty():
     # Sentry's API answers 404 without the trailing slash, so its paths keep it (and the folder still loads).
     sentry = services.get("sentry")
     assert sentry["check"]["path"] == "/organizations/" and services.load_problems() == []
-    assert [r["path"] for r in sentry["proxy"]["allow"]] == ["/organizations/", "/organizations/*/projects/"]
+    assert [r["path"] for r in sentry["proxy"]["allow"]] == [
+        "/organizations/", "/organizations/*/projects/", "/teams/*/*/projects/", "/projects/*/*/keys/"]
+    cf = services.get("cloudflare")
+    assert cf["check"]["fallback_path"] == "/accounts/{account_id}/tokens/verify"
+    assert "/accounts/*/tokens/verify" in [r["path"] for r in cf["proxy"]["allow"]]
     assert services.get("github")["hosts"] == [] and services.get("github")["secrets_file"] == "github.env"
     assert services.get("supabase")["secrets_file"] == "service-supabase.env"
 
@@ -71,6 +75,8 @@ BAD = {
     "host with scheme": (GOOD.replace('"demo.example.com"', '"https://demo.example.com"'), "bare domain"),
     "wildcard host": (GOOD.replace('"demo.example.com"', '"*.example.com"'), "bare domain"),
     "name differs from folder": (GOOD.replace('name = "demo"', 'name = "other"'), "folder name"),
+    "fallback not allowed": (GOOD + 'fallback_path = "/nope"\n', "fallback"),
+    "fallback unknown setting": (GOOD + 'fallback_path = "/things/{nothing}"\n', "not an account setting"),
     "check not allowed": (GOOD.replace('[check]\nmethod = "GET"\npath = "/things"', '[check]\nmethod = "GET"\npath = "/nope"'),
                           "allowed calls"),
 }

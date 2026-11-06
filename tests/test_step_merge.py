@@ -75,7 +75,40 @@ def test_auto_merges_and_pushes_main(world):
     assert result.status == "pass" and result.produces["merged"] == git(code, "rev-parse", "HEAD").strip()
     assert "Merge run r: Tiny" in origin_log(origin)
     assert git(origin, "rev-parse", "main").strip() == result.produces["merged"]
-    assert git(origin, "rev-parse", "phoenix/r").strip()
+
+
+def branches(repo):
+    return git(repo, "branch", "--list", "--format=%(refname:short)").split()
+
+
+def test_auto_merge_deletes_the_branch_here_and_on_origin(world):
+    ctx, code, origin = world
+    result = load("merge").run(ctx)
+    assert result.status == "pass" and result.reasons == []
+    assert "phoenix/r" not in branches(code) and "phoenix/r" not in branches(origin)
+    assert (ctx.worktree / "b.txt").exists()
+
+
+def test_auto_merge_reports_a_failed_remote_delete(world):
+    ctx, code, origin = world
+    real = ctx.adapters.host.run
+
+    def run(argv, timeout=60):
+        if "--delete" in argv:
+            return 1, "", "remote: denied\n"
+        return real(argv, timeout)
+    ctx.adapters.host.run = run
+    result = load("merge").run(ctx)
+    assert result.status == "pass" and "not deleted on GitHub: remote: denied" in result.reasons[0]
+    assert "phoenix/r" not in branches(code)
+
+
+def test_ask_mode_keeps_the_branch(world):
+    ctx, code, origin = world
+    ctx.project.settings["merge"] = "ask"
+    gh(ctx, ["pr", "create"], out=URL + "\n")
+    assert load("merge").run(ctx).status == "gate"
+    assert "phoenix/r" in branches(code) and "phoenix/r" in branches(origin)
 
 
 def test_auto_updates_clean_code_dir(world):
@@ -196,6 +229,8 @@ def test_local_only_project_merges_into_code(world):
     assert load("merge").run(ctx).status == "pass"
     assert (code / "b.txt").exists()
     ctx2 = ctx
+    git(code, "branch", "phoenix/r", git(ctx.worktree, "rev-parse", "HEAD").strip())   # the first merge deleted it
+    git(ctx.worktree, "checkout", "-q", "phoenix/r")
     git(code, "reset", "-q", "--hard", "HEAD~1")
     ctx2.project.settings["merge"] = "ask"
     mod = load("merge")

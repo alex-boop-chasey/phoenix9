@@ -32,7 +32,7 @@ PASS = json.dumps({"verdict": "pass", "reasons": []})
 DONE = "I wrote the code.\nSTEP DONE"
 QUICK_LINES = (["pick-up", "spec-check", "branch", "service-setup"]
                + [s for _ in (1, 2, 3) for s in ("builder", "diff-rules", "secret-scan", "acceptance", "verify", "commit")]
-               + ["full-suite", "summary", "preview", "merge", "deploy", "notify"])
+               + ["lockfile", "full-suite", "summary", "preview", "merge", "deploy", "notify"])
 
 
 class E2E:
@@ -140,8 +140,10 @@ def e2e(phoenix_env, tmp_path, monkeypatch):
 
 
 def trailers(env, run_id) -> list[str]:
-    """The Phoenix trailers of the commits on the run's branch, one string per commit."""
-    log = env.git("log", "--format=%B%x00", f"phoenix/{run_id}").split("\0")
+    """The Phoenix trailers of the run's commits (on main once merged; on the branch when the merge was left to GitHub), one string per commit."""
+    branch = f"phoenix/{run_id}"
+    here = env.git("branch", "--list", branch).strip()
+    log = env.git("log", "--format=%B%x00", branch if here else "main").split("\0")
     return [c for c in log if "Phoenix-Run" in c]
 
 
@@ -160,7 +162,7 @@ def test_quick_run_done(e2e):
     for n in (1, 2, 3):
         assert any(f"Phoenix-Task: {n}" in c and f"Phoenix-Run: {run_id}" in c and "Phoenix-Attempt: 1" in c
                    for c in commits)
-    e2e.git("merge-base", "--is-ancestor", f"phoenix/{run_id}", "main")
+    assert e2e.git("branch", "--list", f"phoenix/{run_id}").strip() == ""   # merged, so the branch is gone
     assert e2e.git("rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
     assert all((e2e.code / f).exists() for f in ("src/e2e/shout.py", "src/e2e/whisper.py", "src/e2e/loud.py"))
     assert not any(c[0] in ("push",) for c in e2e.host.calls if c[:1] == ["git"])
@@ -346,7 +348,7 @@ def test_runner_restart_mid_merge_gate_e2e(e2e):
     e2e.settle()
     st = e2e.state(run_id)
     assert st["status"] == "done", st
-    e2e.git("merge-base", "--is-ancestor", f"phoenix/{run_id}", "main")
+    assert e2e.git("branch", "--list", f"phoenix/{run_id}").strip() == ""   # merged, so the branch is gone
     assert len(e2e.adapters.notify.messages) == 1
 
 

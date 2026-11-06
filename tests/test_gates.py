@@ -101,3 +101,65 @@ def test_poll_none_then_answer(tmp_path):
     assert gates.poll(folder, g["id"]) is None
     gates.answer(g["id"], "approve")
     assert gates.poll(folder, g["id"])["action"] == "approve"
+
+
+# ---- when is a question open (A2): no answer, run not ended, run waiting on it ----
+
+def _held(folder, gate_id, how):
+    """Record that the run waits on this gate the way the runner does (current.gate, a task or a step line)."""
+    def change(s):
+        if how == "current":
+            s["current"]["gate"] = gate_id
+        elif how == "task":
+            s["tasks"]["1"].update(gate=gate_id, status="waiting")
+        else:
+            s["steps"].append({"group": "task", "task": 1, "step": "merge", "status": "waiting", "gate": gate_id})
+    state.update(folder, change)
+
+
+@pytest.mark.parametrize("ended", ["done", "failed", "stopped"])
+def test_question_of_an_ended_run_is_not_open(tmp_path, ended):
+    folder = make_run(tmp_path)
+    g = open_one(folder)
+    _held(folder, g["id"], "current")
+    state.set_status(folder, ended)
+    assert gates.list_gates() == []
+    assert gates.is_open(g, state.load(folder)) is False
+
+
+@pytest.mark.parametrize("how", ["current", "task", "line"])
+def test_question_the_run_waits_on_is_open(tmp_path, how):
+    folder = make_run(tmp_path)
+    first, second = open_one(folder), open_one(folder)
+    state.update(folder, lambda s: s["current"].__setitem__("gate", None))
+    _held(folder, first["id"], how)
+    assert [g["id"] for g in gates.list_gates()] == [first["id"]]       # the second is held by nothing
+    assert {g["id"] for g in gates.list_gates(open_only=False)} == {first["id"], second["id"]}
+
+
+def test_old_question_the_run_moved_past_is_not_open(tmp_path):
+    folder = make_run(tmp_path)
+    old = open_one(folder)
+    new = open_one(folder)
+    _held(folder, new["id"], "current")
+    state.set_status(folder, "running")
+    assert [g["id"] for g in gates.list_gates()] == [new["id"]]
+    assert old["id"] not in {g["id"] for g in gates.list_gates()}
+
+
+def test_waiting_run_holding_nothing_counts_its_newest_question(tmp_path):
+    """A crash right after the gate file was written: the runner adopts the newest unanswered gate, so it is open."""
+    folder = make_run(tmp_path)
+    open_one(folder)
+    newest = open_one(folder)
+    assert state.load(folder)["current"]["gate"] is None
+    assert [g["id"] for g in gates.list_gates()] == [newest["id"]]
+
+
+def test_listed_gates_say_their_state(tmp_path):
+    folder = make_run(tmp_path)
+    a = open_one(folder)
+    gates.answer(a["id"], "skip")
+    b = open_one(folder)
+    found = {g["id"]: g["state"] for g in gates.list_gates(open_only=False)}
+    assert found == {a["id"]: "answered", b["id"]: "open"}

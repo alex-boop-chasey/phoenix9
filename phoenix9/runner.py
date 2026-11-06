@@ -112,9 +112,9 @@ class Runner:
         if asked is not None:
             return self._end(run_dir, "stopped", who=asked.get("who") or "cli")
         if st["status"] == "waiting":
-            gate_id = (st.get("current") or {}).get("gate") or adopt_gate(run_dir)
+            gate_id = (st.get("current") or {}).get("gate") or _adopt_gate_held(run_dir)
             if gate_id and gates.current_answer(run_dir) is None:
-                self.check_waiting(run_dir)
+                self._check_waiting_held(run_dir)
                 return "waiting"
         state.set_status(run_dir, "running")
         project, run_id = st["project"], st["run_id"]
@@ -144,7 +144,7 @@ class Runner:
             runend.check(run_dir)
             state.set_status(run_dir, "running")   # answered at once (e.g. by the project chat)
         if outcome == "waiting":
-            self.check_waiting(run_dir)
+            self._check_waiting_held(run_dir)
             return "waiting"
         if outcome == "stopped":
             return self._stop(run_dir, setup, things)
@@ -162,10 +162,22 @@ class Runner:
             return self._end_run(run_dir, "stopped", who=who)
 
     def check_waiting(self, run_dir) -> None:
-        """Called for a waiting run with no answer yet (here and by the service loop each round).
-        A waiting run holding no gate (a crash right after a gate was opened) adopts it first."""
-        if not (state.load(Path(run_dir)).get("current") or {}).get("gate"):
-            adopt_gate(run_dir)
+        """The service loop's look at a waiting run with no answer yet. It takes the run lock without
+        waiting and skips the run when the lock is busy (someone is ending or walking it right now)."""
+        try:
+            with runend.lock(run_dir, wait=0):
+                self._check_waiting_held(run_dir)
+        except TimeoutError:
+            return
+
+    def _check_waiting_held(self, run_dir) -> None:
+        """check_waiting for a caller that already holds the run lock. A waiting run holding no gate
+        (a crash right after a gate was opened) adopts it first; an ended run is left alone."""
+        st = state.load(Path(run_dir))
+        if st.get("status") != "waiting":
+            return
+        if not (st.get("current") or {}).get("gate"):
+            _adopt_gate_held(run_dir)
         failmodes.watch_delegate(self, Path(run_dir))
 
     def _end_run(self, run_dir: Path, status: str, reason: str = "", who: str = "phoenix",
@@ -658,9 +670,19 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
 
 
 def adopt_gate(run_dir) -> str | None:
+    """adopt_gate under the run lock, taken without waiting: None (nothing adopted) when the lock is busy."""
+    try:
+        with runend.lock(run_dir, wait=0):
+            return _adopt_gate_held(run_dir)
+    except TimeoutError:
+        return None
+
+
+def _adopt_gate_held(run_dir) -> str | None:
     """A waiting run whose current.gate is empty (a crash right after the gate file was written):
     take the newest unanswered gate in gates/ and hold it again, by its task or (when the gate names
-    a step) by that step's latest line. Returns the gate id, or None when there is none."""
+    a step) by that step's latest line. Returns the gate id, or None when there is none. The caller
+    holds the run lock; a run that is no longer waiting (it ended) is never changed."""
     run_dir = Path(run_dir)
     found = []
     for f in (run_dir / "gates").glob("*.json"):
@@ -672,8 +694,12 @@ def adopt_gate(run_dir) -> str | None:
     if not found:
         return None
     gate = max(found, key=lambda x: x[0])[1]
+    adopted = []
 
     def change(s):
+        if s["status"] != "waiting":       # ended (or moving on) since we looked: leave it as it is
+            return
+        adopted.append(gate["id"])
         if gate.get("step"):
             index = max((i for i, x in enumerate(s["steps"])
                          if x["step"] == gate["step"] and x["task"] == gate.get("task")), default=None)
@@ -685,7 +711,7 @@ def adopt_gate(run_dir) -> str | None:
             s["current"]["task"] = gate["task"]
         s["current"]["gate"] = gate["id"]
     state.update(run_dir, change)
-    return gate["id"]
+    return adopted[0] if adopted else None
 
 
 def _ctx_answer(line: dict | None) -> dict | None:

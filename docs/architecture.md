@@ -531,6 +531,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
     with one state update. If a crash lands between the gate file and that update, the run is
     waiting with no `current.gate`: `drive()` and `check_waiting` then adopt the newest unanswered
     gate in `gates/` (`runner.adopt_gate`, re-attached to its task, or to its step's latest line).
+    The service loop's `check_waiting` and the public `adopt_gate` take the run lock with wait=0 and
+    skip the run when it is busy (being ended or walked); adoption only ever changes a run whose
+    status is still `waiting`, checked inside the same locked state update.
   - task `tries` = the attempt being worked on (0 = not started). `escalations` = acknowledged
     escalations so far (max `failmodes.MAX_ESCALATIONS` = 2). `flagged` = why it failed (Build tab,
     summary). `gate` = the task's own gate (human-task or escalation). `attempt_base` = the commit
@@ -578,11 +581,14 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   Run end: `done` unless a task or a run-level
   step failed (`failed`) or Alex stopped it (`stopped`).
 - **How a run ends (one end function, one stop path; `phoenix9/runend.py`).** `runend.end_run` is the only
-  place a run becomes `done | failed | stopped`: unfinished tasks and `waiting | running | pending` step
-  lines become `skipped`, `current.gate` is cleared, finish steps with `after_stop = true` run (stop only),
-  the branch and worktree are discarded (stop only; a failed run keeps them for repair), the run's open
-  questions are closed (section 8), the status is set (`error` = the reason for a failure), `run.finished`
-  is emitted (`who` when not phoenix) and the summary is refreshed. A run that already ended is never
+  place a run becomes `done | failed | stopped`. Its FIRST state update does everything a reader looks at:
+  unfinished tasks and `waiting | running | pending` step lines become `skipped`, `current.gate` is cleared
+  and the final status is set (`error` = the reason for a failure); the run's open questions are closed
+  (section 8) straight after. Only then does the slow work run: finish steps with `after_stop = true`
+  (stop only; they see the final status and add their own step lines), the branch and worktree are
+  discarded (stop only; a failed run keeps them for repair), `run.finished` is emitted (`who` when not
+  phoenix) and the summary is refreshed. So the service loop can never see a half-ended run as waiting
+  and re-adopt its gate. Apart from those after-stop step lines a run that already ended is never
   changed again. Every end goes through it: the runner's own finish and `stop` answers, `watch._fail`
   (three crashes in a row, a usage limit that never cleared) and `phoenix run stop` / the API stop.
   The **run lock** (`<run>/run.lock`) is held by `Runner.drive` for the whole walk. `ops.runs.stop`

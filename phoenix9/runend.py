@@ -4,10 +4,12 @@
   (`Runner.drive`). Anyone else who wants to end a run takes the same lock first; when they cannot get
   it, the runner is walking the run and they leave a stop request instead (`stop-request.json`), which
   the runner reads between steps, before opening a gate and before finishing (`check`).
-- `end_run` is the only place a run becomes done, failed or stopped: unfinished tasks and step lines are
-  marked skipped, current.gate is cleared, after-stop steps run (stop only), the branch is discarded
-  (stop only), open questions are closed, the status is set, run.finished is emitted and the summary is
-  refreshed. An ended run is never changed again.
+- `end_run` is the only place a run becomes done, failed or stopped. Its FIRST state update marks
+  unfinished tasks and step lines skipped, clears current.gate and writes the final status, all at once;
+  then open questions are closed. Only after that does the slow work run: after-stop steps (stop only, they
+  add their own step lines), branch discard (stop only), run.finished and the summary refresh. So a reader
+  (the service loop's check_waiting, adopt_gate, the dashboard) never sees a half-ended run as waiting.
+  Apart from those after-stop step lines, an ended run is never changed again.
 """
 from __future__ import annotations
 
@@ -91,18 +93,15 @@ def end_run(run_dir, status: str, *, reason: str = "", who: str = "phoenix", ada
             if line["status"] in ("waiting", "running", "pending"):
                 line.update(status="skipped", finished=line.get("finished") or state.now())
         s.setdefault("current", {})["gate"] = None
+        s["status"] = status            # final in the SAME update: no reader ever sees a tidied run still waiting
+        if status == "failed" and reason:
+            s["error"] = reason
     state.update(run_dir, tidy)
+    gates.close_questions(run_dir, f"run {status}", who=who)   # before the slow work: nothing is left to adopt
     if status == "stopped" and after_stop is not None:
         after_stop()
     notes = runs_mod.discard_branch(adapters, st["project"], st["run_id"]) \
         if status == "stopped" and adapters is not None else []
-
-    def finish(s):
-        s["status"] = status
-        if status == "failed" and reason:
-            s["error"] = reason
-    state.update(run_dir, finish)
-    gates.close_questions(run_dir, f"run {status}", who=who)
     _request_file(run_dir).unlink(missing_ok=True)
     words = "; ".join(x for x in (reason, *notes) if x)
     data = {"reason": words} if words else {}

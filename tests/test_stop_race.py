@@ -108,3 +108,36 @@ def test_a_stopped_paused_run_is_not_revived_after_the_limit(tmp_path, adapters)
     s = state.load(run_dir)
     assert watch.wait_out_limit(adapters, s, claude.Result(kind="rate_limited")) is False
     assert state.load(run_dir)["status"] == "stopped"
+
+
+# ---- stopping a waiting run: a service-loop round during the slow after-stop work never re-adopts its gate ----
+
+def test_stop_of_a_waiting_run_is_not_undone_by_a_round_during_slow_after_stop_work(tmp_path, runner, adapters):
+    on("builder", 1, None, gate(title="Look at this"))
+    run_dir = start(tmp_path)
+    assert runner.drive(run_dir) == "waiting"
+    seen = []
+
+    def slow_notify(ctx):
+        seen.append(state.load(run_dir)["status"])
+        watch.watch_once(adapters, runner)          # the service loop's round runs while the stop is still busy
+        return StepResult("pass")
+    on("notify", None, None, slow_notify)
+    assert ops_runs.stop(run_dir.name, who="dashboard")["status"] == "stopped"
+    assert seen == ["stopped"]                          # the final status is written before after-stop steps
+    st = ended_cleanly(run_dir)
+    assert not any(t["status"] == "waiting" for t in st["tasks"].values())
+    assert gates.list_gates(open_only=True) == []
+
+
+def test_check_waiting_skips_a_run_whose_lock_is_busy(tmp_path, runner):
+    from phoenix9 import runend
+    on("builder", 1, None, gate(title="Look at this"))
+    run_dir = start(tmp_path)
+    assert runner.drive(run_dir) == "waiting"
+    state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))   # as if a crash lost it
+    with runend.lock(run_dir):
+        runner.check_waiting(run_dir)
+        assert state.load(run_dir)["current"]["gate"] is None              # busy: nothing adopted
+    runner.check_waiting(run_dir)
+    assert state.load(run_dir)["current"]["gate"]                           # free: adopted again

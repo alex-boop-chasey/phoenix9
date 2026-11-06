@@ -659,6 +659,7 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     allow_file = stepproxy.write_allow_file(ctx, ctx.proxies)
     if allow_file:
         extra_mounts.append(docker_mod.Mount(allow_file, docker_mod.ALLOWED_PROXY_MOUNT))
+    docker_mod.hand_writable_mounts(ctx.adapters.docker, extra_mounts)  # e.g. the planner's /out
     with keys_mod.env_file(ctx.project.name) as key_file:
         session = ctx.adapters.claude.launch(
             ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,

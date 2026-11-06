@@ -281,6 +281,13 @@ def hand_to_agent(runner, path: Path) -> None:
     runner.chown(path, uid, gid)
 
 
+def hand_writable_mounts(runner, mounts) -> None:
+    """Hand every writable host folder a step mounts (e.g. /out) to the session user, so it can write there."""
+    for m in mounts:
+        if not m.ro and isinstance(m.src, Path) and m.src.is_dir():
+            hand_to_agent(runner, m.src)
+
+
 def session_env(scrub_env: bool = False) -> dict[str, str]:
     """Environment for a Claude session container (no secrets: those come from env files)."""
     # ported from reference/v8/phoenix/docker.py:225
@@ -410,6 +417,7 @@ def run_check_container(runner, project: str, run_id: str, task: int | str, atte
                   domains_file, store, firewall, mounts, extra_env)
     argv = build_argv(r, limits)
     hand_to_agent(runner, Path(checkout))
+    hand_writable_mounts(runner, mounts)
     runner.rm(name)
     runner.volume_rm(store)
     runner.volume_create(store, [f"{LABEL}=1", f"{LABEL}.run={run_id}"])

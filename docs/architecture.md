@@ -380,6 +380,8 @@ every value, which layer set it (for `explain`).
 
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
 
+New projects get a `phoenix.toml` only when a profile is known (from `--profile` or the template), and then it holds just `profile = "<name>"`. With no profile there is no `phoenix.toml`; `.phoenix/project.json` records the profile as an empty string.
+
 ```toml
 preset = "quick"              # simple | quick | full | custom
 profile = "python-script"

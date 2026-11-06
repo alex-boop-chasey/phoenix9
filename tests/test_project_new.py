@@ -49,7 +49,8 @@ def test_new_empty_no_repo(env):
     assert "created from an empty folder, profile python-script" in (folder / "notes/decisions.md").read_text()
     assert "· alex · created by alex" in (folder / "notes/changelog.md").read_text()
     data = settings.load_project(folder)
-    assert data["preset"] == "quick" and data["profile"] == "python-script"
+    assert data == {"profile": "python-script"}
+    assert (folder / "phoenix.toml").read_text().count("preset") == 0
     info = json.loads((folder / ".phoenix/project.json").read_text())
     assert info["who"] == "alex" and info["source"] == "empty" and info["chat_session_url"] is None
     assert info["services_set_up"] == [] and info["repo"] is None
@@ -61,6 +62,14 @@ def test_new_empty_no_repo(env):
     assert "| demo |" in (env["projects"] / "INDEX.md").read_text()
     types = [json.loads(x)["type"] for x in paths.events().read_text().splitlines()]
     assert "project.created" in types and "command" in types
+
+
+def test_new_without_profile_writes_no_phoenix_toml(env):
+    create(env)
+    folder = env["projects"] / "demo"
+    assert not (folder / "phoenix.toml").exists()
+    assert json.loads((folder / ".phoenix/project.json").read_text())["profile"] == ""
+    assert "created from an empty folder\n" in (folder / "notes/decisions.md").read_text()
 
 
 def test_new_from_python_cli_template_runs_offline(env):

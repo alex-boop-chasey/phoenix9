@@ -6,10 +6,10 @@ import { Icon, type IconName } from "@/components/Icon"
 import { RepoPicker } from "@/features/projects/RepoPicker"
 import { useNameCheck } from "@/features/projects/useNameCheck"
 import {
-  PROFILES, newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
+  newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
 } from "@/features/projects/formModel"
 import { KeysForm, type RowsSummary, type WantedKey } from "@/features/keys/KeysForm"
-import { useGithubRepos, useInfo, useLibraryProfiles, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
+import { useGithubRepos, useInfo, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
 import type { KeyInput, ServiceKey } from "@/lib/types"
 
 
@@ -109,7 +109,7 @@ function SourceStep({ value, set }: Props) {
   function pickTemplate(name: string) {
     const known = templates.data?.find((t) => t.name === name)
     setCustom(false)
-    set({ template: name, ...(known ? { profile: known.profile } : {}) })
+    set({ template: name, profile: known?.profile ?? "" })
   }
 
   return (
@@ -143,13 +143,13 @@ function SourceStep({ value, set }: Props) {
             ))}
             <Tile
               type="radio" name="tpl" title="Another GitHub template…" hint="Type owner/name" dashed
-              checked={showCustom} onChange={() => { setCustom(true); set({ template: "" }) }}
+              checked={showCustom} onChange={() => { setCustom(true); set({ template: "", profile: "" }) }}
             />
           </div>
           {showCustom && (
             <input
               className="input mono" aria-label="GitHub template" placeholder="owner/name" value={value.template}
-              onChange={(e) => set({ template: e.target.value })}
+              onChange={(e) => set({ template: e.target.value, profile: "" })}
             />
           )}
         </div>
@@ -166,30 +166,7 @@ function SourceStep({ value, set }: Props) {
   )
 }
 
-/** Step 3: what kind of project (the profiles from the library). */
-function ProfileStep({ value, set }: Props) {
-  const profiles = useLibraryProfiles()
-  const names = profiles.data?.profiles.map((p) => p.name) ?? [...PROFILES]
-  return (
-    <Step n={3} id="np-step-profile">
-      <span className="lbl" id="profL">What kind of project?</span>
-      <div className="tiles" role="radiogroup" aria-labelledby="profL">
-        {names.map((n) => {
-          const look = PROFILE_LOOK[n]
-          const title = look?.title ?? profiles.data?.profiles.find((p) => p.name === n)?.title ?? n
-          return (
-            <Tile
-              key={n} type="radio" name="prof" title={title} hint={look?.hint} icon={look?.icon ?? "stack"}
-              checked={value.profile === n} onChange={() => set({ profile: n })}
-            />
-          )
-        })}
-      </div>
-    </Step>
-  )
-}
-
-/** Step 4: the new GitHub repo switch and the owner tiles. */
+/** Step 3: the new GitHub repo switch and the owner tiles. */
 function RepoStep({ value, set }: Props) {
   const info = useInfo()
   const github = useGithubRepos()
@@ -204,7 +181,7 @@ function RepoStep({ value, set }: Props) {
   })
 
   return (
-    <Step n={4} id="np-step-repo">
+    <Step n={3} id="np-step-repo">
       {!newRepoApplies(value.source) ? (
         <p className="small">An existing repo or folder keeps its own repo, so no new one is made.</p>
       ) : !connected ? (
@@ -265,7 +242,7 @@ function ServicesStep({ value, set }: Props) {
   const n = value.services.length
   const rows = wantedKeys(library.data?.services, value.services).length
   return (
-    <Step n={5} id="np-step-services">
+    <Step n={4} id="np-step-services">
       <span className="lbl" id="svcL">Services</span>
       <div className="tiles" role="group" aria-labelledby="svcL">
         {library.data?.services.map((s) => {
@@ -311,10 +288,9 @@ export function OrderSheet({
     <ol className="osteps">
       <NameSteps {...props} />
       <SourceStep {...props} />
-      <ProfileStep {...props} />
       <RepoStep {...props} />
       <ServicesStep {...props} />
-      <Step n={6} id="np-step-keys">
+      <Step n={5} id="np-step-keys">
         <span className="lbl">Project keys</span>
         <KeysForm mode="local" draft onRowsChange={onRows} wanted={wanted} />
       </Step>

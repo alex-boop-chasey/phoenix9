@@ -525,7 +525,7 @@ export interface CreateForm {
   name: string
   description: string
   source: { kind: "empty" | "repo" | "template" | "code"; repo?: string; template?: string; path?: string }
-  profile: string
+  profile?: string
   new_repo: { on: boolean; owner: string }
   services: string[]
   keys: KeyInput[]

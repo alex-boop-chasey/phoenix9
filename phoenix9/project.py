@@ -81,10 +81,10 @@ def _source(opts: dict) -> str:
 
 
 def _profile(opts: dict, tpl: dict | None) -> str:
-    """The profile: the form's, else the menu template's; OpsError when unknown or missing."""
+    """The profile: the form's, else the menu template's, else "" (none yet); OpsError when unknown."""
     profile = opts.get("profile") or (tpl["profile"] if tpl else "")
     if not profile:
-        raise OpsError("Say which profile to use (--profile); there is no template to take it from.")
+        return ""
     lib = paths.library()
     if not (lib / "profiles" / profile / "profile.toml").is_file():
         known = sorted(p.name for p in (lib / "profiles").iterdir() if p.is_dir()) if (lib / "profiles").is_dir() else []
@@ -241,7 +241,7 @@ def _claude_md(opts, facts, repo: str) -> str:
     services_line = ", ".join(opts.get("services") or []) or "none"
     template = opts["template"] if facts["source"] == "template" else "none"
     about = (opts.get("description") or "").strip() or f"{name}: a new project."
-    return (f"# {name}\n\n{about}\n\n- Code: {where}\n- Repo: {repo or '(none yet)'}\n- Profile: {facts['profile']}\n"
+    return (f"# {name}\n\n{about}\n\n- Code: {where}\n- Repo: {repo or '(none yet)'}\n- Profile: {facts['profile'] or '(not set yet)'}\n"
             f"- Services: {services_line}\n- Template: {template}\n\n@notes/NOW.md\n")
 
 
@@ -380,8 +380,9 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
         _first_commit(code)
     say("Writing CLAUDE.md")
     atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo or opts.get("repo") or ""))
-    say("Writing phoenix.toml")
-    settings.save_project(folder, {"preset": "quick", "profile": facts["profile"]})
+    if facts["profile"]:
+        say("Writing phoenix.toml")
+        settings.save_project(folder, {"profile": facts["profile"]})
     if opts.get("services"):
         project_services.set_services(name, list(opts["services"]), who)
     if opts.get("keys_file") or opts.get("keys"):
@@ -427,8 +428,9 @@ def create(opts: dict, adapters, who: str, progress=None) -> dict:
         line = _index_line(name, result["repo"] or (opts.get("code") or ""))
         _add_index(line)
         made.append(("index", line))
-        words = f"created from template {opts['template']}, profile {facts['profile']}" if facts["source"] == "template" \
-            else f"created from {_source_words(opts, facts['source'])}, profile {facts['profile']}"
+        kind = f", profile {facts['profile']}" if facts["profile"] else ""
+        words = f"created from template {opts['template']}{kind}" if facts["source"] == "template" \
+            else f"created from {_source_words(opts, facts['source'])}{kind}"
         _add_decision(folder, words)
         events.emit("project.created", project=name, who=who, source=facts["source"], profile=facts["profile"],
                     template=opts.get("template") if facts["source"] == "template" else None)
@@ -849,6 +851,8 @@ def edit(name: str, adapters, who: str, description_text=None, profile=None, rep
     if description_text is not None and not description_text.strip():
         raise OpsError("The description cannot be empty.")
     if profile is not None:
+        if not profile:
+            raise OpsError("Say which profile to use.")
         _profile({"profile": profile}, None)
     if repo is not None:
         if not REPO_RE.match(repo):

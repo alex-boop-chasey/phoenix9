@@ -176,12 +176,13 @@ test("repo search filters the dropdown", async () => {
   expect(screen.getByText("alex-boop-chasey/tiny-tool")).toBeInTheDocument()
 })
 
-test("template tiles prefill the kind and allow another GitHub template", async () => {
+test("template tiles prefill the kind (no question) and allow another GitHub template", async () => {
   mockApi(routes())
   renderPage()
   await userEvent.click(screen.getByRole("radio", { name: "Template" }))
   await userEvent.click(await screen.findByRole("radio", { name: "Python tool" }))
-  expect(screen.getByRole("radio", { name: "Python script" })).toBeChecked()
+  expect(screen.queryByText("What kind of project?")).not.toBeInTheDocument()
+  expect(screen.getAllByText("Python script").length).toBeGreaterThan(1)
   await userEvent.click(screen.getByRole("radio", { name: "Another GitHub template…" }))
   await userEvent.type(screen.getByLabelText("GitHub template"), "me/starter")
   expect(screen.getByText("me/starter template")).toBeInTheDocument()
@@ -264,7 +265,7 @@ test("create posts the documented body including keys", async () => {
   await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true))
   const post = calls.find((c) => c.method === "POST")!
   expect(post.body).toEqual({
-    name: "my-site", description: "", source: { kind: "empty" }, profile: "web",
+    name: "my-site", description: "", source: { kind: "empty" },
     new_repo: { on: true, owner: "rebirth-wd" }, services: ["supabase"],
     keys: [{ name: "API_TOKEN", value: "tok-1", secret: true }],
   })

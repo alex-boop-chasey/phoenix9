@@ -89,6 +89,13 @@ def import_(name_or_path: str, who: str) -> dict:
     return project_removal.import_(name_or_path, who, common.make_adapters())
 
 
+def check_files(name: str | None, who: str) -> list:
+    """Add the missing memory files to one project, or to every listed project when name is None."""
+    from phoenix9 import project, project_removal
+    names = [name] if name else project.project_names()
+    return [project_removal.check_files(n, who) for n in names]
+
+
 def list_folders(path: str = "") -> dict:
     """The sub-folders of a folder under the projects root: {path, parent, folders: [{name, path}]}."""
     root = paths.projects().resolve()

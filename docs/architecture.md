@@ -102,6 +102,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
   images build                                build the step images, label `phoenix9.commit`
+  project check-files [NAME | --all]          add missing memory files (CLAUDE.md, notes/*); never overwrites, no phoenix.toml
   doctor [--quick|--for-update]               the checks in section 15
 (reference/ held read-only copies of V8, proj and the project-selector for porting; it was removed at
  the end of phase 4. `# ported from reference/...` comments remain as history.)

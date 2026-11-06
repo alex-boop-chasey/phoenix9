@@ -42,6 +42,10 @@ def add(sub, common) -> None:
     p.add_argument("target", nargs="?", metavar="NAME|PATH")
     p.add_argument("--list", action="store_true", help="list what can be imported")
     p.set_defaults(func=import_)
+    p = group.add_parser("check-files", parents=[common], help="add any missing memory files (never overwrites)")
+    p.add_argument("name", nargs="?", metavar="NAME")
+    p.add_argument("--all", action="store_true", help="check every project")
+    p.set_defaults(func=check_files_)
     p = group.add_parser("set-chat", parents=[common], help="save the chat link (https://claude.ai/code/<id>)")
     p.add_argument("name")
     p.add_argument("url")
@@ -154,6 +158,15 @@ def import_(args) -> int:
         return show(args, found, table(rows, ["name", "path", "repo", "status"]) if rows else "Nothing to import.")
     r = projects.import_(args.target, args.who)
     return show(args, r, f"Imported {r['name']}. Its chat is on and shows up in the Claude app in a few seconds.")
+
+
+def check_files_(args) -> int:
+    """Add the memory files each project is missing and say what was added."""
+    if bool(args.name) == bool(args.all):
+        return problem(args, "Give a project name, or --all for every project.")
+    results = projects.check_files(None if args.all else args.name, args.who)
+    lines = [f"{r['name']}: " + ("added " + ", ".join(r["added"]) if r["added"] else "nothing missing") for r in results]
+    return show(args, results, "\n".join(lines) if lines else "No projects.")
 
 
 def set_chat_(args) -> int:

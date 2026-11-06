@@ -315,3 +315,14 @@ def test_project_links_check_lists_missing_chat_and_folder(healthy, phoenix_env)
     host.script(["systemctl", "is-active"], rc=3)
     check = by_name(doctor.run_checks(healthy, "full"))["project-links"]
     assert "demo: chat is off" in check["detail"]
+
+
+def test_memory_files_check_lists_projects_and_the_fix(healthy, phoenix_env):
+    folder = phoenix_env["projects"] / "demo"
+    (folder / "CLAUDE.md").write_text("# demo\n")
+    check = by_name(doctor.run_checks(healthy, "full"))["memory-files"]
+    assert not check["ok"] and "demo: " in check["detail"] and "notes/NOW.md" in check["detail"]
+    assert "phoenix project check-files --all" in check["fix"]
+    from phoenix9 import project_removal
+    project_removal.add_memory_files(folder, "demo", "")
+    assert by_name(doctor.run_checks(healthy, "full"))["memory-files"]["ok"]

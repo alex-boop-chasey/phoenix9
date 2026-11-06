@@ -208,3 +208,33 @@ def test_api_folders(api):
     assert status == 200 and [f["name"] for f in body["data"]["folders"]] == ["alpha"]
     status, body = api("/api/folders?path=/etc")
     assert status == 400
+
+
+def test_check_files_adds_only_what_is_missing(env, capsys):
+    folder = make(env, "alpha", text="# alpha\n\nmy words\n")
+    (folder / "notes" / "NOW.md").write_text("mine")
+    code, out, _ = run_cmd(capsys, "project", "check-files", "alpha")
+    assert code == 0 and "alpha: added" in out and "notes/decisions.md" in out and "notes/NOW.md" not in out
+    assert (folder / "CLAUDE.md").read_text() == "# alpha\n\nmy words\n"
+    assert (folder / "notes" / "NOW.md").read_text() == "mine"
+    assert all((folder / "notes" / s).is_dir() for s in project.NOTES_SUBFOLDERS)
+    assert not (folder / "phoenix.toml").exists()
+    code, out, _ = run_cmd(capsys, "project", "check-files", "alpha")
+    assert code == 0 and "alpha: nothing missing" in out
+
+
+def test_check_files_all_skips_folders_without_claude_md_and_removed(env, capsys):
+    make(env, "alpha")
+    make(env, "beta")
+    (env["projects"] / "loose").mkdir()
+    projects.remove("beta", "tester")
+    code, out, _ = run_cmd(capsys, "project", "check-files", "--all")
+    assert code == 0 and "alpha: added" in out and "beta" not in out and "loose" not in out
+    assert not (env["projects"] / "loose" / "CLAUDE.md").exists()
+
+
+def test_check_files_needs_a_name_or_all_and_a_real_project(env, capsys):
+    code, _, err = run_cmd(capsys, "project", "check-files")
+    assert code == 1 and "--all" in err
+    with pytest.raises(common.NotFound):
+        projects.check_files("ghost", "tester")

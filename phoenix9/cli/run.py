@@ -1,4 +1,4 @@
-"""Commands for `phoenix run`: start, status, list, log, stop."""
+"""Commands for `phoenix run`: start, status, list, log, stop, discard."""
 import time
 
 from phoenix9.cli.output import problem, show, table
@@ -33,6 +33,11 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=stop)
+    p = group.add_parser("discard", parents=[common],
+                         help="throw away a failed or stopped run's worktree and branch (here and on GitHub)")
+    p.add_argument("run_id")
+    p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=discard)
 
 
 def start(args) -> int:
@@ -113,3 +118,13 @@ def stop(args) -> int:
                              "Add --yes to go ahead.")
     r = runs.stop(args.run_id, who=args.who)
     return show(args, r, f"Stopped run {r['run_id']}.")
+
+
+def discard(args) -> int:
+    """Discard a failed or stopped run's work (needs --yes)."""
+    if not args.yes:
+        return problem(args, f"This deletes run {args.run_id}'s worktree and branch, here and on GitHub. "
+                             "Add --yes to go ahead.")
+    r = runs.discard(args.run_id, who=args.who)
+    words = f"Discarded the work of run {r['run_id']}."
+    return show(args, r, "\n".join([words, *(f"Note: {n}" for n in r["notes"])]))

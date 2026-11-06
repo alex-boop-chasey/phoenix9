@@ -572,6 +572,14 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def post_run_discard(req, project, run_id):
+    """Discard a failed or stopped run's worktree and branch."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Discarding a run's work needs confirmation.")
+    with req.server.write_lock:
+        return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project))
+
+
 def get_gate_review(req, gate_id):
     """Reply with the merge review of a merge gate."""
     if not GATE_ID_RE.match(gate_id):
@@ -684,6 +692,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]

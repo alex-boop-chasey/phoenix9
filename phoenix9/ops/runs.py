@@ -194,6 +194,32 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     return {"run_id": run_id, "status": "stopped", "containers_removed": removed, "notes": notes}
 
 
+DISCARDABLE = ("failed", "stopped")
+
+
+def discard(run_id: str, who: str = "cli", project: str | None = None) -> dict:
+    """Throw away a failed or stopped run's work: its worktree, local branch and GitHub branch (if pushed)."""
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st.get("discarded"):
+        raise common.Conflict(f"Run {run_id}'s work was already discarded.")
+    if st["status"] not in DISCARDABLE:
+        why = ("its work was merged or waits as a merge request" if st["status"] == "done"
+               else "stop it first with `phoenix run stop`")
+        raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
+    notes = core.discard_branch(common.make_adapters(), st["project"], run_id)
+    stamp = state.now()
+
+    def mark(s: dict) -> None:
+        s.update(discarded=True, discarded_at=stamp, discarded_by=who)
+    state.update(folder, mark)
+    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes)
+    common.record_command(who, f"run discard {run_id}", st["project"], f"discarded the work of run {run_id}")
+    return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
+
+
 list = list_
 
 

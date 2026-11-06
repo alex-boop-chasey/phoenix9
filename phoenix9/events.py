@@ -11,6 +11,7 @@ run.queued run.started run.finished run.step.started run.step.finished task.star
 task.finished gate.opened gate.answered project.created project.changed settings.changed
 update.started update.installed update.failed update.rolledback deploy.finished run.held command
 """.split())
+EVENT_TYPES = EVENT_TYPES | {"run.discarded"}   # `phoenix run discard`: a failed or stopped run's work was thrown away
 
 
 def _append(path: Path, line: str) -> None:

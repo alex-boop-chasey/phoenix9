@@ -193,6 +193,8 @@ export interface BuildRow {
   cost: string
   tasks_failed: number
   carrying_on?: boolean
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
 }
 
 export interface RunTask {
@@ -272,6 +274,10 @@ export interface RunDetail {
   max_tries: number
   /** The git branch of the run, e.g. phoenix/<run-id>. */
   branch?: string
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
+  discarded_at?: string
+  discarded_by?: string
 }
 
 export type Overrides = Record<string, unknown>

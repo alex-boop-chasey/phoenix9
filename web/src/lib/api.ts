@@ -141,6 +141,11 @@ export const api = {
       `runs/${e(project)}/${e(runId)}/stop`,
       { confirm: true },
     ),
+  discardRun: (project: string, runId: string) =>
+    post<{ run_id: string; status: string; discarded: boolean; notes: string[] }>(
+      `runs/${e(project)}/${e(runId)}/discard`,
+      { confirm: true },
+    ),
   answerGate: (id: string, action: GateAction, note = "") =>
     post<GateAnswer>(`gates/${e(id)}/answer`, { action, note }),
 }

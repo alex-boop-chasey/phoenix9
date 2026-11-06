@@ -549,7 +549,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded command`.
+  `run.discarded {who, notes}` (project and run set) is written by `phoenix run discard`.
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
   previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|
@@ -952,3 +953,11 @@ profiles used by existing projects. `--changed` keeps images that are missing, u
 New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
 
 Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
+
+Discarding a run: a failed run keeps its worktree and branch (so it can be repaired) until `phoenix run discard
+<run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"
+button on a failed or stopped build) throws them away with the same `runs.discard_branch` (worktree, local
+branch, GitHub branch when it was pushed). Only `failed` and `stopped` runs can be discarded (queued,
+running, waiting, paused-limit and done are refused; a second discard is a conflict). It sets state.json
+`discarded: true`, `discarded_at`, `discarded_by` (the status stays as it was), writes a `run.discarded` event
+and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".

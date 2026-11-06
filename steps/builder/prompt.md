@@ -52,7 +52,7 @@ tests. Only that run decides whether the task passed. Your own words do not coun
   submodules. Never touch `.git`.
 - Never write a key, token or password into a file. Test keys are already in your environment.
 - The network is firewalled to an allowlist. If something you need is blocked, say so at the end.
-- Pin exact versions when you add a package and keep the lockfile in sync.
+- Pin exact versions when you add a package. Install with the package manager (not by editing the package list by hand) so the lockfile updates, and commit the lockfile with your change.
 
 ## Services this project uses
 

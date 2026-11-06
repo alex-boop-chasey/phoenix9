@@ -1,0 +1,11 @@
+name = "lockfile"
+title = "Lockfile check"
+description = "Checks that exact package versions are saved in a committed lockfile."
+kind = "script"
+level = "run"
+phase = "finish"
+order = 5
+needs = ["worktree"]
+produces = []
+safety = true
+default = "on"

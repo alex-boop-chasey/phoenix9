@@ -272,6 +272,9 @@ when Alex sent this step back with `back` and the runner calls it again).
 ### 4.5 Profile folder: `profiles/<name>/profile.toml`
 
 `title`, `image` (step image tag), `allowed_domains` (list), `diff_allow_extra` (list),
+`lockfiles` (list of accepted lockfile names; replaces the defaults of the Lockfile check finish step, which
+fails a run whose root `package.json` / `Cargo.toml` / dependency-declaring `pyproject.toml` has no
+committed lockfile),
 `screenshots` (bool), `suggested_deployer`, and a `[test]` block:
 - `cmd` (full suite command, = `{{suite_command}}`), `task_cmd` (optional, a single task's checks);
 - `report`: one of `pytest-junit | vitest-json | playwright-json | exit-code`, or a list of them

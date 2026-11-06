@@ -324,6 +324,7 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "image": _spec(""),
     "allowed_domains": _spec([], item_type=str),
     "diff_allow_extra": _spec([], item_type=str),
+    "lockfiles": _spec([], item_type=str),
     "screenshots": _spec(False),
     "suggested_deployer": _spec("none"),
     "test.cmd": _spec(""),

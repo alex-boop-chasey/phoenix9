@@ -32,7 +32,7 @@ PASS = json.dumps({"verdict": "pass", "reasons": []})
 DONE = "I wrote the code.\nSTEP DONE"
 QUICK_LINES = (["pick-up", "spec-check", "branch", "service-setup"]
                + [s for _ in (1, 2, 3) for s in ("builder", "diff-rules", "secret-scan", "acceptance", "verify", "commit")]
-               + ["full-suite", "summary", "preview", "merge", "deploy", "notify"])
+               + ["lockfile", "full-suite", "summary", "preview", "merge", "deploy", "notify"])
 
 
 class E2E:

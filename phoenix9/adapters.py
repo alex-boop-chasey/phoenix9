@@ -1,7 +1,6 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import os
 import subprocess
-import threading
 import time
 import urllib.error
 import urllib.request
@@ -16,7 +15,7 @@ DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 
 
 class Host:
-    """The real host: systemctl, journalctl, gh, du and plain commands."""
+    """The real host: systemctl, gh, du and plain commands."""
 
     def run(self, argv: list[str], timeout: float = 60, cwd=None) -> tuple[int, str, str]:
         """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
@@ -29,35 +28,9 @@ class Host:
             return 127, "", f"not found: {argv[0]}"
         return p.returncode, p.stdout, p.stderr
 
-    def first_match(self, argv: list[str], pattern, timeout: float = 120) -> str:
-        """Run a command and return the first match of the regex in its output, stopping the command there ('' if none)."""
-        try:
-            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                                    text=True, errors="replace")
-        except OSError:
-            return ""
-        timer = threading.Timer(timeout, proc.kill)
-        timer.start()
-        try:
-            for line in proc.stdout:
-                found = pattern.search(line)
-                if found:
-                    return found.group(0)
-            return ""
-        finally:
-            timer.cancel()
-            proc.kill()
-            proc.stdout.close()
-            proc.wait()
-
     def systemctl(self, *args: str) -> tuple[int, str, str]:
         """Run systemctl with the given arguments."""
         return self.run(["systemctl", *args])
-
-    def journal(self, unit: str, lines: int = 50) -> str:
-        """Return the last lines of a service's journal."""
-        _, out, _ = self.run(["journalctl", "-u", unit, "-n", str(lines), "--no-pager"])
-        return out
 
     def gh(self, *args: str) -> tuple[int, str, str]:
         """Run the GitHub command line tool with the given arguments."""

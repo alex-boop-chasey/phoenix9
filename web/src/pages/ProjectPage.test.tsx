@@ -69,7 +69,7 @@ describe("ProjectPage", () => {
     expect(screen.getByRole("link", { name: "Back to projects" })).toHaveAttribute("href", "/")
   })
 
-  it("header has Repo, VS Code, Chat and Start new build", async () => {
+  it("header has Repo, VS Code and Start new build, and no Chat", async () => {
     api()
     renderAt("/p/demo-site/overview")
     await screen.findByRole("heading", { name: "demo-site" })
@@ -77,17 +77,17 @@ describe("ProjectPage", () => {
     expect(dock.getByRole("link", { name: "Repo" })).toHaveAttribute("href", "https://github.com/rebirth-wd/demo-site")
     expect(dock.getByRole("link", { name: "VS Code" })).toHaveAttribute("href", projects[0]!.vscode_url)
     expect(dock.getByRole("link", { name: "VS Code" })).toHaveAttribute("target", "_blank")
-    expect(dock.getByRole("link", { name: "Chat" })).toHaveAttribute("href", "https://claude.ai/code/session_demo_site")
+    expect(dock.queryByRole("link", { name: /Chat/ })).toBeNull()
+    expect(dock.queryByRole("button", { name: /chat/i })).toBeNull()
     expect(screen.getByRole("link", { name: "Start new build" })).toHaveAttribute("href", "/p/demo-site/build?new=1")
     expect(screen.getByText("/srv/projects/demo-site")).toBeInTheDocument()
   })
 
-  it("no Start chat when the chat is off, and a missing repo is disabled", async () => {
+  it("a missing repo is disabled", async () => {
     api("notes-only")
     renderAt("/p/notes-only/overview")
     await screen.findByRole("heading", { name: "notes-only" })
     const dock = within(screen.getByRole("group", { name: "Open project" }))
-    expect(dock.queryByRole("button", { name: "Start chat" })).toBeNull()
     expect(dock.getByRole("button", { name: "Repo" })).toBeDisabled()
   })
 })

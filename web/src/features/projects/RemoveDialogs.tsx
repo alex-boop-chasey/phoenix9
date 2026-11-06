@@ -18,7 +18,7 @@ export function RemoveDialog({ name, onCancel, onConfirm }: { name: string | nul
           <AlertDialogDescription>
             {locked
               ? "Phoenix's own project can't be removed from Phoenix."
-              : "Its folder, notes, code, repo and keys stay exactly where they are. Its chat stops and it disappears from the Claude app. You can bring it back with Import."}
+              : "Its folder, notes, code, repo and keys stay exactly where they are. It disappears from Phoenix's list. You can bring it back with Import."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="dlg-f">

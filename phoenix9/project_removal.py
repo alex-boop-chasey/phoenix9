@@ -63,21 +63,19 @@ def _folder_repo(folder: Path) -> str:
 
 
 def remove(name: str, who: str, adapters) -> dict:
-    """Take a project off Phoenix's list and its chat out of the Claude app; keeps every file."""
+    """Take a project off Phoenix's list; keeps every file."""
     if name in PROTECTED:
         raise OpsError(PROTECTED[name])
     folder = common.project_dir(name)
     if name in removed_names():
         raise Conflict(f"{name} is already removed.")
-    host = adapters.host
-    host.systemctl("disable", "-q", "--now", project.unit(name))
-    untrust(host, folder)
+    untrust(adapters.host, folder)
     row = {"name": name, "path": str(folder), "repo": _folder_repo(folder),
            "removed_on": datetime.now(timezone.utc).strftime("%Y-%m-%d")}
     _save_removed([r for r in removed_list() if r["name"] != name] + [row])
     events.emit("project.changed", project=name, who=who, what="removed")
     common.record_command(who, f"project remove {name}", name,
-                          change="removed from Phoenix (chat switched off; files kept)")
+                          change="removed from Phoenix (files kept)")
     return {"name": name, "path": row["path"], "repo": row["repo"] or None, "removed_on": row["removed_on"],
             "kept": "The folder, notes, code, repo and keys are untouched."}
 
@@ -149,13 +147,13 @@ def add_standard_files(folder: Path, name: str, repo: str) -> list:
     if not meta.exists():
         atomic.write_json(meta, {"created": today, "who": "import", "source": "import", "template": None,
                                  "profile": None, "repo": repo or None, "code": "code/",
-                                 "chat_session_url": None, "environment_id": None, "services_set_up": []})
+                                 "services_set_up": []})
         added.append(".phoenix/project.json")
     return added
 
 
 def import_(name_or_path: str, who: str, adapters) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix (no chat service is started)."""
+    """Bring a removed project or an unlisted folder into Phoenix (no service is started)."""
     name = _find(name_or_path)
     folder = paths.projects() / name
     if not folder.is_dir():
@@ -174,9 +172,9 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
     project.mark_used(name)
     events.emit("project.changed", project=name, who=who, what="imported")
     common.record_command(who, f"project import {name}", name,
-                          change="imported into Phoenix (no chat service)")
+                          change="imported into Phoenix")
     return {"name": name, "path": str(folder), "repo": repo or None, "was_removed": was_removed,
-            "added": added, "chat": "off"}
+            "added": added}
 
 
 def check_files(name: str, who: str) -> dict:

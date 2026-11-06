@@ -51,11 +51,8 @@ export interface ProjectRow {
   profile: string
   services: string[]
   size: number | null
-  chat: { state: "on" | "off"; kind: "session" | "environment" | "none"; url: string | null }
   vscode_url: string | null
   vscode: { url: string | null; reason: string | null }
-  state: "on" | "off"
-  chats: number
   last_used: string
   last_used_at: string
   harness: string
@@ -120,9 +117,8 @@ export interface ImportCandidate {
 
 export interface FolderListing { path: string; root: string; parent: string | null; folders: { name: string; path: string }[] }
 
-export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[]; chat: string }
+export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[] }
 export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
-export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }
 
 /** What was chosen when the project was set up (any may be null for older projects). */
 export interface ProjectSetup {

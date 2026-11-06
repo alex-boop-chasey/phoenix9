@@ -114,7 +114,7 @@ describe("OverviewTab", () => {
     expect(setup.getByText("2026-10-01")).toBeInTheDocument()
     expect(setup.getByText("alex-boop-chasey")).toBeInTheDocument()
     expect(screen.getByText("supabase")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("On this server")).getByText("Off")).toBeInTheDocument()
+    expect(within(screen.getByLabelText("On this server")).queryByText("Chat")).toBeNull()
     expect(screen.getByRole("link", { name: "Change these in Settings" })).toHaveAttribute("href", "/p/tiny-tool/settings")
   })
 })

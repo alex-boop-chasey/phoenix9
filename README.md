@@ -16,4 +16,4 @@ When a task fails, `on_failure` decides what happens once its tries are used up:
 
 - **continue:** the task is marked failed, the tasks that depend on it are skipped, and the run carries on. The merge then asks you first.
 - **pause:** the run stops and asks you ("Needs you"). Fix things, answer `acknowledged`, and the task gets one more attempt.
-- **delegate:** the same question goes to the project's own chat first. If it fixes the task and answers, the run goes on; if it gives up, you are told.
+- **delegate:** the same question goes first to a Claude session Phoenix starts in the project's folder. If it fixes the task and answers, the run goes on; if it gives up, you are told.

@@ -28,12 +28,12 @@ const KNOWN: GateAction[] = ["approve", "back", "skip", "stop", "acknowledged"]
 const labelOf = (action: GateAction) => LABEL[action] ?? action
 
 const ESCALATION_HELP =
-  "Fix it (for example with the project's chat), then press Acknowledged; the task runs once more."
+  "Fix it, then press Acknowledged; the task runs once more."
 const DEFER_HELP =
   "\"Build without it for now\" carries on and builds the site so it still works without these keys. Phoenix shows \"Waiting for keys\" until you save them; the next build then switches the service on."
 const DELEGATED_HELP =
-  "The project's chat is working on it; it will answer this itself if it fixes it."
-const DELEGATED_FLAG = "delegated to project chat"
+  "A Claude session in the project's folder is working on it; it will answer this itself if it fixes it."
+const DELEGATED_FLAG = "delegated to project chat"   // the backend flag (failmodes.DELEGATE_FLAG); keep in step
 
 /** An amber card that shows one open question for Alex, with the buttons that answer it. */
 export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate; compact?: boolean; reviewHref?: string }) {

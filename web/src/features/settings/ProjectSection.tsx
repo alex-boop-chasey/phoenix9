@@ -192,7 +192,7 @@ export function ProjectSection({ name }: { name: string }) {
       </SettingsRow>
 
       <SettingsRow id="s-keys" label="Project keys" two={false}>
-        <span className="help">Changes are picked up by the next build and the next chat restart.</span>
+        <span className="help">Changes are picked up by the next build.</span>
         <KeysForm mode="saved" project={name} />
       </SettingsRow>
 

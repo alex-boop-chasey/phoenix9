@@ -1,4 +1,4 @@
-// The About card: what was chosen when the project was set up, plus its size and chat.
+// The About card: what was chosen when the project was set up, plus its size.
 import { Link } from "react-router"
 
 import { Chip } from "@/components/Tag"
@@ -46,7 +46,6 @@ export function AboutCard({ project }: { project: Project }) {
       <p className="eyebrow">On this server</p>
       <dl className="kv" aria-label="On this server">
         <Pair label="Size" value={project.size == null ? "Measuring…" : formatBytes(project.size)} />
-        <Pair label="Chat" value={project.chat.state === "on" ? "On" : "Off"} />
       </dl>
       <Link to={`/p/${encodeURIComponent(project.name)}/settings`} className="small">Change these in Settings</Link>
     </aside>

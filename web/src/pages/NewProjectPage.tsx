@@ -57,7 +57,6 @@ function Receipt({ v, summary, github }: { v: FormValues; summary: RowsSummary; 
       <dt>Services</dt><dd>{v.services.length ? v.services.join(", ") : "none"}</dd>
       <dt>Keys</dt>
       <dd>{total === 0 ? "none" : `${total} ${total === 1 ? "row" : "rows"}${needValue ? ` (${needValue} need a value)` : ""}`}</dd>
-      <dt>Chat</dt><dd>set up and started</dd>
     </dl>
   )
 }
@@ -88,7 +87,7 @@ export default function NewProjectPage() {
   useEffect(() => {
     if (done && toasted.current !== jobId) {
       toasted.current = jobId
-      toast.success(`Project ${name} created`, { description: "Its chat is live. Start the first build when you are ready." })
+      toast.success(`Project ${name} created`, { description: "Start the first build when you are ready." })
       void navigate(`/p/${encodeURIComponent(name)}/overview`, { replace: true })
     }
   }, [done, jobId, name, navigate])
@@ -112,7 +111,7 @@ export default function NewProjectPage() {
         <div className="title-row">
           <div>
             <h1 className="h1">{done ? `${name} is ready` : `Creating ${name}…`}</h1>
-            <p className="lead">{done ? "Opening the project…" : "Phoenix is setting up the folder, repo and chat. This takes a moment."}</p>
+            <p className="lead">{done ? "Opening the project…" : "Phoenix is setting up the folder and repo. This takes a moment."}</p>
           </div>
           <span className="area"><Icon name="plus-circle" />Create</span>
         </div>

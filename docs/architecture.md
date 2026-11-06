@@ -140,10 +140,10 @@ build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
-chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
+services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
-fields in section 4.7). The environment id is found by a background journal search (newest first, stops at the first
-hit, skipped when the chat is off) that the Projects list waits for at most 1 s, like folder sizes; until found the chat link reads as not ready.
+fields in section 4.7). Older files may still hold `chat_session_url`, `environment_id` and `chat_env_*` from the
+removed per-project chat; nothing reads them.
 
 ## 4. The plug-in libraries
 
@@ -684,7 +684,7 @@ Done when:
 
 1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. One recorded
    exception: the `delegate` failure mode starts a headless Claude session in the project folder with
-   the same permissions as the project's own chat (Alex's decision: the project chat agent handles it).
+   full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
    It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
    is the only place in phoenix9 that starts Claude on the host.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
@@ -723,10 +723,6 @@ Done when:
   without answering, its handle is gone after a restart, or 60 minutes passed
   (`failmodes.DELEGATE_TIMEOUT_MIN`); the run then simply waits as in pause mode. Anyone's
   `acknowledged` continues the run. The delegate is never started twice for one gate.
-- **Chat link**: a project records `chat_session_url` when known (`phoenix project set-chat`) and always
-  knows the environment link parsed from `journalctl -u claude-rc@<name>`
-  (`https://claude.ai/code?environment=env_...`). The Projects page shows the session link if recorded,
-  else the environment link.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the
@@ -992,6 +988,6 @@ the base image (`phoenix9-step:base`, context `image/`) only with `--profile bas
 profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
 
-New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
+Phoenix has no per-project chat (removed 2026-11-06): no chat button or link, no `project open` / `close` / `set-chat`, and it never starts, stops or reads a `claude-rc@<name>` service. New and imported projects get no `.vscode/tasks.json`. Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
 
 Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).

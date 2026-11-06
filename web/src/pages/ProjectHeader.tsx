@@ -1,12 +1,10 @@
-// The header every project tab shares: name, state, Repo / VS Code / Chat, Start new build, details and tabs.
+// The header every project tab shares: name, state, Repo / VS Code, Start new build, details and tabs.
 import { useEffect, useRef } from "react"
 import { Link, NavLink, useLocation } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
 import { StateBadge } from "@/features/projects/ProjectRowCard"
-import { startChat } from "@/features/projects/startChat"
 import { formatBytes } from "@/lib/format"
-import { useRefreshProjects } from "@/lib/queries"
 import type { ProjectRow } from "@/lib/types"
 
 export const TABS = ["overview", "build", "logs", "settings"] as const
@@ -16,8 +14,6 @@ const TAB_ICON: Record<(typeof TABS)[number], IconName> = {
 const TAB_LABEL = { overview: "Overview", build: "Build", logs: "Logs", settings: "Settings" }
 
 function Dock({ row }: { row: ProjectRow }) {
-  const refresh = useRefreshProjects()
-  const chatOn = row.chat.state === "on" && row.chat.url
   return (
     <div className="dock" role="group" aria-label="Open project">
       {row.repo_url ? (
@@ -30,13 +26,6 @@ function Dock({ row }: { row: ProjectRow }) {
       ) : (
         <button type="button" disabled title={row.vscode.reason ?? "No folder to open"}><Icon name="code" size="sm" />VS Code</button>
       )}
-      {chatOn ? (
-        <a href={row.chat.url ?? undefined} target="_blank" rel="noreferrer"><Icon name="chat-circle-text" size="sm" />Chat</a>
-      ) : row.chat.state === "on" ? (
-        <button type="button" title="Start the chat" onClick={() => void startChat(row.name, refresh)}>
-          <Icon name="play-circle" size="sm" />Start chat
-        </button>
-      ) : null}
     </div>
   )
 }

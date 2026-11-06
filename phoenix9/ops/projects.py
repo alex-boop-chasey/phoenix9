@@ -1,4 +1,4 @@
-"""Ops for projects: list, show, edit, open, close, set-chat, new and the templates menu."""
+"""Ops for projects: list, show, edit, new, remove, import and the templates menu."""
 from pathlib import Path
 
 from phoenix9 import paths
@@ -34,34 +34,6 @@ def set_services(name: str, names: list, who: str) -> dict:
     return project_services.set_services(name, names, who)
 
 
-def open_(name: str, who: str) -> dict:
-    """Switch a project's chat server on."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.open_project(name, common.make_adapters(), who)
-
-
-def chat_start(name: str, who: str) -> dict:
-    """Switch a project's chat on (enable and start) and return its chat state."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.chat_start(name, common.make_adapters(), who)
-
-
-def close(name: str, who: str, force: bool = False) -> dict:
-    """Switch a project's chat server off."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.close_project(name, common.make_adapters(), who, force)
-
-
-def set_chat(name: str, url: str, who: str) -> dict:
-    """Save a project's chat session link."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.set_chat(name, url, who)
-
-
 def new(opts: dict, who: str, progress=None) -> dict:
     """Create a project from the form; `progress` gets one plain line per creation step."""
     from phoenix9 import project
@@ -69,7 +41,7 @@ def new(opts: dict, who: str, progress=None) -> dict:
 
 
 def remove(name: str, who: str) -> dict:
-    """Remove a project from Phoenix's list and switch its chat off; every file is kept."""
+    """Remove a project from Phoenix's list; every file is kept."""
     from phoenix9 import project_removal
     return project_removal.remove(name, who, common.make_adapters())
 
@@ -81,7 +53,7 @@ def import_candidates() -> list:
 
 
 def import_(name_or_path: str, who: str) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix and set its chat up."""
+    """Bring a removed project or an unlisted folder into Phoenix and add its missing workspace files."""
     from phoenix9 import project_removal
     return project_removal.import_(name_or_path, who, common.make_adapters())
 

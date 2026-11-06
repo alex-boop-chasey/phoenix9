@@ -10,7 +10,6 @@ import { AddProjectMenu } from "@/features/projects/AddProjectMenu"
 import { ProjectRowCard } from "@/features/projects/ProjectRowCard"
 import { ProjectsFilters } from "@/features/projects/ProjectsFilters"
 import { RemoveDialog } from "@/features/projects/RemoveDialogs"
-import { startChat } from "@/features/projects/startChat"
 import { apiParams, useProjectQuery } from "@/features/projects/useProjectQuery"
 import { useLiveEvents } from "@/lib/live"
 import { useProjects, useProjectSearch, useRefreshProjects, useRemoveProject } from "@/lib/queries"
@@ -60,9 +59,8 @@ export default function ProjectsPage() {
 
   // Stable callbacks (they take the project name) so the memoised rows only re-render when their row changes.
   const askRemove = useCallback((name: string) => setAsking(name), [])
-  const chatFor = useCallback((name: string) => void startChat(name, refresh), [refresh])
   const card = (row: ProjectRow) => (
-    <ProjectRowCard key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} onStartChat={chatFor} />
+    <ProjectRowCard key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} />
   )
 
   const body = () => {

@@ -475,12 +475,6 @@ def post_remove(req, name):
         return projects.remove(check_name(name), WHO)
 
 
-def post_chat_start(req, name):
-    """Switch the project's chat on; the reply says whether the link is known yet."""
-    with req.server.write_lock:
-        return projects.chat_start(check_name(name), WHO)
-
-
 def get_import_candidates(req):
     """Reply with what can be imported."""
     return projects.import_candidates()
@@ -665,7 +659,6 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/projects", post_create),
     ("POST", r"/api/import", post_import),
     ("POST", rf"/api/projects/{NAME}/remove", post_remove),
-    ("POST", rf"/api/projects/{NAME}/chat/start", post_chat_start),
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),

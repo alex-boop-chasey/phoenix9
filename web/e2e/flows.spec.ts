@@ -8,7 +8,7 @@ test("the demo data shows every state on the Projects page", async ({ page }) =>
   await expect(row("ember-oak").getByText("Last build failed")).toBeVisible()
   await expect(row("railway-hotel")).toBeVisible()
   await expect(row("notes-only").getByText("No repo")).toBeVisible()
-  await expect(row("tiny-tool").getByRole("button", { name: /Chat/ })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Chat/ })).toHaveCount(0)
   await expect(row("old-experiment")).toHaveCount(0)
   await expect(row("scratch-pad")).toHaveCount(0)
   await page.goto("/#/p/ember-oak/build?list=1")

@@ -336,16 +336,13 @@ def check_updater(ctx):
 
 
 def check_project_links(ctx):
-    """Every project has a working chat link and a VS Code link."""
+    """Every project has a VS Code link."""
     problems = []
     for name in project.project_names():
-        chat = project.chat_link(name, ctx.ad)
-        if chat["url"] is None:
-            problems.append(f"{name}: chat is off" if chat["state"] == "off" else f"{name}: chat link not found yet")
         if project.vscode_link(name)["url"] is None:
             problems.append(f"{name}: VS Code link missing (folder not found)")
-    return _result(not problems, "every project has its chat and VS Code links" if not problems else "; ".join(problems),
-                   "Switch the chat on with `phoenix project open <name>`, or press Start chat on the project.")
+    return _result(not problems, "every project has its VS Code link" if not problems else "; ".join(problems),
+                   "Check the project's folder still exists under the projects folder.")
 
 
 def check_memory_files(ctx):

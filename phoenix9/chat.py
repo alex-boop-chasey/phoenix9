@@ -1,8 +1,7 @@
 """The project chat hand-over for `on_failure = "delegate"` (architecture 9 and 11, rule 1 exception).
 
 This is the ONLY place in phoenix9 that starts Claude on the host. It starts one detached, headless
-`claude -p` session in the project folder, with the same permissions as the project's own chat service
-(claude-rc@<project>), and walks away: the runner never talks to it again. The session either answers
+`claude -p` session in the project folder, with full permissions (bypassPermissions), and walks away: the runner never talks to it again. The session either answers
 the escalation gate itself (`phoenix gate answer <id> acknowledged --who chat:delegate`) or gives up.
 """
 from __future__ import annotations
@@ -17,7 +16,7 @@ _started: dict[str, subprocess.Popen] = {}   # sessions this process started, by
 
 
 def command(prompt: str) -> list[str]:
-    """The command line: headless, plain-text output, project-chat permissions; never --bare (rule 7)."""
+    """The command line: headless, plain-text output, full permissions; never --bare (rule 7)."""
     return ["claude", "-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "text"]
 
 

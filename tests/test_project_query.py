@@ -11,7 +11,7 @@ def fake_row(name, description="", repo="", owner=None, size=0, used=None, needs
     """A made-up row; `activity` is what status.project_state would have said for it."""
     return {"name": name, "description": description, "repo": repo, "repo_owner": owner, "size": size,
             "last_used_at": used, "needs_you": needs, "run": run, "activity": activity,
-            "state": "off", "chats": 0, "harness": "idle", "last_used": "never"}
+            "harness": "idle", "last_used": "never"}
 
 
 ROWS = [

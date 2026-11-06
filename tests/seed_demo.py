@@ -29,7 +29,6 @@ PROJECTS = {
     "demo-site": {"repo": "rebirth-wd/demo-site", "profile": "web", "preset": "full", "merge": "ask",
                   "deploy": "vps-docker",
                   "about": "A small marketing site for a pretend bakery: home, menu, contact form.",
-                  "chat": {"chat_session_url": "https://claude.ai/code/session_demo_site"},
                   "spec": ("Contact form", [
                       ("Contact form markup", "Add a contact form with name, email and message.", "no", ["pnpm test"],
                        ["The form shows name, email and message fields"]),
@@ -39,7 +38,6 @@ PROJECTS = {
                        ["The thank-you page is shown after a send"])])},
     "tiny-tool": {"repo": "alex-boop-chasey/tiny-tool", "profile": "python-script", "preset": "simple",
                   "about": "A tiny command line tool that tidies CSV files.",
-                  "chat": {"environment_id": "env_demo_tiny_tool"},
                   "spec": ("Add JSON output", [
                       ("Read the CSV", "Read a CSV file into rows.", "no", ["python3 -m pytest"],
                        ["A CSV file is read into rows with headers"]),
@@ -50,25 +48,24 @@ PROJECTS = {
                       ("Update the help", "Describe --json in the help text.", "no", ["python3 -m pytest"],
                        ["The help text mentions the --json flag"])])},
     "notes-only": {"repo": "", "profile": "research", "preset": None,
-                   "about": "Reading notes and ideas; no code yet.", "chat": {},
+                   "about": "Reading notes and ideas; no code yet.",
                    "spec": ("Reading plan", [
                        ("Collect sources", "List the articles to read.", "yes", [],
                         ["The list has at least ten articles with links"])])},
     "ember-oak": {"repo": "rebirth-wd/ember-oak", "profile": "web", "preset": "full", "merge": "ask",
-                  "about": "Furniture maker portfolio with a gallery and enquiry form.", "chat": {},
+                  "about": "Furniture maker portfolio with a gallery and enquiry form.",
                   "spec": ("Gallery page", [
                       ("Gallery grid", "Show the photos in a grid.", "no", ["pnpm test"],
                        ["The gallery shows every photo in a grid"]),
                       ("Enquiry form", "Add an enquiry form.", "no", ["pnpm test"],
                        ["The enquiry form sends a message"])])},
     "railway-hotel": {"repo": "rebirth-wd/railway-hotel", "profile": "web", "preset": "quick", "merge": "auto",
-                      "about": "Country hotel site with rooms, rates and bookings.", "chat": {},
+                      "about": "Country hotel site with rooms, rates and bookings.",
                       "spec": ("Rooms page", [
                           ("Rooms list", "List the rooms and rates.", "no", ["pnpm test"],
                            ["The rooms page lists every room with its rate"])])},
     "phoenix9": {"repo": "alex-boop-chasey/phoenix9", "profile": "platform", "preset": "full", "merge": "ask",
                  "about": "Phoenix 9 itself: the project manager and build harness.",
-                 "chat": {"environment_id": "env_demo_phoenix9"},
                  "spec": ("API and dashboard", [
                      ("API reads", "Add the read endpoints.", "no", ["python3 -m pytest"],
                       ["Every read endpoint returns the documented shape"]),
@@ -177,7 +174,7 @@ def _write_project(name: str, data: dict) -> Path:
     if data.get("deploy"):
         toml["deploy"] = {"with": data["deploy"]}
     settings.save_project(folder, toml)
-    meta = {"profile": data["profile"], **data["chat"]}
+    meta = {"profile": data["profile"]}
     if data["repo"]:
         meta["repo"] = data["repo"]
     atomic.write_json(folder / ".phoenix" / "project.json", meta)

@@ -72,9 +72,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects` | `ops.projects.new` (in a background thread) | create form | `{job}` | 400, 409 |
 | GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
 | GET | `/api/folders?path=` | `ops.projects.list_folders` | | `{path, root, parent \| null, folders: [{name, path}]}`; sub-folders only, never hidden ones or symlinks leaving the projects folder; empty path = the projects folder | 400 (outside the projects folder), 404 |
-| POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added], chat: "on"}`; also takes it off the removed list and sets the chat up (trust, enable, start) | 400, 404, 409 |
-| POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; stops and disables `claude-rc@<name>`, undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
-| POST | `/api/projects/<name>/chat/start` | `ops.projects.chat_start` | `{}` | `{project, already, chat}` (chat as in the row shape); enables and starts `claude-rc@<name>`; the link may not be in `chat.url` yet, so the page asks again (`GET /api/projects/<name>`) until it is | 404 |
+| POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added]}`; also takes it off the removed list and adds the trust entry; starts no service | 400, 404, 409 |
+| POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |
@@ -93,10 +92,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 
 **Project row** (`ops.projects.rows`): every field of `phoenix9/project.py:info()` unchanged:
 `name`, `description`, `path`, `repo` (string, `""` when none; may be a URL), `repo_owner`, `repo_name`,
-`profile`, `services` (list), `size` (int bytes or null), `chat {state: "on"|"off", kind: "session"|"environment"|"none", url}` (`url` is null when the chat is off or no
-environment id is known: the page then shows "Start chat" only if the chat is on; new and imported projects get no chat service, so a project whose chat is off shows no chat button; the id is read from the journal of `claude-rc@<name>`
-since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
-`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
+`profile`, `services` (list), `size` (int bytes or null),
+`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
 `harness` (the harness column in words, from `status.project_state`: "idle" | "queued" | "running task N of M" |
 "running" | "paused (usage limit)" | "needs you"), `has_phoenix_toml`;
 plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI

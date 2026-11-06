@@ -303,18 +303,12 @@ def test_plain_output_counts_problems(fake_ops, capsys):
     assert "PROBLEM services" in out and "Fix:" in out and "1 problem." in out
 
 
-def test_project_links_check_lists_missing_chat_and_folder(healthy, phoenix_env):
+def test_project_links_check_is_about_vs_code_only(healthy, phoenix_env):
     host = healthy.host
     (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
-    host.script(["journalctl"], out="https://claude.ai/code?environment=env_OK\n")
-    assert by_name(doctor.run_checks(healthy, "full"))["project-links"]["ok"]
-    (phoenix_env["projects"] / "demo" / ".phoenix" / "project.json").unlink()
-    host.script(["journalctl"], out="nothing yet\n")
+    host.script(["systemctl", "is-active"], rc=3)          # no chat service anywhere: not a problem any more
     check = by_name(doctor.run_checks(healthy, "full"))["project-links"]
-    assert not check["ok"] and "demo: chat link not found yet" in check["detail"]
-    host.script(["systemctl", "is-active"], rc=3)
-    check = by_name(doctor.run_checks(healthy, "full"))["project-links"]
-    assert "demo: chat is off" in check["detail"]
+    assert check["ok"] and "chat" not in (check["detail"] + check["fix"]).lower()
 
 
 def test_memory_files_check_lists_projects_and_the_fix(healthy, phoenix_env):

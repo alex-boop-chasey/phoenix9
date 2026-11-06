@@ -32,10 +32,8 @@
 .p-repo span{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .p-repo:hover{text-decoration:underline}
 .p-repo.none{color:var(--text-3)}
-.p-acts{position:relative; z-index:1; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px}
+.p-acts{position:relative; z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px}
 .p-acts .btn{--h:44px; padding:0 10px}
-.chatdot{width:7px; height:7px; border-radius:50%; background:var(--ok)}
-.chatdot.off{background:var(--text-3)}
 @container well (min-width:780px){
   /* Fixed name and status columns, so every row's pill and repo start at the same place; the repo takes the rest. */
   .prow{grid-template-columns:minmax(0,14rem) minmax(0,1fr) auto; align-items:center; gap:16px; padding:12px 14px 12px 24px}

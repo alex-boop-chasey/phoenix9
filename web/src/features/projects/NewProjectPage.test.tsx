@@ -335,4 +335,5 @@ test("no vscode or chat fields on the form", async () => {
   await screen.findByRole("checkbox", { name: "Supabase" })
   expect(screen.queryByText(/vs ?code/i)).toBeNull()
   expect(screen.queryByLabelText(/chat/i)).toBeNull()
+  expect(screen.queryByText(/chat/i)).toBeNull()          // the summary no longer promises a chat
 })

@@ -21,6 +21,7 @@ export function AddressesTab() {
   const saved = g.data?.addresses
   const [draft, setDraft] = useState<Draft | null>(null)
   const [busy, setBusy] = useState(false)
+  const [refused, setRefused] = useState<string | null>(null)   // the server's plain reason for not saving
   useEffect(() => { if (saved) setDraft(toDraft(saved)) }, [saved])
 
   if (!saved || !draft) return <div className="gpanel" data-gp="addresses"><p className="small">Loading…</p></div>
@@ -30,6 +31,7 @@ export function AddressesTab() {
   async function save() {
     if (!draft) return
     setBusy(true)
+    setRefused(null)
     try {
       const r = await post<{ api_restart: string }>("global/addresses", {
         dashboard_url: draft.dashboard_url.trim(), allowed_origins: origins, vscode_url: draft.vscode_url.trim(),
@@ -42,7 +44,7 @@ export function AddressesTab() {
       void qc.invalidateQueries({ queryKey: ["projects"] })
       void qc.invalidateQueries({ queryKey: ["project"] })
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not save the addresses.")
+      setRefused(e instanceof Error ? e.message : "Could not save the addresses.")
     } finally {
       setBusy(false)
     }
@@ -53,10 +55,10 @@ export function AddressesTab() {
       <label htmlFor={`ad-${key}`}>{label}</label>
       {multi ? (
         <textarea id={`ad-${key}`} className="input mono" rows={3} value={draft[key]}
-          onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+          onChange={(e) => { setRefused(null); setDraft({ ...draft, [key]: e.target.value }) }} />
       ) : (
         <input id={`ad-${key}`} className="input mono" value={draft[key]}
-          onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+          onChange={(e) => { setRefused(null); setDraft({ ...draft, [key]: e.target.value }) }} />
       )}
       <span className="help">{help}</span>
     </div>
@@ -76,11 +78,12 @@ export function AddressesTab() {
         </div>
         <div className="board-b row">
           <button type="button" className="btn btn-primary" disabled={!dirty || busy || origins.length === 0} onClick={() => void save()}>Save addresses</button>
-          {dirty && <button type="button" className="btn btn-ghost" onClick={() => setDraft(toDraft(saved))}>Discard</button>}
+          {dirty && <button type="button" className="btn btn-ghost" onClick={() => { setRefused(null); setDraft(toDraft(saved)) }}>Discard</button>}
           {origins.length === 0 && <span className="cfgerr" role="alert">Keep at least one allowed page address.</span>}
+          {refused && origins.length > 0 && <span className="cfgerr" role="alert">{refused}</span>}
         </div>
       </section>
-      <div className="blk-info tip"><Icon name="lightbulb" /><span>Changing the allowed addresses restarts Phoenix's API for a few seconds.</span></div>
+      <div className="blk-info tip"><Icon name="lightbulb" /><span>Changing the allowed addresses restarts Phoenix's API for a few seconds. The list must keep the dashboard address and the address you're on now, so a save can't lock you out.</span></div>
     </div>
   )
 }

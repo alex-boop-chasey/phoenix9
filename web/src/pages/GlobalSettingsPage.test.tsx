@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 
 import GlobalSettingsPage from "@/pages/GlobalSettingsPage"
 import { globalView, info } from "@/test/fixtures"
-import { mockApi } from "@/test/mockApi"
+import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -179,6 +179,20 @@ describe("GlobalSettingsPage", () => {
       allowed_origins: ["https://phoenix.example.test", "https://other.example.test"],
       vscode_url: "https://code.example.test/",
     })
+  })
+
+  it("Dashboard addresses: a refusal that would lock the dashboard out is shown in the tab", async () => {
+    const msg = "The allowed origins must include https://phoenix.example.test, the address this page is open on, or saving would lock this page out."
+    mockApi(base([], { "POST /api/global/addresses": failure(400, msg) }))
+    renderWithProviders(<GlobalSettingsPage />, { route: "/settings?tab=addresses" })
+    const box = await screen.findByLabelText("Allowed page addresses")
+    await userEvent.clear(box)
+    await userEvent.type(box, "https://other.example.test")
+    await userEvent.click(screen.getByRole("button", { name: "Save addresses" }))
+    const panel = document.querySelector('[data-gp="addresses"]') as HTMLElement
+    expect(await within(panel).findByRole("alert")).toHaveTextContent(msg)
+    await userEvent.type(box, "\nhttps://phoenix.example.test")
+    expect(within(panel).queryByRole("alert")).toBeNull()       // editing again clears the old refusal
   })
 
   it("Dashboard addresses: an empty allowed list cannot be saved", async () => {

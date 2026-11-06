@@ -20,23 +20,62 @@ class AddressError(ValueError):
     """A bad address, in plain words naming the setting."""
 
 
+HOST_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*\.?")
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _host_ok(parts) -> bool:
+    """True for a plain host name, an IPv4 address or a bracketed IPv6 address (no quotes, *, %, spaces)."""
+    host = parts.hostname or ""
+    if "[" in parts.netloc:                       # IPv6: [hex and colons (and dots for a v4 tail)]
+        return bool(re.fullmatch(r"[0-9a-f:.]+", host)) and ":" in host
+    return bool(HOST_RE.fullmatch(host))
+
+
 def _url(key: str, text) -> str:
     """A checked http(s) address (stripped); AddressError otherwise."""
     if not isinstance(text, str) or not text.strip():
         raise AddressError(f"'{key}' needs an address like https://phoenix.example.com/")
     text = text.strip()
     parts = urlsplit(text)
+    bad = AddressError(f"'{key}' must be an http or https address, not {text!r}")
     if parts.scheme not in ("http", "https") or not parts.hostname or re.search(r"\s", text):
-        raise AddressError(f"'{key}' must be an http or https address, not {text!r}")
+        raise bad
+    if not _host_ok(parts):
+        raise AddressError(f"'{key}' has a host name Phoenix can't use in {text!r}: only letters, digits, dots "
+                           "and dashes (or an IP address) are allowed, no quotes, *, % or spaces")
+    try:
+        parts.port
+    except ValueError:
+        raise AddressError(f"'{key}' has a port that isn't a number from 1 to 65535 in {text!r}") from None
     return text
 
 
 def origin_of(url: str, key: str = "dashboard_url") -> str:
-    """The origin (scheme://host[:port]) of an address, the form a browser sends in its Origin header."""
+    """The origin (scheme://host[:port]) of an address, exactly the form a browser sends in its Origin header:
+    lower-case host, IPv6 kept in brackets, and no port when it is the scheme's default (:443, :80)."""
+    if isinstance(url, str) and url.strip().lower() in ("null", "*"):
+        raise AddressError(f"'{key}' can't be {url.strip()!r}: name the real address the dashboard is opened from")
     parts = urlsplit(_url(key, url))
     host = parts.hostname
-    port = f":{parts.port}" if parts.port else ""
+    if ":" in host:
+        host = f"[{host}]"
+    port = f":{parts.port}" if parts.port and parts.port != DEFAULT_PORTS[parts.scheme] else ""
     return f"{parts.scheme}://{host}{port}"
+
+
+def check_reachable(origins: list[str], dashboard_url: str, own_origin: str | None = None) -> None:
+    """Refuse an allowed-origins list that would lock the dashboard out: it must hold the dashboard address's
+    origin and (for a change made from a page) that page's own origin."""
+    need = origin_of(dashboard_url)
+    if need not in origins:
+        raise AddressError(f"The allowed origins must include the dashboard's own address, {need}, or the "
+                           "dashboard couldn't change anything any more. Add it to the list (or change the "
+                           "dashboard address first).")
+    if own_origin and own_origin not in origins:
+        raise AddressError(f"The allowed origins must include {own_origin}, the address this page is open on, "
+                           "or saving would lock this page out. Add it to the list, or make the change from "
+                           "the dashboard's own address.")
 
 
 def _table() -> dict:
@@ -108,15 +147,22 @@ def write_api_env(origins: list[str]) -> None:
     atomic.write_text(path, "\n".join([*kept, line]) + "\n", mode=0o644)
 
 
-def save(changes: dict) -> tuple[dict, bool]:
+def save(changes: dict, own_origin: str | None = None) -> tuple[dict, bool]:
     """Save checked changes into global.toml [dashboard] and keep api.env in step; returns
-    (the new values, True when the allowed origins in api.env changed and the API must restart)."""
+    (the new values, True when the allowed origins in api.env changed and the API must restart).
+    A result that would lock the dashboard out (check_reachable) is refused and nothing is written;
+    `own_origin` is the Origin of the page asking (API), which must stay allowed too."""
     clean = check(changes)
     data = dict(settings.read_global())
     table = dict(data.get("dashboard") if isinstance(data.get("dashboard"), dict) else {})
+    before_values = read()
     table.update(clean)
     if "dashboard_url" in clean and "allowed_origins" not in table:
         table["allowed_origins"] = [origin_of(clean["dashboard_url"])]
+    if "dashboard_url" in clean or "allowed_origins" in clean:
+        url = table.get("dashboard_url") or before_values["dashboard_url"]
+        origins = table.get("allowed_origins") or before_values["allowed_origins"]
+        check_reachable(origins, url, own_origin)
     data["dashboard"] = table
     tomlw.dump(paths.config() / "global.toml", data)
     values = read()
@@ -131,6 +177,12 @@ def migrate_once() -> dict | None:
     api.env already allows plus the dashboard address's origin. Returns what it did, or None when already done."""
     if "allowed_origins" in _table():
         return None
-    origins = list(dict.fromkeys([*api_env_origins(), origin_of(read()["dashboard_url"])]))
+    kept = []
+    for found in api_env_origins():          # an entry Phoenix can't use any more is dropped, not fatal
+        try:
+            kept.append(origin_of(found, "allowed_origins"))
+        except AddressError:
+            pass
+    origins = list(dict.fromkeys([*kept, origin_of(read()["dashboard_url"])]))
     values, changed = save({"allowed_origins": origins})
     return {"allowed_origins": values["allowed_origins"], "api_env_changed": changed}

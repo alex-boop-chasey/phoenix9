@@ -733,7 +733,7 @@ def post_global_addresses(req):
     if unknown:
         raise BadRequest(f"'{unknown[0]}' is not a dashboard address setting.")
     with req.server.write_lock:
-        return app.set_addresses(changes, who=WHO)
+        return app.set_addresses(changes, who=WHO, own_origin=req.headers.get("Origin"))
 
 
 def post_global_models(req):

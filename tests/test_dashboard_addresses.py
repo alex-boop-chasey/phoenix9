@@ -93,7 +93,7 @@ def test_vscode_links_use_the_setting(fakes, phoenix_env):
 
 def test_api_reads_origins_from_the_setting_when_env_has_none(fakes):
     assert server.allowed_origins() == [NEW]
-    addresses.save({"allowed_origins": ["http://a.test"]})
+    addresses.save({"dashboard_url": "http://a.test/", "allowed_origins": ["http://a.test"]})
     assert server.allowed_origins() == ["http://a.test"]
 
 
@@ -178,3 +178,46 @@ def test_no_hard_coded_addresses_left():
                     and path.name != "addresses.py" and ".test." not in path.name and "test" not in path.parts:
                 assert "files.rebirthwebdesign" not in path.read_text(errors="ignore"), path
     assert not hasattr(paths, "VSCODE_URL")
+
+
+# ---- origins can't lock the dashboard out ----
+
+@pytest.mark.parametrize("url, origin", [
+    ("https://x.test:443/", "https://x.test"),
+    ("http://x.test:80/a", "http://x.test"),
+    ("https://X.Test:8443/", "https://x.test:8443"),
+    ("http://[::1]:8095/", "http://[::1]:8095"),
+    ("https://[2001:db8::1]/", "https://[2001:db8::1]"),
+    ("http://127.0.0.1:8095/proxy/", "http://127.0.0.1:8095"),
+])
+def test_origin_matches_what_a_browser_sends(url, origin):
+    assert addresses.origin_of(url) == origin
+
+
+@pytest.mark.parametrize("bad", ['https://a"b.test', "https://a\\b.test", "https://*.test", "https://a%20b.test",
+                                 "https://a b.test", "null", "*", "https://x.test:99999", "https://x.test:abc"])
+def test_bad_hosts_are_refused(bad):
+    with pytest.raises(addresses.AddressError):
+        addresses.check({"allowed_origins": [bad]})
+
+
+def test_origins_must_include_the_dashboard(fakes, capsys):
+    with pytest.raises(addresses.AddressError, match="https://phoenix.rebirthwebdesign.com.au"):
+        addresses.save({"allowed_origins": ["https://other.test"]})
+    assert not (paths.config() / "global.toml").exists()
+    addresses.save({"allowed_origins": [f"{NEW}:443", "https://other.test"]})
+    assert addresses.read()["allowed_origins"] == [NEW, "https://other.test"]
+    with pytest.raises(addresses.AddressError, match="dashboard"):      # moving the dashboard away from the list
+        addresses.save({"dashboard_url": "https://moved.test/"})
+    code, _, err = run_cmd(capsys, "settings", "global", "set", "allowed_origins=https://other.test")
+    assert code == 1 and "dashboard" in err
+
+
+def test_api_refuses_origins_without_the_page_it_was_sent_from(api, fakes):
+    addresses.save({"allowed_origins": [NEW, OLD]})
+    headers = {**POST_HEADERS, "Origin": OLD}
+    status, body = api("/api/global/addresses", "POST", headers, {"allowed_origins": [NEW]})
+    assert status == 400 and OLD in body["message"] and "lock" in body["message"]
+    assert addresses.read()["allowed_origins"] == [NEW, OLD]
+    status, body = api("/api/global/addresses", "POST", headers, {"allowed_origins": [OLD + ":443", NEW]})
+    assert status == 200 and body["data"]["values"]["allowed_origins"] == [OLD, NEW]

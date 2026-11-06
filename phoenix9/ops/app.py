@@ -66,14 +66,14 @@ def migrate_addresses_at_start() -> dict | None:
     return addresses.migrate_once()
 
 
-def set_addresses(changes: dict, *, who: str) -> dict:
+def set_addresses(changes: dict, *, who: str, own_origin: str | None = None) -> dict:
     """Save dashboard addresses (dashboard_url, allowed_origins, vscode_url) in global.toml; when the allowed
     origins change, api.env is rewritten and phoenix-api restarted through the host adapter."""
     from phoenix9.ops import service
     if not changes:
         raise common.OpsError("Say which address to change: " + ", ".join(addresses.KEYS) + ".")
     try:
-        values, restart = addresses.save(changes)
+        values, restart = addresses.save(changes, own_origin=own_origin)
     except addresses.AddressError as err:
         raise common.OpsError(str(err)) from None
     keys = sorted(changes)

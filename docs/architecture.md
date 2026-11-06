@@ -457,7 +457,10 @@ No address is hard-coded anywhere else. HOME/config/global.toml `[dashboard]`:
 - `dashboard_url` (default `https://phoenix.rebirthwebdesign.com.au/`): where the dashboard lives
   (`/api/info` `dashboard_url`, for any link Phoenix builds to its own pages).
 - `allowed_origins` (list; default = the dashboard URL's origin): the page origins whose writes the API takes.
-  Values are reduced to origins (`scheme://host[:port]`). The API reads `PHOENIX_API_ORIGINS` (how api.env hands
+  Values are reduced to origins exactly as a browser sends them in its Origin header (`scheme://host[:port]`:
+  lower-case host, IPv6 kept in brackets, no port when it is the default `:443` for https or `:80` for http),
+  so the guard's plain string compare matches. Host names may only hold letters, digits, dots and dashes (or be
+  an IP address); quotes, `\`, `*`, `%`, spaces and the entries `null` / `*` are refused. The API reads `PHOENIX_API_ORIGINS` (how api.env hands
   the setting to the process) and falls back to the setting when it is unset; `/api/health` says which origins
   the running API has, and the doctor's `origins` check compares them with the setting. A refused write says
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
@@ -469,7 +472,10 @@ No address is hard-coded anywhere else. HOME/config/global.toml `[dashboard]`:
 
 Changing them: `phoenix settings global show`, `phoenix settings global set key=value [key=value ...]`
 (allowed_origins as a comma list), `POST /api/global/addresses` (`ops.app.set_addresses`). Each checks the
-values (http/https addresses only; at least one origin), writes global.toml, writes a `settings.changed` event
+values (http/https addresses only; at least one origin) and refuses a result that would lock the dashboard
+out: the allowed origins must include the dashboard URL's origin and, for an API save, the Origin of the page
+making the request (a plain message saying which address to add; the Dashboard addresses tab shows it under
+the Save button). Then it writes global.toml, writes a `settings.changed` event
 (project null) and the command record; when the allowed origins changed it rewrites the `PHOENIX_API_ORIGINS`
 line of api.env (other lines kept) and asks systemd to restart phoenix-api (`systemctl restart --no-block`
 through the host adapter, `ops.service.restart_unit`, so the API can restart itself after replying).

@@ -31,7 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import reports, runend, runs as runs_mod, summary
+from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod, stepproxy
@@ -302,6 +302,7 @@ class Runner:
                     why=(hold.hold_info() or {}).get("why", ""))
         while hold.hold_requested():
             self.adapters.clock.sleep(5)
+            heartbeat.mark_progress()               # held for an update: waiting on purpose, not hung
         state.update(run_dir, lambda s: s.setdefault("current", {}).__setitem__("held", False))
 
     def _skip_all(self, run_dir: Path, st: dict) -> None:
@@ -449,6 +450,7 @@ class Runner:
         Every step start is a boundary: an ended run or a stop request stops the walk (runend.check)."""
         if not self._ending:
             runend.check(run_dir)
+        heartbeat.mark_progress()                   # a step starting is the loop moving
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
         number = task["number"] if task else None
@@ -473,6 +475,7 @@ class Runner:
         result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
             return self._open_step_gate(run_dir, index, step, number, result)
+        heartbeat.mark_progress()                   # ...and so is it ending
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
         return Outcome(status, list(result.reasons))

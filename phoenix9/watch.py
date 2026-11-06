@@ -116,6 +116,7 @@ def wait_out_limit(adapters, s: dict, result) -> bool:
             adapters.notify.send(f"Phoenix run {s['run_id']} is waiting more than an hour for Claude's "
                                  f"usage limit (resets at {when}).")
         adapters.clock.sleep(seconds)
+        heartbeat.mark_progress()                 # waiting out a limit is the loop doing its job
         if not _still_paused(run_dir):
             raise _Ended
 
@@ -172,6 +173,7 @@ def drive_safely(adapters, runner, s: dict, memory: Memory) -> str | None:
 def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     """One round: resume a limit pause, re-drive answered waiting runs, or drive the next run. Returns its id."""
     memory = memory or Memory()
+    heartbeat.mark_progress()
     heartbeat.write(adapters.clock.now())
     states = all_states()
     for s in states:
@@ -208,10 +210,12 @@ def catch_up() -> list[str]:
 
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
+    heartbeat.reset_progress()
+    heartbeat.mark_progress()
     docker_mod.cleanup_orphans(adapters.docker)
     catch_up()
     stop = threading.Event()
-    ticker = heartbeat.start_ticker(adapters.clock, stop=stop)    # keeps beating while a long step blocks the loop
+    ticker = heartbeat.start_ticker(adapters.clock, stop=stop)    # beats while a container runs or the loop moves
     memory = Memory()
     try:
         while True:

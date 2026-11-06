@@ -617,12 +617,18 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   a stop request (and, for the resume, unless it is still `paused-limit`); a stop is then carried out.
 - **Runner heartbeat** (`phoenix9/heartbeat.py`): `HOME/runner/heartbeat.json` `{at, pid}`, written at the
   start of every service loop round (`watch.watch_once`) and every 30 s by a side thread started in
-  `watch.watch_forever` (a long step blocks the loop, so the loop alone would look dead). When a project's
+  `watch.watch_forever` (a long step blocks the loop, so the loop alone would look dead). The heartbeat
+  proves progress, not just a live process: the loop records its last progress time in memory
+  (`heartbeat.mark_progress`: every round, every step start and end, every tick of a usage-limit wait or an
+  update hold), and a step's container counts as progress for as long as it runs (`heartbeat.busy()`,
+  held by `DockerRunner.run`, which has its own time limit). The side thread only writes the heartbeat
+  while `heartbeat.making_progress()`: progress in the last 10 minutes (`PROGRESS_WINDOW_S` = 600), or a
+  container running now. A loop hung anywhere else (a stuck host command, a deadlock) stops beating. When a project's
   current build says `running` and the heartbeat is missing or older than 120 s (`heartbeat.STALE_S`),
   `status.project_state` reports `worker: "not responding"` (also on the run view, with `why`/`now`
   saying so, `activity: fail`, `status_line`/`run_text` "Worker not responding"), and the Current build
-  card shows "Worker not responding". The side thread proves the process is alive, not that the loop is
-  moving; a loop stuck inside one step still beats.
+  card shows "Worker not responding", for a dead runner and for a hung loop alike (about 10 minutes plus
+  `STALE_S` after its last progress).
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart
   resumes `running` runs from `state.json`.

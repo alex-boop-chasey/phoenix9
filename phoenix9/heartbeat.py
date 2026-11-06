@@ -1,15 +1,72 @@
 """The runner service's heartbeat: HOME/runner/heartbeat.json {at, pid}, written every loop round and
 every 30 s by a side thread (so a long step does not look like a dead runner). status.py reads it: a
-run that says running while the heartbeat is older than STALE_S shows "worker not responding"."""
+run that says running while the heartbeat is older than STALE_S shows "worker not responding".
+
+The heartbeat proves progress, not just a live process. The service loop marks progress (`mark_progress`)
+every round, at every step start and end, and while it waits (usage limit, update hold); a step's
+container counts as progress for as long as it runs (`busy()`, held by DockerRunner.run, which has its own
+time limit). The side thread only refreshes the heartbeat while `making_progress()`: progress in the last
+PROGRESS_WINDOW_S seconds, or a container running now. A loop hung anywhere else stops the heartbeat, so
+it shows "Worker not responding" too."""
 from __future__ import annotations
 
 import os
 import threading
+import time
+from contextlib import contextmanager
 
 from phoenix9 import atomic, paths
 
 STALE_S = 120
 TICK_S = 30
+PROGRESS_WINDOW_S = 600          # 10 minutes without progress (and no container running) = a hung loop
+
+_lock = threading.Lock()
+_last_progress: float | None = None     # time.monotonic() of the loop's last progress, None = none yet
+_busy = 0                               # containers running now (a running step is progress)
+
+
+def mark_progress(at: float | None = None) -> None:
+    """The service loop moved (a round, a step started or ended, a wait ticked). `at` is time.monotonic()."""
+    global _last_progress
+    with _lock:
+        _last_progress = time.monotonic() if at is None else at
+
+
+@contextmanager
+def busy():
+    """Inside this block a step's container is running: that counts as progress until it ends."""
+    global _busy
+    with _lock:
+        _busy += 1
+    try:
+        yield
+    finally:
+        with _lock:
+            _busy -= 1
+        mark_progress()
+
+
+def busy_count() -> int:
+    """How many containers are running now under busy()."""
+    with _lock:
+        return _busy
+
+
+def making_progress(now: float | None = None) -> bool:
+    """True while a container runs, or the loop marked progress in the last PROGRESS_WINDOW_S seconds."""
+    now = time.monotonic() if now is None else now
+    with _lock:
+        if _busy > 0:
+            return True
+        return _last_progress is not None and now - _last_progress <= PROGRESS_WINDOW_S
+
+
+def reset_progress() -> None:
+    """Forget all progress (tests, and a fresh service start)."""
+    global _last_progress, _busy
+    with _lock:
+        _last_progress, _busy = None, 0
 
 
 def _file():
@@ -46,14 +103,16 @@ def is_stale(now: float) -> bool:
 
 
 def start_ticker(clock, interval_s: float = TICK_S, stop: threading.Event | None = None) -> threading.Thread:
-    """Start a daemon thread that writes the heartbeat every interval_s seconds until `stop` is set.
+    """Start a daemon thread that, every interval_s seconds until `stop` is set, writes the heartbeat when
+    the loop is making progress (`making_progress`); a hung loop gets no beat and soon looks not responding.
     The file is chosen once, at start, so the thread never writes anywhere else later."""
     stop = stop or threading.Event()
     path = _file()
 
     def tick():
         while not stop.is_set():
-            write(clock.now(), path)
+            if making_progress():
+                write(clock.now(), path)
             stop.wait(interval_s)
     thread = threading.Thread(target=tick, name="phoenix-heartbeat", daemon=True)
     thread.start()

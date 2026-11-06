@@ -200,6 +200,8 @@ def test_heartbeat_keeps_beating_while_a_long_step_runs(tmp_path):
     from phoenix9 import heartbeat
     ad = fake_adapters(tmp_path)
     stop = threading.Event()
+    heartbeat.reset_progress()
+    heartbeat.mark_progress()           # the loop moved just now (a step started)
     beats = heartbeat.start_ticker(ad.clock, interval_s=0.01, stop=stop)
     try:
         for _ in range(200):

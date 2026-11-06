@@ -14,7 +14,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import paths, scrub
+from phoenix9 import heartbeat, paths, scrub
 
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
@@ -68,7 +68,8 @@ class DockerRunner:
         try:
             p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
             try:
-                return p.wait(timeout=timeout_s)
+                with heartbeat.busy():          # a running container is progress (it has its own time limit)
+                    return p.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 self.rm(name)
                 try:

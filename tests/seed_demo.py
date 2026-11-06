@@ -23,6 +23,7 @@ REAL_FOLDERS = ("/srv/projects", "/var/lib/phoenix9")
 
 SECRET_KEY_VALUE = "re_demo_0123456789abcdef"
 PUBLIC_URL = "https://demo-site.example.test"
+SERVICES_CONNECTED_AT = "2026-10-30T09:00:00+00:00"   # fixed, like every other demo time
 
 PROJECTS = {
     "demo-site": {"repo": "rebirth-wd/demo-site", "profile": "web", "preset": "full", "merge": "ask",
@@ -464,6 +465,11 @@ def _seed_extras(home: Path, projects: Path) -> None:
         svc = ops_services._service(name)
         ops_services.connect(name, {k: f"demo-{k.lower()}-0123456789" for k in svc["account_keys"]},
                              who="demo", check=False)
+    from phoenix9 import services
+    registry = services.read_registry()
+    for name in ("github", "resend"):
+        registry[name]["connected_at"] = SERVICES_CONNECTED_AT
+    services.write_registry(registry)
 
 
 def seed(home: Path, projects: Path) -> None:

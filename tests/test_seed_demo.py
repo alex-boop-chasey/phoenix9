@@ -57,12 +57,22 @@ def test_seed_creates_documented_projects_runs_and_gates(seeded):
     assert merge["actions"] == gates.DEFAULT_ACTIONS and merge["flags"] == ["changes safety code"]
 
 
-def test_seed_twice_gives_the_same_data(tmp_path):
+def test_seed_twice_gives_the_same_data(tmp_path, monkeypatch):
+    from phoenix9.ops import services as ops_services
     home, projects = tmp_path / "h", tmp_path / "p"
+    monkeypatch.setattr(ops_services, "_now", lambda: "2030-01-01T00:00:00+00:00")
     seed_demo.seed(home, projects)
     first = (tree(home), tree(projects))
+    monkeypatch.setattr(ops_services, "_now", lambda: "2031-06-15T12:34:56+00:00")   # the clock moved on
     seed_demo.seed(home, projects)
     assert (tree(home), tree(projects)) == first
+
+
+def test_seed_connected_services_have_fixed_times(seeded):
+    from phoenix9 import services
+    registry = services.read_registry()
+    assert {n: r["connected_at"] for n, r in registry.items() if r.get("connected")} == {
+        "github": seed_demo.SERVICES_CONNECTED_AT, "resend": seed_demo.SERVICES_CONNECTED_AT}
 
 
 def test_seed_refuses_real_or_unmarked_folders(tmp_path):

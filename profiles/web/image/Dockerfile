@@ -5,6 +5,7 @@ ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match image/versions.env (one source of truth)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PNPM_VERSION=12.16.1
 ARG PLAYWRIGHT_VERSION=1.64.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -18,7 +19,7 @@ ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
 RUN mkdir -p /usr/local/share/npm-global /workspace /home/node/.claude && \
   chown -R node:node /usr/local/share/npm-global /workspace /home/node/.claude
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-RUN corepack enable && mkdir -p /ms-playwright && chown node:node /ms-playwright
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION} && mkdir -p /ms-playwright && chown node:node /ms-playwright
 # Browser system libraries (root)
 RUN test -n "$PLAYWRIGHT_VERSION" && npx -y playwright@${PLAYWRIGHT_VERSION} install-deps chromium
 USER node

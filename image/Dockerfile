@@ -4,6 +4,7 @@ ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match versions.env, so a plain `docker build -t phoenix9-step:base image/` works (ported from reference/v8/image/Dockerfile; profiles get their own Dockerfiles under profiles/<name>/image/)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PNPM_VERSION=12.16.1
 ARG PLAYWRIGHT_VERSION=1.64.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   iptables ipset iproute2 dnsutils aggregate jq \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION}   # plain pnpm (not corepack): it switches to the version a project pins
 
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
     PATH=$PATH:/usr/local/share/npm-global/bin \

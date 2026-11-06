@@ -1,10 +1,11 @@
-# Platform profile (full-stack): Node 24 + Python 3.13 (Debian 13) + pytest + pnpm via corepack. Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
+# Platform profile (full-stack): Node 24 + Python 3.13 (Debian 13) + pytest + pnpm (switches to the project-pinned version). Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
 FROM node:24-trixie
 
 ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match image/versions.env (one source of truth)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PNPM_VERSION=12.16.1
 ARG PYTEST_VERSION=8.4.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,7 +20,7 @@ ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
     DISABLE_AUTOUPDATER=1
 RUN mkdir -p /usr/local/share/npm-global /workspace /home/node/.claude && \
   chown -R node:node /usr/local/share/npm-global /workspace /home/node/.claude
-RUN corepack enable
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION}   # plain pnpm (not corepack): it switches to the version a project pins
 USER node
 RUN test -n "$CLAUDE_CODE_VERSION" && \
   npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}

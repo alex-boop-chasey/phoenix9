@@ -137,7 +137,8 @@ Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `ph
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
 chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
-fields in section 4.7).
+fields in section 4.7). The environment id is found by a background journal search (newest first, stops at the first
+hit, skipped when the chat is off) that the Projects list waits for at most 1 s, like folder sizes; until found the chat link reads as not ready.
 
 ## 4. The plug-in libraries
 

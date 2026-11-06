@@ -1,6 +1,7 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import os
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -27,6 +28,27 @@ class Host:
         except FileNotFoundError:
             return 127, "", f"not found: {argv[0]}"
         return p.returncode, p.stdout, p.stderr
+
+    def first_match(self, argv: list[str], pattern, timeout: float = 120) -> str:
+        """Run a command and return the first match of the regex in its output, stopping the command there ('' if none)."""
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
+                                    text=True, errors="replace")
+        except OSError:
+            return ""
+        timer = threading.Timer(timeout, proc.kill)
+        timer.start()
+        try:
+            for line in proc.stdout:
+                found = pattern.search(line)
+                if found:
+                    return found.group(0)
+            return ""
+        finally:
+            timer.cancel()
+            proc.kill()
+            proc.stdout.close()
+            proc.wait()
 
     def systemctl(self, *args: str) -> tuple[int, str, str]:
         """Run systemctl with the given arguments."""

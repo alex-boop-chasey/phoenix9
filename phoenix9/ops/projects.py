@@ -7,10 +7,10 @@ from phoenix9.ops import common
 ACTIVE_RUN = ("queued", "running", "waiting", "paused-limit")
 
 
-def list_() -> list:
-    """Every project (a folder with a CLAUDE.md) with its full info, by name."""
+def list_(names: list | None = None) -> list:
+    """Every project (a folder with a CLAUDE.md), or just `names`, with its full info, by name."""
     from phoenix9 import project
-    return project.list_projects(common.make_adapters())
+    return project.list_projects(common.make_adapters(), names=names)
 
 
 list = list_
@@ -119,8 +119,8 @@ def templates_menu() -> list:
     return [{k: t[k] for k in ("name", "title", "profile", "kind", "check")} for t in templates.load_menu()]
 
 
-def rows() -> list:
-    """The Projects page rows: every info field plus repo_url, needs_you, the active run and last_build_failed."""
+def rows(only: str | None = None) -> list:
+    """The Projects page rows (just project `only` when given): every info field plus repo_url, needs_you, the active run and last_build_failed."""
     from phoenix9 import gates, runs
     open_gates = gates.list_gates()
     active = {}
@@ -136,7 +136,7 @@ def rows() -> list:
         elif r["project"] not in last_failed:
             last_failed[r["project"]] = r["status"] == "failed"
     out = []
-    for row in list_():
+    for row in list_([only] if only else None):
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
                     "needs_you": sum(1 for g in open_gates if g["project"] == row["name"]),
@@ -241,7 +241,7 @@ def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "nam
 def row(name: str) -> dict:
     """One Projects page row (as `rows`) for an existing project."""
     common.project_dir(name)
-    found = next((r for r in rows() if r["name"] == name), None)
+    found = next((r for r in rows(only=name) if r["name"] == name), None)
     if found is None:
         raise common.NotFound(f"There is no project called '{name}'.")
     return found

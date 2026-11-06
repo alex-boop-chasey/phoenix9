@@ -5,6 +5,7 @@ import re
 import shlex
 import shutil
 import threading
+import time
 import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
@@ -555,6 +556,35 @@ def size(name: str, adapters) -> int:
 
 
 # ----------------------------------------------------------------------------- chat link
+_searching: set = set()
+_searching_lock = threading.Lock()
+
+
+def _search_chat_ids(names: list, adapters) -> None:
+    """Read the journal for each name's chat id (saved in project.json); one search per project at a time."""
+    for n in names:
+        with _searching_lock:
+            if n in _searching:
+                continue
+            _searching.add(n)
+        try:
+            chat_link(n, adapters)
+        except Exception:      # a failed search must not break the page; the link just stays "not ready"
+            pass
+        finally:
+            with _searching_lock:
+                _searching.discard(n)
+
+
+def _needs_chat_search(name: str, adapters) -> bool:
+    """True when the chat is on, has no session link, and no id was saved since its last start."""
+    meta = _meta(paths.projects() / name)
+    if meta.get("chat_session_url") or not is_on(adapters.host, name):
+        return False
+    since = _unit_started_at(adapters.host, name)
+    return not (meta.get("environment_id") and since and meta.get("chat_env_start") == since)
+
+
 def _unit_started_at(host, name: str) -> str:
     """When the chat service last started (systemd's own words), or '' when unknown."""
     rc, out, _ = host.systemctl("show", "-p", "ActiveEnterTimestamp", "--value", unit(name))
@@ -562,11 +592,10 @@ def _unit_started_at(host, name: str) -> str:
 
 
 def _env_id_in_journal(host, name: str, since: str) -> str:
-    """The newest chat environment id the service logged since its last start ('' when none)."""
-    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager"]
-    rc, out, _ = host.run(argv + ["--since", since] if since else argv)
-    found = ENV_URL_RE.findall(out) if rc == 0 else []
-    return found[-1].split("environment=", 1)[1] if found else ""
+    """The newest chat environment id the service logged since its last start ('' when none); stops at the first hit."""
+    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager", "-r"]
+    hit = host.first_match(argv + ["--since", since] if since else argv, ENV_URL_RE)
+    return hit.split("environment=", 1)[1] if hit else ""
 
 
 def _refresh_env_id(name: str, adapters, folder: Path, meta: dict) -> str:
@@ -588,15 +617,17 @@ def _iso(now: float) -> str:
     return datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def chat_link(name: str, adapters) -> dict:
-    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known."""
+def chat_link(name: str, adapters, search: bool = True) -> dict:
+    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known.
+
+    With search=False the journal is never read: only an id already saved in project.json is used."""
     folder = paths.projects() / name
     if not is_on(adapters.host, name):
         return {"state": "off", "kind": "none", "url": None}
     meta = _meta(folder)
     if meta.get("chat_session_url"):
         return {"state": "on", "kind": "session", "url": meta["chat_session_url"]}
-    env_id = _refresh_env_id(name, adapters, folder, meta)
+    env_id = _refresh_env_id(name, adapters, folder, meta) if search else (meta.get("environment_id") or "")
     if not env_id:
         return {"state": "on", "kind": "none", "url": None}
     return {"state": "on", "kind": "environment", "url": f"https://claude.ai/code?environment={env_id}"}
@@ -700,10 +731,14 @@ def info(name: str, adapters, size_wait: bool = True) -> dict:
     on = is_on(host, name)
     at, words = last_used(name, adapters.clock.now())
     nbytes = size(name, adapters) if size_wait else cached_size(name)
+    if size_wait and _needs_chat_search(name, adapters):
+        worker = threading.Thread(target=_search_chat_ids, args=([name], adapters), daemon=True)
+        worker.start()
+        worker.join(SIZE_WAIT)
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
             "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
-            "chat": chat_link(name, adapters), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
+            "chat": chat_link(name, adapters, search=False), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
             "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
             "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
@@ -724,15 +759,19 @@ def _refresh_sizes(names: list, adapters) -> None:
         size(n, adapters)
 
 
-def list_projects(adapters, wait: float = SIZE_WAIT) -> list:
-    """info for every project; sizes come from the cache and stale or missing ones refresh in the background."""
-    names = project_names()
+def list_projects(adapters, wait: float = SIZE_WAIT, names: list | None = None) -> list:
+    """info for every project (or just `names`); sizes and chat ids come from the cache, missing ones load in the background."""
+    names = project_names() if names is None else names
     now = adapters.clock.now()
     stale = [n for n in names if cached_size(n, now, SIZE_MAX_AGE) is None]
-    if stale:
-        worker = threading.Thread(target=_refresh_sizes, args=(stale, adapters), daemon=True)
-        worker.start()
-        worker.join(wait)
+    lookups = [n for n in names if _needs_chat_search(n, adapters)]
+    workers = [threading.Thread(target=target, args=(todo, adapters), daemon=True)
+               for target, todo in ((_refresh_sizes, stale), (_search_chat_ids, lookups)) if todo]
+    for w in workers:
+        w.start()
+    deadline = time.monotonic() + wait
+    for w in workers:
+        w.join(max(0.0, deadline - time.monotonic()))
     return [info(n, adapters, size_wait=False) for n in names]
 
 

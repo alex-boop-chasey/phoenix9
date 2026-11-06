@@ -304,7 +304,7 @@ test("progress list updates from job polling", async () => {
 test("done goes straight to the new project's Overview", async () => {
   mockApi(routes({
     "POST /api/projects": { job: "j1" },
-    "GET /api/jobs/j1": job({ status: "done", steps: [{ label: "Switching the project chat on", status: "done" }] }),
+    "GET /api/jobs/j1": job({ status: "done", steps: [{ label: "Adding it to the project list", status: "done" }] }),
   }))
   renderPage()
   await fillName()

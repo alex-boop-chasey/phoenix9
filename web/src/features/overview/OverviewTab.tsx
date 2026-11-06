@@ -51,6 +51,9 @@ function CurrentBuild({ name, row, builds, loaded }: { name: string; row: Projec
           <p className="small mono">
             {[`${bar.passed} of ${bar.total} tasks`, build?.cost, build?.duration].filter(Boolean).join(" · ")}
           </p>
+          {run.worker === "not responding" && (
+            <p role="alert" className="small"><b>Worker not responding.</b> {run.why}</p>
+          )}
           <p className="small">{run.now}</p>
         </>
       ) : loaded && builds.length === 0 ? (

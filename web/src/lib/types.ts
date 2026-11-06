@@ -34,6 +34,8 @@ export interface ActiveRun {
   why?: string
   /** The "Now: ..." line for the Current build card. */
   now?: string
+  /** "not responding" when the run says running but the runner's heartbeat is over 2 minutes old. */
+  worker?: "alive" | "not responding"
 }
 
 /** A project's state in one word, decided by the backend: needs you, running, failed or idle. */
@@ -69,6 +71,8 @@ export interface ProjectRow {
   status_line: string
   /** The Projects page words for the current build ("Running task 2 of 4", "Idle", ...). */
   run_text: string
+  /** The runner service: "not responding" when a run says running and the heartbeat is stale. */
+  worker?: "alive" | "not responding"
 }
 
 export interface ChangelogLine {

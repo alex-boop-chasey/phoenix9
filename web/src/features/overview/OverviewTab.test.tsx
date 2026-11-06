@@ -89,6 +89,16 @@ describe("OverviewTab", () => {
     expect(container.querySelectorAll(".tbar i.need")).toHaveLength(1)
   })
 
+  it("a run whose runner stopped checking in says Worker not responding", async () => {
+    const base = projects.find((p) => p.name === "tiny-tool")!
+    const run = { ...base.run!, worker: "not responding" as const,
+      why: "It says running, but Phoenix's runner has not checked in for over 2 minutes.",
+      now: "Now: worker not responding. Phoenix's runner has not checked in for over 2 minutes." }
+    mockApi(routes("tiny-tool", { "GET /api/gates": [], "GET /api/projects/tiny-tool": { ...base, run, worker: "not responding" } }))
+    renderWithProviders(<OverviewTab name="tiny-tool" />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("Worker not responding.")
+  })
+
   it("About card shows what was chosen at setup", async () => {
     const base = projects.find((p) => p.name === "tiny-tool")!
     mockApi(routes("tiny-tool", {

@@ -7,7 +7,9 @@ else may work these out again (docs/architecture.md section 8, "One truth").
 """
 from __future__ import annotations
 
-from phoenix9 import gates, runs
+import time
+
+from phoenix9 import gates, heartbeat, runs
 
 ACTIVE = ("queued", "running", "waiting", "paused-limit")
 ENDED = gates.ENDED
@@ -76,6 +78,8 @@ def _why(status: str, asking: bool, carrying: bool) -> str:
 
 
 def _now_line(run: dict, step: str | None, asking: bool) -> str:
+    if run.get("worker") == NOT_RESPONDING:
+        return "Now: worker not responding. Phoenix's runner has not checked in for over 2 minutes."
     if run["carrying_on"]:
         return "Now: answered, Phoenix is carrying on."
     if asking and step:
@@ -87,13 +91,24 @@ def _now_line(run: dict, step: str | None, asking: bool) -> str:
     return f"Now: {run['status']}."
 
 
-def _run_view(r: dict, open_ids: set) -> dict:
-    """The current build as the rows carry it: id, status (as seen), task, tasks, carrying_on, why, now."""
+NOT_RESPONDING = "not responding"
+
+
+def _worker(shown_status: str, now: float) -> str:
+    """alive, or 'not responding' when the run says running and the runner's heartbeat is stale (heartbeat.STALE_S)."""
+    return NOT_RESPONDING if shown_status == "running" and heartbeat.is_stale(now) else "alive"
+
+
+def _run_view(r: dict, open_ids: set, now: float) -> dict:
+    """The current build as the rows carry it: id, status (as seen), task, tasks, carrying_on, why, now, worker."""
     asking = bool(_run_gate_ids(r, open_ids))
     carrying = carrying_on(r, open_ids)
     shown = "running" if carrying else r["status"]
     run = {"run_id": r["run_id"], "status": shown, "task": _task_number({**r, "status": shown}),
-           "tasks": r.get("tasks_total", 0), "carrying_on": carrying, "why": _why(r["status"], asking, carrying)}
+           "tasks": r.get("tasks_total", 0), "carrying_on": carrying, "why": _why(r["status"], asking, carrying),
+           "worker": _worker(shown, now)}
+    if run["worker"] == NOT_RESPONDING:
+        run["why"] = "It says running, but Phoenix's runner has not checked in for over 2 minutes."
     run["now"] = _now_line(run, (r.get("current") or {}).get("step"), asking)
     return run
 
@@ -103,6 +118,8 @@ def _run_text(run: dict | None) -> str:
     """The Projects page words for the current build."""
     if not run:
         return "Idle"
+    if run.get("worker") == NOT_RESPONDING:
+        return "Worker not responding"
     return {"queued": "Queued", "waiting": "Waiting for you", "paused-limit": "Paused (usage limit)",
             "running": f"Running task {run['task']} of {run['tasks']}" if run["task"] is not None else "Running"
             }.get(run["status"], "Idle")
@@ -112,7 +129,7 @@ def _activity(needs: int, run: dict | None, last_failed: bool) -> str:
     """need (waiting on Alex), run, fail (paused, or the latest finished build failed) or idle."""
     if needs > 0:
         return "need"
-    if run and run["status"] == "paused-limit":
+    if run and (run["status"] == "paused-limit" or run.get("worker") == NOT_RESPONDING):
         return "fail"
     if run:
         return "run"
@@ -123,6 +140,8 @@ def _status_line(activity: str, needs: int, run: dict | None, last_used: str) ->
     """One plain line for the sidebar."""
     if activity == "need":
         return f"{needs} questions waiting" if needs > 1 else "1 question waiting"
+    if activity == "fail" and run and run.get("worker") == NOT_RESPONDING:
+        return "Worker not responding"
     if activity == "fail":
         return "Paused at a limit" if run and run["status"] == "paused-limit" else "Last build failed"
     if activity == "run":
@@ -134,17 +153,19 @@ def _status_line(activity: str, needs: int, run: dict | None, last_used: str) ->
 
 # ---------------------------------------------------------------------- the one function
 def project_state(name: str, *, all_runs: list | None = None, open_gates: list | None = None,
-                  last_used: str = "") -> dict:
+                  last_used: str = "", now: float | None = None) -> dict:
     """Everything about what project `name` is doing now, from its runs and open questions.
 
     `all_runs` (runs.list_runs, newest first) and `open_gates` (gates.list_gates) may be passed in when
-    several projects are worked out at once, so the files are read only once."""
+    several projects are worked out at once, so the files are read only once. `now` (seconds since
+    1970) is for tests; the heartbeat age is measured against it."""
+    now = time.time() if now is None else now
     found = [r for r in (runs.list_runs(name) if all_runs is None else all_runs) if r["project"] == name]
     questions = [g for g in (gates.list_gates(name) if open_gates is None else open_gates) if g["project"] == name]
     open_ids = {g["id"] for g in questions}
     asking = {g["run"] for g in questions}
     current = _pick([r for r in found if r["status"] in ACTIVE], asking)
-    run = _run_view(current, open_ids) if current else None
+    run = _run_view(current, open_ids, now) if current else None
     finished = [r for r in found if r["status"] in ENDED]
     last_failed = bool(finished) and finished[0]["status"] == "failed"
     activity = _activity(len(questions), run, last_failed)
@@ -152,7 +173,8 @@ def project_state(name: str, *, all_runs: list | None = None, open_gates: list |
     return {"needs_you": len(questions), "questions": [g["id"] for g in questions], "run": run,
             "last_build_failed": last_failed, "activity": activity,
             "status_line": _status_line(activity, len(questions), run, last_used),
-            "run_text": run_text, "harness": "needs you" if activity == "need" else run_text.lower()}
+            "run_text": run_text, "harness": "needs you" if activity == "need" else run_text.lower(),
+            "worker": run["worker"] if run else "alive"}
 
 
 def all_project_states(names: list, last_used: dict | None = None) -> dict:

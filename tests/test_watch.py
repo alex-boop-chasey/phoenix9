@@ -153,3 +153,29 @@ def test_watch_forever_cleans_orphans_first(tmp_path, monkeypatch):
     except KeyboardInterrupt:
         pass
     assert ad.docker.removed == ["c1"]
+
+
+def test_watch_once_writes_the_heartbeat(tmp_path):
+    from phoenix9 import heartbeat
+    ad = fake_adapters(tmp_path)
+    ad.clock.t = 4242.0
+    watch.watch_once(ad, FakeRunner())
+    assert heartbeat.read()["at"] == 4242.0
+
+
+def test_heartbeat_keeps_beating_while_a_long_step_runs(tmp_path):
+    """The loop is blocked inside drive() for a long step; a side thread keeps the heartbeat fresh."""
+    import threading
+    from phoenix9 import heartbeat
+    ad = fake_adapters(tmp_path)
+    stop = threading.Event()
+    beats = heartbeat.start_ticker(ad.clock, interval_s=0.01, stop=stop)
+    try:
+        for _ in range(200):
+            if heartbeat.read():
+                break
+            stop.wait(0.01)
+    finally:
+        stop.set()
+        beats.join(1)
+    assert heartbeat.read()["at"] == ad.clock.t

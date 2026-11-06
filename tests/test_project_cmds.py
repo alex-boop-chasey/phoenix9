@@ -138,6 +138,9 @@ def new_run(env, name, status, tasks):
 
 
 def test_harness_status_idle_running_needs_you_queued(env):
+    import time
+    from phoenix9 import heartbeat
+    heartbeat.write(time.time())          # the runner is alive (A6: no heartbeat = worker not responding)
     make(env, "alpha")
     assert project.harness_status("alpha") == "idle"
     run_dir = new_run(env, "alpha", "queued", ["pending"] * 3)

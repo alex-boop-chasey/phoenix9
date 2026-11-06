@@ -551,6 +551,14 @@ Done when:
   (`runend.check`): a stop request -> clean stop; a status that is already ended -> the walk ends and
   nothing is written. `gates.open_gate` refuses a run that has ended and `end_run` never overwrites an
   ended status, so a stop that lands mid-walk can never be turned back into waiting, done or failed.
+- **Runner heartbeat** (`phoenix9/heartbeat.py`): `HOME/runner/heartbeat.json` `{at, pid}`, written at the
+  start of every service loop round (`watch.watch_once`) and every 30 s by a side thread started in
+  `watch.watch_forever` (a long step blocks the loop, so the loop alone would look dead). When a project's
+  current build says `running` and the heartbeat is missing or older than 120 s (`heartbeat.STALE_S`),
+  `status.project_state` reports `worker: "not responding"` (also on the run view, with `why`/`now`
+  saying so, `activity: fail`, `status_line`/`run_text` "Worker not responding"), and the Current build
+  card shows "Worker not responding". The side thread proves the process is alive, not that the loop is
+  moving; a loop stuck inside one step still beats.
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart
   resumes `running` runs from `state.json`.

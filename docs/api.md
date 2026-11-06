@@ -31,7 +31,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
@@ -104,7 +104,7 @@ command and dashboard display reads these fields; nothing else works them out ag
 - `repo_url`: `https://github.com/<owner>/<name>` when `repo_owner` is set, else null.
 - `needs_you`: number of open questions of the project; `questions`: their gate ids. A question is open only
   when it has no answer file, its run is not done/failed/stopped, and the run waits on it (`gates.is_open`).
-- `run`: the current build `{run_id, status, task, tasks, carrying_on, why, now}`, else null. It is the run
+- `run`: the current build `{run_id, status, task, tasks, carrying_on, why, now, worker}`, else null. It is the run
   with an open question, else the newest running, paused-limit, waiting (carrying on) or queued run.
   `status` is as Alex should see it (a waiting run whose questions are all answered reads `running` with
   `carrying_on: true`); `task` = `current.task` (while running: the first task not passed yet);
@@ -112,6 +112,8 @@ command and dashboard display reads these fields; nothing else works them out ag
 - `last_build_failed`: true when the newest finished run (done, failed or stopped) failed.
 - `activity`: `need` (an open question), else `fail` (paused at a limit), else `run` (any current build),
   else `fail` (`last_build_failed`), else `idle`.
+- `worker`: `"alive"`, or `"not responding"` when the current build says running and the runner's heartbeat
+  (`HOME/runner/heartbeat.json`) is missing or over 120 s old; the run view carries the same `worker`.
 - `status_line`: the sidebar line ("1 question waiting", "Building, task 2 of 4", "Build queued", "Paused at a
   limit", "Last build failed", "Idle, used 3h ago"); `run_text`: the Projects page words ("Running task 2 of 4",
   "Queued", "Paused (usage limit)", "Idle").

@@ -15,7 +15,7 @@ from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_o
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
 ROW_KEYS = {"name", "description", "path", "repo", "repo_owner", "repo_name", "profile", "services", "size",
             "chat", "vscode_url", "vscode", "state", "chats", "last_used", "last_used_at", "harness", "has_phoenix_toml",
-            "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text"}
+            "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text", "worker"}
 
 
 @pytest.fixture
@@ -254,6 +254,9 @@ def test_state_failed_then_passed_later_is_idle(env):
 
 
 def test_state_failed_but_new_run_running_is_run(env):
+    import time
+    from phoenix9 import heartbeat
+    heartbeat.write(time.time())          # the runner is alive (A6: no heartbeat = worker not responding)
     make(env)
     _finish(queue_run(env), "failed")
     newer = queue_run(env)

@@ -22,6 +22,9 @@ def env(phoenix_env, tmp_path, monkeypatch):
     (folder / "notes").mkdir(parents=True)
     (folder / "CLAUDE.md").write_text("# demo\n\nAbout demo.\n\n- Profile: python-script\n")
     (folder / "phoenix.toml").write_text('profile = "python-script"\n')
+    from phoenix9 import heartbeat
+    import time
+    heartbeat.write(time.time())          # the runner is alive unless a test says otherwise
     return {"fakes": fakes, "tmp": tmp_path}
 
 
@@ -148,3 +151,48 @@ def test_no_duplicate_carrying_on_patch_left():
     from phoenix9.ops import runs as r
     assert not hasattr(r, "with_answers_applied") and not hasattr(r, "carrying_on")
     assert hasattr(status, "seen_run")
+
+
+# ---- A6: the runner's heartbeat ----
+
+def beat(at):
+    from phoenix9 import heartbeat
+    heartbeat.write(at)
+
+
+def running(env):
+    run_dir = new_run(env)
+    state.update(run_dir, lambda s: (s.__setitem__("status", "running"), s["current"].__setitem__("task", 1)))
+    return run_dir
+
+
+def test_worker_alive_with_a_fresh_heartbeat(env):
+    running(env)
+    beat(5000)
+    s = status.project_state("demo", now=5100)
+    assert s["worker"] == "alive" and s["run"]["worker"] == "alive" and s["activity"] == "run"
+
+
+@pytest.mark.parametrize("last", [None, 4800])
+def test_worker_not_responding_when_the_heartbeat_is_stale(env, last):
+    running(env)
+    if last is None:
+        (paths.home() / "runner" / "heartbeat.json").unlink()
+    else:
+        beat(last)
+    s = status.project_state("demo", now=5000)          # 200 s since the last beat (or none at all)
+    assert s["worker"] == "not responding" and s["run"]["worker"] == "not responding"
+    assert s["activity"] == "fail" and s["status_line"] == "Worker not responding"
+    assert s["run_text"] == "Worker not responding" and "not responding" in s["run"]["now"]
+
+
+def test_stale_heartbeat_does_not_matter_when_nothing_runs(env):
+    beat(100)
+    new_run(env)                                        # queued only
+    s = status.project_state("demo", now=5000)
+    assert s["worker"] == "alive" and s["activity"] == "run"
+
+
+def test_rows_carry_worker(env):
+    running(env)
+    assert projects.row("demo")["worker"] in ("alive", "not responding")

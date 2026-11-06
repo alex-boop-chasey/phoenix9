@@ -2,12 +2,13 @@
 # ported from reference/v8/phoenix/watch.py (crash counting, limit_notice, drive_safely)
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, gates, hold, paths, runend, state
+from phoenix9 import atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -156,6 +157,7 @@ def drive_safely(adapters, runner, s: dict, memory: Memory) -> str | None:
 def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     """One round: resume a limit pause, re-drive answered waiting runs, or drive the next run. Returns its id."""
     memory = memory or Memory()
+    heartbeat.write(adapters.clock.now())
     states = all_states()
     for s in states:
         if s["status"] == "paused-limit":  # left over from before a restart: wait again
@@ -193,7 +195,13 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     docker_mod.cleanup_orphans(adapters.docker)
     catch_up()
+    stop = threading.Event()
+    ticker = heartbeat.start_ticker(adapters.clock, stop=stop)    # keeps beating while a long step blocks the loop
     memory = Memory()
-    while True:
-        watch_once(adapters, runner, memory)
-        adapters.clock.sleep(interval_s)
+    try:
+        while True:
+            watch_once(adapters, runner, memory)
+            adapters.clock.sleep(interval_s)
+    finally:
+        stop.set()
+        ticker.join(1)

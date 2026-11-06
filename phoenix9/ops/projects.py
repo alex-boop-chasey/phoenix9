@@ -123,13 +123,14 @@ def templates_menu() -> list:
     return [{k: t[k] for k in ("name", "title", "profile", "kind", "check")} for t in templates.load_menu()]
 
 
-STATE_KEYS = ("needs_you", "questions", "run", "last_build_failed", "activity", "status_line", "run_text", "harness")
+STATE_KEYS = ("needs_you", "questions", "run", "last_build_failed", "activity", "status_line", "run_text", "harness",
+              "worker")
 
 
 def rows(only: str | None = None) -> list:
     """The Projects page rows (just project `only` when given): every info field plus repo_url and the
     project's state from status.project_state (needs_you, questions, run, last_build_failed, activity,
-    status_line, run_text, harness)."""
+    status_line, run_text, harness, worker)."""
     from phoenix9 import status
     found = list_([only] if only else None)
     states = status.all_project_states([r["name"] for r in found], {r["name"]: r.get("last_used") or "" for r in found})

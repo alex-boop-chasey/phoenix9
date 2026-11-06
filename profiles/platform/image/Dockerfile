@@ -1,14 +1,17 @@
-# Platform profile (full-stack): Node 24 + Python 3 + pnpm via corepack. Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
+# Platform profile (full-stack): Node 24 + Python 3 + pytest + pnpm via corepack. Build from the repo root: docker build -f profiles/<p>/image/Dockerfile -t <tag> .
 FROM node:24-bookworm
 
 ARG TZ=Australia/Brisbane
 ENV TZ=$TZ
 # Defaults match image/versions.env (one source of truth)
 ARG CLAUDE_CODE_VERSION=2.1.301
+ARG PYTEST_VERSION=8.4.2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   less git procps sudo unzip gnupg2 curl ca-certificates jq iptables ipset iproute2 dnsutils aggregate dnsmasq-base python3 python3-pip python3-venv \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+# pytest for Python projects (and for Phoenix building itself)
+RUN pip install --no-cache-dir --break-system-packages pytest==${PYTEST_VERSION}
 
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
     PATH=$PATH:/usr/local/share/npm-global/bin \

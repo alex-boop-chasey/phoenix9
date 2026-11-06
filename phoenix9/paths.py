@@ -61,6 +61,3 @@ def logs() -> Path:
 def events() -> Path:
     """The global event stream."""
     return home() / "events.jsonl"
-
-
-VSCODE_URL = "https://files.rebirthwebdesign.com.au/"

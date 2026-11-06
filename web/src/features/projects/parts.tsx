@@ -22,7 +22,7 @@ export function RepoLink({ row }: { row: ProjectRow }) {
 
 /** The "Open" link to VS Code in a new tab. */
 export function VscodeLink({ row, label = "Open" }: { row: ProjectRow; label?: string }) {
-  if (!row.vscode_url) return <span className="text-muted-foreground">—</span>
+  if (!row.vscode_url) return <span className="text-muted-foreground" title={row.vscode?.reason ?? undefined}>—</span>
   return (
     <a href={row.vscode_url} target="_blank" rel="noreferrer" className={linkClass}>
       {label}

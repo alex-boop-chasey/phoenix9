@@ -849,3 +849,19 @@ def test_refused_run_request_is_recorded_as_last(layout, adapters, monkeypatch):
     assert last["action"] == "install" and last["tag"] == "v9.1" and last["who"] == "alex"
     assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
     assert updater.status(adapters)["last"]["result"] == "installed"     # a later result replaces it
+
+
+def test_healthy_install_runs_the_new_copys_one_time_migrations(layout, adapters):
+    out = updater.install("v9.1", adapters, who="alex")
+    assert out["result"] == "installed"
+    inst = layout["install"]
+    migrate = [str(inst / "bin" / "phoenix"), "settings", "global", "migrate", "--json"]
+    k = adapters.host.calls.index(migrate)
+    assert adapters.host.cwds[k] == str(inst)
+    assert k > max(i for i, c in enumerate(adapters.host.calls) if c[:2] == doctor())   # after the health check
+
+
+def test_a_failing_migration_is_only_a_log_line(layout, adapters):
+    adapters.host.script([str(layout["install"] / "bin" / "phoenix"), "settings"], rc=1, err="boom")
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert "post-install migration failed" in (paths.logs() / "updater.log").read_text()

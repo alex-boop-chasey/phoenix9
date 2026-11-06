@@ -14,10 +14,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, keys, library, logs, projects, runs, services, settings, update
+from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
-DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
+ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
              b"<p>The dashboard is not built yet. Run: pnpm -C web build</p></body></html>")
@@ -31,6 +31,8 @@ GATE_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+\.\d+$")  # <run-id>.<n> (used 
 JOB_KEEP_SECONDS = 3600
 CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
+IMAGES_BUSY = "Images are being built already; try again when that has finished."
+RESTART_BUSY = "A restart is already waiting; try again when it has finished."
 WHO = "dashboard"
 
 
@@ -43,9 +45,32 @@ class NeedsConfirm(Exception):
 
 
 def allowed_origins() -> list[str]:
-    """The origins allowed to POST, read from the environment on each request."""
-    raw = os.environ.get("PHOENIX_API_ORIGINS") or DEFAULT_ORIGINS
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    """The origins allowed to POST: PHOENIX_API_ORIGINS (how api.env hands the setting to this process), else
+    the allowed_origins global setting; read on each request."""
+    raw = os.environ.get(ORIGINS_ENV, "")
+    found = [o.strip() for o in raw.split(",") if o.strip()]
+    return found or app.addresses_view()["allowed_origins"]
+
+
+def migrate_addresses() -> None:
+    """At start: the one-time move to the dashboard address settings; this process then uses the new origins."""
+    try:
+        done = app.migrate_addresses_at_start()
+    except Exception:
+        api_log(traceback.format_exc())
+        return
+    if done:
+        os.environ[ORIGINS_ENV] = ",".join(done["allowed_origins"])
+        api_log(f"dashboard addresses: allowed origins are now {', '.join(done['allowed_origins'])}")
+
+
+def refusal(headers) -> str:
+    """The plain refusal for a write the guard turned away, naming the page origin it saw."""
+    origin = headers.get("Origin")
+    if headers.get("X-Phoenix") != "1" or not origin:
+        return "Refused: this request didn't come from the Phoenix dashboard."
+    return (f"Refused: this page was opened from {origin}, which Phoenix doesn't allow yet. Add it in Global "
+            "settings > Dashboard addresses (or run `phoenix settings global set allowed_origins=...`).")
 
 
 def api_log(text: str) -> None:
@@ -93,7 +118,7 @@ def get_info(req):
 def get_health(req):
     """Reply that the server is up (version and tag only; no ops call that can fail)."""
     import phoenix9
-    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag}
+    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag, "origins": allowed_origins()}
 
 
 def get_update(req):
@@ -422,6 +447,90 @@ def post_deploy(req, name):
     return {"job": job_id}
 
 
+def run_images_job(httpd, job: dict, profiles: list, build_all: bool, changed: bool) -> None:
+    """Background thread: build the step images, one job step per progress line, and keep the result."""
+    def progress(line):
+        with httpd.jobs_lock:
+            job["steps"].append({"label": line, "status": "done"})
+
+    result, status, message = None, "done", ""
+    try:
+        result = ops_images.build(profiles, build_all, changed, say=progress)
+        if not result["ok"]:
+            status, message = "failed", "At least one image failed to build; see the image logs."
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message, time.time(), status
+
+
+def post_images_build(req):
+    """Start building step images in the background: {profiles: [...]} and/or {all, changed}; one build at a time."""
+    profiles = req.body.get("profiles") or []
+    build_all, changed = req.body.get("all", False), req.body.get("changed", False)
+    if not isinstance(profiles, list) or not all(isinstance(p, str) and p for p in profiles):
+        raise BadRequest("'profiles' should be a list of profile names.")
+    if not isinstance(build_all, bool) or not isinstance(changed, bool):
+        raise BadRequest("'all' and 'changed' should be true or false.")
+    ops_images.choose(profiles, build_all)          # an unknown profile is refused now, not in the job
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "images" for j in httpd.jobs.values()):
+            raise common.Conflict(IMAGES_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "images", "project": None, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    common.record_command(WHO, "images build" + (" --all" if build_all else "") + (" --changed" if changed else "")
+                          + "".join(f" --profile {p}" for p in profiles))
+    threading.Thread(target=run_images_job, args=(httpd, job, profiles, build_all, changed), daemon=True).start()
+    return {"job": job_id}
+
+
+def run_restart_job(httpd, job: dict, name: str) -> None:
+    """Background thread: restart the runner (it may wait up to 30 minutes for a task boundary)."""
+    def progress(line):
+        with httpd.jobs_lock:
+            job["steps"].append({"label": line, "status": "done"})
+
+    result, status, message = None, "done", ""
+    try:
+        result = ops_service.restart(name, who=WHO, yes=True, say=progress)
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message, time.time(), status
+
+
+def post_service_restart(req, name):
+    """Restart phoenix-api (at once, without waiting: this process is the one restarted) or phoenix-runner
+    (in a background job that waits for a task boundary); needs yes."""
+    if name not in ops_service.UNITS:
+        raise BadRequest("Say api or runner.")
+    if req.body.get("yes") is not True:
+        raise BadRequest(f"Restarting {ops_service.UNITS[name]} needs confirmation.")
+    if name == "api":
+        return ops_service.restart_api_soon(WHO)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "restart" for j in httpd.jobs.values()):
+            raise common.Conflict(RESTART_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "restart", "project": None, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_restart_job, args=(httpd, job, name), daemon=True).start()
+    return {"job": job_id}
+
+
 def post_update_install(req):
     """Queue an install of the given (or newest) tag; the updater runs as its own unit."""
     tag = body_text(req, "tag", False)
@@ -566,6 +675,14 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def post_run_discard(req, project, run_id):
+    """Discard a failed or stopped run's worktree and branch."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Discarding a run's work needs confirmation.")
+    with req.server.write_lock:
+        return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project))
+
+
 def get_gate_review(req, gate_id):
     """Reply with the merge review of a merge gate."""
     if not GATE_ID_RE.match(gate_id):
@@ -603,6 +720,17 @@ def post_service_test(req, name):
         raise BadRequest("'values' should map key names to text.")
     scrub.add_secrets(v for v in values.values() if v)
     return services.test(check_name(name), values, who=WHO)
+
+
+def post_global_addresses(req):
+    """Save the dashboard addresses ({dashboard_url?, allowed_origins?, vscode_url?}); a change of the allowed
+    origins rewrites api.env and asks systemd to restart this API."""
+    changes = {k: req.body[k] for k in app.ADDRESS_KEYS if k in req.body}
+    unknown = sorted(set(req.body) - set(app.ADDRESS_KEYS))
+    if unknown:
+        raise BadRequest(f"'{unknown[0]}' is not a dashboard address setting.")
+    with req.server.write_lock:
+        return app.set_addresses(changes, who=WHO)
 
 
 def post_global_models(req):
@@ -662,10 +790,13 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
+    ("POST", r"/api/images/build", post_images_build),
+    ("POST", rf"/api/service/{NAME}/restart", post_service_restart),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/services/{NAME}/test", post_service_test),
     ("POST", r"/api/global/models", post_global_models),
+    ("POST", r"/api/global/addresses", post_global_addresses),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),
@@ -677,6 +808,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]
@@ -745,7 +877,7 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method):
         if method == "POST":
             if not self.guard_ok():
-                return self.fail(403, "Refused: this request didn't come from the Phoenix dashboard.")
+                return self.fail(403, refusal(self.headers))
             if self.read_body() is None:
                 return
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":

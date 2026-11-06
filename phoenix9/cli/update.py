@@ -52,6 +52,8 @@ def status_text(st: dict) -> str:
         out += " An update is running" + (f" ({st['waiting']})." if st.get("waiting") else ".")
     else:
         out += " Harness busy: " + st["busy_reason"] + "." if st.get("busy") else " Harness idle."
+    if st.get("off_release_note"):
+        out += "\n" + st["off_release_note"]
     return out
 
 

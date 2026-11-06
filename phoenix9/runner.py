@@ -224,9 +224,18 @@ class Runner:
         if not profile_name and any(r.get("kind") == "ai" for r in plan.get("steps", [])):
             raise RunFailed(settings.no_profile_message(project))   # an AI step would launch docker with no image
         profile = settings.load_profile(self.lib.root, profile_name) if profile_name else {}
+        self._record_image(run_dir, profile.get("image") or "")
         info = ProjectInfo(name=project, dir=project_dir, code_dir=project_dir / "code",
                            settings=values, profile=profile)
         return {"settings": values, "plan": plan, "project": info}
+
+    def _record_image(self, run_dir: Path, tag: str) -> None:
+        """Remember the exact image id the run uses, once, at its first drive (a later rebuild never changes it)."""
+        if not tag or "image" in state.load(run_dir):
+            return
+        find = getattr(self.adapters.docker, "image_id", None)
+        image_id = find(tag) if find else ""
+        state.update(run_dir, lambda s: s.setdefault("image", {"tag": tag, "id": image_id}))
 
     @staticmethod
     def _step_settings(setup: dict, name: str) -> dict:

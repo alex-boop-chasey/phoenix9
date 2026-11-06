@@ -2,7 +2,7 @@
 
 The contract between `phoenix9/api/server.py` and the web app in `web/`. The server does no work itself:
 every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the page's own address
-(the app is served under `/proxy/<port>/`), so the web app never uses an absolute `/api/...`.
+(the app may be served at a site root or under a prefix such as `/proxy/<port>/`), so the web app never uses an absolute `/api/...`.
 
 ## Rules
 
@@ -10,8 +10,10 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
 - Every reply is JSON: `{"ok": true, "data": ...}` or `{"ok": false, "message": "<plain English>"}`.
 - HTTP status: 200 fine, 400 bad request or refused by ops, 403 forbidden, 404 not found, 409 conflict,
   500 unexpected failure, 503 busy or not available.
-- Every POST needs the header `X-Phoenix: 1` and an `Origin` listed in `PHOENIX_API_ORIGINS`
-  (comma list, default `https://files.rebirthwebdesign.com.au`), otherwise 403.
+- Every POST needs the header `X-Phoenix: 1` and an `Origin` in the allowed origins (`PHOENIX_API_ORIGINS`, else the
+  `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
+  "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
+  Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
 - POST bodies are JSON objects of at most 64 KB.
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
@@ -49,18 +51,21 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/github/repos` | `ops.github.repos` | | `{connected, repos: [{full_name, owner, private}]}` | |
 | GET | `/api/global` | `ops.app.global_view` | | Global view; `default_models` is `{step: {model, fallback_models, title, library {model, fallback_models}}}` (Phoenix's saved defaults over the library's) | |
 | GET | `/api/global/services` | `ops.services.list_global` | | `{supported, services: [row]}`: Claude, the library services, Telegram. Row adds `ends_in {KEY: "…abcd"}`, `account_settings [{name, label, kind, options, placeholder, help, value}]`, `can_test`, `endpoints {connect, disconnect, test}` | |
+| POST | `/api/global/addresses` | `ops.app.set_addresses` (`phoenix settings global set`) | `{dashboard_url?, allowed_origins?: [origin], vscode_url?}` (`vscode_url: ""` = not set) | `{values {dashboard_url, allowed_origins, vscode_url}, api_restart: "asked" \| "not needed" \| "failed: ..."}`; a change of the allowed origins rewrites api.env and restarts the API just after the reply | 400 |
 | POST | `/api/global/models` | `ops.app.set_default_models` (`phoenix models set`) | `{steps: {step: {model, fallback_models}}}` | `{saved, default_models}`; written to `global.toml [models.<step>]` | 400 |
 | GET | `/api/doctor?mode=quick\|full` | `ops.doctor.run` | | `{ok, checks: [{name, ok, detail, fix}], checked_at}` | 400 |
 | GET | `/api/services` | `ops.services.list_` | | `{supported: true, services: [row + endpoints {connect, disconnect}]}`; row = `{name, title, description, support, connected, note, account_keys, checked, checked_at, project_keys, hosts, used_by}` | |
 | GET | `/api/keys/audit` | `ops.keys.audit` | | `{global: [{file, names, used_by, modified, mode, mode_ok}], projects: [{project, name, secret, set, used, last_touched, service}], problems: [text]}` (never a value) | |
-| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag}`; `tag` is the running copy's release tag, `""` when unknown | |
-| GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line]}`; `refresh=1` asks GitHub for the newest tag | |
+| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins}`; `tag` is the running copy's release tag, `""` when unknown; `origins` = the page origins this running API allows | |
+| GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line], off_release, off_release_note}` (`off_release_note` says how to get back to a release when the installed copy is on a commit with no release tag, else `""`); `refresh=1` asks GitHub for the newest tag | |
 | GET | `/api/update/log?lines=200` | `ops.update.log` | | `{lines, checks_file}` | |
 | GET | `/api/update/history` | `ops.update.history` | | `{history: [{at, action, tag, result, reason, who}]}` newest first (from `HOME/update/history.jsonl`) | |
 | GET | `/api/projects/<name>/deploys` | `ops.deploy.status` | | `{project, deployer {name, title, supported}, recent (newest first), live_url, last_good_commit, last_good_at}` | 404 |
 | POST | `/api/update/install` | `ops.update.install` (queues the updater unit; never runs it) | `{tag?, yes: true}` | `{ok, queued, tag}` | 400 |
 | POST | `/api/update/rollback` | `ops.update.rollback` | `{yes: true}` | `{ok, queued}` | 400 |
 | POST | `/api/projects/<name>/deploy` | `ops.deploy.now` (in a background thread) | `{yes: true}` | `{job}` | 400, 404, 409 |
+| POST | `/api/service/<name>/restart` (name `api` or `runner`) | `ops.service.restart_api_soon` (api) / `ops.service.restart` in a background job (runner; `phoenix service restart`) | `{yes: true}` | api: `{service, restarted, queued: true}` (systemctl `--no-block`; the API restarts just after replying); runner: `{job}` (kind `restart`; waits up to 30 min for builds to reach a task boundary; `result` = `{service, restarted, waited, doctor}`) | 400, 409 (a restart is waiting) |
+| POST | `/api/images/build` | `ops.images.build` (in a background thread; `phoenix images build`) | `{profiles?: [name], all?: bool, changed?: bool}` (none = the profiles projects use) | `{job}` (kind `images`; `result` = `{ok, built: [{profile, tag, ok, log}], skipped}`) | 400 (bad body or unknown profile), 409 (a build is running) |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
@@ -85,6 +90,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/defaults` | `ops.settings.save_defaults` (added in step 03) | `{overrides}` | `{project}` | 400, 404 |
 | POST | `/api/projects/<name>/runs` | `ops.runs.start_from_notes` (added in step 03) | `{spec \| brief, overrides}` | `{run_id, project, status}` | 400, 404 |
 | POST | `/api/runs/<project>/<run_id>/stop` | `ops.runs.stop` | `{"confirm": true}` | `{run_id, status, containers_removed, notes}`; `status` is `stopped` (the runner's clean stop ran at once) or `"stop requested"` (the runner is walking the run and stops it at its next boundary); refused with a plain message when the run already ended or the caller may not stop runs in the project (same rule as answering an escalation) | 400, 404 |
+| POST | `/api/runs/<project>/<run_id>/discard` | `ops.runs.discard` (`phoenix run discard <run> --yes`) | `{"confirm": true}` | `{run_id, status, discarded: true, notes}`; deletes the worktree, local branch and pushed GitHub branch of a failed or stopped run | 400 (not failed or stopped, or no confirm), 404, 409 (already discarded) |
 | GET | `/api/gates/<gate_id>/review` | `ops.gates.review` | | merge gates only: `{gate, run, project, title, why, answered, summary, tasks{passed,total,retried[]}, full_suite{status,note}, safety{flag,files}, files[{path,added,removed,binary,safety,diff}], added, removed, merge_request}`; diff from the run's own branch, else its patch files, else `gh pr diff`; scrubbed. CLI `phoenix gate review <id>` | 400, 404 |
 | POST | `/api/gates/<gate_id>/answer` | `ops.gates.answer` | `{action, note}` | `{gate, action, note, who, at}` | 400, 404, 409 |
 
@@ -93,7 +99,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 **Project row** (`ops.projects.rows`): every field of `phoenix9/project.py:info()` unchanged:
 `name`, `description`, `path`, `repo` (string, `""` when none; may be a URL), `repo_owner`, `repo_name`,
 `profile`, `services` (list), `size` (int bytes or null),
-`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
+`vscode {url, reason}` (`url` null with a reason when the VS Code address is not set or `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
 `harness` (the harness column in words, from `status.project_state`: "idle" | "queued" | "running task N of M" |
 "running" | "paused (usage limit)" | "needs you"), `has_phoenix_toml`;
 plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI
@@ -115,20 +121,24 @@ command and dashboard display reads these fields; nothing else works them out ag
   limit", "Last build failed", "Idle, used 3h ago"); `run_text`: the Projects page words ("Running task 2 of 4",
   "Queued", "Paused (usage limit)", "Idle").
 
-`vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
+`vscode_url` is the `vscode_url` global setting + `/?folder=<PHOENIX_PROJECTS>/<name>`; null when that setting is empty
+(`vscode.reason` = "Set the VS Code address in Global settings.") or the folder is missing.
 
 **Info** (`/api/info`): `version` (`phoenix9.__version__`), `label` (what the header shows: the install tag, else `v` + major.minor, e.g. `v9.1`), `update {supported, installed, newest,
-available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true).
+available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true),
+`dashboard_url`, `vscode_url` (the dashboard address settings; `vscode_url` `""` = not set).
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,
 tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished` (ISO or `""`),
-`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`.
+`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `discarded` (true once the run's work was discarded).
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
-not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>` while that branch exists in the project's code/, else null: a stopped or discarded run has none).
+not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>` while that branch exists in the project's code/, else null: a stopped or discarded run has none),
+`image {tag, id}` (the exact step image, once the run has started), `discarded` (and `discarded_at`, `discarded_by`) after `phoenix run discard`.
 
 **Global view** (`ops.app.global_view`): `values` (non-secret contents of `HOME/config/global.toml`),
+`addresses {dashboard_url, allowed_origins, vscode_url}` (defaults filled in),
 `github {connected, accounts}`, `default_models {<ai step>: {model, fallback_models}}`,
 `telegram {connected}`, `supported {services, update, secrets}` (false for parts not built yet).
 
@@ -140,7 +150,7 @@ repo?, template?, path?}, profile, new_repo: {on, owner}, services: [], keys: [{
 The reply is `{job}` at once; ops runs in the background (one create at a time, else 409). Key values go
 straight to the keys store (`opts["keys"]`), never to a file.
 
-**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy", project, status: "running"|"done"|"failed",
+**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy" \| "images" \| "restart", project, status: "running"|"done"|"failed",
 steps: [{label, status: "running"|"done"|"failed"}], message}`. Each progress line from ops starts a step and
 marks the previous one done; `message` is the ops error on failure (empty otherwise). Deploy jobs have no steps and add `result` (the `ops.deploy.now` result, `null` while running). One job per kind at a time: a second create while one creates, or a second deploy while one deploys, is 409; a create and a deploy may run together.
 

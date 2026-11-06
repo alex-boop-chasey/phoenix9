@@ -20,6 +20,9 @@ export interface Info {
   }
   github: { connected: boolean; accounts: string[] }
   services: { supported: boolean }
+  /** The dashboard address settings. */
+  dashboard_url?: string
+  vscode_url?: string
 }
 
 /** A project's current build, as the backend (phoenix9/status.py) worked it out. */
@@ -210,6 +213,8 @@ export interface BuildRow {
   cost: string
   tasks_failed: number
   carrying_on?: boolean
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
 }
 
 export interface RunTask {
@@ -289,6 +294,12 @@ export interface RunDetail {
   max_tries: number
   /** The git branch of the run, e.g. phoenix/<run-id>. */
   branch?: string
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
+  discarded_at?: string
+  discarded_by?: string
+  /** The exact step image the run used (recorded at its first drive; id is "" when the image was missing). */
+  image?: { tag: string; id: string }
 }
 
 export type Overrides = Record<string, unknown>
@@ -329,6 +340,9 @@ export interface UpdateStatus {
   waiting: string
   phase: string | null
   interrupted: boolean
+  /** True when the installed copy is not on a release tag; the note says how to get back. */
+  off_release?: boolean
+  off_release_note?: string
   last: { action: string; tag: string | null; result: string; reason: string; at?: string } | null
   log_tail: string[]
 }
@@ -479,8 +493,17 @@ export interface DoctorResult { ok: boolean; checks: DoctorCheck[]; checked_at: 
 
 export interface UpdateHistoryRow { at: string; action: string; tag: string | null; result: string; reason: string; who: string }
 
+/** Phoenix settings > Dashboard addresses (global.toml [dashboard]). */
+export interface Addresses {
+  dashboard_url: string
+  allowed_origins: string[]
+  /** "" = not set (VS Code buttons are hidden). */
+  vscode_url: string
+}
+
 export interface GlobalView {
   values: Record<string, unknown>
+  addresses?: Addresses
   github: { connected: boolean; accounts: string[] }
   default_models: Record<string, DefaultModel>
   telegram: { connected: boolean }

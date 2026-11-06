@@ -291,6 +291,15 @@ class _Update:
             self.log(f"health check {n + 1} failed: {reason}")
         return False, reason
 
+    def migrate(self) -> None:
+        """Run the NEW installed copy's one-time settings migrations (`phoenix settings global migrate`);
+        they do nothing once done, and a failure is only a log line (the install stays)."""
+        inst = folders()["install"]
+        argv = [str(inst / "bin" / "phoenix"), "settings", "global", "migrate", "--json"]
+        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+        self.log("post-install migration done" if rc == 0 else
+                 f"post-install migration failed (exit {rc}): {_failing_lines(out, err)}")
+
     def wait_idle(self, why: str, timeout_min: int) -> tuple[bool, str]:
         """Hold the harness and wait (polling every 5 s) until no run is mid-task; False after the timeout."""
         hold.request_hold(why)
@@ -558,6 +567,7 @@ def _install(u: _Update, tag: str, idle_timeout_min: int) -> dict:
     u.phase("restarted")
     ok, why = u.healthy()
     if ok:
+        u.migrate()
         hold.release_hold()
         u.end()
         events.emit("update.installed", project=None, tag=tag, previous=frm["tag"], who=u.who)
@@ -814,6 +824,12 @@ def _log_tail(n: int = LOG_TAIL) -> list[str]:
         return []
 
 
+def off_release_note(installed: dict) -> str:
+    """The sentence `update status` shows when the installed copy is not on a release tag."""
+    return (f"Installed copy is on commit {installed['commit'][:10]}, not a release. "
+            "Run `phoenix update release` then `phoenix update install`.")
+
+
 def status(adapters, *, refresh: bool = False) -> dict:
     """Installed / previous / newest version, whether an update or rollback is possible, and the log tail.
     `interrupted` = a job is recorded but no updater holds the lock (it died; request "recover")."""
@@ -845,7 +861,9 @@ def status(adapters, *, refresh: bool = False) -> dict:
         refused = None
     if isinstance(refused, dict):    # a refusal newer than any locked result (see _refuse_request)
         last = refused
+    off = bool(installed and installed["tag"] == "unknown")
     return {"supported": True, "installed": installed, "previous": previous, "newest": newest,
+            "off_release": off, "off_release_note": off_release_note(installed) if off else "",
             "update_available": update_available, "can_rollback": previous is not None and not running,
             "busy": busy, "busy_reason": why, "running": running,
             "waiting": (st.get("waiting") or "") if running else "", "phase": job.get("phase"),

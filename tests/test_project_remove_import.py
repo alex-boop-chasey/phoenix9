@@ -158,7 +158,9 @@ def test_api_routes(api):
 
 
 def test_api_has_no_chat_route_or_chat_fields(api):
+    from phoenix9 import addresses
     make_project("alpha")
+    addresses.save({"vscode_url": "https://code.example.test/"})
     assert api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})[0] == 404
     status, body = api("/api/projects/alpha")
     assert status == 200 and body["data"]["vscode"]["reason"] is None

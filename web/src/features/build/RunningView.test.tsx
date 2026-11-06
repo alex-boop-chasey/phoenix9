@@ -218,3 +218,43 @@ test("header shows the run's branch", async () => {
   await screen.findByRole("heading", { name: "Pricing page" })
   expect(screen.getByText("phoenix/r-wait")).toBeInTheDocument()
 })
+
+test("a failed build offers Discard work, which confirms then posts discard", async () => {
+  const failed = runDetail({ status: "failed", gates: [] })
+  const { calls } = mockApi(routes({
+    [`GET ${RUN}`]: failed,
+    [`POST ${RUN}/discard`]: { run_id: "r-wait", status: "failed", discarded: true, notes: [] },
+  }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Discard work" }))
+  expect(calls.some((c) => c.path.endsWith("/discard"))).toBe(false)
+  const dialog = await screen.findByRole("alertdialog")
+  await userEvent.click(within(dialog).getByRole("button", { name: "Discard work" }))
+  await waitFor(() => expect(calls.some((c) => c.path === `${RUN}/discard`)).toBe(true))
+  expect(calls.find((c) => c.path === `${RUN}/discard`)!.body).toEqual({ confirm: true })
+})
+
+test("a discarded build says work discarded and has no Discard button", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "stopped", gates: [], discarded: true }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.getByTestId("discarded")).toHaveTextContent("Work discarded")
+  expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
+})
+
+test("a running build has no Discard button", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
+})
+
+test("the run's exact image id shows small in the header", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ image: { tag: "phoenix9-step-web:1", id: "sha256:0123456789abcdef" } }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const id = screen.getByTestId("image-id")
+  expect(id).toHaveTextContent("0123456789ab")
+  expect(id).toHaveAttribute("title", "phoenix9-step-web:1 sha256:0123456789abcdef")
+})

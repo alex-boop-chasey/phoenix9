@@ -290,3 +290,17 @@ def test_ai_step_fails_when_session_is_not_ok_and_after_can_judge(tmp_path, proj
 
 def test_render_prompt_keeps_unknown_names():
     assert render_prompt("a {{x}} b {{y}}", {"x": "1"}) == "a 1 b {{y}}"
+
+
+def test_run_records_the_exact_image_it_uses(tmp_path, project, adapters, lib):
+    (lib / "profiles" / "tiny").mkdir(parents=True)
+    (lib / "profiles" / "tiny" / "profile.toml").write_text('title = "Tiny"\nimage = "phoenix9-step-tiny:1"\n')
+    (project / "phoenix.toml").write_text('profile = "tiny"\n')
+    adapters.docker.images["phoenix9-step-tiny:1"] = {}
+    adapters.docker.ids["phoenix9-step-tiny:1"] = "sha256:abc123"
+    run_dir = make_run(tmp_path)
+    assert Runner(adapters, lib).drive(run_dir) == "done"
+    assert state.load(run_dir)["image"] == {"tag": "phoenix9-step-tiny:1", "id": "sha256:abc123"}
+    adapters.docker.ids["phoenix9-step-tiny:1"] = "sha256:rebuilt"     # a later rebuild never rewrites it
+    Runner(adapters, lib).drive(run_dir)
+    assert state.load(run_dir)["image"]["id"] == "sha256:abc123"

@@ -182,11 +182,19 @@ class FakeDocker:
         self.volumes: list[str] = []
         self.images: dict[str, dict] = {}        # tag -> labels (an image that "exists")
         self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
+        self.ids: dict[str, str] = {}            # tag -> image id (default sha256:fake-<tag> for an image that exists)
 
     def image_exists(self, tag):
         """True when the tag is in .images."""
         self.calls.append(("image_exists", (tag,), {}))
         return tag in self.images
+
+    def image_id(self, tag):
+        """The exact id of a fake image ('' when it does not exist)."""
+        self.calls.append(("image_id", (tag,), {}))
+        if tag not in self.images:
+            return ""
+        return self.ids.get(tag, f"sha256:fake-{tag}")
 
     def image_label(self, tag, label):
         """The label set on a fake image ('' when absent)."""

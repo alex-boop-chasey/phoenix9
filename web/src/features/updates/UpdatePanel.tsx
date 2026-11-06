@@ -127,6 +127,7 @@ export function UpdatePanel({ bare = false }: { bare?: boolean }) {
         <div><span>Previous</span><b>{st.previous?.tag ?? "none"}</b></div>
         <div className={st.update_available ? "new" : ""}><span>Newest</span><b>{st.newest ?? "unknown"}</b></div>
       </div>
+      {st.off_release_note && <p className="small">{st.off_release_note}</p>}
       {wait && wait.result === "" && <p role="status" className="row"><Wheel />{wait.text}</p>}
       {wait && wait.result !== "" && (
         wait.failed

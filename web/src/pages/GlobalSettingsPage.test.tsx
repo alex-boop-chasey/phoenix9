@@ -162,4 +162,30 @@ describe("GlobalSettingsPage", () => {
     expect(screen.getByRole("button", { name: /Updates/ })).toHaveTextContent("v9.2")
     expect(await screen.findByText("2026-10-31")).toBeInTheDocument()
   })
+
+  it("Dashboard addresses: edit and save the three addresses", async () => {
+    const { calls } = mockApi(base([], { "POST /api/global/addresses": { values: {}, api_restart: "asked" } }), )
+    renderWithProviders(<GlobalSettingsPage />, { route: "/settings?tab=addresses" })
+    expect(await screen.findByRole("heading", { name: "Dashboard addresses" })).toBeInTheDocument()
+    const save = screen.getByRole("button", { name: "Save addresses" })
+    expect(save).toBeDisabled()
+    expect(screen.getByLabelText("Dashboard address")).toHaveValue("https://phoenix.example.test/")
+    await userEvent.type(screen.getByLabelText("VS Code address"), "https://code.example.test/")
+    await userEvent.type(screen.getByLabelText("Allowed page addresses"), "\nhttps://other.example.test")
+    await userEvent.click(save)
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/global/addresses")).toBe(true))
+    expect(calls.find((c) => c.path === "/api/global/addresses")!.body).toEqual({
+      dashboard_url: "https://phoenix.example.test/",
+      allowed_origins: ["https://phoenix.example.test", "https://other.example.test"],
+      vscode_url: "https://code.example.test/",
+    })
+  })
+
+  it("Dashboard addresses: an empty allowed list cannot be saved", async () => {
+    mockApi(base())
+    renderWithProviders(<GlobalSettingsPage />, { route: "/settings?tab=addresses" })
+    await userEvent.clear(await screen.findByLabelText("Allowed page addresses"))
+    expect(screen.getByRole("button", { name: "Save addresses" })).toBeDisabled()
+    expect(screen.getByRole("alert")).toHaveTextContent("Keep at least one allowed page address.")
+  })
 })

@@ -15,6 +15,7 @@ import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { useBuilds, useStopRun } from "@/lib/queries"
 import type { RunDetail } from "@/lib/types"
 
+import { DiscardControl } from "./DiscardControl"
 import { edgeOf, ResultBadge } from "./parts"
 import { StepList } from "./StepList"
 import { runSummary, useRunLive } from "./useRunLive"
@@ -105,8 +106,10 @@ export function RunningView({ name, runId, mode }: Props) {
           <p className="small">
             Started <RelativeTime iso={started} />
             {d.branch && <> · branch <span className="mono">{d.branch}</span></>}
+            {d.image?.id && <> · image <span className="mono" title={`${d.image.tag} ${d.image.id}`} data-testid="image-id">{d.image.id.replace(/^sha256:/, "").slice(0, 12)}</span></>}
           </p>
         </div>
+        {!s.active && <DiscardControl name={name} run={d} />}
         {s.active && (
           <Button variant="danger" disabled={stop.isPending} onClick={() => setConfirming(true)}>
             {stop.isPending ? <Wheel /> : <Icon name="stop-circle" />}

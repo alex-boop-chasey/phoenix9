@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from phoenix9 import atomic, gates, paths, project, runs, settings, state
+from phoenix9 import addresses, atomic, gates, paths, project, runs, settings, state
 from phoenix9.__main__ import main
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
@@ -54,7 +54,10 @@ def test_list_json_fields(env, capsys):
         assert key in row
     for gone in ("chat", "chat_url", "chats", "state"):
         assert gone not in row
-    assert row["vscode_url"] == f"https://files.rebirthwebdesign.com.au/?folder={env['projects'] / 'alpha'}"
+    assert row["vscode_url"] is None and row["vscode"]["reason"] == "Set the VS Code address in Global settings."
+    addresses.save({"vscode_url": "https://code.example.test/"})
+    row = json.loads(run_cmd(capsys, "project", "list", "--json")[1])[0]
+    assert row["vscode_url"] == f"https://code.example.test/?folder={env['projects'] / 'alpha'}"
 
 
 def test_list_plain_table(env, capsys):
@@ -199,7 +202,8 @@ def test_listing_never_asks_systemd_or_the_journal(env):
 # ----------------------------------------------------------------------------- VS Code link (always works)
 def test_vscode_link_needs_folder(env):
     make(env, "alpha")
-    assert project.vscode_link("alpha") == {"url": f"https://files.rebirthwebdesign.com.au/?folder={env['projects'] / 'alpha'}",
+    addresses.save({"vscode_url": "https://code.example.test"})
+    assert project.vscode_link("alpha") == {"url": f"https://code.example.test/?folder={env['projects'] / 'alpha'}",
                                             "reason": None}
     gone = project.vscode_link("ghost")
     assert gone["url"] is None and "does not exist" in gone["reason"]

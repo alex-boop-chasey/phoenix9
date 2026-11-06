@@ -95,7 +95,7 @@ def show_(args) -> int:
              f"  repo: {p['repo'] or '(none)'}", f"  profile: {p['profile'] or '(none)'}",
              f"  services: {', '.join(p['services']) or '(none)'}", f"  size: {_size(p['size'])}",
              f"  last used: {p['last_used']}", f"  harness: {p['harness']}",
-             f"  VS Code: {p['vscode_url']}"]
+             f"  VS Code: {p['vscode_url'] or (p.get('vscode') or {}).get('reason') or 'not set'}"]
     if p["gates"]:
         lines += ["  needs you:"] + [f"    {g['id']}: {g['title']}" for g in p["gates"]]
     if p["changelog"]:

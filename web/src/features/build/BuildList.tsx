@@ -49,7 +49,7 @@ export function BuildList({ name, rows, selected }: { name: string; rows: BuildR
               >
                 <td>
                   <b><Link to={runUrl(name, row.run_id)}>{row.title || row.run_id}</Link></b>
-                  <small><RelativeTime iso={row.started || row.created} /></small>
+                  <small><RelativeTime iso={row.started || row.created} />{row.discarded && " · work discarded"}</small>
                 </td>
                 <td><Tag>{row.preset}</Tag></td>
                 <td>

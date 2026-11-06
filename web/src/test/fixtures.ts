@@ -71,4 +71,5 @@ export const globalView: GlobalView = {
   },
   telegram: { connected: false },
   supported: { services: false, update: false, secrets: false },
+  addresses: { dashboard_url: "https://phoenix.example.test/", allowed_origins: ["https://phoenix.example.test"], vscode_url: "" },
 }

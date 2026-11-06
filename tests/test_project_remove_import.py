@@ -1,4 +1,4 @@
-"""Remove a project from Phoenix and import it back: nothing is deleted, the chat is set up again."""
+"""Remove a project from Phoenix and import it back: nothing is deleted, no chat service is started."""
 import json
 
 import pytest
@@ -79,11 +79,11 @@ def test_import_removed_project_restores_it(env):
     projects.remove("alpha", "tester")
     env["host"].calls.clear()
     r = projects.import_("alpha", "tester")
-    assert r["was_removed"] and r["chat"] == "on"
+    assert r["was_removed"] and r["chat"] == "off"
     assert [x["name"] for x in projects.list_()] == ["alpha"]
     assert "removed_projects" not in settings.read_global()
-    assert calls(env["host"], "systemctl", "enable", "-q", "claude-rc@alpha.service")
-    assert calls(env["host"], "systemctl", "start", "claude-rc@alpha.service")
+    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
+    assert not (folder / ".vscode" / "tasks.json").exists()
     assert trusted(env, folder)
     assert "imported into Phoenix" in (folder / "notes" / "changelog.md").read_text()
 
@@ -97,7 +97,8 @@ def test_import_unlisted_folder_by_path_adds_files_without_overwriting(env):
     assert (folder / "notes" / "NOW.md").read_text() == "mine"
     assert (folder / "CLAUDE.md").is_file()
     assert [x["name"] for x in projects.list_()] == ["loose"]
-    assert calls(env["host"], "systemctl", "start", "claude-rc@loose.service")
+    assert not calls(env["host"], "systemctl", "start")
+    assert ".vscode/tasks.json" not in r["added"]
 
 
 def test_import_never_overwrites_existing_claude_md(env):
@@ -118,13 +119,12 @@ def test_import_refuses_listed_missing_and_outside(env, tmp_path):
         projects.import_(str(tmp_path / "elsewhere"), "tester")
 
 
-def test_create_sets_up_and_starts_chat(env):
+def test_create_does_not_start_a_chat(env):
     from test_project_cmds import off_until_started
     off_until_started(env["host"])
     projects.new({"name": "fresh", "description": "x", "source": {"kind": "empty"}, "profile": "python-script",
                   "template": None, "services": [], "new_repo": None, "no_new_repo": True}, "tester")
-    assert calls(env["host"], "systemctl", "enable", "-q", "claude-rc@fresh.service")
-    assert calls(env["host"], "systemctl", "start", "claude-rc@fresh.service")
+    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
     assert trusted(env, env["projects"] / "fresh")
 
 

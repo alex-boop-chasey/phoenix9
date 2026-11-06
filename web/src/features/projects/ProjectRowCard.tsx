@@ -38,9 +38,10 @@ function ChatButton({ row, onStart }: { row: ProjectRow; onStart: () => void }) 
       </a>
     )
   }
+  if (!on) return null
   return (
-    <button type="button" className="btn btn-secondary" onClick={onStart} title={on ? "Chat is on; get its link" : "Start the chat"}>
-      <Icon name="play-circle" />Chat<span className={on ? "chatdot" : "chatdot off"} title={on ? "Chat on" : "Chat off"} />
+    <button type="button" className="btn btn-secondary" onClick={onStart} title="Chat is on; get its link">
+      <Icon name="play-circle" />Chat<span className="chatdot" title="Chat on" />
     </button>
   )
 }

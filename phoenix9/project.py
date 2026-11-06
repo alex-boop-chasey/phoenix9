@@ -1,4 +1,4 @@
-"""Creating a project (proj folded in): folder, notes, code, settings, keys, repo, chat service; undo on failure."""
+"""Creating a project (proj folded in): folder, notes, code, settings, keys, repo; undo on failure."""
 import json
 import os
 import re
@@ -282,14 +282,6 @@ def _save_key_rows(name: str, rows: list, made: list) -> None:
             raise OpsError(f"Keys: {err}") from None
 
 
-def _vscode_task(folder: Path, name: str) -> None:
-    task = {"version": "2.0.0", "tasks": [{
-        "label": f"Make sure {name} is on for the Claude app", "type": "shell",
-        "command": f"phoenix project open {name}", "runOptions": {"runOn": "folderOpen"},
-        "presentation": {"reveal": "silent", "panel": "dedicated", "close": True}, "problemMatcher": []}]}
-    atomic.write_json(folder / ".vscode" / "tasks.json", task)
-
-
 def trust(host, folder: Path) -> None:
     """Mark the folder (by its /srv/projects name and its real path) as trusted in Claude Code's settings."""
     path = claude_json()
@@ -411,10 +403,7 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
         project = json.loads((folder / ".phoenix" / "project.json").read_text(encoding="utf-8"))
         atomic.write_json(folder / ".phoenix" / "project.json", {**project, "repo": repo})
         atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo))
-    _vscode_task(folder, name)
-    if opts.get("chat", True):
-        say("Switching the project chat on")
-        switch_on(host, adapters.clock, name, folder, made)
+    trust(host, folder)
     return {"repo": repo or opts.get("repo") or "", "today": today}
 
 

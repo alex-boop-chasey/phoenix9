@@ -54,10 +54,10 @@ def test_new_empty_no_repo(env):
     assert info["who"] == "alex" and info["source"] == "empty" and info["chat_session_url"] is None
     assert info["services_set_up"] == [] and info["repo"] is None
     assert git.git(folder / "code", "rev-list", "--count", "HEAD").strip() == "1"
-    assert calls(env, "systemctl", "enable") and calls(env, "systemctl", "start", "claude-rc@demo.service")
+    assert not calls(env, "systemctl", "enable") and not calls(env, "systemctl", "start")
     trusted = json.loads(env["host"].files[env["claude"]])["projects"]
     assert trusted[str(folder)]["hasTrustDialogAccepted"] is True
-    assert "phoenix project open demo" in (folder / ".vscode/tasks.json").read_text()
+    assert not (folder / ".vscode").exists()
     assert "| demo |" in (env["projects"] / "INDEX.md").read_text()
     types = [json.loads(x)["type"] for x in paths.events().read_text().splitlines()]
     assert "project.created" in types and "command" in types
@@ -159,17 +159,16 @@ def test_failure_after_folder_undoes_everything(env, tmp_path):
     kf = tmp_path / "k.toml"
     kf.write_text('[[key]]\nname = "A_KEY"\nvalue = "v-12345678"\n')
     (env["projects"] / "INDEX.md").write_text("| other | - | (new) |\n")
-    env["host"].script(["systemctl", "start"], 1, "", "Failed to start unit\nmore")
-    with pytest.raises(OpsError, match="Could not start claude-rc@demo.service: Failed to start unit"):
+    env["host"].files[env["claude"]] = "not json"
+    with pytest.raises(OpsError, match="is not valid JSON; cannot mark"):
         create(env, profile="python-script", keys_file=str(kf))
     assert not (env["projects"] / "demo").exists()
     assert not (paths.keys() / "demo.toml").exists()
     assert (env["projects"] / "INDEX.md").read_text() == "| other | - | (new) |\n"
-    assert calls(env, "systemctl", "disable")
 
 
 def test_failure_after_repo_created_says_repo_left(env):
-    env["host"].script(["systemctl", "start"], 1, "", "boom")
+    env["host"].files[env["claude"]] = "not json"
     with pytest.raises(OpsError) as err:
         create(env, profile="python-script", no_new_repo=False, new_repo="alex")
     assert "GitHub repo alex/demo was created and left in place; delete it by hand if you don't want it" in str(err.value)
@@ -180,7 +179,7 @@ def test_failure_after_repo_created_says_repo_left(env):
 def test_cli_new_json_and_progress_lines(env, capsys):
     assert main(["project", "new", "demo", "--profile", "python-script", "--template", "python-cli", "--no-new-repo"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "- Checking the form" and any("Switching the project chat on" in x for x in out)
+    assert out[0] == "- Checking the form" and not any("chat on" in x for x in out)
     assert out[-1].startswith("Created ") and out[-1].endswith("/demo")
     assert main(["project", "new", "demo2", "--profile", "python-script", "--no-new-repo", "--services", "github", "--json"]) == 0
     data = json.loads(capsys.readouterr().out)

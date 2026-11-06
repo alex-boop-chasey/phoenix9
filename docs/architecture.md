@@ -919,3 +919,5 @@ profiles/<p>/image/Dockerfile -t <profile.toml image> --label phoenix9.commit=<H
 the base image (`phoenix9-step:base`, context `image/`) only with `--profile base` or `--all`. Default =
 profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
+
+New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.

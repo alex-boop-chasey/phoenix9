@@ -142,14 +142,11 @@ def add_standard_files(folder: Path, name: str, repo: str) -> list:
                                  "profile": None, "repo": repo or None, "code": "code/",
                                  "chat_session_url": None, "environment_id": None, "services_set_up": []})
         added.append(".phoenix/project.json")
-    if not (folder / ".vscode" / "tasks.json").exists():
-        project._vscode_task(folder, name)
-        added.append(".vscode/tasks.json")
     return added
 
 
 def import_(name_or_path: str, who: str, adapters) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix and set its chat up again."""
+    """Bring a removed project or an unlisted folder into Phoenix (no chat service is started)."""
     name = _find(name_or_path)
     folder = paths.projects() / name
     if not folder.is_dir():
@@ -164,10 +161,10 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
     repo = _folder_repo(folder)
     added = add_standard_files(folder, name, repo)
     _save_removed([r for r in removed_list() if r["name"] != name])
-    project.switch_on(adapters.host, adapters.clock, name, folder, [])
+    project.trust(adapters.host, folder)
     project.mark_used(name)
     events.emit("project.changed", project=name, who=who, what="imported")
     common.record_command(who, f"project import {name}", name,
-                          change="imported into Phoenix (chat set up and started)")
+                          change="imported into Phoenix (no chat service)")
     return {"name": name, "path": str(folder), "repo": repo or None, "was_removed": was_removed,
-            "added": added, "chat": "on"}
+            "added": added, "chat": "off"}

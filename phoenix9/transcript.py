@@ -1,0 +1,186 @@
+"""Turn the agent's transcript lines (JSONL) into panel items; broken or unknown lines are only counted."""
+import json
+from datetime import datetime
+
+from phoenix9 import scrub
+
+PANEL_NAME = "Alex (Phoenix panel)"
+EXCERPT_LINES = 6
+
+
+def parse(lines) -> tuple[list[dict], int]:
+    """Parse transcript lines into (panel items, number of unknown or broken lines)."""
+    state = {"items": [], "actions": {}, "session": None, "last_at": None, "unknown": 0}
+    for number, raw in enumerate(lines, start=1):
+        obj = _load(raw)
+        if obj is None:
+            state["unknown"] += 1
+            continue
+        _handle(state, number, obj)
+    return state["items"], state["unknown"]
+
+
+def _load(raw) -> dict | None:
+    """Decode one line to a JSON object, or None when it is blank-broken or not an object."""
+    try:
+        obj = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _handle(state: dict, number: int, obj: dict) -> None:
+    """Route one decoded line to the handler for its type."""
+    kind = obj.get("type")
+    handler = {"user": _user, "assistant": _assistant, "system": _system,
+               "queue-operation": _queued}.get(kind)
+    if kind == "attachment":
+        return
+    if handler is None or (kind in ("user", "assistant") and not isinstance(obj.get("message"), dict)):
+        state["unknown"] += 1
+        return
+    if obj.get("isMeta") is True and kind == "user":
+        return
+    _session_divider(state, number, obj)
+    at = obj.get("timestamp")
+    handler(state, number, obj, at)
+    if at:
+        state["last_at"] = at
+
+
+def _session_divider(state: dict, number: int, obj: dict) -> None:
+    """Add a session divider item when the session id differs from the previous one."""
+    sid = obj.get("sessionId")
+    if not sid:
+        return
+    if state["session"] is not None and sid != state["session"]:
+        state["items"].append({"type": "session", "session_id": sid, "line": number})
+    state["session"] = sid
+
+
+def _add(state: dict, number: int, item: dict) -> None:
+    """Append an item stamped with its transcript line number."""
+    item["line"] = number
+    state["items"].append(item)
+
+
+def _origin(obj: dict) -> str:
+    """Name where a user message came from: panel, app, or peer:<name>."""
+    origin = obj.get("origin")
+    if not isinstance(origin, dict) or origin.get("kind") != "peer":
+        return "app"
+    name = str(origin.get("name") or "")
+    return "panel" if name.startswith(PANEL_NAME) else "peer:" + name
+
+
+def _user(state: dict, number: int, obj: dict, at) -> None:
+    """Handle a user line: a message, or tool results for earlier actions."""
+    content = obj["message"].get("content")
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                _tool_result(state, block)
+        return
+    if not isinstance(content, str):
+        state["unknown"] += 1
+        return
+    origin = obj.get("origin")
+    body = origin.get("body") if isinstance(origin, dict) else None
+    text = body if isinstance(body, str) else content
+    _add(state, number, {"type": "user", "text": scrub.scrub(text), "origin": _origin(obj), "at": at})
+
+
+def _assistant(state: dict, number: int, obj: dict, at) -> None:
+    """Handle an assistant line: text, tool calls and thinking blocks."""
+    content = obj["message"].get("content")
+    if isinstance(content, str):
+        content = [{"type": "text", "text": content}]
+    if not isinstance(content, list):
+        state["unknown"] += 1
+        return
+    for block in content:
+        _assistant_block(state, number, block, at)
+
+
+def _assistant_block(state: dict, number: int, block, at) -> None:
+    """Turn one assistant content block into an item (thinking keeps only its duration)."""
+    kind = block.get("type") if isinstance(block, dict) else None
+    if kind == "text":
+        _add(state, number, {"type": "agent", "markdown": scrub.scrub(str(block.get("text", ""))), "at": at})
+    elif kind == "thinking":
+        _add(state, number, {"type": "thinking", "duration_s": _seconds(state["last_at"], at), "at": at})
+    elif kind == "tool_use":
+        _tool_use(state, number, block)
+    else:
+        state["unknown"] += 1
+
+
+def _seconds(start, end) -> float | None:
+    """Seconds between two ISO timestamps, or None when either is missing or odd."""
+    try:
+        a = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+        b = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return max(0.0, (b - a).total_seconds())
+
+
+def _tool_use(state: dict, number: int, block: dict) -> None:
+    """Add a running action item for a tool call and remember it by tool id."""
+    tool = str(block.get("name") or "")
+    tool_input = block.get("input") if isinstance(block.get("input"), dict) else {}
+    summary = _input_summary(tool, tool_input)
+    item = {"type": "action", "id": block.get("id"), "tool": tool, "title": summary,
+            "input_summary": summary, "status": "running"}
+    _add(state, number, item)
+    if item["id"]:
+        state["actions"][item["id"]] = item
+
+
+def _input_summary(tool: str, data: dict) -> str:
+    """A short, scrubbed, one-line description of a tool call."""
+    if tool == "Bash":
+        text = (str(data.get("command") or "").splitlines() or [""])[0]
+    elif tool in ("Edit", "Write", "Read"):
+        text = str(data.get("file_path") or data.get("path") or tool)
+    elif tool == "SendMessage":
+        text = "message to %s" % data.get("to", "")
+    elif tool == "Agent":
+        text = "helper: %s" % data.get("description", "")
+    else:
+        text = tool
+    return scrub.scrub(text)
+
+
+def _result_text(content) -> str:
+    """Flatten a tool result's content (string or list of text blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(str(b.get("text", "")) if isinstance(b, dict) else str(b) for b in content)
+    return "" if content is None else str(content)
+
+
+def _tool_result(state: dict, block: dict) -> None:
+    """Mark the matching action ok or error and attach a scrubbed last-6-lines excerpt."""
+    item = state["actions"].get(block.get("tool_use_id"))
+    if item is None:
+        state["unknown"] += 1
+        return
+    item["status"] = "error" if block.get("is_error") else "ok"
+    tail = _result_text(block.get("content")).splitlines()[-EXCERPT_LINES:]
+    item["excerpt"] = scrub.scrub("\n".join(tail))
+
+
+def _queued(state: dict, number: int, obj: dict, at) -> None:
+    """Handle a queue-operation line as a queued item."""
+    text = obj.get("content")
+    _add(state, number, {"type": "queued", "text": scrub.scrub(text if isinstance(text, str) else ""), "at": at})
+
+
+def _system(state: dict, number: int, obj: dict, at) -> None:
+    """Handle a system line as a notice item."""
+    text = obj.get("content")
+    if not isinstance(text, str):
+        text = str(obj.get("subtype") or "")
+    _add(state, number, {"type": "notice", "text": scrub.scrub(text), "at": at})

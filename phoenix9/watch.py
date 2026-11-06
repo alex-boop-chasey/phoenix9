@@ -83,13 +83,29 @@ def _still_paused(run_dir: Path) -> bool:
     return st.get("status") not in runend.ENDED and runend.stop_requested(run_dir) is None
 
 
+def _move_if_live(run_dir: Path, status: str, only_from: str | None = None) -> bool:
+    """One locked state update: set `status` only while the run has not ended, has no stop request and
+    (with only_from) is still in that status. True when it moved. A stop that lands after an earlier
+    look is therefore never overwritten."""
+    moved = []
+
+    def change(st):
+        if st["status"] in runend.ENDED or (only_from and st["status"] != only_from):
+            return
+        if runend.stop_requested(run_dir) is not None:
+            return
+        st["status"] = status
+        moved.append(True)
+    state.update(run_dir, change)
+    return bool(moved)
+
+
 def wait_out_limit(adapters, s: dict, result) -> bool:
     """Pause the run, wait for Claude to answer again (telling Alex once if over an hour); True = resume.
     A run stopped during the wait is left stopped (never set back to running); a stop request ends it."""
     run_dir = _run_dir(s)
-    if not _still_paused(run_dir):
+    if not _still_paused(run_dir) or not _move_if_live(run_dir, "paused-limit"):
         return _end_paused(adapters, s)
-    state.set_status(run_dir, "paused-limit")
     waited, told = [0.0], [False]
 
     def sleep(seconds):
@@ -111,10 +127,9 @@ def wait_out_limit(adapters, s: dict, result) -> bool:
         _fail(adapters, s, "Claude's usage limit did not clear in time.")
         return False
 
-    def resume(st):
-        if st["status"] == "paused-limit":
-            st["status"] = "running"
-    return state.update(run_dir, resume)["status"] == "running"
+    if _move_if_live(run_dir, "running", only_from="paused-limit"):
+        return True
+    return _end_paused(adapters, s)
 
 
 def _end_paused(adapters, s: dict) -> bool:

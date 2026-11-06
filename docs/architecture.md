@@ -612,6 +612,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   (`runend.check`): a stop request -> clean stop; a status that is already ended -> the walk ends and
   nothing is written. `gates.open_gate` refuses a run that has ended and `end_run` never overwrites an
   ended status, so a stop that lands mid-walk can never be turned back into waiting, done or failed.
+  The usage-limit pause (`watch.wait_out_limit`) moves a run to `paused-limit`, and later back to `running`,
+  only through one locked state update (`watch._move_if_live`) that does nothing once the run has ended or has
+  a stop request (and, for the resume, unless it is still `paused-limit`); a stop is then carried out.
 - **Runner heartbeat** (`phoenix9/heartbeat.py`): `HOME/runner/heartbeat.json` `{at, pid}`, written at the
   start of every service loop round (`watch.watch_once`) and every 30 s by a side thread started in
   `watch.watch_forever` (a long step blocks the loop, so the loop alone would look dead). When a project's

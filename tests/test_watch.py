@@ -130,6 +130,37 @@ def test_limit_uses_probe_when_reset_unknown(tmp_path):
     assert state.load(watch.paths.runs("p") / "r1")["status"] == "running"
 
 
+def test_a_stop_landing_after_the_paused_check_is_never_overwritten(tmp_path, monkeypatch):
+    """The stop lands between the 'still paused?' look and the pause write: the run stays stopped."""
+    folder = make_run("r1", "running")
+    ad = fake_adapters(tmp_path)
+    real, looks = watch._still_paused, []
+
+    def stop_lands_after_the_look(run_dir):
+        answer = real(run_dir)
+        if not looks:
+            state.set_status(run_dir, "stopped")     # someone stopped it right after the first look
+        looks.append(answer)
+        return answer
+    seen = []
+    monkeypatch.setattr(claude, "wait_for_limit", lambda *a, **k: seen.append(state.load(folder)["status"]) or True)
+    monkeypatch.setattr(watch, "_still_paused", stop_lands_after_the_look)
+    assert watch.wait_out_limit(ad, state.load(folder), limit_result(0.1)) is False
+    assert state.load(folder)["status"] == "stopped" and seen == []    # never paused, never waited
+
+
+def test_a_stop_during_the_limit_wait_is_never_resumed(tmp_path, monkeypatch):
+    folder = make_run("r1", "running")
+    ad = fake_adapters(tmp_path)
+
+    def wait_then_stopped(*a, **k):
+        state.set_status(folder, "stopped")
+        return True
+    monkeypatch.setattr(claude, "wait_for_limit", wait_then_stopped)
+    assert watch.wait_out_limit(ad, state.load(folder), limit_result(0.1)) is False
+    assert state.load(folder)["status"] == "stopped"
+
+
 def test_waiting_run_is_redriven_only_with_an_answer(tmp_path):
     folder = make_run("w", "waiting")
     atomic.write_json(folder / "gates" / "w.0.answer.json", {"action": "approve"})   # an old gate's answer

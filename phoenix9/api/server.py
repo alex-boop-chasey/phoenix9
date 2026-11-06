@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, services, settings, update
+from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -32,6 +32,7 @@ JOB_KEEP_SECONDS = 3600
 CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 IMAGES_BUSY = "Images are being built already; try again when that has finished."
+RESTART_BUSY = "A restart is already waiting; try again when it has finished."
 WHO = "dashboard"
 
 
@@ -467,6 +468,46 @@ def post_images_build(req):
     return {"job": job_id}
 
 
+def run_restart_job(httpd, job: dict, name: str) -> None:
+    """Background thread: restart the runner (it may wait up to 30 minutes for a task boundary)."""
+    def progress(line):
+        with httpd.jobs_lock:
+            job["steps"].append({"label": line, "status": "done"})
+
+    result, status, message = None, "done", ""
+    try:
+        result = ops_service.restart(name, who=WHO, yes=True, say=progress)
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message, time.time(), status
+
+
+def post_service_restart(req, name):
+    """Restart phoenix-api (at once, without waiting: this process is the one restarted) or phoenix-runner
+    (in a background job that waits for a task boundary); needs yes."""
+    if name not in ops_service.UNITS:
+        raise BadRequest("Say api or runner.")
+    if req.body.get("yes") is not True:
+        raise BadRequest(f"Restarting {ops_service.UNITS[name]} needs confirmation.")
+    if name == "api":
+        return ops_service.restart_api_soon(WHO)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "restart" for j in httpd.jobs.values()):
+            raise common.Conflict(RESTART_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "restart", "project": None, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_restart_job, args=(httpd, job, name), daemon=True).start()
+    return {"job": job_id}
+
+
 def post_update_install(req):
     """Queue an install of the given (or newest) tag; the updater runs as its own unit."""
     tag = body_text(req, "tag", False)
@@ -723,6 +764,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
     ("POST", r"/api/images/build", post_images_build),
+    ("POST", rf"/api/service/{NAME}/restart", post_service_restart),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/services/{NAME}/test", post_service_test),

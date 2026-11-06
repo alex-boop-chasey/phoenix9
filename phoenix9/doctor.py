@@ -108,7 +108,7 @@ def installed_tags(ctx) -> list[str]:
 def check_api(ctx):
     """The API answers /api/health (and, for an update, runs the installed release)."""
     url = f"http://127.0.0.1:{api_port()}/api/health"
-    fix = "Restart the API with `systemctl restart phoenix-api` and read `journalctl -u phoenix-api`."
+    fix = "Restart the API with `phoenix service restart api --yes` and read `journalctl -u phoenix-api`."
     try:
         status, _, body = ctx.ad.http.request("GET", url, timeout=10)
     except Exception as err:
@@ -126,7 +126,7 @@ def check_api(ctx):
         return _result(False, "the installed copy is not at a release tag", "Check the install folder with `git tag --points-at HEAD`.")
     ok = running in tags
     return _result(ok, f"API runs {running or 'no release'}; installed is {', '.join(tags)}",
-                   "The API is still running old code; restart it with `systemctl restart phoenix-api`.")
+                   "The API is still running old code; restart it with `phoenix service restart api --yes`.")
 
 
 def _mode(path: Path) -> int:

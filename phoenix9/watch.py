@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, events, gates, hold, paths, state
+from phoenix9 import atomic, docker as docker_mod, gates, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -57,17 +57,16 @@ def _has_answer(run_dir: Path) -> bool:
 
 
 def _fail(adapters, s: dict, reason: str) -> str:
-    """Mark a run failed with the error in its state, tell the event stream and Alex."""
+    """End a run failed through the one end function (runend.end_run) under the run lock, and tell Alex."""
     run_dir = _run_dir(s)
-
-    def change(st):
-        st["status"] = "failed"
-        st["error"] = reason
-    state.update(run_dir, change)
-    gates.close_questions(run_dir, "run failed")
-    events.emit("run.finished", project=s["project"], run=s["run_id"], status="failed", reason=reason)
-    adapters.notify.send(f"Phoenix run {s['run_id']} failed: {reason}")
-    return "failed"
+    try:
+        with runend.lock(run_dir):
+            status = runend.end_run(run_dir, "failed", reason=reason, adapters=adapters)["status"]
+    except TimeoutError:
+        return state.load(run_dir)["status"]    # someone else is ending it right now
+    if status == "failed":
+        adapters.notify.send(f"Phoenix run {s['run_id']} failed: {reason}")
+    return status
 
 
 def _now(adapters) -> datetime:

@@ -184,7 +184,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
         open={confirmStop}
         onOpenChange={setConfirmStop}
         title="Stop this run?"
-        body="Stop this run? Work done so far stays on its branch."
+        body="Stop this run? Its unfinished work and branch are thrown away."
         confirmLabel="Stop run"
         destructive
         onConfirm={() => send("stop")}

@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
-from phoenix9 import status as status_core
+from phoenix9 import runend, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -153,22 +153,46 @@ def summary(run_id: str) -> dict:
     return {"run_id": run_id, "summary": path.read_text(encoding="utf-8", errors="replace")}
 
 
+STOP_LOCK_WAIT_S = 5.0    # how long a stop waits for a waiting/queued run's lock before leaving a request
+
+
+def _may_stop(project: str, who: str) -> bool:
+    """The same rule as answering an escalation question (gates.may_answer): chat:* callers need the project's permission."""
+    try:
+        project_settings = settings.load_project(common.project_dir(project))
+    except (settings.SettingsError, OpsError):
+        project_settings = {}
+    return gates_core.may_answer({"kind": "escalation"}, who, project_settings)
+
+
 def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
-    """Mark the run stopped and remove its containers (`project`, when given, must own the run)."""
+    """Stop a run the one clean way (`project`, when given, must own the run).
+
+    A run the runner is not walking (queued, waiting, paused, or a runner between rounds) is stopped
+    at once by the runner's own clean stop under the run lock. A run the runner is walking gets a stop
+    request it acts on at its next boundary: the reply then says status "stop requested". Its
+    containers are removed either way, so a live step ends quickly."""
+    from phoenix9.runner import Runner
     folder = _run_folder(run_id)
     if project is not None and folder.parent.name != project:
         raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
     st = state.load(folder)
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
-    state.set_status(folder, "stopped")
-    gates_core.close_questions(folder, "run stopped", who=who)
+    if not _may_stop(st["project"], who):
+        raise OpsError(f"'{who}' may not stop runs in {st['project']}.")
     adapters = common.make_adapters()
     removed = docker.cleanup_orphans(adapters.docker, run_id)
-    notes = core.discard_branch(adapters, st["project"], run_id)
-    events.emit("run.finished", project=st["project"], run=run_id, status="stopped", who=who)
-    common.record_command(who, f"run stop {run_id}", st["project"], f"stopped run {run_id}")
-    return {"run_id": run_id, "status": "stopped", "containers_removed": removed, "notes": notes}
+    wait = 0 if st["status"] == "running" else STOP_LOCK_WAIT_S
+    try:
+        ended = Runner(adapters, paths.library()).stop_now(folder, who=who, wait=wait)
+        status, notes = ended["status"], ended["notes"]
+    except TimeoutError:
+        runend.request_stop(folder, who)
+        status, notes = "stop requested", []
+    common.record_command(who, f"run stop {run_id}", st["project"],
+                          f"stopped run {run_id}" if status == "stopped" else f"asked run {run_id} to stop")
+    return {"run_id": run_id, "status": status, "containers_removed": removed, "notes": notes}
 
 
 list = list_

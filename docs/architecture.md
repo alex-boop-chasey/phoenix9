@@ -528,6 +528,29 @@ Done when:
   deploys when called again with the `deploy` answer. Preview (finish, order 25) never fails a run.
   Run end: `done` unless a task or a run-level
   step failed (`failed`) or Alex stopped it (`stopped`).
+- **How a run ends (one end function, one stop path; `phoenix9/runend.py`).** `runend.end_run` is the only
+  place a run becomes `done | failed | stopped`: unfinished tasks and `waiting | running | pending` step
+  lines become `skipped`, `current.gate` is cleared, finish steps with `after_stop = true` run (stop only),
+  the branch and worktree are discarded (stop only; a failed run keeps them for repair), the run's open
+  questions are closed (section 8), the status is set (`error` = the reason for a failure), `run.finished`
+  is emitted (`who` when not phoenix) and the summary is refreshed. A run that already ended is never
+  changed again. Every end goes through it: the runner's own finish and `stop` answers, `watch._fail`
+  (three crashes in a row, a usage limit that never cleared) and `phoenix run stop` / the API stop.
+  The **run lock** (`<run>/run.lock`) is held by `Runner.drive` for the whole walk. `ops.runs.stop`
+  (CLI, API, dashboard) first checks the caller like answering an escalation question
+  (`gates.may_answer`: a `chat:*` caller needs `home_chat_may_answer` to list `escalation`; `cli`,
+  `dashboard` and `chat:delegate` may), removes the run's containers, then: when it gets the run lock
+  (the runner is not walking the run: queued, waiting, paused-limit, or between rounds) it calls the
+  runner's own clean stop (`Runner.stop_now`) at once and replies `status: stopped`; when the lock is
+  busy (the runner is walking it) it writes `<run>/stop-request.json` `{who, at}` and replies
+  `status: "stop requested"`. The runner reads the request at its next boundary (section 7 "boundaries")
+  and stops through the same function. `phoenix run stop` then waits up to 60 s for the run to show
+  `stopped` and says so plainly if it has not.
+- **Boundaries (the runner never revives an ended run).** Before every step (except the after-stop
+  steps of a stop), before opening a gate, and before finishing, the runner re-reads the run
+  (`runend.check`): a stop request -> clean stop; a status that is already ended -> the walk ends and
+  nothing is written. `gates.open_gate` refuses a run that has ended and `end_run` never overwrites an
+  ended status, so a stop that lands mid-walk can never be turned back into waiting, done or failed.
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart
   resumes `running` runs from `state.json`.

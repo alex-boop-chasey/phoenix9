@@ -115,6 +115,9 @@ export function RunningView({ name, runId, mode }: Props) {
         )}
       </div>
       {run.error && <p role="status" className="small">Can't reach Phoenix right now; showing the last update.</p>}
+      {stop.data?.status === "stop requested" && (
+        <p role="status" className="small">Stop requested: Phoenix stops this build at the end of the step it is on.</p>
+      )}
       {stop.error && (
         <Alert variant="destructive"><AlertDescription>{stop.error.message}</AlertDescription></Alert>
       )}
@@ -132,7 +135,7 @@ export function RunningView({ name, runId, mode }: Props) {
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}
       <ConfirmDialog
         open={confirming} onOpenChange={setConfirming} title="Stop this build?"
-        body="The build stops now. Work done so far stays on its branch." confirmLabel="Stop build" destructive
+        body="The build stops, and its unfinished work and branch are thrown away." confirmLabel="Stop build" destructive
         onConfirm={() => stop.mutate(runId)}
       />
     </div>

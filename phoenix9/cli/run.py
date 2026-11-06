@@ -5,6 +5,7 @@ from phoenix9.cli.output import problem, show, table
 from phoenix9.ops import runs
 
 FINISHED = ("done", "failed", "stopped")
+STOP_WAIT_S = 60    # how long `run stop` waits for the runner to act on a stop request
 
 
 def add(sub, common) -> None:
@@ -106,10 +107,30 @@ def log(args) -> int:
     return show(args, r, text)
 
 
+def _wait_for_stop(run_id: str) -> dict:
+    """Wait up to STOP_WAIT_S seconds for the run to show it ended; return its last status."""
+    deadline = time.monotonic() + STOP_WAIT_S
+    r = runs.status(run_id)
+    while r["status"] not in FINISHED and time.monotonic() < deadline:
+        time.sleep(1)
+        r = runs.status(run_id)
+    return r
+
+
 def stop(args) -> int:
-    """Stop a run (needs --yes)."""
+    """Stop a run (needs --yes); when the runner is walking it, wait up to a minute for it to stop."""
     if not args.yes:
         return problem(args, f"This stops run {args.run_id} and removes its containers. "
                              "Add --yes to go ahead.")
     r = runs.stop(args.run_id, who=args.who)
-    return show(args, r, f"Stopped run {r['run_id']}.")
+    if r["status"] == "stop requested":
+        if not args.json:
+            print(f"Stop requested; waiting up to {STOP_WAIT_S} seconds for the runner to stop run {args.run_id}...",
+                  flush=True)
+        r = {**r, "status": _wait_for_stop(args.run_id)["status"]}
+        if r["status"] not in FINISHED:
+            r["status"] = "stop requested"
+            return show(args, r, f"Stop requested for run {args.run_id}; the runner has not stopped it yet. "
+                                 "It stops at the next step boundary (see: phoenix run status).")
+    return show(args, r, f"Stopped run {r['run_id']}." if r["status"] == "stopped"
+                else f"Run {r['run_id']} is {r['status']}.")

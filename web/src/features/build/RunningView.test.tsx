@@ -127,6 +127,15 @@ test("stop confirms then posts stop with confirm", async () => {
   expect(calls.find((c) => c.path === `${RUN}/stop`)!.body).toEqual({ confirm: true })
 })
 
+test("a stop the runner has not acted on yet says so", async () => {
+  mockApi(routes({ [`POST ${RUN}/stop`]: { run_id: "r-wait", status: "stop requested", containers_removed: 0 } }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Stop build" }))
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stop build" }))
+  expect(await screen.findByText(/Stop requested/)).toBeInTheDocument()
+})
+
 test("sse event refetches the run", async () => {
   vi.stubGlobal("EventSource", FakeEventSource)
   const { calls } = mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))

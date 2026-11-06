@@ -51,7 +51,8 @@ def healthy(adapters, phoenix_env, monkeypatch):
     host.script(["systemctl", "is-active"], 0, "active\nactive\n")
     host.script(["systemctl", "cat"], 0, "[Unit]\n")
     host.script(["df"], 0, "    Avail\n 90000000000\n")
-    adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200, body=b'{"ok": true, "tag": "v9.1"}')
+    adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
+                         body=b'{"ok": true, "tag": "v9.1", "origins": ["https://phoenix.rebirthwebdesign.com.au"]}')
     adapters.docker.images[IMAGE] = {}
     adapters.docker.outputs[:] = [PROBE_OK, session_log()]
     Usage = namedtuple("Usage", "total used free")
@@ -150,7 +151,7 @@ def test_for_update_mode_runs_no_claude_session_and_checks_version(healthy):
 
 def test_quick_mode_subset(healthy):
     data = doctor.run_checks(healthy, "quick")
-    assert [c["name"] for c in data["checks"]] == ["services", "api", "home", "secrets", "disk"]
+    assert [c["name"] for c in data["checks"]] == ["services", "api", "origins", "home", "secrets", "disk"]
     assert healthy.docker.argvs == [] and healthy.proxy.started == []
 
 
@@ -326,3 +327,12 @@ def test_memory_files_check_lists_projects_and_the_fix(healthy, phoenix_env):
     from phoenix9 import project_removal
     project_removal.add_memory_files(folder, "demo", "")
     assert by_name(doctor.run_checks(healthy, "full"))["memory-files"]["ok"]
+
+
+def test_api_check_reads_the_tag_inside_the_api_reply(adapters, monkeypatch):
+    """The real /api/health reply is {"ok": true, "data": {..., "tag"}}; the for-update check must find the tag there."""
+    adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
+                         body=b'{"ok": true, "data": {"ok": true, "tag": "v9.1"}}')
+    monkeypatch.setattr(doctor, "installed_tags", lambda ctx: ["v9.1"])
+    ok, detail, _ = doctor.check_api(doctor.Context(adapters, "for-update"))
+    assert ok and "API runs v9.1" in detail

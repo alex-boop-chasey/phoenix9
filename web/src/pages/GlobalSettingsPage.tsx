@@ -1,4 +1,4 @@
-// Phoenix settings (/settings): title row, Health board, and the Services / Models / Updates tabs (tab in ?tab=).
+// Phoenix settings (/settings): title row, Health board, and the Services / Models / Updates / Dashboard addresses tabs (tab in ?tab=).
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router"
@@ -6,6 +6,7 @@ import { toast } from "sonner"
 
 import { Icon, type IconName } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
+import { AddressesTab } from "@/features/globalsettings/AddressesTab"
 import { HealthBoard } from "@/features/globalsettings/HealthBoard"
 import { ModelsTab } from "@/features/globalsettings/ModelsTab"
 import { ServicesTab } from "@/features/globalsettings/ServicesTab"
@@ -17,6 +18,7 @@ const TABS: { key: string; label: string; icon: IconName }[] = [
   { key: "services", label: "Services", icon: "plugs-connected" },
   { key: "models", label: "Models", icon: "cpu" },
   { key: "updates", label: "Updates", icon: "arrow-circle-up" },
+  { key: "addresses", label: "Dashboard addresses", icon: "globe" },
 ]
 
 /** The Settings page for all of Phoenix. */
@@ -72,6 +74,7 @@ export default function GlobalSettingsPage() {
       {tab === "services" && <ServicesTab />}
       {tab === "models" && <ModelsTab />}
       {tab === "updates" && <UpdatesTab />}
+      {tab === "addresses" && <AddressesTab />}
     </div>
   )
 }

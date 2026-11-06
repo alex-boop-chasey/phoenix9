@@ -160,7 +160,9 @@ def test_api_routes(api):
 
 
 def test_api_chat_start_and_row_chat_shape(api):
+    from phoenix9 import addresses
     make_project("alpha")
+    addresses.save({"vscode_url": "https://code.example.test/"})
     status, body = api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})
     assert status == 200 and body["data"]["chat"]["state"] == "on" and body["data"]["chat"]["url"] is None
     status, body = api("/api/projects/alpha")

@@ -20,6 +20,9 @@ export interface Info {
   }
   github: { connected: boolean; accounts: string[] }
   services: { supported: boolean }
+  /** The dashboard address settings. */
+  dashboard_url?: string
+  vscode_url?: string
 }
 
 export interface ActiveRun {
@@ -473,8 +476,17 @@ export interface DoctorResult { ok: boolean; checks: DoctorCheck[]; checked_at: 
 
 export interface UpdateHistoryRow { at: string; action: string; tag: string | null; result: string; reason: string; who: string }
 
+/** Phoenix settings > Dashboard addresses (global.toml [dashboard]). */
+export interface Addresses {
+  dashboard_url: string
+  allowed_origins: string[]
+  /** "" = not set (VS Code buttons are hidden). */
+  vscode_url: string
+}
+
 export interface GlobalView {
   values: Record<string, unknown>
+  addresses?: Addresses
   github: { connected: boolean; accounts: string[] }
   default_models: Record<string, DefaultModel>
   telegram: { connected: boolean }

@@ -21,9 +21,9 @@ PROBE_PROFILE = "python-script"
 CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
-    "quick": ("services", "api", "home", "secrets", "disk"),
+    "quick": ("services", "api", "origins", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
-    "full": ("python", "library", "services", "api", "home", "secrets", "images", "proxy-rule", "firewall",
+    "full": ("python", "library", "services", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files"),
 }
 
@@ -94,6 +94,14 @@ def api_port() -> int:
     return int(m.group(1)) if m else DEFAULT_API_PORT
 
 
+def health_fields(body: bytes) -> dict:
+    """The fields of an /api/health reply (the API wraps them in {"ok", "data"}; older fakes send them bare)."""
+    data = json.loads(body.decode("utf-8"))
+    if not isinstance(data, dict):
+        return {}
+    return data["data"] if isinstance(data.get("data"), dict) else data
+
+
 def installed_tags(ctx) -> list[str]:
     """The release tags pointing at the installed copy's commit."""
     inst = paths.install()
@@ -118,7 +126,7 @@ def check_api(ctx):
     if ctx.mode != "for-update":
         return _result(True, f"{url} answered 200")
     try:
-        running = str(json.loads(body.decode("utf-8")).get("tag") or "")
+        running = str(health_fields(body).get("tag") or "")
     except ValueError:
         running = ""
     tags = installed_tags(ctx)
@@ -127,6 +135,25 @@ def check_api(ctx):
     ok = running in tags
     return _result(ok, f"API runs {running or 'no release'}; installed is {', '.join(tags)}",
                    "The API is still running old code; restart it with `phoenix service restart api --yes`.")
+
+
+def check_origins(ctx):
+    """The page origins the running API allows (from /api/health) match the allowed_origins setting."""
+    from phoenix9 import addresses
+    url = f"http://127.0.0.1:{api_port()}/api/health"
+    want = addresses.read()["allowed_origins"]
+    fix = "Restart the API with `phoenix service restart api --yes` so it picks up the setting."
+    try:
+        status, _, body = ctx.ad.http.request("GET", url, timeout=10)
+        served = health_fields(body).get("origins") if status == 200 else None
+    except Exception:  # noqa: BLE001 - the api check reports why the API did not answer
+        served = None
+    if not isinstance(served, list):
+        return _result(False, "the running API did not say which origins it allows (old version or not answering)", fix)
+    ok = sorted(served) == sorted(want)
+    detail = (f"the running API allows {', '.join(served)}" if ok else
+              f"the running API allows {', '.join(served) or 'nothing'}; the setting says {', '.join(want)}")
+    return _result(ok, detail, fix)
 
 
 def _mode(path: Path) -> int:
@@ -342,7 +369,8 @@ def check_project_links(ctx):
         chat = project.chat_link(name, ctx.ad)
         if chat["url"] is None:
             problems.append(f"{name}: chat is off" if chat["state"] == "off" else f"{name}: chat link not found yet")
-        if project.vscode_link(name)["url"] is None:
+        vscode = project.vscode_link(name)
+        if vscode["url"] is None and "does not exist" in (vscode["reason"] or ""):
             problems.append(f"{name}: VS Code link missing (folder not found)")
     return _result(not problems, "every project has its chat and VS Code links" if not problems else "; ".join(problems),
                    "Switch the chat on with `phoenix project open <name>`, or press Start chat on the project.")
@@ -358,6 +386,7 @@ def check_memory_files(ctx):
 
 
 CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
+          "origins": check_origins,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
           "project-links": check_project_links, "memory-files": check_memory_files}

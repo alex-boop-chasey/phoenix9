@@ -82,6 +82,24 @@ describe("ProjectPage", () => {
     expect(screen.getByText("/srv/projects/demo-site")).toBeInTheDocument()
   })
 
+  it("VS Code is greyed out with a tooltip when its address is not set", async () => {
+    const reason = "Set the VS Code address in Global settings."
+    mockApi({
+      "GET /api/projects/demo-site": { ...projects[0], vscode_url: null, vscode: { url: null, reason } },
+      "GET /api/gates": [],
+      "GET /api/projects/demo-site/runs": [],
+      "GET /api/projects/demo-site/changelog": [],
+      "GET /api/events/recent": { events: [], next: 0 },
+    })
+    renderAt("/p/demo-site/overview")
+    await screen.findByRole("heading", { name: "demo-site" })
+    const dock = within(screen.getByRole("group", { name: "Open project" }))
+    expect(dock.queryByRole("link", { name: "VS Code" })).toBeNull()
+    const button = dock.getByRole("button", { name: "VS Code" })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("title", reason)
+  })
+
   it("no Start chat when the chat is off, and a missing repo is disabled", async () => {
     api("notes-only")
     renderAt("/p/notes-only/overview")

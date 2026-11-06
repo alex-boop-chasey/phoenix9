@@ -198,8 +198,9 @@ copy_secret "$TELEGRAM_ENV" "$HOME_DIR/secrets/telegram.env"
 # ------------------------------------------------------------------ 6. api.env
 if [ ! -e "$HOME_DIR/config/api.env" ]; then
     say "Writing config/api.env (dashboard port $API_PORT)"
-    printf 'PHOENIX_API_PORT=%s\nPHOENIX_API_ORIGINS=%s\n' "$API_PORT" "https://files.rebirthwebdesign.com.au" \
-        > "$HOME_DIR/config/api.env"
+    # The allowed page origins are a Phoenix setting (Global settings > Dashboard addresses); the API adds
+    # PHOENIX_API_ORIGINS here itself on its first start (default: the dashboard address's origin).
+    printf 'PHOENIX_API_PORT=%s\n' "$API_PORT" > "$HOME_DIR/config/api.env"
 fi
 
 # ------------------------------------------------------------------ 6b. host firewall

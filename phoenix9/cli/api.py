@@ -22,6 +22,7 @@ def serve(args) -> int:
     from phoenix9.api import server
     if args.host not in HOSTS:
         raise OpsError("The API only listens on this machine (127.0.0.1); other addresses are refused.")
+    server.migrate_addresses()          # one time: the dashboard address settings (docs/architecture.md 5.5)
     httpd = server.make_server(args.port, host=args.host)
     stop = httpd.stopping
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

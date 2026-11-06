@@ -109,7 +109,7 @@ def show_(args) -> int:
              f"  services: {', '.join(p['services']) or '(none)'}", f"  size: {_size(p['size'])}",
              f"  chat server: {p['state']} ({p['chats']} chats open), last used {p['last_used']}",
              f"  chat link: {chat['url'] or '(none yet)'}", f"  harness: {p['harness']}",
-             f"  VS Code: {p['vscode_url']}"]
+             f"  VS Code: {p['vscode_url'] or (p.get('vscode') or {}).get('reason') or 'not set'}"]
     if p["gates"]:
         lines += ["  needs you:"] + [f"    {g['id']}: {g['title']}" for g in p["gates"]]
     if p["changelog"]:

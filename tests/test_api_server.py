@@ -11,7 +11,7 @@ from phoenix9.__main__ import main
 from phoenix9.api import server
 from phoenix9.ops import common, projects
 
-ORIGIN = "https://files.rebirthwebdesign.com.au"
+ORIGIN = "https://phoenix.rebirthwebdesign.com.au"   # the default allowed origin (the dashboard address's)
 POST_HEADERS = {"X-Phoenix": "1", "Origin": ORIGIN, "Content-Type": "application/json"}
 
 

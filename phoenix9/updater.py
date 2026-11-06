@@ -291,6 +291,15 @@ class _Update:
             self.log(f"health check {n + 1} failed: {reason}")
         return False, reason
 
+    def migrate(self) -> None:
+        """Run the NEW installed copy's one-time settings migrations (`phoenix settings global migrate`);
+        they do nothing once done, and a failure is only a log line (the install stays)."""
+        inst = folders()["install"]
+        argv = [str(inst / "bin" / "phoenix"), "settings", "global", "migrate", "--json"]
+        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+        self.log("post-install migration done" if rc == 0 else
+                 f"post-install migration failed (exit {rc}): {_failing_lines(out, err)}")
+
     def wait_idle(self, why: str, timeout_min: int) -> tuple[bool, str]:
         """Hold the harness and wait (polling every 5 s) until no run is mid-task; False after the timeout."""
         hold.request_hold(why)
@@ -558,6 +567,7 @@ def _install(u: _Update, tag: str, idle_timeout_min: int) -> dict:
     u.phase("restarted")
     ok, why = u.healthy()
     if ok:
+        u.migrate()
         hold.release_hold()
         u.end()
         events.emit("update.installed", project=None, tag=tag, previous=frm["tag"], who=u.who)

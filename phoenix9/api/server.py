@@ -17,7 +17,7 @@ from phoenix9.api import stream
 from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
-DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
+ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
              b"<p>The dashboard is not built yet. Run: pnpm -C web build</p></body></html>")
@@ -45,9 +45,32 @@ class NeedsConfirm(Exception):
 
 
 def allowed_origins() -> list[str]:
-    """The origins allowed to POST, read from the environment on each request."""
-    raw = os.environ.get("PHOENIX_API_ORIGINS") or DEFAULT_ORIGINS
-    return [o.strip() for o in raw.split(",") if o.strip()]
+    """The origins allowed to POST: PHOENIX_API_ORIGINS (how api.env hands the setting to this process), else
+    the allowed_origins global setting; read on each request."""
+    raw = os.environ.get(ORIGINS_ENV, "")
+    found = [o.strip() for o in raw.split(",") if o.strip()]
+    return found or app.addresses_view()["allowed_origins"]
+
+
+def migrate_addresses() -> None:
+    """At start: the one-time move to the dashboard address settings; this process then uses the new origins."""
+    try:
+        done = app.migrate_addresses_at_start()
+    except Exception:
+        api_log(traceback.format_exc())
+        return
+    if done:
+        os.environ[ORIGINS_ENV] = ",".join(done["allowed_origins"])
+        api_log(f"dashboard addresses: allowed origins are now {', '.join(done['allowed_origins'])}")
+
+
+def refusal(headers) -> str:
+    """The plain refusal for a write the guard turned away, naming the page origin it saw."""
+    origin = headers.get("Origin")
+    if headers.get("X-Phoenix") != "1" or not origin:
+        return "Refused: this request didn't come from the Phoenix dashboard."
+    return (f"Refused: this page was opened from {origin}, which Phoenix doesn't allow yet. Add it in Global "
+            "settings > Dashboard addresses (or run `phoenix settings global set allowed_origins=...`).")
 
 
 def api_log(text: str) -> None:
@@ -95,7 +118,7 @@ def get_info(req):
 def get_health(req):
     """Reply that the server is up (version and tag only; no ops call that can fail)."""
     import phoenix9
-    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag}
+    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag, "origins": allowed_origins()}
 
 
 def get_update(req):
@@ -705,6 +728,17 @@ def post_service_test(req, name):
     return services.test(check_name(name), values, who=WHO)
 
 
+def post_global_addresses(req):
+    """Save the dashboard addresses ({dashboard_url?, allowed_origins?, vscode_url?}); a change of the allowed
+    origins rewrites api.env and asks systemd to restart this API."""
+    changes = {k: req.body[k] for k in app.ADDRESS_KEYS if k in req.body}
+    unknown = sorted(set(req.body) - set(app.ADDRESS_KEYS))
+    if unknown:
+        raise BadRequest(f"'{unknown[0]}' is not a dashboard address setting.")
+    with req.server.write_lock:
+        return app.set_addresses(changes, who=WHO)
+
+
 def post_global_models(req):
     """Save Phoenix's default models: {steps: {step: {model, fallback_models}}}."""
     steps = body_dict(req, "steps")
@@ -769,6 +803,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/services/{NAME}/test", post_service_test),
     ("POST", r"/api/global/models", post_global_models),
+    ("POST", r"/api/global/addresses", post_global_addresses),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),
@@ -849,7 +884,7 @@ class Handler(BaseHTTPRequestHandler):
     def dispatch(self, method):
         if method == "POST":
             if not self.guard_ok():
-                return self.fail(403, "Refused: this request didn't come from the Phoenix dashboard.")
+                return self.fail(403, refusal(self.headers))
             if self.read_body() is None:
                 return
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":

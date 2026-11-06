@@ -656,11 +656,16 @@ def chat_link(name: str, adapters, search: bool = True) -> dict:
 
 
 def vscode_link(name: str) -> dict:
-    """{url, reason}: the VS Code link for /srv/projects/<name>, or url null with the reason when the folder is missing."""
+    """{url, reason}: the VS Code link for /srv/projects/<name> (from the vscode_url global setting), or url null
+    with the reason when the VS Code address is not set or the folder is missing."""
+    from phoenix9 import addresses
+    base = addresses.read()["vscode_url"]
+    if not base:
+        return {"url": None, "reason": addresses.VSCODE_NOT_SET}
     folder = paths.projects() / name
     if not folder.is_dir():
         return {"url": None, "reason": f"The folder {folder} does not exist."}
-    return {"url": f"{paths.VSCODE_URL}?folder={folder}", "reason": None}
+    return {"url": f"{base.rstrip('/')}/?folder={folder}", "reason": None}
 
 
 def chat_start(name: str, adapters, who: str) -> dict:

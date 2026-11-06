@@ -221,8 +221,9 @@ def _preview_plan(project: str, overrides: dict) -> dict:
 
 
 def detail(project: str, run_id: str) -> dict:
-    """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries."""
-    from phoenix9 import git as gitmod, summary
+    """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,
+    and its branch (None once the branch is gone)."""
+    from phoenix9 import summary
     common.project_dir(project)
     folder = _run_folder(run_id)
     if folder.parent.name != project:
@@ -246,4 +247,18 @@ def detail(project: str, run_id: str) -> dict:
             pass
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries,
-            "branch": gitmod.branch_name(run_id)}
+            "branch": _live_branch(project, run_id)}
+
+
+def _live_branch(project: str, run_id: str) -> str | None:
+    """The run's branch name while it still exists in the project's code/ (a discarded run has none)."""
+    from phoenix9 import git as gitmod
+    code = common.project_dir(project) / "code"
+    branch = gitmod.branch_name(run_id)
+    if not (code / ".git").exists():
+        return None
+    try:
+        found = gitmod.git(code, "rev-parse", "-q", "--verify", f"refs/heads/{branch}", check=False).strip()
+    except (gitmod.GitError, OSError):
+        return None
+    return branch if found else None

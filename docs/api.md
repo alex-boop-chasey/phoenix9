@@ -31,7 +31,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
@@ -96,7 +96,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 `profile`, `services` (list), `size` (int bytes or null), `chat {state: "on"|"off", kind: "session"|"environment"|"none", url}` (`url` is null when the chat is off or no
 environment id is known: the page then shows "Start chat" only if the chat is on; new and imported projects get no chat service, so a project whose chat is off shows no chat button; the id is read from the journal of `claude-rc@<name>`
 since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
-`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
+`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
 `harness` (the harness column in words, from `status.project_state`: "idle" | "queued" | "running task N of M" |
 "running" | "paused (usage limit)" | "needs you"), `has_phoenix_toml`;
 plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI
@@ -129,7 +129,7 @@ tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished`
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
-not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>`).
+not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>` while that branch exists in the project's code/, else null: a stopped or discarded run has none).
 
 **Global view** (`ops.app.global_view`): `values` (non-secret contents of `HOME/config/global.toml`),
 `github {connected, accounts}`, `default_models {<ai step>: {model, fallback_models}}`,

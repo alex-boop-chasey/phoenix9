@@ -33,7 +33,7 @@ export function AboutCard({ project }: { project: Project }) {
         <Pair label="Kind" value={setup?.kind || project.profile || none} />
         <Pair label="Started from" value={startedFrom(setup)} />
         <Pair label="Repo owner" value={project.repo_owner || "None"} mono={!!project.repo_owner} />
-        <Pair label="Build preset" value={setup?.preset ?? none} />
+        <Pair label="Default build preset" value={setup?.preset ?? none} />
         <Pair label="Merging" value={(setup?.merge && MERGING[setup.merge]) || setup?.merge || none} />
         <Pair label="Created" value={setup?.created ?? "Not recorded"} />
       </dl>

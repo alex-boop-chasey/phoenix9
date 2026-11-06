@@ -110,6 +110,7 @@ describe("OverviewTab", () => {
     const setup = within(await screen.findByLabelText("Chosen at setup"))
     expect(setup.getByText("Template cli")).toBeInTheDocument()
     expect(setup.getByText("Ask me first")).toBeInTheDocument()
+    expect(setup.getByText("Default build preset")).toBeInTheDocument()   // each build shows its own preset
     expect(setup.getByText("2026-10-01")).toBeInTheDocument()
     expect(setup.getByText("alex-boop-chasey")).toBeInTheDocument()
     expect(screen.getByText("supabase")).toBeInTheDocument()

@@ -707,9 +707,12 @@ def mark_used(name: str) -> None:
 
 
 def last_used(name: str, now: float):
-    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's records."""
+    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's
+    records and the last change of any of the project's runs (run activity counts as use)."""
     stamps = []
-    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used"):
+    runs_dir = paths.runs(name)
+    states = list(runs_dir.glob("*/state.json")) if runs_dir.is_dir() else []
+    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used", *states):
         try:
             stamps.append(path.stat().st_mtime)
         except OSError:
@@ -793,10 +796,35 @@ def setup_facts(folder: Path) -> dict:
         own = settings.load_project(folder)
     except settings.SettingsError:
         own = {}
-    return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
+    return {"kind": profile_of(folder), "source": meta.get("source") or _guess_source(folder),
+            "template": meta.get("template") or None,
             "preset": own.get("preset") or None, "merge": own.get("merge") or None,
-            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta),
+            "created": meta.get("created") or _guess_created(folder), "services_set_up": _set_up_entries(meta),
             "waiting_for_keys": waiting_for_keys(folder.name)}
+
+
+def _guess_created(folder: Path) -> str | None:
+    """When setup did not record it: the date of the first commit in code/, else the folder's date."""
+    code = folder / "code"
+    if (code / ".git").exists():
+        try:
+            dates = git.git(code, "log", "--reverse", "--format=%cs", check=False).split()
+            if dates:
+                return dates[0]
+        except (git.GitError, OSError):
+            pass
+    try:
+        return datetime.fromtimestamp(folder.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d")
+    except OSError:
+        return None
+
+
+def _guess_source(folder: Path) -> str:
+    """When setup did not record it: 'repo' (code/ has a GitHub origin), 'code' (code/ is a git repo) or 'empty'."""
+    code = folder / "code"
+    if not (code / ".git").exists():
+        return "empty"
+    return "repo" if git.remote_url(code) else "code"
 
 
 def waiting_for_keys(name: str) -> list:

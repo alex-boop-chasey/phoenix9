@@ -222,6 +222,29 @@ def check_mount_source(m: "Mount") -> None:
             raise ValueError("the secrets folder must never be mounted into a step container")
 
 
+
+def git_dir_mounts(workspace: Path) -> list[Mount]:
+    """A linked worktree's `.git` is a file pointing at the main repo's git folder on the host; mount that
+    folder read-only at the same path so git works inside the container (tests that call git)."""
+    dot = Path(workspace) / ".git"
+    if not dot.is_file():
+        return []
+    line = dot.read_text(encoding="utf-8", errors="replace").strip()
+    if not line.startswith("gitdir:"):
+        return []
+    gitdir = Path(line.split(":", 1)[1].strip())
+    common = gitdir
+    commondir = gitdir / "commondir"
+    if commondir.is_file():
+        common = (gitdir / commondir.read_text(encoding="utf-8").strip()).resolve()
+    if not common.is_dir():
+        return []
+    return [Mount(common, str(common), ro=True)]
+
+
+GIT_ENV = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}
+
+
 def build_argv(r: Run, limits: dict | None = None) -> list[str]:
     """Return the full `docker run ...` command for one container."""
     # ported from reference/v8/phoenix/docker.py:100
@@ -346,9 +369,10 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
         all_mounts.append(Mount(Path(pnpm_store), STORE_MOUNT, ro=False))
     if domains_file:
         all_mounts.append(Mount(Path(domains_file), DOMAINS_MOUNT))
+    all_mounts += git_dir_mounts(Path(workspace))   # git works in a linked worktree (read-only git folder)
     all_mounts += list(mounts)
     return Run(project, run_id, task, attempt, role, image, list(cmd), mounts=all_mounts,
-               env={**session_env(scrub_env), **check_extra_env(extra_env)},
+               env={**session_env(scrub_env), **GIT_ENV, **check_extra_env(extra_env)},
                env_files=[claude_env_file(), *map(Path, env_files)])
 
 
@@ -394,11 +418,13 @@ def check_run(project: str, run_id: str, task: int | str, attempt: int, role: st
     # ported from reference/v8/phoenix/docker.py:359
     if env_file and Path(env_file).name == "claude.env":
         raise ValueError("a check container never gets the Claude token")
-    mounts = [Mount(checkout, "/workspace", ro=False), Mount(store, STORE_MOUNT, ro=False)]
+    mounts = [Mount(checkout, "/workspace", ro=False), Mount(store, STORE_MOUNT, ro=False),
+              *git_dir_mounts(Path(checkout))]                     # git works in a linked worktree (read-only)
     if domains_file and firewall:
         mounts.append(Mount(Path(domains_file), DOMAINS_MOUNT))
     mounts += list(extra_mounts)
     env = {k: v for k, v in session_env().items() if not k.startswith("CLAUDE_")}
+    env.update(GIT_ENV)
     env.update(check_extra_env(extra_env))
     return Run(project, run_id, task, attempt, role, image, ["bash", "-c", command], mounts=mounts, env=env,
                env_files=[Path(env_file)] if env_file else [], firewall=firewall)

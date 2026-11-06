@@ -1,3 +1,4 @@
+from pathlib import Path
 """Tests for phoenix9/docker.py. They only look at the `docker run` argv and the fake runner."""
 import pytest
 
@@ -258,3 +259,44 @@ def test_probe_that_never_ran_reports_one_stopped_early_line(adapters):
         "the probe container stopped early (exit 90): ERROR: bad proxy line"]
     d.outputs, d.exit_codes = [""], [125]
     assert docker.probe_firewall(d, IMAGE) == ["the probe container stopped early (exit 125): no output"]
+
+
+def _linked_worktree(tmp_path):
+    import subprocess
+    main = tmp_path / "main"
+    main.mkdir()
+    g = lambda *a, cwd=main: subprocess.run(["git", "-C", str(cwd), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                            check=True, capture_output=True)
+    g("init", "-q", "-b", "main")
+    (main / "a.txt").write_text("a")
+    g("add", "a.txt")
+    g("commit", "-qm", "one")
+    wt = tmp_path / "wt"
+    g("worktree", "add", "-q", "-b", "phoenix/r1", str(wt))
+    return main, wt
+
+
+def test_git_dir_mounts_mounts_the_main_git_folder_read_only_at_the_same_path(tmp_path):
+    main, wt = _linked_worktree(tmp_path)
+    mounts = docker.git_dir_mounts(wt)
+    assert len(mounts) == 1
+    m = mounts[0]
+    assert m.ro is True and Path(m.src) == (main / ".git").resolve() and m.dst == str((main / ".git").resolve())
+
+
+def test_git_dir_mounts_nothing_for_a_plain_checkout_or_no_git(tmp_path):
+    main, _ = _linked_worktree(tmp_path)
+    assert docker.git_dir_mounts(main) == []
+    assert docker.git_dir_mounts(tmp_path) == []
+
+
+def test_check_and_session_containers_get_git_working(tmp_path):
+    _, wt = _linked_worktree(tmp_path)
+    r = docker.check_run("p", "r1", 1, 1, "verify", "img", wt, "true", None, None, "store")
+    assert any(m.dst.endswith("/main/.git") and m.ro for m in r.mounts)
+    assert r.env["GIT_CONFIG_KEY_0"] == "safe.directory"
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("x")
+    s = docker.claude_run("p", "r1", 1, 1, "builder", "img", wt, prompt, ["claude"])
+    assert any(m.dst.endswith("/main/.git") and m.ro for m in s.mounts)
+    assert s.env["GIT_CONFIG_VALUE_0"] == "*"

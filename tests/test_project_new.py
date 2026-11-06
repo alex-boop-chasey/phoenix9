@@ -121,6 +121,28 @@ def test_new_repo_creates_and_pushes_via_gh(env):
     assert "- Repo: alex/demo" in (folder / "CLAUDE.md").read_text()
 
 
+def test_new_repo_gets_dependabot_for_detected_ecosystems(env):
+    create(env, name="a", template="python-cli", no_new_repo=False, new_repo="alex")
+    text = (env["projects"] / "a/code/.github/dependabot.yml").read_text()
+    assert text.startswith("version: 2\nupdates:\n")
+    assert 'package-ecosystem: "pip"' in text and 'interval: "weekly"' in text
+    assert "open-pull-requests-limit: 5" in text and 'directory: "/"' in text
+    assert ".github/dependabot.yml" in git.git(env["projects"] / "a/code", "ls-files")
+
+
+def test_dependabot_falls_back_to_profile(env):
+    create(env, name="d", profile="desktop", no_new_repo=False, new_repo="alex")
+    text = (env["projects"] / "d/code/.github/dependabot.yml").read_text()
+    assert 'package-ecosystem: "npm"' in text and 'package-ecosystem: "cargo"' in text
+
+
+def test_no_dependabot_when_nothing_detected_or_no_new_repo(env):
+    create(env, name="n", no_new_repo=False, new_repo="alex")
+    assert not (env["projects"] / "n/code/.github").exists()
+    create(env, name="m", profile="web")
+    assert not (env["projects"] / "m/code/.github").exists()
+
+
 def test_github_template_with_and_without_new_repo(env):
     create(env, name="a", profile="web", template="alex/starter", no_new_repo=False, new_repo="alex")
     assert calls(env, "gh", "repo", "create", "alex/a", "--private", "--template", "alex/starter")

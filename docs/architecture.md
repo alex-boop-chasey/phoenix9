@@ -387,6 +387,8 @@ every value, which layer set it (for `explain`).
 
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
 
+When Phoenix creates a new GitHub repo (empty or non-GitHub template source), it writes `code/.github/dependabot.yml` before the first commit, so it is in the first push: one weekly entry (directory `/`, 5 open PRs) per ecosystem found in code/ (package.json → npm, Cargo.toml → cargo, pyproject.toml/requirements.txt → pip), else from the profile (web/mobile/platform → npm, desktop → npm+cargo, python-script → pip). Nothing is written when none is found, and existing repos and `--code` folders are never touched.
+
 New projects get a `phoenix.toml` only when a profile is known (from `--profile` or the template), and then it holds just `profile = "<name>"`. With no profile there is no `phoenix.toml`; `.phoenix/project.json` records the profile as an empty string.
 
 ```toml

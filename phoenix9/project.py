@@ -190,6 +190,26 @@ def _first_commit(code: Path) -> None:
     git.commit(code, "Project created by Phoenix 9", {}, skip_env=True)
 
 
+PROFILE_ECOSYSTEMS = {"web": ("npm",), "mobile": ("npm",), "platform": ("npm",), "desktop": ("npm", "cargo"), "python-script": ("pip",)}
+FILE_ECOSYSTEMS = (("package.json", "npm"), ("Cargo.toml", "cargo"), ("pyproject.toml", "pip"), ("requirements.txt", "pip"))
+
+
+def _dependabot_ecosystems(code: Path, profile: str) -> list[str]:
+    """Package ecosystems for Dependabot: from the files in code/, else from the profile."""
+    found = [eco for file, eco in FILE_ECOSYSTEMS if (code / file).is_file()]
+    return list(dict.fromkeys(found or PROFILE_ECOSYSTEMS.get(profile, ())))
+
+
+def _write_dependabot(code: Path, profile: str) -> None:
+    """Write .github/dependabot.yml for a repo Phoenix is creating (nothing when no ecosystem is known)."""
+    ecosystems = _dependabot_ecosystems(code, profile)
+    if not ecosystems:
+        return
+    entries = "".join(f'  - package-ecosystem: "{eco}"\n    directory: "/"\n    schedule:\n      interval: "weekly"\n'
+                      f'    open-pull-requests-limit: 5\n' for eco in ecosystems)
+    atomic.write_text(code / ".github" / "dependabot.yml", f"version: 2\nupdates:\n{entries}")
+
+
 def _get_code(opts, facts, folder: Path, host, made: list) -> str:
     """Make code/ (or note where the code is); returns the repo name used ('' when none yet)."""
     code, source, tpl = folder / "code", facts["source"], facts["template"]
@@ -377,6 +397,8 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
     repo = _get_code(opts, facts, folder, host, made)
     code = folder / "code"
     if facts["source"] in ("empty", "template") and not (code / ".git").exists():
+        if facts["new_repo"] and not repo:
+            _write_dependabot(code, facts["profile"])
         _first_commit(code)
     say("Writing CLAUDE.md")
     atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo or opts.get("repo") or ""))

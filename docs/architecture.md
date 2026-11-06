@@ -437,6 +437,15 @@ The advisor is passed to the session as a mounted skill plus settings; Phoenix d
 **Unverified:** that `/advisor` exists in headless `claude -p`; `phoenix doctor` reports whether it does
 and the session is told to carry on without it when absent.
 
+### 5.4 Changing settings from the command line
+`phoenix settings set <project> key=value` (one key, typed from text; lists as a comma list, replacing the
+whole list), `phoenix settings add <project> <list key> <item>` and `phoenix settings remove <project>
+<list key> <item>` (one item in or out of a list key such as `safety_files`, `services`,
+`domains.allow` or `steps.<name>.tools`; the change starts from the key's effective value, the item is
+checked like any value of that key, adding an item that is already there or removing one that is not is
+refused, and non-list keys are refused). Each writes phoenix.toml, a `settings.changed` event, the command
+record and a changelog line (`settings.change_list`, `ops.settings.change_list`).
+
 ## 6. Specs (`phoenix9/spec.py`, extends V8 plan.py)
 
 Markdown for humans, JSON for Phoenix (harness spec open question 1, recommended answer taken):

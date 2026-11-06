@@ -518,6 +518,29 @@ def set_value(project_dir, dotted_key: str, raw_value: str, lib: Library | None 
     save_project(project_dir, data)
 
 
+def change_list(project_dir, dotted_key: str, item: str, add: bool, lib: Library | None = None) -> list:
+    """Add one item to (or remove it from) a list setting, starting from its effective value; returns the new list."""
+    lib = _lib_or_default(lib)
+    specs = all_specs(lib)
+    if dotted_key not in specs:
+        raise SettingsError(f"phoenix.toml: unknown key '{dotted_key}'")
+    spec = specs[dotted_key]
+    if spec.type is not list:
+        raise SettingsError(f"'{dotted_key}' is not a list setting; use `phoenix settings set` for it")
+    value = _coerce(dotted_key, item, spec)
+    if len(value) != 1:
+        raise SettingsError(f"Give exactly one item for '{dotted_key}' (no commas).")
+    value = value[0]
+    current = list(effective(project_dir, lib).get(dotted_key) or [])
+    if add and value in current:
+        raise SettingsError(f"{value} is already in {dotted_key}")
+    if not add and value not in current:
+        raise SettingsError(f"{value} is not in {dotted_key}")
+    new = current + [value] if add else [v for v in current if v != value]
+    set_values(project_dir, {dotted_key: new}, lib)
+    return new
+
+
 def flat_problems(flat: dict, lib: Library | None = None) -> list[str]:
     """Every problem with typed values keyed by dotted path (unknown keys, wrong types, values not allowed)."""
     specs = all_specs(_lib_or_default(lib))

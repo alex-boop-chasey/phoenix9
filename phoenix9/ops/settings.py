@@ -30,6 +30,20 @@ def set(project: str, key: str, value: str, who: str = "cli") -> dict:
     return {"project": project, "key": key, "value": value}
 
 
+def change_list(project: str, key: str, item: str, add: bool, who: str = "cli") -> dict:
+    """Add one item to (or remove it from) a list setting such as safety_files or services."""
+    folder = common.project_dir(project)
+    try:
+        value = core.change_list(folder, key, item, add, common.library())
+    except core.SettingsError as err:
+        _fail(err)
+    verb = "add" if add else "remove"
+    events.emit("settings.changed", project=project, who=who, key=key)
+    common.record_command(who, f"settings {verb} {project} {key}", project,
+                          f"{'added' if add else 'removed'} {item} {'to' if add else 'from'} {key}")
+    return {"project": project, "key": key, "item": item, "value": value}
+
+
 def set_many(project: str, values: dict, who: str = "cli") -> dict:
     """Set several keys (typed values by dotted path) at once; nothing is written unless all are fine."""
     folder = common.project_dir(project)

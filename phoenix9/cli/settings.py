@@ -1,4 +1,4 @@
-"""Commands for `phoenix settings`: show, explain, check, set, preset."""
+"""Commands for `phoenix settings`: show, explain, check, set, add, remove, preset."""
 from phoenix9.cli.output import problem, show
 from phoenix9.ops import settings as ops
 
@@ -17,6 +17,13 @@ def add(sub, common) -> None:
     p.add_argument("project")
     p.add_argument("assignment", metavar="key=value")
     p.set_defaults(func=set_)
+    for name, help_ in (("add", "add one item to a list setting (safety_files, services...)"),
+                        ("remove", "take one item out of a list setting")):
+        p = group.add_parser(name, parents=[common], help=help_)
+        p.add_argument("project")
+        p.add_argument("key", help="a list setting, e.g. safety_files")
+        p.add_argument("item")
+        p.set_defaults(func=change_list, add=name == "add")
     p = group.add_parser("preset", parents=[common], help="choose a preset")
     p.add_argument("project")
     p.add_argument("name")
@@ -61,6 +68,14 @@ def set_(args) -> int:
         return problem(args, "Say it as key=value, for example steps.builder.max_turns=30.", 2)
     r = ops.set(args.project, key.strip(), value, who=args.who)
     return show(args, r, f"Set {r['key']} in {r['project']}.")
+
+
+def change_list(args) -> int:
+    """Add an item to, or remove it from, a list setting."""
+    r = ops.change_list(args.project, args.key, args.item, args.add, who=args.who)
+    words = (f"Added {r['item']} to {r['key']} in {r['project']}." if args.add
+             else f"Removed {r['item']} from {r['key']} in {r['project']}.")
+    return show(args, r, words)
 
 
 def preset(args) -> int:

@@ -458,6 +458,8 @@ Done when:
 ```
 `parse(text) -> dict` and `check(text) -> list[str]` (problems in plain English). Also accepts V8's
 `## Step N` headings as tasks. Max 60 tasks. Spec check writes `spec.json` into the run folder.
+`Preset:` is used as the run's preset override (`ops.runs.start` writes it into `overrides.json`) unless a
+preset is given for the run (`phoenix run start --preset`, or the wizard's own choice).
 
 ## 7. Runs
 

@@ -35,6 +35,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     if problems:
         raise OpsError("The project's settings have problems:\n" + "\n".join(f"- {p}" for p in problems))
     overrides = dict(overrides or {})
+    if not overrides.get("preset") and spec.parse(text).preset:   # the spec's `Preset:` line, unless one was given
+        overrides["preset"] = spec.parse(text).preset
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
     try:

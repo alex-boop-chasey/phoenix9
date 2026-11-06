@@ -11,7 +11,8 @@ KEY_NAME = re.compile(r"^[A-Z][A-Z0-9_]*$")
 HOST_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
 FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
           Field("description", str, default=""), Field("support", str, default="keys-only", choices=SUPPORTS),
-          Field("docs", str, default=""), Field("account_keys", list, default=[], list_of=str),
+          Field("docs", str, default=""), Field("website", str, default=""),
+          Field("account_keys", list, default=[], list_of=str),
           Field("secrets_file", str, default=""),
           Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
           Field("proxy", dict, default=None), Field("check", dict, default=None),

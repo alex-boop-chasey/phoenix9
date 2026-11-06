@@ -2,6 +2,7 @@ name = "github"
 title = "GitHub"
 description = "Code hosting: repositories, releases and tags."
 support = "store-and-wire"
+website = "https://github.com/settings/tokens"
 docs = "https://docs.github.com/en/rest"
 account_keys = ["GH_TOKEN"]
 secrets_file = "github.env"

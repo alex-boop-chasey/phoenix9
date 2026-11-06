@@ -2,6 +2,7 @@ name = "resend"
 title = "Resend"
 description = "Sending email from your app."
 support = "store-and-wire"
+website = "https://resend.com/api-keys"
 docs = "https://resend.com/docs"
 account_keys = ["RESEND_API_KEY"]
 hosts = ["api.resend.com"]

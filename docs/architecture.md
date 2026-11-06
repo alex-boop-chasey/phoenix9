@@ -298,6 +298,7 @@ title = "Supabase"
 description = "Postgres database, auth and file storage."
 support = "store-and-wire"        # "store-and-wire" | "keys-only"
 docs = "https://supabase.com/docs"
+website = "https://supabase.com/dashboard/account/tokens"   # optional: where the key is made; shown as a "Website" link
 account_keys = ["SUPABASE_ACCESS_TOKEN"]   # names stored in HOME/secrets/<secrets_file>
 secrets_file = "service-supabase.env"      # default "service-<name>.env"; github: "github.env"
 hosts = ["supabase.co"]           # added to a project's allowed domains (bare names, suffix match)

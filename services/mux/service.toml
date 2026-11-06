@@ -2,6 +2,7 @@ name = "mux"
 title = "Mux"
 description = "Video hosting and streaming."
 support = "keys-only"
+website = "https://dashboard.mux.com/settings/access-tokens"
 docs = "https://docs.mux.com"
 account_keys = []
 hosts = ["api.mux.com", "stream.mux.com", "image.mux.com"]

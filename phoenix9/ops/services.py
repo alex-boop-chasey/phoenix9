@@ -87,7 +87,7 @@ def _row(svc: dict, registry: dict) -> dict:
     only = _keys_only(svc)
     connected = True if only else _is_connected(svc, entry)
     return {"name": svc["name"], "title": svc["title"], "description": svc["description"],
-            "support": svc["support"], "connected": connected,
+            "support": svc["support"], "website": svc.get("website", ""), "connected": connected,
             "can_test": bool(svc["check"]),
             "ends_in": {} if only or not connected else _ends_in(svc),
             "account_settings": _setting_rows(svc, entry),
@@ -223,7 +223,7 @@ def connect(name: str, values: dict, *, who: str, check: bool = True, settings_i
 
 
 def test(name: str, values: dict | None = None, *, who: str) -> dict:
-    """Try a service's key (a pasted one, else the saved one) without saving anything; {ok, message}."""
+    """Try a service's key (a pasted one, else the saved one) saving the result only when it is the saved key; {ok, message}."""
     svc = _service(name)
     if not svc["check"]:
         raise common.OpsError(f"{svc['title']} has no connection test; its key is only saved.")
@@ -233,7 +233,11 @@ def test(name: str, values: dict | None = None, *, who: str) -> dict:
                                    if (paths.secrets() / svc["secrets_file"]).is_file() else {}).get(key_name, "")
     if not key:
         raise common.OpsError(f"Paste the {key_name} first, then test.")
-    result = _check(svc, key, common.make_adapters(), services.read_registry().get(name, {}).get("settings") or {})
+    registry = services.read_registry()
+    result = _check(svc, key, common.make_adapters(), registry.get(name, {}).get("settings") or {})
+    if not values.get(key_name) and name in registry and _is_connected(svc, registry[name]):
+        registry[name] = {**registry[name], "checked": result, "checked_at": _now()}
+        services.write_registry(registry)
     common.record_command(who, f"services test {name}")
     ok = result == "ok"
     message = (f"{svc['title']}: the key works." if ok

@@ -2,6 +2,7 @@ name = "stripe"
 title = "Stripe"
 description = "Payments."
 support = "keys-only"
+website = "https://dashboard.stripe.com/apikeys"
 docs = "https://docs.stripe.com"
 account_keys = []
 hosts = ["api.stripe.com"]

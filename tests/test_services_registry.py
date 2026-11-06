@@ -143,3 +143,29 @@ def test_cloudflare_account_token_without_account_id_gets_plain_message(fakes):
     r = ops.test("cloudflare", {"CLOUDFLARE_API_TOKEN": SENTINEL}, who="cli")
     assert r["ok"] is False and "fill in the Account ID setting first" in r["message"]
     assert len(fakes.http.calls) == 1
+
+
+def test_every_library_service_has_a_website_and_rows_serve_it(fakes):
+    lib = services.load_library()
+    assert all(s["website"].startswith("https://") for s in lib.values())
+    rows = {r["name"]: r for r in ops.list_global()}
+    assert rows["sentry"]["website"] == "https://sentry.io/settings/account/api/auth-tokens/"
+    assert rows["claude"]["website"] == ""
+
+
+def test_testing_the_saved_key_stores_the_result(fakes):
+    ops.connect("supabase", {"SUPABASE_ACCESS_TOKEN": SENTINEL}, who="cli")
+    fakes.http.script("GET", CHECK_URL, 401)
+    assert ops.test("supabase", who="cli")["ok"] is False
+    assert services.read_registry()["supabase"]["checked"] == "failed: HTTP 401"
+    fakes.http.script("GET", CHECK_URL, 200, body=b"[]")
+    ops.test("supabase", who="cli")
+    entry = services.read_registry()["supabase"]
+    assert entry["checked"] == "ok" and entry["checked_at"]
+
+
+def test_testing_a_pasted_key_saves_nothing(fakes):
+    ops.connect("supabase", {"SUPABASE_ACCESS_TOKEN": SENTINEL}, who="cli")
+    fakes.http.script("GET", CHECK_URL, 401)
+    ops.test("supabase", {"SUPABASE_ACCESS_TOKEN": "other"}, who="cli")
+    assert services.read_registry()["supabase"]["checked"] == "ok"

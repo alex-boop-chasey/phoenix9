@@ -476,6 +476,8 @@ export interface ServiceStatus {
   name: string
   title: string
   description?: string
+  /** Page where the service's key is made. */
+  website?: string
   support?: "store-and-wire" | "keys-only"
   connected: boolean
   /** Shown instead of a badge, e.g. "no account connection needed". */

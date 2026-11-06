@@ -2,6 +2,7 @@ name = "cloudflare"
 title = "Cloudflare"
 description = "DNS, Pages and Workers hosting."
 support = "store-and-wire"
+website = "https://dash.cloudflare.com/profile/api-tokens"
 docs = "https://developers.cloudflare.com/api/"
 account_keys = ["CLOUDFLARE_API_TOKEN"]
 # No hosts: account calls go only through the key proxy. A wrangler deploy from inside a step container will

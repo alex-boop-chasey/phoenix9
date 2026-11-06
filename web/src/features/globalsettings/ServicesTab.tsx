@@ -42,12 +42,15 @@ function Row({ s, onConfigure, onDisconnect }: { s: ServiceStatus; onConfigure: 
       <div className="lacts">
         {!keysOnly && s.endpoints?.connect && (
           <>
-            <button type="button" className="btn btn-secondary btn-sm" aria-label={`Configure ${name}`} onClick={onConfigure}>
-              <Icon name="sliders-horizontal" />Configure
+            <button type="button" className={`btn btn-sm ${s.connected ? "btn-secondary" : "btn-primary"}`}
+              aria-label={`${s.connected ? "Configure" : "Connect"} ${name}`} onClick={onConfigure}>
+              {s.connected ? <><Icon name="sliders-horizontal" />Configure</> : "Connect"}
             </button>
-            {s.connected
-              ? <button type="button" className="btn btn-ghost btn-sm" aria-label={`Disconnect ${name}`} onClick={onDisconnect}>Disconnect</button>
-              : <button type="button" className="btn btn-primary btn-sm" aria-label={`Connect ${name}`} onClick={onConfigure}>Connect</button>}
+            {s.website && (
+              <a className="btn btn-ghost btn-sm" href={s.website} target="_blank" rel="noopener noreferrer"
+                aria-label={`${name} website`}>Website</a>
+            )}
+            {s.connected && <button type="button" className="btn btn-ghost btn-sm" aria-label={`Disconnect ${name}`} onClick={onDisconnect}>Disconnect</button>}
           </>
         )}
       </div>

@@ -3,6 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
+from phoenix9 import status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -114,33 +115,11 @@ def start_from_notes(project: str, spec: str | None = None, brief: str | None = 
         temp.unlink(missing_ok=True)
 
 
-def carrying_on(st: dict, open_gate_runs) -> bool:
-    """True when the run still says waiting but none of its questions is open any more (all answered)."""
-    return st.get("status") == "waiting" and st.get("run_id") not in open_gate_runs
-
-
-def with_answers_applied(st: dict, open_gate_runs) -> dict:
-    """The state as Alex should see it: a waiting run whose questions are all answered shows as running.
-
-    Waiting steps and tasks of such a run show as running too, marked `answered`; the runner still
-    changes the real state later."""
-    if not carrying_on(st, open_gate_runs):
-        return st
-    mark = lambda x: {**x, "status": "running", "answered": True} if x.get("status") == "waiting" else x
-    out = {**st, "status": "running", "carrying_on": True}
-    if "steps" in st:
-        out["steps"] = [mark(x) for x in st["steps"]]
-    if "tasks" in st:
-        out["tasks"] = {k: mark(v) for k, v in st["tasks"].items()}
-    return out
-
-
 def status(run_id: str) -> dict:
     """The run's state plus its open questions and last few events."""
     folder = _run_folder(run_id)
-    st = state.load(folder)
-    open_gates = [g for g in gates_core.list_gates(st["project"]) if g["run"] == run_id]
-    st = with_answers_applied(st, {g["run"] for g in open_gates})
+    open_gates = [g for g in gates_core.run_gates(folder) if g["state"] == "open"]
+    st = status_core.seen_run(state.load(folder), {g["id"] for g in open_gates})
     return {**st, "gates": open_gates, "recent_events": events.tail(folder / "events.jsonl", 5)}
 
 
@@ -148,9 +127,8 @@ def list_(project: str | None = None) -> list:
     """Summaries of runs (one project or all), newest first."""
     if project:
         common.project_dir(project)
-    waiting_for = {g["run"] for g in gates_core.list_gates(project)}
-    return [{**r, "status": "running", "carrying_on": True} if carrying_on(r, waiting_for) else r
-            for r in core.list_runs(project)]
+    open_ids = {g["id"] for g in gates_core.list_gates(project)}
+    return [status_core.seen_run(r, open_ids) for r in core.list_runs(project)]
 
 
 def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:

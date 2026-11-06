@@ -31,7 +31,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `needs_you`, `run`, `repo_url` like rows) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
@@ -39,7 +39,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
-| GET | `/api/gates?project=` | `ops.gates.list_` | | list of gate objects (architecture section 7) | 404 |
+| GET | `/api/gates?project=` | `ops.gates.list_` | | the open questions only (`gates.is_open`), as gate objects (architecture section 8) plus `state: "open"` | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |
 | GET | `/api/library/presets` | `ops.library.presets` | | `{presets: [{name, title, has_file, description, steps}]}` (`title` and `description` come from the preset file; `steps` = `{step: on}` the preset file sets; the wizard needs it because a project's own `steps.<name>.on` sits above the preset layer in `/plan`) | |
@@ -97,15 +97,24 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 environment id is known: the page then shows "Start chat" only if the chat is on; new and imported projects get no chat service, so a project whose chat is off shows no chat button; the id is read from the journal of `claude-rc@<name>`
 since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
 `vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
-`harness` (a string: "idle" | "queued" | "running task N of M" | "needs you"), `has_phoenix_toml`;
-plus:
+`harness` (the harness column in words, from `status.project_state`: "idle" | "queued" | "running task N of M" |
+"running" | "paused (usage limit)" | "needs you"), `has_phoenix_toml`;
+plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI
+command and dashboard display reads these fields; nothing else works them out again):
 - `repo_url`: `https://github.com/<owner>/<name>` when `repo_owner` is set, else null.
-- `needs_you`: number of open gates of the project.
-- `run`: `{run_id, status, task, tasks}` of the newest run that is queued, running, waiting or
-  paused-limit (`task` = `current.task`, `tasks` = total), else null.
-- `last_build_failed`: true when the newest finished run (done, failed or stopped) failed. A project's state
-  is `need` (open gate or waiting run), else `run` (queued or running), else `fail` (paused at a limit, or
-  `last_build_failed` with nothing active), else `idle`. Shown as "Last build failed".
+- `needs_you`: number of open questions of the project; `questions`: their gate ids. A question is open only
+  when it has no answer file, its run is not done/failed/stopped, and the run waits on it (`gates.is_open`).
+- `run`: the current build `{run_id, status, task, tasks, carrying_on, why, now}`, else null. It is the run
+  with an open question, else the newest running, paused-limit, waiting (carrying on) or queued run.
+  `status` is as Alex should see it (a waiting run whose questions are all answered reads `running` with
+  `carrying_on: true`); `task` = `current.task` (while running: the first task not passed yet);
+  `why` = why it is the current build; `now` = the "Now: ..." line of the Current build card.
+- `last_build_failed`: true when the newest finished run (done, failed or stopped) failed.
+- `activity`: `need` (an open question), else `fail` (paused at a limit), else `run` (any current build),
+  else `fail` (`last_build_failed`), else `idle`.
+- `status_line`: the sidebar line ("1 question waiting", "Building, task 2 of 4", "Build queued", "Paused at a
+  limit", "Last build failed", "Idle, used 3h ago"); `run_text`: the Projects page words ("Running task 2 of 4",
+  "Queued", "Paused (usage limit)", "Idle").
 
 `vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
 

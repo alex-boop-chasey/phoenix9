@@ -15,7 +15,7 @@ export function StateBadge({ row }: { row: ProjectRow }) {
   if (state === "need") return <span className="badge b-need"><Icon name="bell-ringing" />Needs you</span>
   if (state === "run") return <span className="badge b-run"><Wheel />{runText(row)}</span>
   if (state === "fail") {
-    return <span className="badge b-bad"><Icon name="x-circle" />{row.run?.status === "paused-limit" ? "Paused (usage limit)" : "Last build failed"}</span>
+    return <span className="badge b-bad"><Icon name="x-circle" />{row.run ? row.run_text : row.status_line}</span>
   }
   return <span className="badge b-info"><Icon name="circle-dashed" />Idle</span>
 }

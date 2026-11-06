@@ -73,7 +73,8 @@ describe("OverviewTab", () => {
   })
 
   it("waiting merge shows an orange bar piece and the Now line", async () => {
-    const run = { run_id: "r1", status: "waiting", task: null, tasks: 2 }
+    const run = { run_id: "r1", status: "waiting", task: null, tasks: 2, carrying_on: false,
+      why: "It is waiting for your answer.", now: "Now: the merge step is waiting for you." }
     const base = projects.find((p) => p.name === "demo-site")!
     mockApi(routes("demo-site", {
       "GET /api/gates": [],

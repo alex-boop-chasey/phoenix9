@@ -728,20 +728,9 @@ def last_used(name: str, now: float):
 
 
 def harness_status(name: str) -> str:
-    """idle, 'running task N of M', 'needs you' (open gate) or queued, from the newest run."""
-    if gates.list_gates(name):
-        return "needs you"
-    found = runs.list_runs(name)
-    if not found:
-        return "idle"
-    newest = found[0]
-    if newest["status"] == "queued":
-        return "queued"
-    if newest["status"] == "running":
-        current = (newest.get("current") or {}).get("task")
-        number = current if current else newest["tasks_passed"] + 1
-        return f"running task {number} of {newest['tasks_total']}"
-    return "idle"
+    """The harness column in words (idle, queued, 'running task N of M', 'needs you', ...), from status.project_state."""
+    from phoenix9 import status
+    return status.project_state(name)["harness"]
 
 
 # ----------------------------------------------------------------------------- info and list

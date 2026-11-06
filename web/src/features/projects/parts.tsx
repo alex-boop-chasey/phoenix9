@@ -64,7 +64,7 @@ export function StatusCell({ row, className }: { row: ProjectRow; className?: st
         />
         {on ? "Chat on" : "Chat off"}
       </span>
-      {row.needs_you > 0 ? <NeedsYouBadge row={row} /> : <span className="text-muted-foreground">{runText(row)}</span>}
+      {row.activity === "need" ? <NeedsYouBadge row={row} /> : <span className="text-muted-foreground">{runText(row)}</span>}
     </div>
   )
 }

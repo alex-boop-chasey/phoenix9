@@ -579,6 +579,16 @@ Done when:
   returns "waiting" and the service loop drives the run again when `current.gate` is answered
   (an answer written while the runner was down is acted on the same way). `phoenix run stop` on a
   waiting run ends it; a later answer is ignored.
+- **One truth (2026-11-06).** A question is *open* only when (a) it has no answer file, (b) its run is not
+  `done | failed | stopped`, and (c) the run waits on it: `current.gate`, a task's `gate` or a `waiting`
+  step line holding it, or (a waiting run that holds nothing, after a crash) the run's newest unanswered
+  gate, which `runner.adopt_gate` takes. This rule is `gates.is_open`, used by `gates.list_gates`; listed
+  gates carry `state: open | answered | closed`. What a project is doing now (current build and why, open
+  questions, `needs_you`, `activity` need/run/fail/idle, `last_build_failed`, the plain lines) is worked
+  out once, by `phoenix9/status.py` `project_state`; the API rows, `phoenix gate list`, `phoenix run
+  status`, `phoenix project list`/`show` (harness) and every dashboard display (sidebar, Projects rows,
+  Overview, header bell, tab badge, Current build card) read its fields and never re-derive them. The
+  "answered, carrying on" view of a waiting run whose questions are all answered is `status.seen_run`.
 - Answer file `gates/<gate-id>.answer.json`: `{action, note, who, at}`. Written only by
   `gates.answer()` (CLI `phoenix gate answer`, API, Home chat through the CLI). The runner polls for it.
   Gate ids: `<run-id>.<n>`.

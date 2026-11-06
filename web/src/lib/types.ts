@@ -22,12 +22,22 @@ export interface Info {
   services: { supported: boolean }
 }
 
+/** A project's current build, as the backend (phoenix9/status.py) worked it out. */
 export interface ActiveRun {
   run_id: string
   status: RunStatus
   task: number | null
   tasks: number
+  /** Every question is answered; the runner has not moved on yet. */
+  carrying_on?: boolean
+  /** Why this run is the current build, in plain words. */
+  why?: string
+  /** The "Now: ..." line for the Current build card. */
+  now?: string
 }
+
+/** A project's state in one word, decided by the backend: needs you, running, failed or idle. */
+export type Activity = "need" | "run" | "fail" | "idle"
 
 export interface ProjectRow {
   name: string
@@ -50,8 +60,15 @@ export interface ProjectRow {
   has_phoenix_toml: boolean
   repo_url: string | null
   needs_you: number
+  /** The ids of the open questions (the backend's one rule decides what is open). */
+  questions: string[]
   run: ActiveRun | null
   last_build_failed: boolean
+  activity: Activity
+  /** One plain line for the sidebar ("1 question waiting", "Building, task 2 of 4", ...). */
+  status_line: string
+  /** The Projects page words for the current build ("Running task 2 of 4", "Idle", ...). */
+  run_text: string
 }
 
 export interface ChangelogLine {

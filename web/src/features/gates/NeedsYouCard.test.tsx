@@ -114,8 +114,9 @@ describe("NeedsYouCard", () => {
     renderWithProviders(<NeedsYouCard gate={{ ...escalation, flags: ["delegated to project chat"] }} />)
     const names = screen.getAllByRole("button").map((b) => b.textContent)
     expect(names).toEqual(["Acknowledged", "Skip task", "Stop run"])
-    expect(screen.getByText(/Fix it \(for example with the project's chat\)/)).toBeInTheDocument()
-    expect(screen.getByText(/The project's chat is working on it/)).toBeInTheDocument()
+    expect(screen.getByText("Fix it, then press Acknowledged; the task runs once more.")).toBeInTheDocument()
+    expect(screen.queryByText(/project's chat/)).toBeNull()
+    expect(screen.getByText(/A Claude session in the project's folder is working on it/)).toBeInTheDocument()
   })
 
   it("acknowledged posts acknowledged", async () => {

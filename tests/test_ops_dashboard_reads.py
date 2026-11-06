@@ -14,8 +14,8 @@ from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_o
 
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
 ROW_KEYS = {"name", "description", "path", "repo", "repo_owner", "repo_name", "profile", "services", "size",
-            "chat", "vscode_url", "vscode", "state", "chats", "last_used", "last_used_at", "harness", "has_phoenix_toml",
-            "repo_url", "needs_you", "run", "last_build_failed"}
+            "vscode_url", "vscode", "last_used", "last_used_at", "harness", "has_phoenix_toml",
+            "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text", "worker"}
 
 
 @pytest.fixture
@@ -254,6 +254,9 @@ def test_state_failed_then_passed_later_is_idle(env):
 
 
 def test_state_failed_but_new_run_running_is_run(env):
+    import time
+    from phoenix9 import heartbeat
+    heartbeat.write(time.time())          # the runner is alive (A6: no heartbeat = worker not responding)
     make(env)
     _finish(queue_run(env), "failed")
     newer = queue_run(env)
@@ -272,12 +275,12 @@ def test_state_failed_and_gate_open_is_need(env):
 
 def test_answered_waiting_run_shows_as_running(tmp_path):
     """A waiting run with no open question left shows as running (carrying on) without the runner."""
-    from phoenix9.ops import runs as ops_runs
     st = {"run_id": "r1", "status": "waiting", "steps": [{"step": "merge", "status": "waiting"}],
           "tasks": {"1": {"status": "waiting"}, "2": {"status": "passed"}}}
-    asking = ops_runs.with_answers_applied(st, {"r1"})
+    from phoenix9 import status
+    asking = status.seen_run(st, {"r1.1"})
     assert asking["status"] == "waiting"
-    out = ops_runs.with_answers_applied(st, set())
+    out = status.seen_run(st, set())
     assert out["status"] == "running" and out["carrying_on"] is True
     assert out["steps"][0]["status"] == "running" and out["steps"][0]["answered"] is True
     assert out["tasks"]["1"]["answered"] is True and out["tasks"]["2"]["status"] == "passed"

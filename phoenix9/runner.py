@@ -31,7 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import reports, runs as runs_mod, summary
+from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod, stepproxy
@@ -85,18 +85,36 @@ class Runner:
         """Remember the adapters and load the step library."""
         self.adapters = adapters
         self.lib: Library = load_library(Path(lib_root))
+        self._ending = False
 
     # ------------------------------------------------------------------ the whole run
     def drive(self, run_dir) -> str:
-        """Run (or continue) one run until it is done, failed, stopped or waiting; return its status."""
+        """Run (or continue) one run until it is done, failed, stopped or waiting; return its status.
+
+        The run lock is held the whole time, so a stop from outside cannot change the run under the
+        walk (it leaves a stop request instead). When someone else holds the lock, nothing is done."""
         run_dir = Path(run_dir)
+        held = runend.lock(run_dir)
+        try:
+            held.__enter__()
+        except TimeoutError:
+            return state.load(run_dir)["status"]
+        try:
+            return self._drive(run_dir)
+        finally:
+            held.__exit__()
+
+    def _drive(self, run_dir: Path) -> str:
         st = state.load(run_dir)
         if st["status"] in FINAL:
             return st["status"]
+        asked = runend.stop_requested(run_dir)
+        if asked is not None:
+            return self._end(run_dir, "stopped", who=asked.get("who") or "cli")
         if st["status"] == "waiting":
-            gate_id = (st.get("current") or {}).get("gate") or adopt_gate(run_dir)
+            gate_id = (st.get("current") or {}).get("gate") or _adopt_gate_held(run_dir)
             if gate_id and gates.current_answer(run_dir) is None:
-                self.check_waiting(run_dir)
+                self._check_waiting_held(run_dir)
                 return "waiting"
         state.set_status(run_dir, "running")
         project, run_id = st["project"], st["run_id"]
@@ -105,54 +123,100 @@ class Runner:
         except Exception as err:  # bad settings or an impossible plan end the run, they do not crash it
             return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
         things = atomic.read_json(run_dir / "things.json", {})
+        try:
+            return self._walk_to_end(run_dir, setup, things, project, run_id)
+        except runend.StopRequested as asked:     # a stop from outside, seen at a boundary
+            return self._stop(run_dir, setup, things, who=asked.who)
+        except runend.RunEnded as ended:          # someone else ended it: leave it exactly as it is
+            return ended.status
+
+    def _walk_to_end(self, run_dir: Path, setup: dict, things: dict, project: str, run_id: str) -> str:
+        """Walk until the run waits or ends; re-reads the run before finishing (runend.check)."""
         while True:
             try:
                 outcome = self._walk(run_dir, setup, things)
             except RunFailed as err:
+                runend.check(run_dir)
                 self._skip_all(run_dir, state.load(run_dir))
                 return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
             if outcome != "waiting" or gates.current_answer(run_dir) is None:
                 break
+            runend.check(run_dir)
             state.set_status(run_dir, "running")   # answered at once (e.g. by the project chat)
         if outcome == "waiting":
-            self.check_waiting(run_dir)
+            self._check_waiting_held(run_dir)
             return "waiting"
         if outcome == "stopped":
             return self._stop(run_dir, setup, things)
+        runend.check(run_dir)
         return self._finish(run_dir, project, run_id, "failed" if outcome == "failed" else "done")
 
+    def stop_now(self, run_dir, who: str = "cli", wait: float = runend.LOCK_WAIT_S) -> dict:
+        """Stop a run the runner is not walking, the same clean way as a `stop` answer, under the run lock.
+        Raises TimeoutError when the lock is busy (the runner is walking it: leave a stop request)."""
+        run_dir = Path(run_dir)
+        with runend.lock(run_dir, wait=wait):
+            st = state.load(run_dir)
+            if st["status"] in FINAL:
+                return {"status": st["status"], "notes": []}
+            return self._end_run(run_dir, "stopped", who=who)
+
     def check_waiting(self, run_dir) -> None:
-        """Called for a waiting run with no answer yet (here and by the service loop each round).
-        A waiting run holding no gate (a crash right after a gate was opened) adopts it first."""
-        if not (state.load(Path(run_dir)).get("current") or {}).get("gate"):
-            adopt_gate(run_dir)
+        """The service loop's look at a waiting run with no answer yet. It takes the run lock without
+        waiting and skips the run when the lock is busy (someone is ending or walking it right now)."""
+        try:
+            with runend.lock(run_dir, wait=0):
+                self._check_waiting_held(run_dir)
+        except TimeoutError:
+            return
+
+    def _check_waiting_held(self, run_dir) -> None:
+        """check_waiting for a caller that already holds the run lock. A waiting run holding no gate
+        (a crash right after a gate was opened) adopts it first; an ended run is left alone."""
+        st = state.load(Path(run_dir))
+        if st.get("status") != "waiting":
+            return
+        if not (st.get("current") or {}).get("gate"):
+            _adopt_gate_held(run_dir)
         failmodes.watch_delegate(self, Path(run_dir))
 
-    def _finish(self, run_dir: Path, project: str, run_id: str, status: str, reason: str = "") -> str:
-        """Set the final run status and emit run.finished."""
-        state.set_status(run_dir, status)
-        data = {"reason": reason} if reason else {}
-        events.emit("run.finished", project=project, run=run_id, status=status, **data)
-        summary.refresh(run_dir, self.lib.root)   # a summary written mid-run gets its final status
-        return status
+    def _end_run(self, run_dir: Path, status: str, reason: str = "", who: str = "phoenix",
+                 setup: dict | None = None, things: dict | None = None) -> dict:
+        """End the run through runend.end_run; a stop still runs the finish steps marked `after_stop`."""
+        def after_stop():
+            nonlocal setup, things
+            if setup is None:
+                if atomic.read_json(run_dir / "plan.json") is None:
+                    return                     # never started: no finish steps to run
+                st = state.load(run_dir)
+                try:
+                    setup = self._setup(run_dir, st["project"], st["run_id"])
+                except Exception:              # noqa: BLE001 - a broken setup must not block the stop
+                    return
+            if things is None:
+                things = atomic.read_json(run_dir / "things.json", {})
+            self._ending = True
+            try:
+                for name in setup["plan"]["groups"]["run-finish"]:
+                    if self._step_settings(setup, name).get("after_stop"):
+                        self._do_step(run_dir, setup, things, "run-finish", name, None)
+            finally:
+                self._ending = False
+        return runend.end_run(run_dir, status, reason=reason, who=who, adapters=self.adapters,
+                              after_stop=after_stop, lib_root=self.lib.root)
 
-    def _stop(self, run_dir: Path, setup: dict, things: dict) -> str:
-        """Alex answered stop: unfinished tasks are skipped, only finish steps marked
-        `after_stop = true` (Notify) still run, and the run ends `stopped`."""
-        def change(s):
-            for t in s["tasks"].values():
-                if t["status"] not in TASK_FINAL:
-                    t.update(status="skipped", gate=None, note=t.get("note") or "the run was stopped")
-            for line in s["steps"]:
-                if line["status"] in ("waiting", "running", "pending"):
-                    line.update(status="skipped", finished=line.get("finished") or state.now())
-            s["current"]["gate"] = None
-        st = state.update(run_dir, change)
-        for name in setup["plan"]["groups"]["run-finish"]:
-            if self._step_settings(setup, name).get("after_stop"):
-                self._do_step(run_dir, setup, things, "run-finish", name, None)
-        notes = runs_mod.discard_branch(self.adapters, st["project"], st["run_id"])
-        return self._finish(run_dir, st["project"], st["run_id"], "stopped", "; ".join(notes))
+    def _end(self, run_dir: Path, status: str, reason: str = "", who: str = "phoenix",
+             setup: dict | None = None, things: dict | None = None) -> str:
+        return self._end_run(run_dir, status, reason, who, setup, things)["status"]
+
+    def _finish(self, run_dir: Path, project: str, run_id: str, status: str, reason: str = "") -> str:
+        """End the run done or failed (runend.end_run never changes a run that already ended)."""
+        return self._end(run_dir, status, reason)
+
+    def _stop(self, run_dir: Path, setup: dict, things: dict, who: str = "phoenix") -> str:
+        """Alex answered stop (or asked for a stop): unfinished tasks are skipped, only finish steps marked
+        `after_stop = true` (Notify) still run, the branch is discarded, and the run ends `stopped`."""
+        return self._end(run_dir, "stopped", who=who, setup=setup, things=things)
 
     def _setup(self, run_dir: Path, project: str, run_id: str) -> dict:
         """Load (or, on first drive, make and save) the frozen settings and the plan."""
@@ -172,9 +236,18 @@ class Runner:
         if not profile_name and any(r.get("kind") == "ai" for r in plan.get("steps", [])):
             raise RunFailed(settings.no_profile_message(project))   # an AI step would launch docker with no image
         profile = settings.load_profile(self.lib.root, profile_name) if profile_name else {}
+        self._record_image(run_dir, profile.get("image") or "")
         info = ProjectInfo(name=project, dir=project_dir, code_dir=project_dir / "code",
                            settings=values, profile=profile)
         return {"settings": values, "plan": plan, "project": info}
+
+    def _record_image(self, run_dir: Path, tag: str) -> None:
+        """Remember the exact image id the run uses, once, at its first drive (a later rebuild never changes it)."""
+        if not tag or "image" in state.load(run_dir):
+            return
+        find = getattr(self.adapters.docker, "image_id", None)
+        image_id = find(tag) if find else ""
+        state.update(run_dir, lambda s: s.setdefault("image", {"tag": tag, "id": image_id}))
 
     @staticmethod
     def _step_settings(setup: dict, name: str) -> dict:
@@ -229,6 +302,7 @@ class Runner:
                     why=(hold.hold_info() or {}).get("why", ""))
         while hold.hold_requested():
             self.adapters.clock.sleep(5)
+            heartbeat.mark_progress()               # held for an update: waiting on purpose, not hung
         state.update(run_dir, lambda s: s.setdefault("current", {}).__setitem__("held", False))
 
     def _skip_all(self, run_dir: Path, st: dict) -> None:
@@ -372,7 +446,11 @@ class Runner:
     # ------------------------------------------------------------------ one step
     def _do_step(self, run_dir: Path, setup: dict, things: dict, group: str, name: str,
                  task: dict | None, attempt: int | None = None) -> Outcome:
-        """Run one step (or act on the answer to the gate it opened) with its state line and events."""
+        """Run one step (or act on the answer to the gate it opened) with its state line and events.
+        Every step start is a boundary: an ended run or a stop request stops the walk (runend.check)."""
+        if not self._ending:
+            runend.check(run_dir)
+        heartbeat.mark_progress()                   # a step starting is the loop moving
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
         number = task["number"] if task else None
@@ -397,6 +475,7 @@ class Runner:
         result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
             return self._open_step_gate(run_dir, index, step, number, result)
+        heartbeat.mark_progress()                   # ...and so is it ending
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
         return Outcome(status, list(result.reasons))
@@ -572,8 +651,14 @@ class Runner:
 def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -> dict:
     """Open a gate (gates.open_gate takes `fields`) and, in ONE state update, record who holds it:
     holder ("task", n) sets the task's `gate`; ("line", index) sets that step line's `gate` and
-    status waiting. `extra` fields go onto the holder too. current.gate is set either way."""
-    gate = gates.open_gate(run_dir, **fields)
+    status waiting. `extra` fields go onto the holder too. current.gate is set either way.
+    Opening a gate is a boundary: an ended run or a stop request stops here, before anything is
+    written (runend.check)."""
+    runend.check(run_dir)
+    try:
+        gate = gates.open_gate(run_dir, **fields)
+    except gates.RunHasEnded:
+        raise runend.RunEnded(state.load(Path(run_dir))["status"]) from None
 
     def change(s):
         if holder[0] == "task":
@@ -588,9 +673,19 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
 
 
 def adopt_gate(run_dir) -> str | None:
+    """adopt_gate under the run lock, taken without waiting: None (nothing adopted) when the lock is busy."""
+    try:
+        with runend.lock(run_dir, wait=0):
+            return _adopt_gate_held(run_dir)
+    except TimeoutError:
+        return None
+
+
+def _adopt_gate_held(run_dir) -> str | None:
     """A waiting run whose current.gate is empty (a crash right after the gate file was written):
     take the newest unanswered gate in gates/ and hold it again, by its task or (when the gate names
-    a step) by that step's latest line. Returns the gate id, or None when there is none."""
+    a step) by that step's latest line. Returns the gate id, or None when there is none. The caller
+    holds the run lock; a run that is no longer waiting (it ended) is never changed."""
     run_dir = Path(run_dir)
     found = []
     for f in (run_dir / "gates").glob("*.json"):
@@ -602,8 +697,12 @@ def adopt_gate(run_dir) -> str | None:
     if not found:
         return None
     gate = max(found, key=lambda x: x[0])[1]
+    adopted = []
 
     def change(s):
+        if s["status"] != "waiting":       # ended (or moving on) since we looked: leave it as it is
+            return
+        adopted.append(gate["id"])
         if gate.get("step"):
             index = max((i for i, x in enumerate(s["steps"])
                          if x["step"] == gate["step"] and x["task"] == gate.get("task")), default=None)
@@ -615,7 +714,7 @@ def adopt_gate(run_dir) -> str | None:
             s["current"]["task"] = gate["task"]
         s["current"]["gate"] = gate["id"]
     state.update(run_dir, change)
-    return gate["id"]
+    return adopted[0] if adopted else None
 
 
 def _ctx_answer(line: dict | None) -> dict | None:

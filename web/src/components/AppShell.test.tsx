@@ -10,10 +10,10 @@ afterEach(() => vi.unstubAllGlobals())
 
 const withUpdate = (over: Partial<typeof info.update>) => ({ ...info, update: { ...info.update, ...over } })
 
-function setup(opts: { info?: unknown; gates?: unknown[]; route?: string } = {}) {
+function setup(opts: { info?: unknown; gates?: unknown[]; route?: string; projects?: unknown[] } = {}) {
   mockApi({
     "GET /api/info": opts.info ?? info,
-    "GET /api/projects": projects,
+    "GET /api/projects": opts.projects ?? projects,
     "GET /api/gates": opts.gates ?? [],
     "GET /api/events/recent": { events: [], next: 0 },
   })
@@ -74,7 +74,7 @@ test("switcher has See all, New project and Style reference links", async () => 
   expect(within(nav).getByRole("link", { name: "Style reference" })).toHaveAttribute("href", "/styles")
 })
 
-test("bell shows the number of open gates and links to the first project needing you", async () => {
+test("bell shows the backend's needs-you count and links to the first project needing you", async () => {
   setup({ gates: [gate, { ...gate, id: "x.2", project: "phoenix9" }] })
   const bell = await screen.findByRole("link", { name: /Needs you: 2 questions waiting/ })
   expect(screen.getByTestId("bell-count")).toHaveTextContent("2")
@@ -82,7 +82,7 @@ test("bell shows the number of open gates and links to the first project needing
 })
 
 test("bell has no count when nothing needs you", async () => {
-  setup()
+  setup({ projects: projects.map((p) => ({ ...p, needs_you: 0, questions: [], activity: "idle" })) })
   await screen.findByText("0.9.0")
   expect(screen.queryByTestId("bell-count")).toBeNull()
 })

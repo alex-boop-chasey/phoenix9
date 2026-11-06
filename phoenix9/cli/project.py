@@ -1,4 +1,4 @@
-"""Commands for `phoenix project`: list, show, edit, open, close, set-chat, new, templates, keys and services."""
+"""Commands for `phoenix project`: list, show, edit, remove, import, check-files, new, templates, keys and services."""
 import sys
 
 from phoenix9 import project_services
@@ -26,14 +26,6 @@ def add(sub, common) -> None:
     p.add_argument("--profile")
     p.add_argument("--repo", metavar="O/N")
     p.set_defaults(func=edit_)
-    p = group.add_parser("open", parents=[common], help="switch the project's chat on")
-    p.add_argument("name")
-    p.set_defaults(func=open_)
-    p = group.add_parser("close", parents=[common], help="switch the project's chat off")
-    p.add_argument("name")
-    p.add_argument("--force", action="store_true", help="close even home or a project with chats open")
-    p.add_argument("--yes", action="store_true", help="really switch it off")
-    p.set_defaults(func=close_)
     p = group.add_parser("remove", parents=[common], help="take a project off Phoenix's list (keeps every file)")
     p.add_argument("name")
     p.add_argument("--yes", action="store_true", help="really remove it")
@@ -46,10 +38,6 @@ def add(sub, common) -> None:
     p.add_argument("name", nargs="?", metavar="NAME")
     p.add_argument("--all", action="store_true", help="check every project")
     p.set_defaults(func=check_files_)
-    p = group.add_parser("set-chat", parents=[common], help="save the chat link (https://claude.ai/code/<id>)")
-    p.add_argument("name")
-    p.add_argument("url")
-    p.set_defaults(func=set_chat_)
     p = group.add_parser("new", parents=[common], help="create a project")
     p.add_argument("name")
     p.add_argument("--description", default="", metavar="TEXT")
@@ -95,21 +83,19 @@ def list_(args) -> int:
         found = r["top"] + r["rest"]
     else:
         found = projects.list()
-    text = table([[p["name"], p["state"], p["chats"], p["harness"], _size(p["size"]), p["last_used"]] for p in found],
-                 ["project", "state", "chats", "harness", "size", "last used"]) if found else ("No projects match." if filtered else "No projects yet.")
+    text = table([[p["name"], p["harness"], _size(p["size"]), p["last_used"]] for p in found],
+                 ["project", "harness", "size", "last used"]) if found else ("No projects match." if filtered else "No projects yet.")
     return show(args, found if not filtered or not args.json else r, text)
 
 
 def show_(args) -> int:
     """Show one project."""
     p = projects.show(args.name)
-    chat = p["chat"]
     lines = [p["name"], f"  path: {p['path']}", f"  about: {p['description'] or '(none)'}",
              f"  repo: {p['repo'] or '(none)'}", f"  profile: {p['profile'] or '(none)'}",
              f"  services: {', '.join(p['services']) or '(none)'}", f"  size: {_size(p['size'])}",
-             f"  chat server: {p['state']} ({p['chats']} chats open), last used {p['last_used']}",
-             f"  chat link: {chat['url'] or '(none yet)'}", f"  harness: {p['harness']}",
-             f"  VS Code: {p['vscode_url']}"]
+             f"  last used: {p['last_used']}", f"  harness: {p['harness']}",
+             f"  VS Code: {p['vscode_url'] or (p.get('vscode') or {}).get('reason') or 'not set'}"]
     if p["gates"]:
         lines += ["  needs you:"] + [f"    {g['id']}: {g['title']}" for g in p["gates"]]
     if p["changelog"]:
@@ -123,26 +109,10 @@ def edit_(args) -> int:
     return show(args, r, f"Changed {', '.join(r['changed'])} for {args.name}.")
 
 
-def open_(args) -> int:
-    """Switch a project's chat on."""
-    r = projects.open_(args.name, args.who)
-    return show(args, r, f"{args.name} is already on." if r["already"] else
-                f"{args.name} is on. It shows up in the Claude app in a few seconds; start a chat there.")
-
-
-def close_(args) -> int:
-    """Switch a project's chat off (needs --yes)."""
-    if not args.yes:
-        return problem(args, f"This switches {args.name}'s chat off. Run it again with --yes to do it.")
-    r = projects.close(args.name, args.who, args.force)
-    return show(args, r, f"{args.name} is already off." if r["already"] else
-                f"{args.name} is off. It won't start at boot; phoenix project open {args.name} turns it back on.")
-
-
 def remove_(args) -> int:
     """Remove a project from Phoenix (needs --yes); nothing is deleted."""
     if not args.yes:
-        return problem(args, f"This takes {args.name} off Phoenix's list and out of the Claude app. "
+        return problem(args, f"This takes {args.name} off Phoenix's list. "
                              "Its files stay. Run it again with --yes to do it.")
     r = projects.remove(args.name, args.who)
     return show(args, r, f"Removed {args.name} from Phoenix. {r['kept']} "
@@ -157,7 +127,7 @@ def import_(args) -> int:
                 for c in found]
         return show(args, found, table(rows, ["name", "path", "repo", "status"]) if rows else "Nothing to import.")
     r = projects.import_(args.target, args.who)
-    return show(args, r, f"Imported {r['name']}. Its chat is on and shows up in the Claude app in a few seconds.")
+    return show(args, r, f"Imported {r['name']}. It is back on Phoenix's list.")
 
 
 def check_files_(args) -> int:
@@ -167,12 +137,6 @@ def check_files_(args) -> int:
     results = projects.check_files(None if args.all else args.name, args.who)
     lines = [f"{r['name']}: " + ("added " + ", ".join(r["added"]) if r["added"] else "nothing missing") for r in results]
     return show(args, results, "\n".join(lines) if lines else "No projects.")
-
-
-def set_chat_(args) -> int:
-    """Save the project's chat link."""
-    r = projects.set_chat(args.name, args.url, args.who)
-    return show(args, r, f"Saved the chat link for {args.name}.")
 
 
 def new_(args) -> int:

@@ -73,7 +73,8 @@ describe("OverviewTab", () => {
   })
 
   it("waiting merge shows an orange bar piece and the Now line", async () => {
-    const run = { run_id: "r1", status: "waiting", task: null, tasks: 2 }
+    const run = { run_id: "r1", status: "waiting", task: null, tasks: 2, carrying_on: false,
+      why: "It is waiting for your answer.", now: "Now: the merge step is waiting for you." }
     const base = projects.find((p) => p.name === "demo-site")!
     mockApi(routes("demo-site", {
       "GET /api/gates": [],
@@ -88,6 +89,16 @@ describe("OverviewTab", () => {
     expect(container.querySelectorAll(".tbar i.need")).toHaveLength(1)
   })
 
+  it("a run whose runner stopped checking in says Worker not responding", async () => {
+    const base = projects.find((p) => p.name === "tiny-tool")!
+    const run = { ...base.run!, worker: "not responding" as const,
+      why: "It says running, but Phoenix's runner has not checked in for over 2 minutes.",
+      now: "Now: worker not responding. Phoenix's runner has not checked in for over 2 minutes." }
+    mockApi(routes("tiny-tool", { "GET /api/gates": [], "GET /api/projects/tiny-tool": { ...base, run, worker: "not responding" } }))
+    renderWithProviders(<OverviewTab name="tiny-tool" />)
+    expect(await screen.findByRole("alert")).toHaveTextContent("Worker not responding.")
+  })
+
   it("About card shows what was chosen at setup", async () => {
     const base = projects.find((p) => p.name === "tiny-tool")!
     mockApi(routes("tiny-tool", {
@@ -99,10 +110,11 @@ describe("OverviewTab", () => {
     const setup = within(await screen.findByLabelText("Chosen at setup"))
     expect(setup.getByText("Template cli")).toBeInTheDocument()
     expect(setup.getByText("Ask me first")).toBeInTheDocument()
+    expect(setup.getByText("Default build preset")).toBeInTheDocument()   // each build shows its own preset
     expect(setup.getByText("2026-10-01")).toBeInTheDocument()
     expect(setup.getByText("alex-boop-chasey")).toBeInTheDocument()
     expect(screen.getByText("supabase")).toBeInTheDocument()
-    expect(within(screen.getByLabelText("On this server")).getByText("Off")).toBeInTheDocument()
+    expect(within(screen.getByLabelText("On this server")).queryByText("Chat")).toBeNull()
     expect(screen.getByRole("link", { name: "Change these in Settings" })).toHaveAttribute("href", "/p/tiny-tool/settings")
   })
 })

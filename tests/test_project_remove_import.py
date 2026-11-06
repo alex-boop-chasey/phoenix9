@@ -1,4 +1,4 @@
-"""Remove a project from Phoenix and import it back: nothing is deleted, no chat service is started."""
+"""Remove a project from Phoenix and import it back: nothing is deleted, no service is touched."""
 import json
 
 import pytest
@@ -36,7 +36,7 @@ def test_remove_keeps_files_and_hides_from_list(env):
     assert all(after[k] == v for k, v in before.items() if k != "notes/changelog.md")
     assert "removed from Phoenix" in after["notes/changelog.md"].decode()
     assert r["name"] == "alpha" and r["removed_on"]
-    assert calls(env["host"], "systemctl", "disable", "-q", "--now", "claude-rc@alpha.service")
+    assert not calls(env["host"], "systemctl")          # Phoenix no longer runs per-project chat services
     assert not trusted(env, folder)
     assert [x["name"] for x in projects.list_()] == []
     assert settings.read_global()["removed_projects"][0]["name"] == "alpha"
@@ -79,7 +79,7 @@ def test_import_removed_project_restores_it(env):
     projects.remove("alpha", "tester")
     env["host"].calls.clear()
     r = projects.import_("alpha", "tester")
-    assert r["was_removed"] and r["chat"] == "off"
+    assert r["was_removed"] and "chat" not in r
     assert [x["name"] for x in projects.list_()] == ["alpha"]
     assert "removed_projects" not in settings.read_global()
     assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
@@ -119,12 +119,10 @@ def test_import_refuses_listed_missing_and_outside(env, tmp_path):
         projects.import_(str(tmp_path / "elsewhere"), "tester")
 
 
-def test_create_does_not_start_a_chat(env):
-    from test_project_cmds import off_until_started
-    off_until_started(env["host"])
+def test_create_does_not_start_a_service(env):
     projects.new({"name": "fresh", "description": "x", "source": {"kind": "empty"}, "profile": "python-script",
                   "template": None, "services": [], "new_repo": None, "no_new_repo": True}, "tester")
-    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
+    assert not calls(env["host"], "systemctl")
     assert trusted(env, env["projects"] / "fresh")
 
 
@@ -159,13 +157,15 @@ def test_api_routes(api):
     assert status in (400, 404)
 
 
-def test_api_chat_start_and_row_chat_shape(api):
+def test_api_has_no_chat_route_or_chat_fields(api):
+    from phoenix9 import addresses
     make_project("alpha")
-    status, body = api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})
-    assert status == 200 and body["data"]["chat"]["state"] == "on" and body["data"]["chat"]["url"] is None
+    addresses.save({"vscode_url": "https://code.example.test/"})
+    assert api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})[0] == 404
     status, body = api("/api/projects/alpha")
-    assert body["data"]["chat"]["state"] == "on" and body["data"]["vscode"]["reason"] is None
-    assert api("/api/projects/ghost/chat/start", "POST", POST_HEADERS, {})[0] == 404
+    assert status == 200 and body["data"]["vscode"]["reason"] is None
+    for gone in ("chat", "chat_url", "chats", "state"):
+        assert gone not in body["data"]
 
 
 def test_list_folders_lists_visible_subfolders_only(env):

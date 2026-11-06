@@ -209,6 +209,8 @@ def render_session(text: str) -> str:
 def render_gate(gate: dict, answer: dict | None) -> str:
     """A gate and its answer as a few readable lines."""
     text = f"Opened {gate.get('created', '?')}: {gate.get('title', '')}\nWhy: {gate.get('why', '')}\n"
+    if answer and answer.get("action") == "closed":
+        return text + f"Answer: closed: {answer.get('reason') or 'its run ended'} (by {answer.get('who')} at {answer.get('at')})\n"
     if answer:
         return text + (f"Answer: {answer.get('action')} by {answer.get('who')} at {answer.get('at')}: "
                        f"{answer.get('note', '')}\n")

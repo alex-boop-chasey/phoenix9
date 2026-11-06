@@ -2,7 +2,7 @@
 import importlib.util
 
 import phoenix9
-from phoenix9 import git, paths, settings, tomlw
+from phoenix9 import addresses, events, git, paths, settings, tomlw
 from phoenix9.ops import common, github
 
 
@@ -47,8 +47,58 @@ def version_label(tag: str = "") -> str:
 def info(tag: str = "") -> dict:
     """Version, update support, GitHub login and feature flags for the dashboard."""
     gh = github.status()
+    where = addresses.read()
     return {"version": phoenix9.__version__, "label": version_label(tag), "update": _update_info(),
-            "github": gh, "services": {"supported": True}}
+            "github": gh, "services": {"supported": True}, "dashboard_url": where["dashboard_url"],
+            "vscode_url": where["vscode_url"]}
+
+
+ADDRESS_KEYS = addresses.KEYS
+
+
+def addresses_view() -> dict:
+    """{dashboard_url, allowed_origins, vscode_url} with defaults filled in."""
+    return addresses.read()
+
+
+def migrate_addresses_at_start() -> dict | None:
+    """The one-time move to the address settings, run by the API as it starts (no restart: it is starting)."""
+    return addresses.migrate_once()
+
+
+def set_addresses(changes: dict, *, who: str, own_origin: str | None = None) -> dict:
+    """Save dashboard addresses (dashboard_url, allowed_origins, vscode_url) in global.toml; when the allowed
+    origins change, api.env is rewritten and phoenix-api restarted through the host adapter."""
+    from phoenix9.ops import service
+    if not changes:
+        raise common.OpsError("Say which address to change: " + ", ".join(addresses.KEYS) + ".")
+    try:
+        values, restart = addresses.save(changes, own_origin=own_origin)
+    except addresses.AddressError as err:
+        raise common.OpsError(str(err)) from None
+    keys = sorted(changes)
+    events.emit("settings.changed", project=None, who=who, keys=keys)
+    common.record_command(who, "settings global set " + " ".join(keys))
+    return {"values": values, "api_restart": _restart_api(restart, service)}
+
+
+def _restart_api(needed: bool, service) -> str:
+    """Ask systemd to restart phoenix-api (without waiting) when needed: 'asked', 'not needed' or 'failed: ...'."""
+    if not needed:
+        return "not needed"
+    done, err = service.restart_unit(common.make_adapters(), "api", no_block=True)
+    return "asked" if done else f"failed: {err or 'no reason given'}"
+
+
+def migrate_addresses(who: str) -> dict:
+    """The one-time move to the address settings (allowed origins = api.env's + the dashboard's); restarts the API
+    when it changed api.env."""
+    from phoenix9.ops import service
+    done = addresses.migrate_once()
+    if not done:
+        return {"migrated": False, "values": addresses.read(), "api_restart": "not needed"}
+    common.record_command(who, "settings global migrate")
+    return {"migrated": True, "values": addresses.read(), "api_restart": _restart_api(done["api_env_changed"], service)}
 
 
 def _ai_steps() -> list:
@@ -93,6 +143,6 @@ def set_default_models(steps: dict, *, who: str) -> dict:
 def global_view() -> dict:
     """Global settings (no secret values) and which parts are built yet."""
     values = settings.read_global()
-    return {"values": values, "github": github.status(), "default_models": default_models(),
+    return {"values": values, "addresses": addresses.read(), "github": github.status(), "default_models": default_models(),
             "telegram": {"connected": (paths.secrets() / "telegram.env").is_file()},
             "supported": {"services": True, "update": _update_supported(), "secrets": False}}

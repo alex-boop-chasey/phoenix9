@@ -4,7 +4,7 @@ import type {
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
-  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult, ChatStartResult,
+  SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -119,7 +119,6 @@ export const api = {
 
   removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
   importProject: (target: string) => post<ImportResult>("import", { target }),
-  chatStart: (name: string) => post<ChatStartResult>(`projects/${e(name)}/chat/start`, {}),
   createProject: (form: CreateForm) => post<{ job: string }>("projects", form),
   editProject: (name: string, body: EditBody) => post<Project>(`projects/${e(name)}/edit`, body),
   saveKeys: (name: string, rows: KeyInput[]) => post<KeyRow[]>(`projects/${e(name)}/keys/save`, { rows }),
@@ -140,6 +139,11 @@ export const api = {
     post<{ run_id: string; status: string; containers_removed: number }>(
       `runs/${e(project)}/${e(runId)}/stop`,
       { confirm: true },
+    ),
+  discardRun: (project: string, runId: string, force = false) =>
+    post<{ run_id: string; status: string; discarded: boolean; notes: string[] }>(
+      `runs/${e(project)}/${e(runId)}/discard`,
+      force ? { confirm: true, force: true } : { confirm: true },
     ),
   answerGate: (id: string, action: GateAction, note = "") =>
     post<GateAnswer>(`gates/${e(id)}/answer`, { action, note }),

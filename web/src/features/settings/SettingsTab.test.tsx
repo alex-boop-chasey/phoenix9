@@ -52,7 +52,7 @@ test("keys form present in saved mode", async () => {
   expect(screen.getAllByText("Project keys").length).toBeGreaterThan(0)
   expect(screen.getByRole("columnheader", { name: "Used for" })).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument()
-  expect(screen.getByText("Changes are picked up by the next build and the next chat restart.")).toBeInTheDocument()
+  expect(screen.getByText("Changes are picked up by the next build.")).toBeInTheDocument()
 })
 
 test("build save sends only changed dotted keys", async () => {
@@ -130,8 +130,8 @@ test("on failure options explained", async () => {
   expect(screen.getByText("Move on to tasks that don't depend on the failed one, and flag it.")).toBeInTheDocument()
   expect(screen.getByText("Pause for me")).toBeInTheDocument()
   expect(screen.getByText("Pause and show an escalation; press Acknowledged when fixed.")).toBeInTheDocument()
-  expect(screen.getByText("Delegate to the project chat")).toBeInTheDocument()
-  expect(screen.getByText("The project's chat tries to fix it and only alerts you if it can't.")).toBeInTheDocument()
+  expect(screen.getByText("Hand it to Claude in the project folder")).toBeInTheDocument()
+  expect(screen.getByText("A Claude session in the project's folder tries to fix it and only alerts you if it can't.")).toBeInTheDocument()
   expect(screen.getByRole("radio", { name: /Pause for me/ })).toBeChecked()
 })
 

@@ -4,6 +4,14 @@ from pathlib import Path
 
 from . import atomic, events, paths, runs, state
 
+class NotOpen(ValueError):
+    """The question cannot be answered any more: it was closed, its run has ended, or the run moved on."""
+
+
+class RunHasEnded(ValueError):
+    """A gate cannot be opened: the run is already done, failed or stopped."""
+
+
 KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step")
 DEFAULT_ACTIONS = ["approve", "back", "skip", "stop"]
 ESCALATION_ACTIONS = ["acknowledged", "skip", "stop"]
@@ -27,6 +35,8 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
         raise ValueError(f"unknown gate kind {kind!r}; use one of {', '.join(KINDS)}")
     run_dir = Path(run_dir)
     st = state.load(run_dir)
+    if st["status"] in ENDED:
+        raise RunHasEnded(f"run {st['run_id']} is already {st['status']}; no question is opened")
     gdir = _gates_dir(run_dir)
     gdir.mkdir(parents=True, exist_ok=True)
     if actions is None:
@@ -37,38 +47,112 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
             "created": state.now(), "answered": False}
     atomic.write_json(gdir / f"{gate['id']}.json", gate)
 
+    ended = []
+
     def change(s):
+        if s["status"] in ENDED:          # it ended a moment ago: never turn it back into waiting
+            ended.append(s["status"])
+            return
         s["status"] = "waiting"
         if task is not None and str(task) in s["tasks"]:
             s["tasks"][str(task)]["status"] = "waiting"
     state.update(run_dir, change)
+    if ended:
+        close_questions(run_dir, f"run {ended[0]}")
+        raise RunHasEnded(f"run {st['run_id']} is already {ended[0]}; no question is opened")
     events.emit("gate.opened", project=gate["project"], run=gate["run"], task=task, step=step,
                 gate=gate["id"], kind=kind, title=title)
     return gate
 
 
-def _gate_files(project: str | None):
+ENDED = ("done", "failed", "stopped")
+TASK_ENDED = ("passed", "failed", "skipped")
+
+
+def _answer_path(path: Path) -> Path:
+    return path.with_name(path.name[:-5] + ".answer.json")
+
+
+def held(st: dict, gate_id: str) -> bool:
+    """True when the run records that it waits on this gate: current.gate, a task's gate or a waiting step line."""
+    if (st.get("current") or {}).get("gate") == gate_id:
+        return True
+    if any(t.get("gate") == gate_id and t.get("status") not in TASK_ENDED for t in (st.get("tasks") or {}).values()):
+        return True
+    return any(x.get("gate") == gate_id and x.get("status") == "waiting" for x in st.get("steps") or [])
+
+
+def _adoptable(st: dict) -> bool:
+    """A waiting run that holds no gate (a crash right after a gate file was written): the runner adopts its newest."""
+    if st.get("status") != "waiting" or (st.get("current") or {}).get("gate"):
+        return False
+    return not any(t.get("gate") and t.get("status") == "waiting" for t in (st.get("tasks") or {}).values()) \
+        and not any(x.get("gate") and x.get("status") == "waiting" for x in st.get("steps") or [])
+
+
+def is_open(gate: dict, st: dict | None, answered: bool = False, newest_unanswered: str | None = None) -> bool:
+    """THE rule for an open question: no answer file, its run has not ended, and the run waits on it.
+
+    "Waits on it" = current.gate, a task or step line holding it, or (a waiting run holding nothing)
+    it is the run's newest unanswered gate, which the runner adopts (runner.adopt_gate)."""
+    if answered or gate.get("answered") or not st or st.get("status") in ENDED:
+        return False
+    if held(st, gate["id"]):
+        return True
+    return _adoptable(st) and (newest_unanswered is None or newest_unanswered == gate["id"])
+
+
+def _number(gate: dict) -> int:
+    try:
+        return int(str(gate["id"]).rsplit(".", 1)[1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _run_gates(run_dir: Path) -> list[dict]:
+    """Every gate of one run with `state` (open | answered | closed) and, when there is one, its `answer`."""
+    st = state.load(run_dir)
+    found = []
+    for path in sorted(_gates_dir(run_dir).glob("*.json")):
+        if path.name.endswith(".answer.json"):
+            continue
+        gate = atomic.read_json(path)
+        if gate:
+            found.append((gate, atomic.read_json(_answer_path(path))))
+    unanswered = [g for g, a in found if a is None and not g.get("answered")]
+    newest = max(unanswered, key=_number)["id"] if unanswered else None
+    out = []
+    for gate, answer in found:
+        if answer is not None:
+            gate_state = "closed" if answer.get("action") == "closed" else "answered"
+        else:
+            gate_state = "open" if is_open(gate, st, False, newest) else "closed"
+        item = {**gate, "state": gate_state}
+        if answer is not None:
+            item["answer"] = answer
+        out.append(item)
+    return out
+
+
+def _run_folders(project: str | None) -> list[Path]:
     root = paths.runs(project) if project else paths.runs()
     if not root.is_dir():
         return []
-    folders = [root] if project else [p for p in root.iterdir() if p.is_dir()]
-    files = []
-    for proj in folders:
-        files += [p for p in proj.glob("*/gates/*.json") if not p.name.endswith(".answer.json")]
-    return files
+    projects = [root] if project else [p for p in root.iterdir() if p.is_dir()]
+    return [d for proj in projects for d in proj.iterdir() if (d / "gates").is_dir() and (d / "state.json").is_file()]
 
 
 def list_gates(project: str | None = None, open_only: bool = True) -> list[dict]:
-    """Gates across all runs (or one project); open ones have no answer file. Oldest first."""
+    """Gates across all runs (or one project), oldest first: only the open ones (`is_open`), or all with their state."""
     found = []
-    for path in _gate_files(project):
-        gate = atomic.read_json(path)
-        if not gate:
-            continue
-        is_open = not path.with_name(path.name[:-5] + ".answer.json").exists()
-        if is_open or not open_only:
-            found.append(gate)
+    for run_dir in _run_folders(project):
+        found += [g for g in _run_gates(run_dir) if not open_only or g["state"] == "open"]
     return sorted(found, key=lambda g: (g["created"], g["id"]))
+
+
+def run_gates(run_dir) -> list[dict]:
+    """Every gate of one run with its state (open | answered | closed), oldest first."""
+    return sorted(_run_gates(Path(run_dir)), key=lambda g: (g["created"], g["id"]))
 
 
 def _find(gate_id: str) -> Path | None:
@@ -78,6 +162,23 @@ def _find(gate_id: str) -> Path | None:
     return path if path and path.is_file() else None
 
 
+def _refuse_if_not_open(path: Path, gate: dict) -> None:
+    """Raise when the gate cannot take an answer: answered, closed, its run ended, or the run no longer waits on it."""
+    gate_id = gate["id"]
+    done = atomic.read_json(_answer_path(path))
+    if done is not None and done.get("action") == "closed":
+        raise NotOpen(f"Question {gate_id} was closed ({done.get('reason') or 'its run ended'}); "
+                      "it cannot be answered any more.")
+    if gate.get("answered") or done is not None:
+        raise ValueError(f"gate {gate_id} is already answered")
+    run_dir = path.parent.parent
+    st = state.load(run_dir) or {}
+    if st.get("status") in ENDED:
+        raise NotOpen(f"Run {gate['run']} is already {st['status']}; its question {gate_id} cannot be answered any more.")
+    if not any(g["id"] == gate_id and g["state"] == "open" for g in _run_gates(run_dir)):
+        raise NotOpen(f"Run {gate['run']} is not waiting on question {gate_id} any more.")
+
+
 def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> dict:
     """Record the answer to an open gate; the runner reads it later and changes the run itself."""
     path = _find(gate_id)
@@ -85,8 +186,7 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> di
         raise ValueError(f"no such gate: {gate_id}")
     answer_path = path.with_name(f"{gate_id}.answer.json")
     gate = atomic.read_json(path)
-    if gate.get("answered") or answer_path.exists():
-        raise ValueError(f"gate {gate_id} is already answered")
+    _refuse_if_not_open(path, gate)
     if action not in gate["actions"]:
         raise ValueError(f"{action!r} is not allowed here; use one of {', '.join(gate['actions'])}")
     if action == "back" and not note.strip():
@@ -98,6 +198,28 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> di
     events.emit("gate.answered", project=gate["project"], run=gate["run"], task=gate.get("task"),
                 step=gate.get("step"), gate=gate_id, action=action, who=who)
     return result
+
+
+def close_questions(run_dir, reason: str, who: str = "phoenix") -> list[str]:
+    """Close every unanswered question of a run that ended: answer file {action: closed, reason, who, at}.
+
+    Called by every way a run ends (and by the runner's start-up catch-up); returns the ids it closed."""
+    run_dir = Path(run_dir)
+    closed = []
+    for path in sorted(_gates_dir(run_dir).glob("*.json")):
+        if path.name.endswith(".answer.json") or _answer_path(path).exists():
+            continue
+        gate = atomic.read_json(path)
+        if not gate:
+            continue
+        atomic.write_json(_answer_path(path), {"action": "closed", "reason": reason, "note": "", "who": who,
+                                               "at": state.now()})
+        gate["answered"] = True
+        atomic.write_json(path, gate)
+        events.emit("gate.answered", project=gate["project"], run=gate["run"], task=gate.get("task"),
+                    step=gate.get("step"), gate=gate["id"], action="closed", reason=reason, who=who)
+        closed.append(gate["id"])
+    return closed
 
 
 def poll(run_dir, gate_id: str) -> dict | None:

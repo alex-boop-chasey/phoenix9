@@ -58,6 +58,9 @@ phoenix9/                      the Python package
   state.py                     state.json read/update
   events.py                    events.jsonl append/read/tail (section 8)
   gates.py                     gate files and answers (section 8)
+  status.py                    what a project is doing now, worked out once (section 8, "One truth")
+  runend.py                    how a run ends: run lock, stop request, end_run (section 7)
+  heartbeat.py                 the runner service's heartbeat (section 7)
   runner.py                    the step runner (phase 1 = run-level + simple task loop; phase 2 = full)
   failmodes.py                 retry / escalation / on_failure handling (section 7)
   aistep.py                    prompt rendering and helpers shared by the ai steps
@@ -113,7 +116,9 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | Name | Default | Env override | Holds |
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
-| config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`; `[[removed_projects]]` rows `name`, `path`, `repo`, `removed_on` for projects taken off Phoenix's list by `phoenix project remove`, section 3 of `docs/design/phase-4-5-project-list.md`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`; written once by `install.sh`, read by the API unit and by doctor; default 8095), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
+| config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`; `[dashboard]` table:
+`dashboard_url`, `allowed_origins`, `vscode_url` (section 5.5); `[[removed_projects]]` rows `name`, `path`, `repo`, `removed_on` for projects taken off Phoenix's list by `phoenix project remove`, section 3 of `docs/design/phase-4-5-project-list.md`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`, written once by `install.sh`, read by the API unit and by doctor, default
+8095; `PHOENIX_API_ORIGINS=<origin>,<origin>`, written only from the `allowed_origins` setting, section 5.5), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
@@ -121,6 +126,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
+| runner | HOME/runner | | `heartbeat.json` `{at, pid}` (the runner service is alive; section 7) |
 | projects | `/srv/projects` | `PHOENIX_PROJECTS` | one folder per project |
 | install | `/opt/phoenix9` | `PHOENIX_INSTALL` | the installed copy (updater only) |
 | install neighbours | `<install>-next`, `-prev`, `-failed` | | the candidate being tested; the copy before the last swap (rollback point); a copy that failed its health check (kept for inspection) |
@@ -136,10 +142,10 @@ build output of one install).
 
 Per project (`/srv/projects/<name>/`): `CLAUDE.md`, `notes/`, `code/` (git), `phoenix.toml`
 (settings, no secrets), `.phoenix/project.json` (facts Phoenix records: created, source, repo,
-chat link, environment id, services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
+services set up: `services_set_up` is a list of `{name, at, run, run_name}`; older
 files may hold plain name strings), `.phoenix/deploys.jsonl` (one line per deploy or preview attempt;
-fields in section 4.7). The environment id is found by a background journal search (newest first, stops at the first
-hit, skipped when the chat is off) that the Projects list waits for at most 1 s, like folder sizes; until found the chat link reads as not ready.
+fields in section 4.7). Older files may still hold `chat_session_url`, `environment_id` and `chat_env_*` from the
+removed per-project chat; nothing reads them.
 
 ## 4. The plug-in libraries
 
@@ -437,6 +443,48 @@ The advisor is passed to the session as a mounted skill plus settings; Phoenix d
 **Unverified:** that `/advisor` exists in headless `claude -p`; `phoenix doctor` reports whether it does
 and the session is told to carry on without it when absent.
 
+### 5.4 Changing settings from the command line
+`phoenix settings set <project> key=value` (one key, typed from text; lists as a comma list, replacing the
+whole list), `phoenix settings add <project> <list key> <item>` and `phoenix settings remove <project>
+<list key> <item>` (one item in or out of a list key such as `safety_files`, `services`,
+`domains.allow` or `steps.<name>.tools`; the change starts from the key's effective value, the item is
+checked like any value of that key, adding an item that is already there or removing one that is not is
+refused, and non-list keys are refused). Each writes phoenix.toml, a `settings.changed` event, the command
+record and a changelog line (`settings.change_list`, `ops.settings.change_list`).
+
+### 5.5 Dashboard addresses (`phoenix9/addresses.py`; Global settings > Dashboard addresses)
+No address is hard-coded anywhere else. HOME/config/global.toml `[dashboard]`:
+- `dashboard_url` (default `https://phoenix.rebirthwebdesign.com.au/`): where the dashboard lives
+  (`/api/info` `dashboard_url`, for any link Phoenix builds to its own pages).
+- `allowed_origins` (list; default = the dashboard URL's origin): the page origins whose writes the API takes.
+  Values are reduced to origins exactly as a browser sends them in its Origin header (`scheme://host[:port]`:
+  lower-case host, IPv6 kept in brackets, no port when it is the default `:443` for https or `:80` for http),
+  so the guard's plain string compare matches. Host names may only hold letters, digits, dots and dashes (or be
+  an IP address); quotes, `\`, `*`, `%`, spaces and the entries `null` / `*` are refused. The API reads `PHOENIX_API_ORIGINS` (how api.env hands
+  the setting to the process) and falls back to the setting when it is unset; `/api/health` says which origins
+  the running API has, and the doctor's `origins` check compares them with the setting. A refused write says
+  "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
+  Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
+- `vscode_url` (default empty = not set): the VS Code base address; project links are
+  `<vscode_url>/?folder=<projects>/<name>`. Not set = `vscode_url` null with the reason "Set the VS Code
+  address in Global settings." (the dashboard hides its VS Code buttons and shows that as a tooltip; the CLI
+  prints it).
+
+Changing them: `phoenix settings global show`, `phoenix settings global set key=value [key=value ...]`
+(allowed_origins as a comma list), `POST /api/global/addresses` (`ops.app.set_addresses`). Each checks the
+values (http/https addresses only; at least one origin) and refuses a result that would lock the dashboard
+out: the allowed origins must include the dashboard URL's origin and, for an API save, the Origin of the page
+making the request (a plain message saying which address to add; the Dashboard addresses tab shows it under
+the Save button). Then it writes global.toml, writes a `settings.changed` event
+(project null) and the command record; when the allowed origins changed it rewrites the `PHOENIX_API_ORIGINS`
+line of api.env (other lines kept) and asks systemd to restart phoenix-api (`systemctl restart --no-block`
+through the host adapter, `ops.service.restart_unit`, so the API can restart itself after replying).
+One-time migration (`addresses.migrate_once`, `phoenix settings global migrate`): when global.toml has no
+`allowed_origins` yet it becomes the origins api.env already allows plus the dashboard URL's origin. It runs
+when the API starts (`phoenix api serve`, which then uses the new list at once) and after every healthy install
+(the updater runs the NEW copy's `bin/phoenix settings global migrate --json`; a failure is a log line). Once
+set it does nothing.
+
 ## 6. Specs (`phoenix9/spec.py`, extends V8 plan.py)
 
 Markdown for humans, JSON for Phoenix (harness spec open question 1, recommended answer taken):
@@ -458,6 +506,8 @@ Done when:
 ```
 `parse(text) -> dict` and `check(text) -> list[str]` (problems in plain English). Also accepts V8's
 `## Step N` headings as tasks. Max 60 tasks. Spec check writes `spec.json` into the run folder.
+`Preset:` is used as the run's preset override (`ops.runs.start` writes it into `overrides.json`) unless a
+preset is given for the run (`phoenix run start --preset`, or the wizard's own choice).
 
 ## 7. Runs
 
@@ -466,12 +516,17 @@ Done when:
   `spec.md` (copy, read-only), `spec.json`, `settings.json` (frozen effective settings), `plan.json`
   (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`,
   `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
-  `gates/<gate-id>.answer.json`, `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
+  `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
+  `{who, at}` (only until the runner acts on it), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
   (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
   gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
-  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}}`.
+  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}, image: {tag, id}}`.
+  `image` = the profile's step image tag and its exact id (`docker image inspect --format {{.Id}}` through
+  the docker adapter's `image_id`; `""` when the image was missing), written once at the run's first drive
+  (`runner._record_image`), so a later rebuild never changes what the run says it used. The Build tab shows
+  the first 12 characters of the id in the run header.
   Run status: `queued | running | waiting | paused-limit | done | failed | stopped`.
   Task status: `pending | running | passed | failed | skipped | waiting`.
   Step line status: `pending | running | passed | failed | skipped | waiting`.
@@ -482,6 +537,9 @@ Done when:
     with one state update. If a crash lands between the gate file and that update, the run is
     waiting with no `current.gate`: `drive()` and `check_waiting` then adopt the newest unanswered
     gate in `gates/` (`runner.adopt_gate`, re-attached to its task, or to its step's latest line).
+    The service loop's `check_waiting` and the public `adopt_gate` take the run lock with wait=0 and
+    skip the run when it is busy (being ended or walked); adoption only ever changes a run whose
+    status is still `waiting`, checked inside the same locked state update.
   - task `tries` = the attempt being worked on (0 = not started). `escalations` = acknowledged
     escalations so far (max `failmodes.MAX_ESCALATIONS` = 2). `flagged` = why it failed (Build tab,
     summary). `gate` = the task's own gate (human-task or escalation). `attempt_base` = the commit
@@ -528,6 +586,49 @@ Done when:
   deploys when called again with the `deploy` answer. Preview (finish, order 25) never fails a run.
   Run end: `done` unless a task or a run-level
   step failed (`failed`) or Alex stopped it (`stopped`).
+- **How a run ends (one end function, one stop path; `phoenix9/runend.py`).** `runend.end_run` is the only
+  place a run becomes `done | failed | stopped`. Its FIRST state update does everything a reader looks at:
+  unfinished tasks and `waiting | running | pending` step lines become `skipped`, `current.gate` is cleared
+  and the final status is set (`error` = the reason for a failure); the run's open questions are closed
+  (section 8) straight after. Only then does the slow work run: finish steps with `after_stop = true`
+  (stop only; they see the final status and add their own step lines), the branch and worktree are
+  discarded (stop only; a failed run keeps them for repair), `run.finished` is emitted (`who` when not
+  phoenix) and the summary is refreshed. So the service loop can never see a half-ended run as waiting
+  and re-adopt its gate. Apart from those after-stop step lines a run that already ended is never
+  changed again. Every end goes through it: the runner's own finish and `stop` answers, `watch._fail`
+  (three crashes in a row, a usage limit that never cleared) and `phoenix run stop` / the API stop.
+  The **run lock** (`<run>/run.lock`) is held by `Runner.drive` for the whole walk. `ops.runs.stop`
+  (CLI, API, dashboard) first checks the caller like answering an escalation question
+  (`gates.may_answer`: a `chat:*` caller needs `home_chat_may_answer` to list `escalation`; `cli`,
+  `dashboard` and `chat:delegate` may), removes the run's containers, then: when it gets the run lock
+  (the runner is not walking the run: queued, waiting, paused-limit, or between rounds) it calls the
+  runner's own clean stop (`Runner.stop_now`) at once and replies `status: stopped`; when the lock is
+  busy (the runner is walking it) it writes `<run>/stop-request.json` `{who, at}` and replies
+  `status: "stop requested"`. The runner reads the request at its next boundary (section 7 "boundaries")
+  and stops through the same function. `phoenix run stop` then waits up to 60 s for the run to show
+  `stopped` and says so plainly if it has not.
+- **Boundaries (the runner never revives an ended run).** Before every step (except the after-stop
+  steps of a stop), before opening a gate, and before finishing, the runner re-reads the run
+  (`runend.check`): a stop request -> clean stop; a status that is already ended -> the walk ends and
+  nothing is written. `gates.open_gate` refuses a run that has ended and `end_run` never overwrites an
+  ended status, so a stop that lands mid-walk can never be turned back into waiting, done or failed.
+  The usage-limit pause (`watch.wait_out_limit`) moves a run to `paused-limit`, and later back to `running`,
+  only through one locked state update (`watch._move_if_live`) that does nothing once the run has ended or has
+  a stop request (and, for the resume, unless it is still `paused-limit`); a stop is then carried out.
+- **Runner heartbeat** (`phoenix9/heartbeat.py`): `HOME/runner/heartbeat.json` `{at, pid}`, written at the
+  start of every service loop round (`watch.watch_once`) and every 30 s by a side thread started in
+  `watch.watch_forever` (a long step blocks the loop, so the loop alone would look dead). The heartbeat
+  proves progress, not just a live process: the loop records its last progress time in memory
+  (`heartbeat.mark_progress`: every round, every step start and end, every tick of a usage-limit wait or an
+  update hold), and a step's container counts as progress for as long as it runs (`heartbeat.busy()`,
+  held by `DockerRunner.run`, which has its own time limit). The side thread only writes the heartbeat
+  while `heartbeat.making_progress()`: progress in the last 10 minutes (`PROGRESS_WINDOW_S` = 600), or a
+  container running now. A loop hung anywhere else (a stuck host command, a deadlock) stops beating. When a project's
+  current build says `running` and the heartbeat is missing or older than 120 s (`heartbeat.STALE_S`),
+  `status.project_state` reports `worker: "not responding"` (also on the run view, with `why`/`now`
+  saying so, `activity: fail`, `status_line`/`run_text` "Worker not responding"), and the Current build
+  card shows "Worker not responding", for a dead runner and for a hung loop alike (about 10 minutes plus
+  `STALE_S` after its last progress).
 - Queue: a run starts as `queued`. The runner service takes the oldest queued run when no run is
   `running`/`waiting` anywhere (one build at a time across the server, decision 2026-11-01). Restart
   resumes `running` runs from `state.json`.
@@ -538,7 +639,8 @@ Done when:
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded command`.
+  `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
   previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|
@@ -578,9 +680,30 @@ Done when:
   kind returned by a step needs no runner change. The runner never blocks on a gate: `drive()`
   returns "waiting" and the service loop drives the run again when `current.gate` is answered
   (an answer written while the runner was down is acted on the same way). `phoenix run stop` on a
-  waiting run ends it; a later answer is ignored.
+  waiting run ends it and closes its question; a later answer is refused.
+- **One truth (2026-11-06).** A question is *open* only when (a) it has no answer file, (b) its run is not
+  `done | failed | stopped`, and (c) the run waits on it: `current.gate`, a task's `gate` or a `waiting`
+  step line holding it, or (a waiting run that holds nothing, after a crash) the run's newest unanswered
+  gate, which `runner.adopt_gate` takes. This rule is `gates.is_open`, used by `gates.list_gates`; listed
+  gates carry `state: open | answered | closed`. What a project is doing now (current build and why, open
+  questions, `needs_you`, `activity` need/run/fail/idle, `last_build_failed`, the plain lines) is worked
+  out once, by `phoenix9/status.py` `project_state`; the API rows, `phoenix gate list`, `phoenix run
+  status`, `phoenix project list`/`show` (harness) and every dashboard display (sidebar, Projects rows,
+  Overview, header bell, tab badge, Current build card) read its fields and never re-derive them. The
+  "answered, carrying on" view of a waiting run whose questions are all answered is `status.seen_run`.
 - Answer file `gates/<gate-id>.answer.json`: `{action, note, who, at}`. Written only by
   `gates.answer()` (CLI `phoenix gate answer`, API, Home chat through the CLI). The runner polls for it.
+- **Question lifecycle**: open (rule above) -> answered (an answer file written by `gates.answer`) or
+  closed. Every way a run ends (done, failed, stopped; the runner's end, `watch._fail`, `phoenix run stop`)
+  closes its unanswered questions with `gates.close_questions`: answer file `{action: "closed", reason:
+  "run stopped" | "run failed" | "run done", note: "", who, at}` and a `gate.answered` event with
+  `action: closed, reason`. The gate log reads "Answer: closed: run stopped" and the summary
+  "Task n: closed: run stopped". Answering a closed question, a question of an ended run, or one the run no
+  longer waits on is refused (`gates.NotOpen`; the API answers 409) with a plain message, e.g. "Run X is
+  already stopped; its question X.1 cannot be answered any more." Start-up catch-up: when the runner
+  service starts (`watch.watch_forever` -> `watch.catch_up`), it closes the open questions of runs that
+  already ended (who = `phoenix`, one event each), so questions left by older code disappear without
+  hand edits.
   Gate ids: `<run-id>.<n>`.
 
 ## 8.5 The API (phoenix-api, phase 3)
@@ -588,8 +711,8 @@ Done when:
 - Stdlib `ThreadingHTTPServer` on 127.0.0.1 (port 8090 once installed). JSON under `/api/...`, the
   event stream at `/api/events` (server-sent events; each event's id = its line number in
   HOME/events.jsonl, so `Last-Event-ID` resumes), everything else = static files from `web/dist`.
-- Writes (POST/PUT/DELETE) need header `X-Phoenix: 1` and an `Origin` in `PHOENIX_API_ORIGINS`
-  (comma list; default the code-server address). Revealing a key is a POST for that reason.
+- Writes (POST/PUT/DELETE) need header `X-Phoenix: 1` and an `Origin` in the allowed origins
+  (`PHOENIX_API_ORIGINS`, else the `allowed_origins` setting; section 5.5). Revealing a key is a POST for that reason.
 - The web app uses hash routes (`#/`, `#/new`, `#/p/<name>/<tab>`, `#/settings`) and relative asset
   and API paths, so it works behind code-server's `/proxy/<port>/` prefix.
 - Endpoints and the ops function behind each are listed in `docs/api.md` (written in phase 3 step 1).
@@ -627,7 +750,7 @@ Done when:
 
 1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. One recorded
    exception: the `delegate` failure mode starts a headless Claude session in the project folder with
-   the same permissions as the project's own chat (Alex's decision: the project chat agent handles it).
+   full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
    It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
    is the only place in phoenix9 that starts Claude on the host.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
@@ -666,10 +789,6 @@ Done when:
   without answering, its handle is gone after a restart, or 60 minutes passed
   (`failmodes.DELEGATE_TIMEOUT_MIN`); the run then simply waits as in pause mode. Anyone's
   `acknowledged` continues the run. The delegate is never started twice for one gate.
-- **Chat link**: a project records `chat_session_url` when known (`phoenix project set-chat`) and always
-  knows the environment link parsed from `journalctl -u claude-rc@<name>`
-  (`https://claude.ai/code?environment=env_...`). The Projects page shows the session link if recorded,
-  else the environment link.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the
@@ -852,7 +971,8 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   run is mid-task) - failure releases the hold, drops `-next`, `images-failed`, no swap. Note: a
   rollback (automatic or manual) does NOT revert rebuilt images; swap; `systemctl restart
   phoenix-runner phoenix-api`; health = `<install>/bin/phoenix doctor --for-update --json`, 3 tries
-  10 s apart; healthy = `installed`; unhealthy = `-prev` back, new copy to `-failed`, restart, health
+  10 s apart; healthy = the new copy's one-time migrations (`<install>/bin/phoenix settings global migrate
+  --json`, section 5.5; a failure is only a log line) then `installed`; unhealthy = `-prev` back, new copy to `-failed`, restart, health
   again: `rolled-back` or `rolled-back-unhealthy` (urgent notify "Phoenix 9 may be down").
 - **Rollback** (`rollback()`): refused without `-prev`, and refused "could not read the installed
   version" when git cannot read the installed commit (recovery would not know which way to go); hold + idle wait; exchange `install` and
@@ -892,12 +1012,24 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   missing lock file = not held, since the API may not run as root); no expiry. `harness_busy()` = some run `running` and not held ("run X (project) is on task 3 of
   7"); `waiting`, `queued` and `paused-limit` runs are not busy (a restart resumes them from
   state.json). The hold is released after the health check, in every failure path, and by recovery.
+- **Restarting a service** (`phoenix9/ops/service.py`, `phoenix service restart api|runner --yes`): `runner`
+  takes `HOME/update/lock` (refused "An update of Phoenix is running" when an updater holds it), asks for the
+  hold, waits (5 s polls through the clock adapter, up to 30 minutes) until `harness_busy()` is false, i.e.
+  every running build is held at a task boundary, then `systemctl restart phoenix-runner` (host adapter) and
+  releases the hold; still busy after 30 minutes = refused, nothing restarted. `api` restarts at once and
+  waits up to 20 s for `/api/health`. Both then run `doctor --quick` and print it (exit 0 once restarted;
+  the report shows any problem) and record the command. API: `POST /api/service/<api|runner>/restart`
+  `{yes: true}`: `api` = `systemctl restart --no-block phoenix-api` (the reply comes before the API stops),
+  `runner` = a background job (kind `restart`).
 - **Results**: every public function returns `{ok, result, tag, previous, reason, log}`; `result` is
   one of `installed | already-installed | tests-failed | images-failed | harness-busy | rolled-back |
   rolled-back-unhealthy | rolled-back-manual | refused | recovered | needs-person` (`request` returns `queued: true`
   and `result: null`). `status(refresh)` returns `{supported, installed: {tag, commit}|null,
   previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase,
-  interrupted, last, log_tail}`; `running` = the lock is held (read-only probe); `interrupted` = a job
+  interrupted, last, log_tail, off_release, off_release_note}`; `off_release` = the installed copy's HEAD
+  has no `v9.<n>` tag (installed tag `unknown`), and `off_release_note` then reads "Installed copy is on
+  commit <sha>, not a release. Run `phoenix update release` then `phoenix update install`." (printed by
+  `phoenix update status`, shown on the Updates panel); `running` = the lock is held (read-only probe); `interrupted` = a job
   is recorded but the lock is free (the updater died: request `recover`); `refresh` runs `git
   ls-remote --tags origin "v9.*"` and caches `newest` (skipped quietly when HOME/update is not
   writable).
@@ -919,6 +1051,7 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | `python`, `library` | Python 3.12+; the step library loads | | | yes |
 | `services` | `systemctl is-active phoenix-api phoenix-runner` (host adapter) | yes | yes | yes |
 | `api` | GET `127.0.0.1:<PHOENIX_API_PORT from HOME/config/api.env, default 8095>/api/health` is 200; in `for-update` its `tag` is one of the `v9.<n>` tags at the installed copy's HEAD | yes | yes (tag) | yes |
+| `origins` | the `origins` the running API reports in `/api/health` match the `allowed_origins` setting (section 5.5); fix: `phoenix service restart api --yes` | yes | | yes |
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
 | `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
 | `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |
@@ -934,7 +1067,25 @@ profiles/<p>/image/Dockerfile -t <profile.toml image> --label phoenix9.commit=<H
 the base image (`phoenix9-step:base`, context `image/`) only with `--profile base` or `--all`. Default =
 profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
+API: `POST /api/images/build` `{profiles?: [names], all?: bool, changed?: bool}` (the same choices; an unknown
+profile is refused at once with 400) builds in a background job (`{job}`, kind `images`, one at a time, 409
+while one runs; each progress line is a job step, `result` = the `{ok, built, skipped}` reply).
 
-New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
+Phoenix has no per-project chat (removed 2026-11-06): no chat button or link, no `project open` / `close` / `set-chat`, and it never starts, stops or reads a `claude-rc@<name>` service. New and imported projects get no `.vscode/tasks.json`. Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
 
 Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
+
+Discarding a run: a failed run keeps its worktree and branch (so it can be repaired) until `phoenix run discard
+<run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"
+button on a failed or stopped build) throws them away with the same `runs.discard_branch` (worktree, local
+branch, GitHub branch when it was pushed). The caller is checked like a stop (`ops.runs._may_stop`: a `chat:*` caller needs
+the project's `home_chat_may_answer` to list `escalation`). Only `failed` and `stopped` runs can be discarded (queued,
+running, waiting, paused-limit and done are refused; a second discard is a conflict). A failed run can still
+hold work: the Merge step may have opened a merge request before a task failed the run. So discard refuses
+(`WouldLoseWork`, API 409 `needs_force`) when the run's merge-request.txt names a request GitHub doesn't report
+as MERGED or CLOSED (no answer counts as open) or when the run branch (local, else origin's copy) has commits
+main lacks, unless `--force` / `force: true`. The Build tab's dialog says this up front; on the refusal it shows
+a second dialog listing what would be lost, whose button "Discard anyway and lose this work" sends `force`.
+It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
+status stays as it was), writes a `run.discarded` event
+and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".

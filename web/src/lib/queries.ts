@@ -236,6 +236,18 @@ export function useStopRun(project: string) {
   })
 }
 
+export function useDiscardRun(project: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runId, force = false }: { runId: string; force?: boolean }) =>
+      api.discardRun(project, runId, force),
+    onSuccess: (_d, { runId }) => {
+      invalidateProject(qc, project)
+      void qc.invalidateQueries({ queryKey: keys.run(project, runId) })
+    },
+  })
+}
+
 export const useGateReview = (id: string) =>
   useQuery({ queryKey: ["gate-review", id], queryFn: () => api.gateReview(id), staleTime: 30_000 })
 

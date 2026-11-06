@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event"
 import { useLocation } from "react-router"
 
 import { BUILDS, build, line, openGate, runDetail } from "@/test/buildFixtures"
-import { mockApi } from "@/test/mockApi"
+import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 import { BuildTab } from "./BuildTab"
@@ -127,6 +127,15 @@ test("stop confirms then posts stop with confirm", async () => {
   expect(calls.find((c) => c.path === `${RUN}/stop`)!.body).toEqual({ confirm: true })
 })
 
+test("a stop the runner has not acted on yet says so", async () => {
+  mockApi(routes({ [`POST ${RUN}/stop`]: { run_id: "r-wait", status: "stop requested", containers_removed: 0 } }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Stop build" }))
+  await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Stop build" }))
+  expect(await screen.findByText(/Stop requested/)).toBeInTheDocument()
+})
+
 test("sse event refetches the run", async () => {
   vi.stubGlobal("EventSource", FakeEventSource)
   const { calls } = mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
@@ -208,4 +217,69 @@ test("header shows the run's branch", async () => {
   show()
   await screen.findByRole("heading", { name: "Pricing page" })
   expect(screen.getByText("phoenix/r-wait")).toBeInTheDocument()
+})
+
+test("a failed build offers Discard work, which confirms then posts discard", async () => {
+  const failed = runDetail({ status: "failed", gates: [] })
+  const { calls } = mockApi(routes({
+    [`GET ${RUN}`]: failed,
+    [`POST ${RUN}/discard`]: { run_id: "r-wait", status: "failed", discarded: true, notes: [] },
+  }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Discard work" }))
+  expect(calls.some((c) => c.path.endsWith("/discard"))).toBe(false)
+  const dialog = await screen.findByRole("alertdialog")
+  await userEvent.click(within(dialog).getByRole("button", { name: "Discard work" }))
+  await waitFor(() => expect(calls.some((c) => c.path === `${RUN}/discard`)).toBe(true))
+  expect(calls.find((c) => c.path === `${RUN}/discard`)!.body).toEqual({ confirm: true })
+})
+
+test("discard that would lose work explains what and needs a second, clearly-labelled confirm", async () => {
+  const failed = runDetail({ status: "failed", gates: [] })
+  const lost = ["its branch has 2 commits that main doesn't have"]
+  const { calls } = mockApi(routes({
+    [`GET ${RUN}`]: failed,
+    [`POST ${RUN}/discard`]: (req: { body: unknown }) => (req.body as { force?: boolean }).force
+      ? { run_id: "r-wait", status: "failed", discarded: true, notes: [] }
+      : failure(409, "Run r-wait still has work that would be lost.", { needs_force: true, would_lose: lost }),
+  }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  await userEvent.click(screen.getByRole("button", { name: "Discard work" }))
+  const first = await screen.findByRole("alertdialog")
+  expect(first).toHaveTextContent(/open merge request|not on main/)
+  await userEvent.click(within(first).getByRole("button", { name: "Discard work" }))
+  const second = await screen.findByRole("alertdialog", { name: "This build has work that isn't on main" })
+  expect(second).toHaveTextContent("its branch has 2 commits that main doesn't have")
+  const posts = () => calls.filter((c) => c.path === `${RUN}/discard`)
+  expect(posts()).toHaveLength(1)
+  expect(posts()[0]!.body).toEqual({ confirm: true })
+  await userEvent.click(within(second).getByRole("button", { name: "Discard anyway and lose this work" }))
+  await waitFor(() => expect(posts()).toHaveLength(2))
+  expect(posts()[1]!.body).toEqual({ confirm: true, force: true })
+})
+
+test("a discarded build says work discarded and has no Discard button", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "stopped", gates: [], discarded: true }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.getByTestId("discarded")).toHaveTextContent("Work discarded")
+  expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
+})
+
+test("a running build has no Discard button", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "running", gates: [] }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
+})
+
+test("the run's exact image id shows small in the header", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ image: { tag: "phoenix9-step-web:1", id: "sha256:0123456789abcdef" } }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const id = screen.getByTestId("image-id")
+  expect(id).toHaveTextContent("0123456789ab")
+  expect(id).toHaveAttribute("title", "phoenix9-step-web:1 sha256:0123456789abcdef")
 })

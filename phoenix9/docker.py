@@ -14,7 +14,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import paths, scrub
+from phoenix9 import heartbeat, paths, scrub
 
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
@@ -68,7 +68,8 @@ class DockerRunner:
         try:
             p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
             try:
-                return p.wait(timeout=timeout_s)
+                with heartbeat.busy():          # a running container is progress (it has its own time limit)
+                    return p.wait(timeout=timeout_s)
             except subprocess.TimeoutExpired:
                 self.rm(name)
                 try:
@@ -112,6 +113,11 @@ class DockerRunner:
         """True when an image with this tag is on this machine."""
         p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return p.returncode == 0
+
+    def image_id(self, tag: str) -> str:
+        """The exact id (sha256:...) of the image with this tag ('' when it is not on this machine)."""
+        p = subprocess.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], capture_output=True, text=True)
+        return p.stdout.strip() if p.returncode == 0 else ""
 
     def image_label(self, tag: str, label: str) -> str:
         """One label of an image ('' when the image or the label is missing)."""

@@ -16,7 +16,7 @@ import type { PlanStep } from "@/lib/types"
 export const ON_FAILURE = [
   { value: "continue", label: "Continue", help: "Move on to tasks that don't depend on the failed one, and flag it." },
   { value: "pause", label: "Pause for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
-  { value: "delegate", label: "Delegate to the project chat", help: "The project's chat tries to fix it and only alerts you if it can't." },
+  { value: "delegate", label: "Hand it to Claude in the project folder", help: "A Claude session in the project's folder tries to fix it and only alerts you if it can't." },
 ]
 export const MERGE = [
   { value: "auto", label: "Merge automatically", help: "Merge when the checks pass." },

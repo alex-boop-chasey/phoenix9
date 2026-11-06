@@ -28,15 +28,6 @@ function taskBar(build: BuildRow | undefined, run: NonNullable<ProjectRow["run"]
   return { pieces, total, passed }
 }
 
-function nowLine(row: ProjectRow, build: BuildRow | undefined, waiting: boolean): string {
-  if (build?.carrying_on) return "Now: answered, Phoenix is carrying on."
-  if (waiting && build?.current?.step) return `Now: the ${build.current.step} step is waiting for you.`
-  if (waiting) return "Now: waiting for you."
-  const run = row.run
-  if (run?.status === "running") return run.task != null ? `Now: working on task ${run.task} of ${run.tasks}.` : "Now: running."
-  return `Now: ${run?.status ?? "idle"}.`
-}
-
 function CurrentBuild({ name, row, builds, loaded }: { name: string; row: ProjectRow | undefined; builds: BuildRow[]; loaded: boolean }) {
   const run = row?.run ?? null
   const build = run ? builds.find((b) => b.run_id === run.run_id) : undefined
@@ -60,7 +51,10 @@ function CurrentBuild({ name, row, builds, loaded }: { name: string; row: Projec
           <p className="small mono">
             {[`${bar.passed} of ${bar.total} tasks`, build?.cost, build?.duration].filter(Boolean).join(" · ")}
           </p>
-          <p className="small">{nowLine(row, build, waiting)}</p>
+          {run.worker === "not responding" && (
+            <p role="alert" className="small"><b>Worker not responding.</b> {run.why}</p>
+          )}
+          <p className="small">{run.now}</p>
         </>
       ) : loaded && builds.length === 0 ? (
         <div className="stackg">
@@ -84,7 +78,7 @@ export function OverviewTab({ name }: { name: string }) {
   const builds = useBuilds(name)
   const changes = useChangelog(name, 10)
   const row = project.data
-  const open = (gates.data ?? []).filter((g) => g.project === name && !g.answered)
+  const open = (gates.data ?? []).filter((g) => g.project === name)   // the API lists only open questions
   const recent = [...(changes.data ?? [])].reverse()
   const waitingKeys = project.data?.setup?.waiting_for_keys ?? []
 

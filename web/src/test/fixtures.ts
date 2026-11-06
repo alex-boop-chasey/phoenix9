@@ -11,31 +11,37 @@ export const info: Info = {
 export function row(over: Partial<ProjectRow> & { name: string }): ProjectRow {
   return {
     description: "", path: `/srv/projects/${over.name}`, repo: "", repo_owner: "", repo_name: "", profile: "web",
-    services: [], size: 1024, chat: { state: "off", kind: "none", url: null }, vscode_url: `https://code.example.test/?folder=/srv/projects/${over.name}`,
-    vscode: { url: `https://code.example.test/?folder=/srv/projects/${over.name}`, reason: null }, state: "off", chats: 0,
+    services: [], size: 1024, vscode_url: `https://code.example.test/?folder=/srv/projects/${over.name}`,
+    vscode: { url: `https://code.example.test/?folder=/srv/projects/${over.name}`, reason: null },
     last_used: "", last_used_at: "", harness: "idle", has_phoenix_toml: true, repo_url: null, needs_you: 0,
-    run: null, last_build_failed: false, ...over,
+    questions: [], run: null, last_build_failed: false, activity: "idle", status_line: "Idle", run_text: "Idle", ...over,
   }
 }
 
 export const projects: ProjectRow[] = [
   row({
-    name: "demo-site", description: "A small marketing site for a pretend bakery.", state: "on",
-    chat: { state: "on", kind: "session", url: "https://claude.ai/code/session_demo_site" }, size: 5 * 1024 * 1024, repo: "rebirth-wd/demo-site", repo_owner: "rebirth-wd", repo_name: "demo-site",
+    name: "demo-site", description: "A small marketing site for a pretend bakery.",
+    size: 5 * 1024 * 1024, repo: "rebirth-wd/demo-site", repo_owner: "rebirth-wd", repo_name: "demo-site",
     repo_url: "https://github.com/rebirth-wd/demo-site", harness: "needs you", needs_you: 1,
-    run: { run_id: "20261031-100000-pricing-page", status: "waiting", task: 2, tasks: 3 },
+    questions: ["20261031-100000-pricing-page.1"], activity: "need", status_line: "1 question waiting", run_text: "Waiting for you",
+    run: { run_id: "20261031-100000-pricing-page", status: "waiting", task: 2, tasks: 3, carrying_on: false,
+      why: "It is waiting for your answer.", now: "Now: waiting for you." },
   }),
   row({
     name: "tiny-tool", description: "A tiny command line tool that tidies CSV files.", size: null,
-    chat: { state: "off", kind: "environment", url: "https://claude.ai/code/env_demo_tiny_tool" }, repo: "alex-boop-chasey/tiny-tool", repo_owner: "alex-boop-chasey", repo_name: "tiny-tool",
+    repo: "alex-boop-chasey/tiny-tool", repo_owner: "alex-boop-chasey", repo_name: "tiny-tool",
     profile: "python-script", repo_url: "https://github.com/alex-boop-chasey/tiny-tool", harness: "running task 2 of 4",
-    run: { run_id: "20261101-080000-add-json-output", status: "running", task: 2, tasks: 4 },
+    activity: "run", status_line: "Building, task 2 of 4", run_text: "Running task 2 of 4",
+    run: { run_id: "20261101-080000-add-json-output", status: "running", task: 2, tasks: 4, carrying_on: false,
+      why: "It is running.", now: "Now: working on task 2 of 4." },
   }),
   row({ name: "notes-only", description: "Research notes.", profile: "research" }),
   row({
     name: "phoenix9", repo: "alex-boop-chasey/phoenix9", repo_owner: "alex-boop-chasey", repo_name: "phoenix9",
     profile: "platform", repo_url: "https://github.com/alex-boop-chasey/phoenix9", harness: "needs you", needs_you: 1,
-    run: { run_id: "20261031-110000-api-and-dashboard", status: "waiting", task: 1, tasks: 3 },
+    questions: ["20261031-110000-api-and-dashboard.1"], activity: "need", status_line: "1 question waiting", run_text: "Waiting for you",
+    run: { run_id: "20261031-110000-api-and-dashboard", status: "waiting", task: 1, tasks: 3, carrying_on: false,
+      why: "It is waiting for your answer.", now: "Now: waiting for you." },
   }),
 ]
 
@@ -65,4 +71,5 @@ export const globalView: GlobalView = {
   },
   telegram: { connected: false },
   supported: { services: false, update: false, secrets: false },
+  addresses: { dashboard_url: "https://phoenix.example.test/", allowed_origins: ["https://phoenix.example.test"], vscode_url: "" },
 }

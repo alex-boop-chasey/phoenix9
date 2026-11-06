@@ -1,11 +1,8 @@
-"""Ops for projects: list, show, edit, open, close, set-chat, new and the templates menu."""
+"""Ops for projects: list, show, edit, new, remove, import and the templates menu."""
 from pathlib import Path
 
 from phoenix9 import paths
 from phoenix9.ops import common
-
-ACTIVE_RUN = ("queued", "running", "waiting", "paused-limit")
-
 
 def list_(names: list | None = None) -> list:
     """Every project (a folder with a CLAUDE.md), or just `names`, with its full info, by name."""
@@ -37,34 +34,6 @@ def set_services(name: str, names: list, who: str) -> dict:
     return project_services.set_services(name, names, who)
 
 
-def open_(name: str, who: str) -> dict:
-    """Switch a project's chat server on."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.open_project(name, common.make_adapters(), who)
-
-
-def chat_start(name: str, who: str) -> dict:
-    """Switch a project's chat on (enable and start) and return its chat state."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.chat_start(name, common.make_adapters(), who)
-
-
-def close(name: str, who: str, force: bool = False) -> dict:
-    """Switch a project's chat server off."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.close_project(name, common.make_adapters(), who, force)
-
-
-def set_chat(name: str, url: str, who: str) -> dict:
-    """Save a project's chat session link."""
-    from phoenix9 import project
-    common.project_dir(name)
-    return project.set_chat(name, url, who)
-
-
 def new(opts: dict, who: str, progress=None) -> dict:
     """Create a project from the form; `progress` gets one plain line per creation step."""
     from phoenix9 import project
@@ -72,7 +41,7 @@ def new(opts: dict, who: str, progress=None) -> dict:
 
 
 def remove(name: str, who: str) -> dict:
-    """Remove a project from Phoenix's list and switch its chat off; every file is kept."""
+    """Remove a project from Phoenix's list; every file is kept."""
     from phoenix9 import project_removal
     return project_removal.remove(name, who, common.make_adapters())
 
@@ -84,7 +53,7 @@ def import_candidates() -> list:
 
 
 def import_(name_or_path: str, who: str) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix and set its chat up."""
+    """Bring a removed project or an unlisted folder into Phoenix and add its missing workspace files."""
     from phoenix9 import project_removal
     return project_removal.import_(name_or_path, who, common.make_adapters())
 
@@ -126,28 +95,22 @@ def templates_menu() -> list:
     return [{k: t[k] for k in ("name", "title", "profile", "kind", "check")} for t in templates.load_menu()]
 
 
+STATE_KEYS = ("needs_you", "questions", "run", "last_build_failed", "activity", "status_line", "run_text", "harness",
+              "worker")
+
+
 def rows(only: str | None = None) -> list:
-    """The Projects page rows (just project `only` when given): every info field plus repo_url, needs_you, the active run and last_build_failed."""
-    from phoenix9 import gates, runs
-    open_gates = gates.list_gates()
-    active = {}
-    last_failed = {}
-    asking = {g["run"] for g in open_gates}
-    for r in runs.list_runs():     # newest first, so the first match per project is the newest
-        if r["status"] == "waiting" and r["run_id"] not in asking:      # every question answered
-            r = {**r, "status": "running"}
-        if r["status"] in ACTIVE_RUN:
-            if r["project"] not in active:
-                active[r["project"]] = {"run_id": r["run_id"], "status": r["status"],
-                                        "task": (r.get("current") or {}).get("task"), "tasks": r["tasks_total"]}
-        elif r["project"] not in last_failed:
-            last_failed[r["project"]] = r["status"] == "failed"
+    """The Projects page rows (just project `only` when given): every info field plus repo_url and the
+    project's state from status.project_state (needs_you, questions, run, last_build_failed, activity,
+    status_line, run_text, harness, worker)."""
+    from phoenix9 import status
+    found = list_([only] if only else None)
+    states = status.all_project_states([r["name"] for r in found], {r["name"]: r.get("last_used") or "" for r in found})
     out = []
-    for row in list_([only] if only else None):
+    for row in found:
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
-                    "needs_you": sum(1 for g in open_gates if g["project"] == row["name"]),
-                    "run": active.get(row["name"]), "last_build_failed": last_failed.get(row["name"], False)})
+                    **states[row["name"]]})
     return out
 
 
@@ -157,17 +120,8 @@ SKIP_DIRS = (".git", "node_modules", ".venv", "__pycache__")
 
 
 def state_of(row: dict) -> str:
-    """A row's state in one word: need (waiting on Alex), run, fail (latest finished build failed) or idle."""
-    run = row.get("run") or {}
-    if row.get("needs_you", 0) > 0 or run.get("status") == "waiting":
-        return "need"
-    if run.get("status") in ("failed", "paused-limit"):
-        return "fail"
-    if run.get("status") in ("running", "queued"):
-        return "run"
-    if row.get("last_build_failed") and not run:
-        return "fail"
-    return "idle"
+    """A row's state in one word (need, run, fail or idle), as status.project_state worked it out."""
+    return row.get("activity") or "idle"
 
 
 def created_at(row: dict) -> float:

@@ -19,11 +19,8 @@ REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 OWNER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]*$")
 NOTES_SUBFOLDERS = ("research", "specs", "plans", "sessions")
 RECIPE_TIMEOUT = 1800
-START_CHECKS = 6
 SIZE_MAX_AGE = 300
 SIZE_WAIT = 1.0
-ENV_URL_RE = re.compile(r"https://claude\.ai/code\?environment=env_[A-Za-z0-9]+")
-SESSION_URL_RE = re.compile(r"^https://claude\.ai/code/[A-Za-z0-9_-]+$")
 HOME_PROJECT = "home"
 SAFE = git.SAFE
 
@@ -31,11 +28,6 @@ SAFE = git.SAFE
 def claude_json() -> str:
     """Claude Code's own settings file (PHOENIX_CLAUDE_JSON, else /root/.claude.json)."""
     return os.environ.get("PHOENIX_CLAUDE_JSON") or "/root/.claude.json"
-
-
-def unit(name: str) -> str:
-    """The systemd unit that keeps a project's chat server on."""
-    return f"claude-rc@{name}.service"
 
 
 def _first_error(rc: int, out: str, err: str) -> str:
@@ -330,25 +322,6 @@ def trust(host, folder: Path) -> None:
         host.write_text(path, json.dumps(data, indent=2))
 
 
-def switch_on(host, clock, name: str, folder: Path, made: list) -> None:
-    """Enable and start the project's chat server, then watch the journal for errors (proj's `open`)."""
-    u = unit(name)
-    made.append(("service", name))
-    host.systemctl("enable", "-q", u)
-    trust(host, folder)
-    rc, out, err = host.systemctl("start", u)
-    if rc != 0:
-        raise OpsError(f"Could not start {u}: {_first_error(rc, out, err)}")
-    for _ in range(START_CHECKS):
-        clock.sleep(1)
-        bad = [x for x in host.journal(u).splitlines() if re.search(r"error|not trusted", x, re.I)]
-        if bad:
-            host.systemctl("stop", u)
-            raise OpsError(f"{name} failed to start: {bad[-1].strip()}")
-        if host.systemctl("is-active", "-q", u)[0] != 0:
-            raise OpsError(f"{name} stopped straight away; see: journalctl -u {u}")
-
-
 # ----------------------------------------------------------------------------- index and undo
 def _index_line(name: str, where: str) -> str:
     return f"| {name} | {where or '-'} | (new) |"
@@ -375,10 +348,7 @@ def undo(made: list, host) -> None:
     """Reverse what create made, newest first; a GitHub repo is never deleted."""
     for kind, value in reversed(made):
         try:
-            if kind == "service":
-                host.systemctl("stop", unit(value))
-                host.systemctl("disable", "-q", unit(value))
-            elif kind == "folder":
+            if kind == "folder":
                 git.rmtree(Path(value))
             elif kind == "keys":
                 (paths.keys() / f"{value}.toml").unlink(missing_ok=True)
@@ -428,7 +398,7 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
     atomic.write_json(folder / ".phoenix" / "project.json", {
         "created": today, "who": who, "source": facts["source"], "template": tpl_name, "profile": facts["profile"],
         "repo": repo or opts.get("repo") or None, "code": opts["code"] if facts["source"] == "code" else "code/",
-        "chat_session_url": None, "environment_id": None, "services_set_up": []})
+        "services_set_up": []})
     if facts["new_repo"] and facts["source"] in ("empty", "template") and not repo:
         say("Creating the GitHub repo")
         repo = _make_repo(opts, facts, code, host, made, say)
@@ -577,122 +547,18 @@ def size(name: str, adapters) -> int:
     return value
 
 
-# ----------------------------------------------------------------------------- chat link
-_searching: set = set()
-_searching_lock = threading.Lock()
-
-
-def _search_chat_ids(names: list, adapters) -> None:
-    """Read the journal for each name's chat id (saved in project.json); one search per project at a time."""
-    for n in names:
-        with _searching_lock:
-            if n in _searching:
-                continue
-            _searching.add(n)
-        try:
-            chat_link(n, adapters)
-        except Exception:      # a failed search must not break the page; the link just stays "not ready"
-            pass
-        finally:
-            with _searching_lock:
-                _searching.discard(n)
-
-
-def _needs_chat_search(name: str, adapters) -> bool:
-    """True when the chat is on, has no session link, and no id was saved since its last start."""
-    meta = _meta(paths.projects() / name)
-    if meta.get("chat_session_url") or not is_on(adapters.host, name):
-        return False
-    since = _unit_started_at(adapters.host, name)
-    return not (meta.get("environment_id") and since and meta.get("chat_env_start") == since)
-
-
-def _unit_started_at(host, name: str) -> str:
-    """When the chat service last started (systemd's own words), or '' when unknown."""
-    rc, out, _ = host.systemctl("show", "-p", "ActiveEnterTimestamp", "--value", unit(name))
-    return out.strip() if rc == 0 else ""
-
-
-def _env_id_in_journal(host, name: str, since: str) -> str:
-    """The newest chat environment id the service logged since its last start ('' when none); stops at the first hit."""
-    argv = ["journalctl", "-u", unit(name), "-o", "cat", "--no-pager", "-r"]
-    hit = host.first_match(argv + ["--since", since] if since else argv, ENV_URL_RE)
-    return hit.split("environment=", 1)[1] if hit else ""
-
-
-def _refresh_env_id(name: str, adapters, folder: Path, meta: dict) -> str:
-    """The environment id for the running chat: stored when already read since this start, else read the journal."""
-    host = adapters.host
-    since = _unit_started_at(host, name)
-    if meta.get("environment_id") and since and meta.get("chat_env_start") == since:
-        return meta["environment_id"]
-    seen = _env_id_in_journal(host, name, since)
-    if not seen:
-        return meta.get("environment_id") or ""
-    if folder.is_dir():
-        _save_meta(folder, environment_id=seen, chat_env_id=seen, chat_env_seen=_iso(adapters.clock.now()),
-                   chat_env_start=since)
-    return seen
-
-
-def _iso(now: float) -> str:
-    return datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def chat_link(name: str, adapters, search: bool = True) -> dict:
-    """{state: on|off, kind: session|environment|none, url}: url is null when the chat is off or no id is known.
-
-    With search=False the journal is never read: only an id already saved in project.json is used."""
-    folder = paths.projects() / name
-    if not is_on(adapters.host, name):
-        return {"state": "off", "kind": "none", "url": None}
-    meta = _meta(folder)
-    if meta.get("chat_session_url"):
-        return {"state": "on", "kind": "session", "url": meta["chat_session_url"]}
-    env_id = _refresh_env_id(name, adapters, folder, meta) if search else (meta.get("environment_id") or "")
-    if not env_id:
-        return {"state": "on", "kind": "none", "url": None}
-    return {"state": "on", "kind": "environment", "url": f"https://claude.ai/code?environment={env_id}"}
-
-
+# ----------------------------------------------------------------------------- VS Code link and last used
 def vscode_link(name: str) -> dict:
-    """{url, reason}: the VS Code link for /srv/projects/<name>, or url null with the reason when the folder is missing."""
+    """{url, reason}: the VS Code link for /srv/projects/<name> (from the vscode_url global setting), or url null
+    with the reason when the VS Code address is not set or the folder is missing."""
+    from phoenix9 import addresses
+    base = addresses.read()["vscode_url"]
+    if not base:
+        return {"url": None, "reason": addresses.VSCODE_NOT_SET}
     folder = paths.projects() / name
     if not folder.is_dir():
         return {"url": None, "reason": f"The folder {folder} does not exist."}
-    return {"url": f"{paths.VSCODE_URL}?folder={folder}", "reason": None}
-
-
-def chat_start(name: str, adapters, who: str) -> dict:
-    """Switch the chat service on (enable and start) and return the chat state; the link may appear a moment later."""
-    result = open_project(name, adapters, who)
-    return {"project": name, "already": result["already"], "chat": chat_link(name, adapters)}
-
-
-# ----------------------------------------------------------------------------- chat server state
-def is_on(host, name: str) -> bool:
-    """True when the project's chat server is running."""
-    return host.systemctl("is-active", "-q", unit(name))[0] == 0
-
-
-def chats_open(host, name: str) -> int:
-    """How many chats are open: processes in the service's control group with --sdk-url in their command line."""
-    rc, out, _ = host.systemctl("show", "-p", "ControlGroup", "--value", unit(name))
-    group = out.strip() if rc == 0 else ""
-    if not group:
-        return 0
-    try:
-        pids = host.read_text(f"/sys/fs/cgroup{group}/cgroup.procs").split()
-    except (OSError, UnicodeDecodeError):
-        return 0
-    count = 0
-    for pid in pids:
-        try:
-            if "--sdk-url" in host.read_text(f"/proc/{pid}/cmdline").replace("\0", " "):
-                count += 1
-        except (OSError, UnicodeDecodeError):
-            continue
-    return count
+    return {"url": f"{base.rstrip('/')}/?folder={folder}", "reason": None}
 
 
 def _used_file(name: str) -> Path:
@@ -700,16 +566,19 @@ def _used_file(name: str) -> Path:
 
 
 def mark_used(name: str) -> None:
-    """Remember that the project was switched on just now."""
+    """Remember that the project was used just now (e.g. imported)."""
     path = _used_file(name)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch()
 
 
 def last_used(name: str, now: float):
-    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's records."""
+    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's
+    records and the last change of any of the project's runs (run activity counts as use)."""
     stamps = []
-    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used"):
+    runs_dir = paths.runs(name)
+    states = list(runs_dir.glob("*/state.json")) if runs_dir.is_dir() else []
+    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used", *states):
         try:
             stamps.append(path.stat().st_mtime)
         except OSError:
@@ -728,41 +597,22 @@ def last_used(name: str, now: float):
 
 
 def harness_status(name: str) -> str:
-    """idle, 'running task N of M', 'needs you' (open gate) or queued, from the newest run."""
-    if gates.list_gates(name):
-        return "needs you"
-    found = runs.list_runs(name)
-    if not found:
-        return "idle"
-    newest = found[0]
-    if newest["status"] == "queued":
-        return "queued"
-    if newest["status"] == "running":
-        current = (newest.get("current") or {}).get("task")
-        number = current if current else newest["tasks_passed"] + 1
-        return f"running task {number} of {newest['tasks_total']}"
-    return "idle"
+    """The harness column in words (idle, queued, 'running task N of M', 'needs you', ...), from status.project_state."""
+    from phoenix9 import status
+    return status.project_state(name)["harness"]
 
 
 # ----------------------------------------------------------------------------- info and list
 def info(name: str, adapters, size_wait: bool = True) -> dict:
     """Everything known about one project; size is measured (or cached) unless size_wait is False."""
     folder = paths.projects() / name
-    host = adapters.host
     repo = repo_of(folder)
-    on = is_on(host, name)
     at, words = last_used(name, adapters.clock.now())
     nbytes = size(name, adapters) if size_wait else cached_size(name)
-    if size_wait and _needs_chat_search(name, adapters):
-        worker = threading.Thread(target=_search_chat_ids, args=([name], adapters), daemon=True)
-        worker.start()
-        worker.join(SIZE_WAIT)
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
             "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
-            "chat": chat_link(name, adapters, search=False), "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name),
-            "state": "on" if on else "off", "chats": chats_open(host, name) if on else 0,
-            "last_used": words, "last_used_at": at, "harness": harness_status(name),
+            "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name), "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
 
 
@@ -782,13 +632,11 @@ def _refresh_sizes(names: list, adapters) -> None:
 
 
 def list_projects(adapters, wait: float = SIZE_WAIT, names: list | None = None) -> list:
-    """info for every project (or just `names`); sizes and chat ids come from the cache, missing ones load in the background."""
+    """info for every project (or just `names`); sizes come from the cache, missing ones load in the background."""
     names = project_names() if names is None else names
     now = adapters.clock.now()
     stale = [n for n in names if cached_size(n, now, SIZE_MAX_AGE) is None]
-    lookups = [n for n in names if _needs_chat_search(n, adapters)]
-    workers = [threading.Thread(target=target, args=(todo, adapters), daemon=True)
-               for target, todo in ((_refresh_sizes, stale), (_search_chat_ids, lookups)) if todo]
+    workers = [threading.Thread(target=_refresh_sizes, args=(stale, adapters), daemon=True)] if stale else []
     for w in workers:
         w.start()
     deadline = time.monotonic() + wait
@@ -804,10 +652,35 @@ def setup_facts(folder: Path) -> dict:
         own = settings.load_project(folder)
     except settings.SettingsError:
         own = {}
-    return {"kind": profile_of(folder), "source": meta.get("source") or None, "template": meta.get("template") or None,
+    return {"kind": profile_of(folder), "source": meta.get("source") or _guess_source(folder),
+            "template": meta.get("template") or None,
             "preset": own.get("preset") or None, "merge": own.get("merge") or None,
-            "created": meta.get("created") or None, "services_set_up": _set_up_entries(meta),
+            "created": meta.get("created") or _guess_created(folder), "services_set_up": _set_up_entries(meta),
             "waiting_for_keys": waiting_for_keys(folder.name)}
+
+
+def _guess_created(folder: Path) -> str | None:
+    """When setup did not record it: the date of the first commit in code/, else the folder's date."""
+    code = folder / "code"
+    if (code / ".git").exists():
+        try:
+            dates = git.git(code, "log", "--reverse", "--format=%cs", check=False).split()
+            if dates:
+                return dates[0]
+        except (git.GitError, OSError):
+            pass
+    try:
+        return datetime.fromtimestamp(folder.stat().st_mtime, timezone.utc).strftime("%Y-%m-%d")
+    except OSError:
+        return None
+
+
+def _guess_source(folder: Path) -> str:
+    """When setup did not record it: 'repo' (code/ has a GitHub origin), 'code' (code/ is a git repo) or 'empty'."""
+    code = folder / "code"
+    if not (code / ".git").exists():
+        return "empty"
+    return "repo" if git.remote_url(code) else "code"
 
 
 def waiting_for_keys(name: str) -> list:
@@ -919,50 +792,3 @@ def _edit_line(folder: Path, label: str, value: str) -> None:
         new = _set_line(text, label, value)
         if new != text:
             atomic.write_text(path, new)
-
-
-# ----------------------------------------------------------------------------- open, close, set-chat
-def open_project(name: str, adapters, who: str) -> dict:
-    """Switch the project's chat server on (enable, trust, start, watch the journal) and mark it used."""
-    folder = paths.projects() / name
-    host = adapters.host
-    if is_on(host, name):
-        host.systemctl("enable", "-q", unit(name))
-        mark_used(name)
-        result = {"project": name, "state": "on", "already": True}
-    else:
-        switch_on(host, adapters.clock, name, folder, [])
-        mark_used(name)
-        result = {"project": name, "state": "on", "already": False}
-    common.record_command(who, f"project open {name}", name)
-    return result
-
-
-def close_project(name: str, adapters, who: str, force: bool = False) -> dict:
-    """Switch the project's chat server off and stop it starting at boot; home and open chats need force."""
-    host = adapters.host
-    if name == HOME_PROJECT and not force:
-        raise OpsError("home is the front door and stays on (use --force to close it anyway).")
-    if not is_on(host, name):
-        host.systemctl("disable", "-q", unit(name))
-        result = {"project": name, "state": "off", "already": True}
-    else:
-        n = chats_open(host, name)
-        if n and not force:
-            raise OpsError(f"{name} has {n} chat(s) open. Close them first, or use --force.")
-        rc, out, err = host.systemctl("disable", "-q", "--now", unit(name))
-        if rc != 0:
-            raise OpsError(f"Could not switch {name} off: {_first_error(rc, out, err)}")
-        result = {"project": name, "state": "off", "already": False}
-    common.record_command(who, f"project close {name}", name)
-    return result
-
-
-def set_chat(name: str, url: str, who: str) -> dict:
-    """Save the chat session link (https://claude.ai/code/<session>) for the project."""
-    if not SESSION_URL_RE.match(url or ""):
-        raise OpsError("That is not a chat link. It should look like https://claude.ai/code/SESSION_ID.")
-    _save_meta(paths.projects() / name, chat_session_url=url)
-    events.emit("project.changed", project=name, who=who, what="chat")
-    common.record_command(who, f"project set-chat {name}", name, change="chat link set")
-    return {"project": name, "chat": {"kind": "session", "url": url}}

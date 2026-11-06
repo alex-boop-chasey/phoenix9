@@ -2,12 +2,13 @@
 # ported from reference/v8/phoenix/watch.py (crash counting, limit_notice, drive_safely)
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, events, gates, hold, paths, state
+from phoenix9 import atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -57,26 +58,54 @@ def _has_answer(run_dir: Path) -> bool:
 
 
 def _fail(adapters, s: dict, reason: str) -> str:
-    """Mark a run failed with the error in its state, tell the event stream and Alex."""
+    """End a run failed through the one end function (runend.end_run) under the run lock, and tell Alex."""
     run_dir = _run_dir(s)
-
-    def change(st):
-        st["status"] = "failed"
-        st["error"] = reason
-    state.update(run_dir, change)
-    events.emit("run.finished", project=s["project"], run=s["run_id"], status="failed", reason=reason)
-    adapters.notify.send(f"Phoenix run {s['run_id']} failed: {reason}")
-    return "failed"
+    try:
+        with runend.lock(run_dir):
+            status = runend.end_run(run_dir, "failed", reason=reason, adapters=adapters)["status"]
+    except TimeoutError:
+        return state.load(run_dir)["status"]    # someone else is ending it right now
+    if status == "failed":
+        adapters.notify.send(f"Phoenix run {s['run_id']} failed: {reason}")
+    return status
 
 
 def _now(adapters) -> datetime:
     return datetime.fromtimestamp(adapters.clock.now(), timezone.utc)
 
 
+class _Ended(Exception):
+    """The paused run was stopped (or ended) from outside while it waited for the usage limit."""
+
+
+def _still_paused(run_dir: Path) -> bool:
+    st = state.load(run_dir) or {}
+    return st.get("status") not in runend.ENDED and runend.stop_requested(run_dir) is None
+
+
+def _move_if_live(run_dir: Path, status: str, only_from: str | None = None) -> bool:
+    """One locked state update: set `status` only while the run has not ended, has no stop request and
+    (with only_from) is still in that status. True when it moved. A stop that lands after an earlier
+    look is therefore never overwritten."""
+    moved = []
+
+    def change(st):
+        if st["status"] in runend.ENDED or (only_from and st["status"] != only_from):
+            return
+        if runend.stop_requested(run_dir) is not None:
+            return
+        st["status"] = status
+        moved.append(True)
+    state.update(run_dir, change)
+    return bool(moved)
+
+
 def wait_out_limit(adapters, s: dict, result) -> bool:
-    """Pause the run, wait for Claude to answer again (telling Alex once if over an hour); True = resume."""
+    """Pause the run, wait for Claude to answer again (telling Alex once if over an hour); True = resume.
+    A run stopped during the wait is left stopped (never set back to running); a stop request ends it."""
     run_dir = _run_dir(s)
-    state.set_status(run_dir, "paused-limit")
+    if not _still_paused(run_dir) or not _move_if_live(run_dir, "paused-limit"):
+        return _end_paused(adapters, s)
     waited, told = [0.0], [False]
 
     def sleep(seconds):
@@ -87,13 +116,34 @@ def wait_out_limit(adapters, s: dict, result) -> bool:
             adapters.notify.send(f"Phoenix run {s['run_id']} is waiting more than an hour for Claude's "
                                  f"usage limit (resets at {when}).")
         adapters.clock.sleep(seconds)
+        heartbeat.mark_progress()                 # waiting out a limit is the loop doing its job
+        if not _still_paused(run_dir):
+            raise _Ended
 
-    ok = claude_mod.wait_for_limit(result, adapters.claude.probe, lambda: _now(adapters), sleep)
+    try:
+        ok = claude_mod.wait_for_limit(result, adapters.claude.probe, lambda: _now(adapters), sleep)
+    except _Ended:
+        return _end_paused(adapters, s)
     if not ok:
         _fail(adapters, s, "Claude's usage limit did not clear in time.")
         return False
-    state.set_status(run_dir, "running")
-    return True
+
+    if _move_if_live(run_dir, "running", only_from="paused-limit"):
+        return True
+    return _end_paused(adapters, s)
+
+
+def _end_paused(adapters, s: dict) -> bool:
+    """A paused run with a stop request is stopped the one clean way; one that already ended is left alone."""
+    run_dir = _run_dir(s)
+    asked = runend.stop_requested(run_dir)
+    if asked is not None and (state.load(run_dir) or {}).get("status") not in runend.ENDED:
+        from phoenix9.runner import Runner
+        try:
+            Runner(adapters, paths.library()).stop_now(run_dir, who=asked.get("who") or "cli")
+        except TimeoutError:
+            pass
+    return False
 
 
 def _crashed(adapters, s: dict, memory: Memory, err: Exception) -> str | None:
@@ -123,6 +173,8 @@ def drive_safely(adapters, runner, s: dict, memory: Memory) -> str | None:
 def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     """One round: resume a limit pause, re-drive answered waiting runs, or drive the next run. Returns its id."""
     memory = memory or Memory()
+    heartbeat.mark_progress()
+    heartbeat.write(adapters.clock.now())
     states = all_states()
     for s in states:
         if s["status"] == "paused-limit":  # left over from before a restart: wait again
@@ -147,10 +199,28 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     return chosen["run_id"]
 
 
+def catch_up() -> list[str]:
+    """Close the open questions of runs that already ended (left by older code); one event each, who = phoenix."""
+    closed = []
+    for s in all_states():
+        if s["status"] in gates.ENDED:
+            closed += gates.close_questions(_run_dir(s), f"run {s['status']}", who="phoenix")
+    return closed
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
-    """Remove leftover containers once, then run a round every interval_s seconds, forever."""
+    """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
+    heartbeat.reset_progress()
+    heartbeat.mark_progress()
     docker_mod.cleanup_orphans(adapters.docker)
+    catch_up()
+    stop = threading.Event()
+    ticker = heartbeat.start_ticker(adapters.clock, stop=stop)    # beats while a container runs or the loop moves
     memory = Memory()
-    while True:
-        watch_once(adapters, runner, memory)
-        adapters.clock.sleep(interval_s)
+    try:
+        while True:
+            watch_once(adapters, runner, memory)
+            adapters.clock.sleep(interval_s)
+    finally:
+        stop.set()
+        ticker.join(1)

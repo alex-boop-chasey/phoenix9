@@ -13,11 +13,11 @@ test("home lists the four demo projects", async ({ page }) => {
   await expectNoRawOutput(page)
 })
 
-test("rows show path, repo and the three buttons", async ({ page }) => {
+test("rows show path, repo and the two buttons, and no Chat button", async ({ page }) => {
   const demo = row(page, "demo-site")
   await expect(demo.locator(".p-path")).toContainText("demo-site")
   await expect(demo.getByRole("button", { name: /Remove/ })).toBeVisible()
-  await expect(demo.getByText("Chat")).toBeVisible()
+  await expect(demo.getByText("Chat")).toHaveCount(0)
   await expect(demo.getByText("VS Code")).toBeVisible()
   await expect(row(page, "notes-only").getByText("No repo")).toBeVisible()
   await expectNoHorizontalScroll(page)

@@ -7,19 +7,20 @@ from phoenix9.__main__ import main
 from phoenix9.ops import common, projects
 
 
-def fake_row(name, description="", repo="", owner=None, size=0, used=None, needs=0, run=None):
+def fake_row(name, description="", repo="", owner=None, size=0, used=None, needs=0, run=None, activity="idle"):
+    """A made-up row; `activity` is what status.project_state would have said for it."""
     return {"name": name, "description": description, "repo": repo, "repo_owner": owner, "size": size,
-            "last_used_at": used, "needs_you": needs, "run": run,
-            "state": "off", "chats": 0, "harness": "idle", "last_used": "never"}
+            "last_used_at": used, "needs_you": needs, "run": run, "activity": activity,
+            "harness": "idle", "last_used": "never"}
 
 
 ROWS = [
     fake_row("alpha", "Billing tool", "acme/alpha", "acme", size=300, used=100),
-    fake_row("beta", "Garden notes", "", None, size=900, used=300, needs=2),
-    fake_row("gamma", "Billing site", "zed/gamma", "zed", size=None, used=200, run={"status": "running"}),
-    fake_row("delta", "Old thing", "acme/delta", "acme", size=50, used=None, run={"status": "failed"}),
-    fake_row("eps", "Waiting", "", None, size=10, used=400, run={"status": "waiting"}),
-    fake_row("zeta", "Paused", "", None, run={"status": "paused-limit"}),
+    fake_row("beta", "Garden notes", "", None, size=900, used=300, needs=2, activity="need"),
+    fake_row("gamma", "Billing site", "zed/gamma", "zed", size=None, used=200, run={"status": "running"}, activity="run"),
+    fake_row("delta", "Old thing", "acme/delta", "acme", size=50, used=None, run=None, activity="fail"),
+    fake_row("eps", "Waiting", "", None, size=10, used=400, needs=1, run={"status": "waiting"}, activity="need"),
+    fake_row("zeta", "Paused", "", None, run={"status": "paused-limit"}, activity="fail"),
 ]
 
 

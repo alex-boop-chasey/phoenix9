@@ -2,7 +2,7 @@
 
 The contract between `phoenix9/api/server.py` and the web app in `web/`. The server does no work itself:
 every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the page's own address
-(the app is served under `/proxy/<port>/`), so the web app never uses an absolute `/api/...`.
+(the app may be served at a site root or under a prefix such as `/proxy/<port>/`), so the web app never uses an absolute `/api/...`.
 
 ## Rules
 
@@ -10,8 +10,10 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
 - Every reply is JSON: `{"ok": true, "data": ...}` or `{"ok": false, "message": "<plain English>"}`.
 - HTTP status: 200 fine, 400 bad request or refused by ops, 403 forbidden, 404 not found, 409 conflict,
   500 unexpected failure, 503 busy or not available.
-- Every POST needs the header `X-Phoenix: 1` and an `Origin` listed in `PHOENIX_API_ORIGINS`
-  (comma list, default `https://files.rebirthwebdesign.com.au`), otherwise 403.
+- Every POST needs the header `X-Phoenix: 1` and an `Origin` in the allowed origins (`PHOENIX_API_ORIGINS`, else the
+  `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
+  "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
+  Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
 - POST bodies are JSON objects of at most 64 KB.
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
@@ -31,7 +33,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `needs_you`, `run`, `repo_url` like rows) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
@@ -39,7 +41,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
-| GET | `/api/gates?project=` | `ops.gates.list_` | | list of gate objects (architecture section 7) | 404 |
+| GET | `/api/gates?project=` | `ops.gates.list_` | | the open questions only (`gates.is_open`), as gate objects (architecture section 8) plus `state: "open"` | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |
 | GET | `/api/library/presets` | `ops.library.presets` | | `{presets: [{name, title, has_file, description, steps}]}` (`title` and `description` come from the preset file; `steps` = `{step: on}` the preset file sets; the wizard needs it because a project's own `steps.<name>.on` sits above the preset layer in `/plan`) | |
@@ -49,18 +51,21 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/github/repos` | `ops.github.repos` | | `{connected, repos: [{full_name, owner, private}]}` | |
 | GET | `/api/global` | `ops.app.global_view` | | Global view; `default_models` is `{step: {model, fallback_models, title, library {model, fallback_models}}}` (Phoenix's saved defaults over the library's) | |
 | GET | `/api/global/services` | `ops.services.list_global` | | `{supported, services: [row]}`: Claude, the library services, Telegram. Row adds `ends_in {KEY: "…abcd"}`, `account_settings [{name, label, kind, options, placeholder, help, value}]`, `can_test`, `endpoints {connect, disconnect, test}` | |
+| POST | `/api/global/addresses` | `ops.app.set_addresses` (`phoenix settings global set`) | `{dashboard_url?, allowed_origins?: [origin], vscode_url?}` (`vscode_url: ""` = not set) | `{values {dashboard_url, allowed_origins, vscode_url}, api_restart: "asked" \| "not needed" \| "failed: ..."}`; a change of the allowed origins rewrites api.env and restarts the API just after the reply. Origins are normalised like a browser's Origin header (no default :443/:80, IPv6 in brackets); bad host names, `null` and `*` are refused, and so is a list without the dashboard_url's origin or the request's own Origin (it would lock the dashboard out) | 400 (plain message naming the address to add) |
 | POST | `/api/global/models` | `ops.app.set_default_models` (`phoenix models set`) | `{steps: {step: {model, fallback_models}}}` | `{saved, default_models}`; written to `global.toml [models.<step>]` | 400 |
 | GET | `/api/doctor?mode=quick\|full` | `ops.doctor.run` | | `{ok, checks: [{name, ok, detail, fix}], checked_at}` | 400 |
 | GET | `/api/services` | `ops.services.list_` | | `{supported: true, services: [row + endpoints {connect, disconnect}]}`; row = `{name, title, description, support, connected, note, account_keys, checked, checked_at, project_keys, hosts, used_by}` | |
 | GET | `/api/keys/audit` | `ops.keys.audit` | | `{global: [{file, names, used_by, modified, mode, mode_ok}], projects: [{project, name, secret, set, used, last_touched, service}], problems: [text]}` (never a value) | |
-| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag}`; `tag` is the running copy's release tag, `""` when unknown | |
-| GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line]}`; `refresh=1` asks GitHub for the newest tag | |
+| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins}`; `tag` is the running copy's release tag, `""` when unknown; `origins` = the page origins this running API allows | |
+| GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line], off_release, off_release_note}` (`off_release_note` says how to get back to a release when the installed copy is on a commit with no release tag, else `""`); `refresh=1` asks GitHub for the newest tag | |
 | GET | `/api/update/log?lines=200` | `ops.update.log` | | `{lines, checks_file}` | |
 | GET | `/api/update/history` | `ops.update.history` | | `{history: [{at, action, tag, result, reason, who}]}` newest first (from `HOME/update/history.jsonl`) | |
 | GET | `/api/projects/<name>/deploys` | `ops.deploy.status` | | `{project, deployer {name, title, supported}, recent (newest first), live_url, last_good_commit, last_good_at}` | 404 |
 | POST | `/api/update/install` | `ops.update.install` (queues the updater unit; never runs it) | `{tag?, yes: true}` | `{ok, queued, tag}` | 400 |
 | POST | `/api/update/rollback` | `ops.update.rollback` | `{yes: true}` | `{ok, queued}` | 400 |
 | POST | `/api/projects/<name>/deploy` | `ops.deploy.now` (in a background thread) | `{yes: true}` | `{job}` | 400, 404, 409 |
+| POST | `/api/service/<name>/restart` (name `api` or `runner`) | `ops.service.restart_api_soon` (api) / `ops.service.restart` in a background job (runner; `phoenix service restart`) | `{yes: true}` | api: `{service, restarted, queued: true}` (systemctl `--no-block`; the API restarts just after replying); runner: `{job}` (kind `restart`; waits up to 30 min for builds to reach a task boundary; `result` = `{service, restarted, waited, doctor}`) | 400, 409 (a restart is waiting) |
+| POST | `/api/images/build` | `ops.images.build` (in a background thread; `phoenix images build`) | `{profiles?: [name], all?: bool, changed?: bool}` (none = the profiles projects use) | `{job}` (kind `images`; `result` = `{ok, built: [{profile, tag, ok, log}], skipped}`) | 400 (bad body or unknown profile), 409 (a build is running) |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
@@ -72,9 +77,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects` | `ops.projects.new` (in a background thread) | create form | `{job}` | 400, 409 |
 | GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
 | GET | `/api/folders?path=` | `ops.projects.list_folders` | | `{path, root, parent \| null, folders: [{name, path}]}`; sub-folders only, never hidden ones or symlinks leaving the projects folder; empty path = the projects folder | 400 (outside the projects folder), 404 |
-| POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added], chat: "on"}`; also takes it off the removed list and sets the chat up (trust, enable, start) | 400, 404, 409 |
-| POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; stops and disables `claude-rc@<name>`, undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
-| POST | `/api/projects/<name>/chat/start` | `ops.projects.chat_start` | `{}` | `{project, already, chat}` (chat as in the row shape); enables and starts `claude-rc@<name>`; the link may not be in `chat.url` yet, so the page asks again (`GET /api/projects/<name>`) until it is | 404 |
+| POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added]}`; also takes it off the removed list and adds the trust entry; starts no service | 400, 404, 409 |
+| POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |
@@ -85,7 +89,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/plan` | `ops.runs.plan` (added in step 03) | `{overrides}` | Plan (see Shapes) | 400, 404 |
 | POST | `/api/projects/<name>/defaults` | `ops.settings.save_defaults` (added in step 03) | `{overrides}` | `{project}` | 400, 404 |
 | POST | `/api/projects/<name>/runs` | `ops.runs.start_from_notes` (added in step 03) | `{spec \| brief, overrides}` | `{run_id, project, status}` | 400, 404 |
-| POST | `/api/runs/<project>/<run_id>/stop` | `ops.runs.stop` | `{"confirm": true}` | `{run_id, status, containers_removed}` | 400, 404 |
+| POST | `/api/runs/<project>/<run_id>/stop` | `ops.runs.stop` | `{"confirm": true}` | `{run_id, status, containers_removed, notes}`; `status` is `stopped` (the runner's clean stop ran at once) or `"stop requested"` (the runner is walking the run and stops it at its next boundary); refused with a plain message when the run already ended or the caller may not stop runs in the project (same rule as answering an escalation) | 400, 404 |
+| POST | `/api/runs/<project>/<run_id>/discard` | `ops.runs.discard` (`phoenix run discard <run> --yes [--force]`) | `{"confirm": true, "force"?: bool}` | `{run_id, status, discarded: true, notes}`; deletes the worktree, local branch and pushed GitHub branch of a failed or stopped run. Without `force: true` it is refused when that would lose work: an open merge request (merge-request.txt whose `gh pr view` state is not MERGED/CLOSED; no answer counts as open) or commits on the run's branch (local, else pushed) that main doesn't have | 400 (not failed or stopped, no confirm, or `force` not a bool), 404, 409 (already discarded; or would lose work: `{ok: false, message, needs_force: true, would_lose: [plain lines]}`) |
 | GET | `/api/gates/<gate_id>/review` | `ops.gates.review` | | merge gates only: `{gate, run, project, title, why, answered, summary, tasks{passed,total,retried[]}, full_suite{status,note}, safety{flag,files}, files[{path,added,removed,binary,safety,diff}], added, removed, merge_request}`; diff from the run's own branch, else its patch files, else `gh pr diff`; scrubbed. CLI `phoenix gate review <id>` | 400, 404 |
 | POST | `/api/gates/<gate_id>/answer` | `ops.gates.answer` | `{action, note}` | `{gate, action, note, who, at}` | 400, 404, 409 |
 
@@ -93,34 +98,47 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 
 **Project row** (`ops.projects.rows`): every field of `phoenix9/project.py:info()` unchanged:
 `name`, `description`, `path`, `repo` (string, `""` when none; may be a URL), `repo_owner`, `repo_name`,
-`profile`, `services` (list), `size` (int bytes or null), `chat {state: "on"|"off", kind: "session"|"environment"|"none", url}` (`url` is null when the chat is off or no
-environment id is known: the page then shows "Start chat" only if the chat is on; new and imported projects get no chat service, so a project whose chat is off shows no chat button; the id is read from the journal of `claude-rc@<name>`
-since the unit's last start and stored in `.phoenix/project.json` as `chat_env_id`, `chat_env_seen`, `chat_env_start`),
-`vscode {url, reason}` (`url` null with a reason when `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `state` ("on"|"off", the chat service), `chats` (int), `last_used`, `last_used_at`,
-`harness` (a string: "idle" | "queued" | "running task N of M" | "needs you"), `has_phoenix_toml`;
-plus:
+`profile`, `services` (list), `size` (int bytes or null),
+`vscode {url, reason}` (`url` null with a reason when the VS Code address is not set or `/srv/projects/<name>` does not exist), `vscode_url` (same as `vscode.url`), `last_used`, `last_used_at` (the newest of Phoenix's and proj's used marks and the last change of any of the project's runs),
+`harness` (the harness column in words, from `status.project_state`: "idle" | "queued" | "running task N of M" |
+"running" | "paused (usage limit)" | "needs you"), `has_phoenix_toml`;
+plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI
+command and dashboard display reads these fields; nothing else works them out again):
 - `repo_url`: `https://github.com/<owner>/<name>` when `repo_owner` is set, else null.
-- `needs_you`: number of open gates of the project.
-- `run`: `{run_id, status, task, tasks}` of the newest run that is queued, running, waiting or
-  paused-limit (`task` = `current.task`, `tasks` = total), else null.
-- `last_build_failed`: true when the newest finished run (done, failed or stopped) failed. A project's state
-  is `need` (open gate or waiting run), else `run` (queued or running), else `fail` (paused at a limit, or
-  `last_build_failed` with nothing active), else `idle`. Shown as "Last build failed".
+- `needs_you`: number of open questions of the project; `questions`: their gate ids. A question is open only
+  when it has no answer file, its run is not done/failed/stopped, and the run waits on it (`gates.is_open`).
+- `run`: the current build `{run_id, status, task, tasks, carrying_on, why, now, worker}`, else null. It is the run
+  with an open question, else the newest running, paused-limit, waiting (carrying on) or queued run.
+  `status` is as Alex should see it (a waiting run whose questions are all answered reads `running` with
+  `carrying_on: true`); `task` = `current.task` (while running: the first task not passed yet);
+  `why` = why it is the current build; `now` = the "Now: ..." line of the Current build card.
+- `last_build_failed`: true when the newest finished run (done, failed or stopped) failed.
+- `activity`: `need` (an open question), else `fail` (paused at a limit), else `run` (any current build),
+  else `fail` (`last_build_failed`), else `idle`.
+- `worker`: `"alive"`, or `"not responding"` when the current build says running and the runner's heartbeat
+  (`HOME/runner/heartbeat.json`) is missing or over 120 s old; the run view carries the same `worker`.
+- `status_line`: the sidebar line ("1 question waiting", "Building, task 2 of 4", "Build queued", "Paused at a
+  limit", "Last build failed", "Idle, used 3h ago"); `run_text`: the Projects page words ("Running task 2 of 4",
+  "Queued", "Paused (usage limit)", "Idle").
 
-`vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
+`vscode_url` is the `vscode_url` global setting + `/?folder=<PHOENIX_PROJECTS>/<name>`; null when that setting is empty
+(`vscode.reason` = "Set the VS Code address in Global settings.") or the folder is missing.
 
 **Info** (`/api/info`): `version` (`phoenix9.__version__`), `label` (what the header shows: the install tag, else `v` + major.minor, e.g. `v9.1`), `update {supported, installed, newest,
-available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true).
+available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true),
+`dashboard_url`, `vscode_url` (the dashboard address settings; `vscode_url` `""` = not set).
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,
 tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished` (ISO or `""`),
-`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`.
+`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `discarded` (true once the run's work was discarded).
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
-not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>`).
+not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>` while that branch exists in the project's code/, else null: a stopped or discarded run has none),
+`image {tag, id}` (the exact step image, once the run has started), `discarded` (and `discarded_at`, `discarded_by`) after `phoenix run discard`.
 
 **Global view** (`ops.app.global_view`): `values` (non-secret contents of `HOME/config/global.toml`),
+`addresses {dashboard_url, allowed_origins, vscode_url}` (defaults filled in),
 `github {connected, accounts}`, `default_models {<ai step>: {model, fallback_models}}`,
 `telegram {connected}`, `supported {services, update, secrets}` (false for parts not built yet).
 
@@ -132,7 +150,7 @@ repo?, template?, path?}, profile, new_repo: {on, owner}, services: [], keys: [{
 The reply is `{job}` at once; ops runs in the background (one create at a time, else 409). Key values go
 straight to the keys store (`opts["keys"]`), never to a file.
 
-**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy", project, status: "running"|"done"|"failed",
+**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy" \| "images" \| "restart", project, status: "running"|"done"|"failed",
 steps: [{label, status: "running"|"done"|"failed"}], message}`. Each progress line from ops starts a step and
 marks the previous one done; `message` is the ops error on failure (empty otherwise). Deploy jobs have no steps and add `result` (the `ops.deploy.now` result, `null` while running). One job per kind at a time: a second create while one creates, or a second deploy while one deploys, is 409; a create and a deploy may run together.
 

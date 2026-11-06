@@ -7,13 +7,12 @@ import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { useLiveEvents } from "@/lib/live"
-import { useGates, useInfo, useProjects } from "@/lib/queries"
+import { useInfo, useProjects } from "@/lib/queries"
 import { sortForSwitcher } from "@/lib/switcher"
 
 /** The header, project switcher, phone picker, agent drawer and the "well" around every route. */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: info } = useInfo()
-  const { data: gates } = useGates()
   const { data: projects } = useProjects()
   const { pathname } = useLocation()
   const [drawer, setDrawer] = useState(false)
@@ -24,11 +23,9 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const current = matchPath("/p/:name/*", pathname)?.params.name ?? matchPath("/p/:name", pathname)?.params.name
   const update = info?.update
-  const open = (gates ?? []).filter((g) => !g.answered)
-  const need = open.length
-  const firstNeed = open.length
-    ? (sortForSwitcher(projects ?? []).find((p) => p.needs_you > 0)?.name ?? open[0]?.project)
-    : undefined
+  // The bell counts what the backend says needs Alex (each project's needs_you); nothing is worked out here.
+  const need = (projects ?? []).reduce((n, p) => n + (p.needs_you ?? 0), 0)
+  const firstNeed = need ? sortForSwitcher(projects ?? []).find((p) => p.needs_you > 0)?.name : undefined
   const inProjects = pathname === "/" || pathname.startsWith("/p/") || pathname === "/new" || pathname === "/import"
 
   useEffect(() => {

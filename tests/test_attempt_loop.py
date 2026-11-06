@@ -484,7 +484,7 @@ def test_run_stop_while_waiting(tmp_path, runner, adapters, monkeypatch):
     assert not worktree(run_dir).exists()
     code = paths.projects() / "proj" / "code"
     assert git(code, "branch", "--list", f"phoenix/{run_dir.name}").strip() == ""
-    gates.answer(open_gate(run_dir)["id"], "acknowledged")
+    assert [g for g in gates.list_gates() if g["run"] == run_dir.name] == []   # its question is no longer open
     assert watch.watch_once(adapters, runner) is None
     assert runner.drive(run_dir) == "stopped"
     assert attempts("builder") == [1] and calls("summary") == []

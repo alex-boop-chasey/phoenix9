@@ -67,7 +67,7 @@ def _escalations(run_dir: Path) -> list:
         if e.get("type") == "gate.answered" and e.get("task") is not None:
             data = e.get("data") or {}
             out.append({"task": e["task"], "action": data.get("action", ""), "who": data.get("who", ""),
-                        "gate": data.get("gate", "")})
+                        "gate": data.get("gate", ""), "reason": data.get("reason", "")})
     return out
 
 
@@ -129,7 +129,9 @@ def _task_line(t: dict) -> str:
 
 
 def _escalation_line(e: dict) -> str:
-    """One plain line for an answered question."""
+    """One plain line for an answered (or closed) question."""
+    if e["action"] == "closed":
+        return f"Task {e['task']}: closed: {e.get('reason') or 'its run ended'}"
     return f"Task {e['task']}: {e['action']} by {e['who'] or 'someone'}"
 
 

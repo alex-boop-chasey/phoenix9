@@ -96,3 +96,22 @@ def test_log_shows_tail(cli, capsys):
     run(capsys, "update", "install", "v9.1", "--yes")
     code, out, _ = run(capsys, "update", "log", "--lines", "5")
     assert code == 0 and "asked for install v9.1" in out
+
+
+def test_status_says_when_install_is_off_a_release(cli, layout, capsys):
+    from test_updater import git
+    (layout["install"] / "local.txt").write_text("hand change\n")
+    git(layout["install"], "add", "-A")
+    git(layout["install"], "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "by hand")
+    sha = git(layout["install"], "rev-parse", "HEAD").strip()
+    code, out, _ = run(capsys, "update", "status")
+    assert code == 0
+    assert (f"Installed copy is on commit {sha[:10]}, not a release. "
+            "Run `phoenix update release` then `phoenix update install`.") in out
+    data = json.loads(run(capsys, "update", "status", "--json")[1])
+    assert data["off_release"] is True and "not a release" in data["off_release_note"]
+
+
+def test_status_on_a_release_has_no_off_release_note(cli, capsys):
+    data = json.loads(run(capsys, "update", "status", "--json")[1])
+    assert data["off_release"] is False and data["off_release_note"] == ""

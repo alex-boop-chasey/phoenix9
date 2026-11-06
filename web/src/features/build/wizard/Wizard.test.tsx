@@ -263,7 +263,7 @@ test("failure modes explained", async () => {
   mockApi(routes())
   show()
   await goTo(5)
-  for (const t of ["Continue", "Pause for me", "Delegate to the project chat"]) {
+  for (const t of ["Continue", "Pause for me", "Hand it to Claude in the project folder"]) {
     expect(screen.getByRole("radio", { name: t })).toBeInTheDocument()
   }
   expect(screen.getByText(/Move on to tasks that don't depend/)).toBeInTheDocument()

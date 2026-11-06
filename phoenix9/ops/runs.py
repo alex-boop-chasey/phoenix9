@@ -3,6 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
+from phoenix9 import runend, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -35,6 +36,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     if problems:
         raise OpsError("The project's settings have problems:\n" + "\n".join(f"- {p}" for p in problems))
     overrides = dict(overrides or {})
+    if not overrides.get("preset") and spec.parse(text).preset:   # the spec's `Preset:` line, unless one was given
+        overrides["preset"] = spec.parse(text).preset
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
     try:
@@ -114,33 +117,11 @@ def start_from_notes(project: str, spec: str | None = None, brief: str | None = 
         temp.unlink(missing_ok=True)
 
 
-def carrying_on(st: dict, open_gate_runs) -> bool:
-    """True when the run still says waiting but none of its questions is open any more (all answered)."""
-    return st.get("status") == "waiting" and st.get("run_id") not in open_gate_runs
-
-
-def with_answers_applied(st: dict, open_gate_runs) -> dict:
-    """The state as Alex should see it: a waiting run whose questions are all answered shows as running.
-
-    Waiting steps and tasks of such a run show as running too, marked `answered`; the runner still
-    changes the real state later."""
-    if not carrying_on(st, open_gate_runs):
-        return st
-    mark = lambda x: {**x, "status": "running", "answered": True} if x.get("status") == "waiting" else x
-    out = {**st, "status": "running", "carrying_on": True}
-    if "steps" in st:
-        out["steps"] = [mark(x) for x in st["steps"]]
-    if "tasks" in st:
-        out["tasks"] = {k: mark(v) for k, v in st["tasks"].items()}
-    return out
-
-
 def status(run_id: str) -> dict:
     """The run's state plus its open questions and last few events."""
     folder = _run_folder(run_id)
-    st = state.load(folder)
-    open_gates = [g for g in gates_core.list_gates(st["project"]) if g["run"] == run_id]
-    st = with_answers_applied(st, {g["run"] for g in open_gates})
+    open_gates = [g for g in gates_core.run_gates(folder) if g["state"] == "open"]
+    st = status_core.seen_run(state.load(folder), {g["id"] for g in open_gates})
     return {**st, "gates": open_gates, "recent_events": events.tail(folder / "events.jsonl", 5)}
 
 
@@ -148,9 +129,8 @@ def list_(project: str | None = None) -> list:
     """Summaries of runs (one project or all), newest first."""
     if project:
         common.project_dir(project)
-    waiting_for = {g["run"] for g in gates_core.list_gates(project)}
-    return [{**r, "status": "running", "carrying_on": True} if carrying_on(r, waiting_for) else r
-            for r in core.list_runs(project)]
+    open_ids = {g["id"] for g in gates_core.list_gates(project)}
+    return [status_core.seen_run(r, open_ids) for r in core.list_runs(project)]
 
 
 def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
@@ -175,21 +155,137 @@ def summary(run_id: str) -> dict:
     return {"run_id": run_id, "summary": path.read_text(encoding="utf-8", errors="replace")}
 
 
+STOP_LOCK_WAIT_S = 5.0    # how long a stop waits for a waiting/queued run's lock before leaving a request
+
+
+def _may_stop(project: str, who: str) -> bool:
+    """The same rule as answering an escalation question (gates.may_answer): chat:* callers need the project's permission."""
+    try:
+        project_settings = settings.load_project(common.project_dir(project))
+    except (settings.SettingsError, OpsError):
+        project_settings = {}
+    return gates_core.may_answer({"kind": "escalation"}, who, project_settings)
+
+
 def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
-    """Mark the run stopped and remove its containers (`project`, when given, must own the run)."""
+    """Stop a run the one clean way (`project`, when given, must own the run).
+
+    A run the runner is not walking (queued, waiting, paused, or a runner between rounds) is stopped
+    at once by the runner's own clean stop under the run lock. A run the runner is walking gets a stop
+    request it acts on at its next boundary: the reply then says status "stop requested". Its
+    containers are removed either way, so a live step ends quickly."""
+    from phoenix9.runner import Runner
     folder = _run_folder(run_id)
     if project is not None and folder.parent.name != project:
         raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
     st = state.load(folder)
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
-    state.set_status(folder, "stopped")
+    if not _may_stop(st["project"], who):
+        raise OpsError(f"'{who}' may not stop runs in {st['project']}.")
     adapters = common.make_adapters()
     removed = docker.cleanup_orphans(adapters.docker, run_id)
+    wait = 0 if st["status"] == "running" else STOP_LOCK_WAIT_S
+    try:
+        ended = Runner(adapters, paths.library()).stop_now(folder, who=who, wait=wait)
+        status, notes = ended["status"], ended["notes"]
+    except TimeoutError:
+        runend.request_stop(folder, who)
+        status, notes = "stop requested", []
+    common.record_command(who, f"run stop {run_id}", st["project"],
+                          f"stopped run {run_id}" if status == "stopped" else f"asked run {run_id} to stop")
+    return {"run_id": run_id, "status": status, "containers_removed": removed, "notes": notes}
+
+
+DISCARDABLE = ("failed", "stopped")
+
+
+class WouldLoseWork(common.Conflict):
+    """Discarding would lose work (an open merge request, or commits not on main); `lost` lists it in plain words."""
+
+    def __init__(self, message: str, lost: list[str]):
+        super().__init__(message)
+        self.lost = lost
+
+
+def _open_merge_request(adapters, folder: Path) -> str | None:
+    """The run's merge request URL while it may still be open (an unknown state counts as open), else None."""
+    mr = folder / "merge-request.txt"
+    if not mr.is_file():
+        return None
+    url = mr.read_text(encoding="utf-8", errors="replace").strip()
+    if not url:
+        return None
+    try:
+        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state")
+    except Exception:   # noqa: BLE001 - no answer means we cannot prove it is closed
+        rc, out = 1, ""
+    if rc == 0 and out.strip().upper() in ("MERGED", "CLOSED"):
+        return None
+    return url
+
+
+def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
+    """How many commits the run's branch (local, else its pushed copy) has that main does not."""
+    from phoenix9 import git as gitmod
+    code = common.project_dir(project) / "code"
+    if not (code / ".git").exists():
+        return 0
+    try:
+        branch = gitmod.branch_name(run_id)
+        main = adapters.git.default_branch(code)
+        for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"):
+            if gitmod.git(code, "rev-parse", "-q", "--verify", ref, check=False).strip():
+                count = gitmod.git(code, "rev-list", "--count", f"{main}..{ref}", check=False).strip()
+                return int(count) if count.isdigit() else 0
+    except (gitmod.GitError, OSError, ValueError):
+        return 0
+    return 0
+
+
+def would_lose(adapters, folder: Path, project: str, run_id: str) -> list[str]:
+    """What discarding this run would throw away, in plain words (empty when nothing unmerged would be lost)."""
+    lost = []
+    url = _open_merge_request(adapters, folder)
+    if url:
+        lost.append(f"its merge request {url} is still open (deleting the branch closes it)")
+    count = _commits_not_on_main(adapters, project, run_id)
+    if count:
+        lost.append(f"its branch has {count} commit{'s' if count != 1 else ''} that main doesn't have")
+    return lost
+
+
+def discard(run_id: str, who: str = "cli", project: str | None = None, force: bool = False) -> dict:
+    """Throw away a failed or stopped run's work: its worktree, local branch and GitHub branch (if pushed).
+
+    Refused (WouldLoseWork) when the run has an open merge request or commits not on main, unless `force`."""
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st.get("discarded"):
+        raise common.Conflict(f"Run {run_id}'s work was already discarded.")
+    if st["status"] not in DISCARDABLE:
+        why = ("its work was merged or waits as a merge request" if st["status"] == "done"
+               else "stop it first with `phoenix run stop`")
+        raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
+    if not _may_stop(st["project"], who):        # the same rule as stop: chat:* callers need the project's permission
+        raise OpsError(f"'{who}' may not discard runs in {st['project']}.")
+    adapters = common.make_adapters()
+    if not force:
+        lost = would_lose(adapters, folder, st["project"], run_id)
+        if lost:
+            raise WouldLoseWork(f"Run {run_id} still has work that would be lost: " + "; ".join(lost)
+                                + ". Discard it anyway only if you mean to throw that away (--force).", lost)
     notes = core.discard_branch(adapters, st["project"], run_id)
-    events.emit("run.finished", project=st["project"], run=run_id, status="stopped", who=who)
-    common.record_command(who, f"run stop {run_id}", st["project"], f"stopped run {run_id}")
-    return {"run_id": run_id, "status": "stopped", "containers_removed": removed, "notes": notes}
+    stamp = state.now()
+
+    def mark(s: dict) -> None:
+        s.update(discarded=True, discarded_at=stamp, discarded_by=who, **({"discard_forced": True} if force else {}))
+    state.update(folder, mark)
+    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
+    common.record_command(who, f"run discard {run_id}", st["project"], f"discarded the work of run {run_id}")
+    return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
 
 list = list_
@@ -218,8 +314,9 @@ def _preview_plan(project: str, overrides: dict) -> dict:
 
 
 def detail(project: str, run_id: str) -> dict:
-    """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries."""
-    from phoenix9 import git as gitmod, summary
+    """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,
+    and its branch (None once the branch is gone)."""
+    from phoenix9 import summary
     common.project_dir(project)
     folder = _run_folder(run_id)
     if folder.parent.name != project:
@@ -243,4 +340,18 @@ def detail(project: str, run_id: str) -> dict:
             pass
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries,
-            "branch": gitmod.branch_name(run_id)}
+            "branch": _live_branch(project, run_id)}
+
+
+def _live_branch(project: str, run_id: str) -> str | None:
+    """The run's branch name while it still exists in the project's code/ (a discarded run has none)."""
+    from phoenix9 import git as gitmod
+    code = common.project_dir(project) / "code"
+    branch = gitmod.branch_name(run_id)
+    if not (code / ".git").exists():
+        return None
+    try:
+        found = gitmod.git(code, "rev-parse", "-q", "--verify", f"refs/heads/{branch}", check=False).strip()
+    except (gitmod.GitError, OSError):
+        return None
+    return branch if found else None

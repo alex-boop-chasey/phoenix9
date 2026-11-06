@@ -98,7 +98,7 @@ def test_fresh_install_layout_and_modes(box):
     assert mode(home / "secrets") == 0o700 and mode(home / "keys") == 0o700
     api_env = (home / "config" / "api.env").read_text()
     assert "PHOENIX_API_PORT=8095" in api_env
-    assert "PHOENIX_API_ORIGINS=https://files.rebirthwebdesign.com.au" in api_env
+    assert "PHOENIX_API_ORIGINS" not in api_env and "rebirthwebdesign" not in api_env   # a setting, not seeded
 
 
 def test_custom_api_port(box):

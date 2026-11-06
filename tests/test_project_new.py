@@ -52,7 +52,7 @@ def test_new_empty_no_repo(env):
     assert data == {"profile": "python-script"}
     assert (folder / "phoenix.toml").read_text().count("preset") == 0
     info = json.loads((folder / ".phoenix/project.json").read_text())
-    assert info["who"] == "alex" and info["source"] == "empty" and info["chat_session_url"] is None
+    assert info["who"] == "alex" and info["source"] == "empty" and "chat_session_url" not in info
     assert info["services_set_up"] == [] and info["repo"] is None
     assert git.git(folder / "code", "rev-list", "--count", "HEAD").strip() == "1"
     assert not calls(env, "systemctl", "enable") and not calls(env, "systemctl", "start")

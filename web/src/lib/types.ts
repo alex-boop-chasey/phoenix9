@@ -20,14 +20,29 @@ export interface Info {
   }
   github: { connected: boolean; accounts: string[] }
   services: { supported: boolean }
+  /** The dashboard address settings. */
+  dashboard_url?: string
+  vscode_url?: string
 }
 
+/** A project's current build, as the backend (phoenix9/status.py) worked it out. */
 export interface ActiveRun {
   run_id: string
   status: RunStatus
   task: number | null
   tasks: number
+  /** Every question is answered; the runner has not moved on yet. */
+  carrying_on?: boolean
+  /** Why this run is the current build, in plain words. */
+  why?: string
+  /** The "Now: ..." line for the Current build card. */
+  now?: string
+  /** "not responding" when the run says running but the runner's heartbeat is over 2 minutes old. */
+  worker?: "alive" | "not responding"
 }
+
+/** A project's state in one word, decided by the backend: needs you, running, failed or idle. */
+export type Activity = "need" | "run" | "fail" | "idle"
 
 export interface ProjectRow {
   name: string
@@ -39,19 +54,25 @@ export interface ProjectRow {
   profile: string
   services: string[]
   size: number | null
-  chat: { state: "on" | "off"; kind: "session" | "environment" | "none"; url: string | null }
   vscode_url: string | null
   vscode: { url: string | null; reason: string | null }
-  state: "on" | "off"
-  chats: number
   last_used: string
   last_used_at: string
   harness: string
   has_phoenix_toml: boolean
   repo_url: string | null
   needs_you: number
+  /** The ids of the open questions (the backend's one rule decides what is open). */
+  questions: string[]
   run: ActiveRun | null
   last_build_failed: boolean
+  activity: Activity
+  /** One plain line for the sidebar ("1 question waiting", "Building, task 2 of 4", ...). */
+  status_line: string
+  /** The Projects page words for the current build ("Running task 2 of 4", "Idle", ...). */
+  run_text: string
+  /** The runner service: "not responding" when a run says running and the heartbeat is stale. */
+  worker?: "alive" | "not responding"
 }
 
 export interface ChangelogLine {
@@ -99,9 +120,8 @@ export interface ImportCandidate {
 
 export interface FolderListing { path: string; root: string; parent: string | null; folders: { name: string; path: string }[] }
 
-export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[]; chat: string }
+export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[] }
 export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
-export interface ChatStartResult { project: string; already: boolean; chat: ProjectRow["chat"] }
 
 /** What was chosen when the project was set up (any may be null for older projects). */
 export interface ProjectSetup {
@@ -193,6 +213,8 @@ export interface BuildRow {
   cost: string
   tasks_failed: number
   carrying_on?: boolean
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
 }
 
 export interface RunTask {
@@ -272,6 +294,12 @@ export interface RunDetail {
   max_tries: number
   /** The git branch of the run, e.g. phoenix/<run-id>. */
   branch?: string
+  /** The build's worktree and branch were thrown away (`phoenix run discard`). */
+  discarded?: boolean
+  discarded_at?: string
+  discarded_by?: string
+  /** The exact step image the run used (recorded at its first drive; id is "" when the image was missing). */
+  image?: { tag: string; id: string }
 }
 
 export type Overrides = Record<string, unknown>
@@ -312,6 +340,9 @@ export interface UpdateStatus {
   waiting: string
   phase: string | null
   interrupted: boolean
+  /** True when the installed copy is not on a release tag; the note says how to get back. */
+  off_release?: boolean
+  off_release_note?: string
   last: { action: string; tag: string | null; result: string; reason: string; at?: string } | null
   log_tail: string[]
 }
@@ -462,8 +493,17 @@ export interface DoctorResult { ok: boolean; checks: DoctorCheck[]; checked_at: 
 
 export interface UpdateHistoryRow { at: string; action: string; tag: string | null; result: string; reason: string; who: string }
 
+/** Phoenix settings > Dashboard addresses (global.toml [dashboard]). */
+export interface Addresses {
+  dashboard_url: string
+  allowed_origins: string[]
+  /** "" = not set (VS Code buttons are hidden). */
+  vscode_url: string
+}
+
 export interface GlobalView {
   values: Record<string, unknown>
+  addresses?: Addresses
   github: { connected: boolean; accounts: string[] }
   default_models: Record<string, DefaultModel>
   telegram: { connected: boolean }

@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs"
+
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { Route, Routes, useLocation } from "react-router"
 
@@ -77,7 +80,7 @@ test("title, lead line and Add project split button with two mini cards", async 
   expect(chev).toHaveAttribute("aria-expanded", "false")
 })
 
-test("each row shows name, path, status, repo and the three buttons", async () => {
+test("each row shows name, path, status, repo and the Remove and VS Code buttons", async () => {
   mockApi(routes())
   renderPage()
   await screen.findByText("4 projects")
@@ -86,13 +89,31 @@ test("each row shows name, path, status, repo and the three buttons", async () =
   expect(demo.getByText("Needs you")).toBeInTheDocument()
   expect(demo.getByRole("link", { name: /rebirth-wd\/demo-site/ })).toHaveAttribute("href", "https://github.com/rebirth-wd/demo-site")
   expect(demo.getByRole("link", { name: /VS Code/ })).toHaveAttribute("href", "https://code.example.test/?folder=/srv/projects/demo-site")
-  expect(demo.getByRole("link", { name: /Chat/ })).toHaveAttribute("href", "https://claude.ai/code/session_demo_site")
   expect(demo.getByRole("button", { name: /Remove/ })).toBeInTheDocument()
   expect(rowOf("demo-site").className).toContain("s-need")
   expect(rowOf("tiny-tool").className).toContain("s-run")
   expect(within(rowOf("tiny-tool")).getByText("Running task 2 of 4")).toBeInTheDocument()
   expect(within(rowOf("notes-only")).getByText("No repo")).toBeInTheDocument()
   expect(within(rowOf("notes-only")).getByText("Idle")).toBeInTheDocument()
+})
+
+test("the status pill sits right after the name and path, then the repo, then the buttons", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  const row = rowOf("demo-site")
+  const order = [...row.querySelectorAll(".p-main, .p-status, .p-repo, .p-acts")].map((el) => el.className.split(" ")[0])
+  expect(order).toEqual(["p-main", "p-status", "p-repo", "p-acts"])
+  expect(within(row.querySelector(".p-status") as HTMLElement).getByText("Needs you")).toBeInTheDocument()
+})
+
+test("row columns are fixed widths with the repo left-aligned, so long repo names line up and have room", () => {
+  const css = readFileSync(`${process.cwd()}/src/styles/projects.css`, "utf8")   // vitest runs in web/
+  const wide = css.slice(css.indexOf("@container well (min-width:780px)"))
+  expect(wide).toMatch(/\.p-meta\{[^}]*grid-template-columns:\s*\d+(\.\d+)?rem minmax\(0,\s*1fr\)/)
+  expect(wide).not.toMatch(/\.p-meta\{[^}]*minmax\(\d+px,\s*auto\)/)
+  expect(css).toMatch(/\.p-repo\{[^}]*justify-self:\s*start/)
+  expect(css).toMatch(/\.p-repo\{[^}]*text-align:\s*left/)
 })
 
 test("clicking a row opens the project; clicking a button does not", async () => {
@@ -196,23 +217,14 @@ test("phoenix9 shows the can't-be-removed dialog and never calls the API", async
   expect(calls.some((c) => c.path.endsWith("/remove"))).toBe(false)
 })
 
-test("a Chat that is off has no button", async () => {
-  mockApi(routes(projects))
+test("no row has a Chat button or chat dot", async () => {
+  mockApi(routes())
   renderPage()
   await screen.findByText("4 projects")
-  expect(within(rowOf("notes-only")).queryByRole("button", { name: /Chat/ })).toBeNull()
-})
-
-test("a Chat that is on but has no link yet gets its link", async () => {
-  const on: ProjectRow[] = projects.map((p) => (p.name === "notes-only" ? { ...p, chat: { state: "on" as const, kind: "none" as const, url: null } } : p))
-  const { calls } = mockApi(routes(on, {
-    "POST /api/projects/notes-only/chat/start": { project: "notes-only", already: false, chat: { state: "on", kind: "session", url: "https://claude.ai/code/s1" } },
-  }))
-  renderPage()
-  await screen.findByText("4 projects")
-  fireEvent.click(within(rowOf("notes-only")).getByRole("button", { name: /Chat/ }))
-  await waitFor(() => expect(toasts.success).toHaveBeenCalledWith("Chat for notes-only is on", expect.anything()))
-  expect(calls.some((c) => c.path === "/api/projects/notes-only/chat/start")).toBe(true)
+  expect(screen.queryByRole("button", { name: /Chat/ })).toBeNull()
+  expect(screen.queryByRole("link", { name: /Chat/ })).toBeNull()
+  expect(document.querySelector(".chatdot")).toBeNull()
+  expect(within(rowOf("demo-site")).getAllByRole("button").map((b) => b.textContent)).toEqual(["Remove"])
 })
 
 test("no projects at all shows the empty state", async () => {
@@ -235,7 +247,7 @@ const folder: ImportCandidate = { name: "side-quest", path: "/srv/projects/side-
 test("import page lists both groups with counts and imports one", async () => {
   const api = mockApi({
     "GET /api/import/candidates": [removed, folder],
-    "POST /api/import": { name: "old-site", path: removed.path, repo: removed.repo, was_removed: true, added: [], chat: "on" },
+    "POST /api/import": { name: "old-site", path: removed.path, repo: removed.repo, was_removed: true, added: [] },
   })
   renderWithProviders(<ImportPage />)
   expect(await screen.findByText("Removed earlier (1)")).toBeInTheDocument()
@@ -251,7 +263,7 @@ test("import page lists both groups with counts and imports one", async () => {
 test("import page imports a folder typed by hand", async () => {
   const api = mockApi({
     "GET /api/import/candidates": [],
-    "POST /api/import": { name: "mine", path: "/srv/projects/mine", repo: null, was_removed: false, added: [], chat: "on" },
+    "POST /api/import": { name: "mine", path: "/srv/projects/mine", repo: null, was_removed: false, added: [] },
   })
   renderWithProviders(<ImportPage />)
   await screen.findByText("Removed earlier (0)")

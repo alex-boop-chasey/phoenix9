@@ -37,6 +37,13 @@ describe("UpdatePanel", () => {
     expect(screen.getByRole("button", { name: "Roll back to v9.0" })).toBeEnabled()
   })
 
+  it("says when the installed copy is not on a release", async () => {
+    const note = "Installed copy is on commit abc1234567, not a release. Run `phoenix update release` then `phoenix update install`."
+    mockApi({ "GET /api/info": supportedInfo, "GET /api/update": status({ installed: { tag: "unknown", commit: "abc1234567ff" }, off_release: true, off_release_note: note }) })
+    renderWithProviders(<UpdatePanel />)
+    expect(await screen.findByText(note)).toBeInTheDocument()
+  })
+
   it("Install is disabled when nothing is newer", async () => {
     mockApi({ "GET /api/info": supportedInfo, "GET /api/update": status({ update_available: false }) })
     renderWithProviders(<UpdatePanel />)

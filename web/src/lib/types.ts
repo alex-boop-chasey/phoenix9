@@ -278,6 +278,8 @@ export interface RunDetail {
   discarded?: boolean
   discarded_at?: string
   discarded_by?: string
+  /** The exact step image the run used (recorded at its first drive; id is "" when the image was missing). */
+  image?: { tag: string; id: string }
 }
 
 export type Overrides = Record<string, unknown>

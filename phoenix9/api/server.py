@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, keys, library, logs, projects, runs, services, settings, update
+from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, services, settings, update
 
 MAX_BODY = 64 * 1024
 DEFAULT_ORIGINS = "https://files.rebirthwebdesign.com.au"
@@ -31,6 +31,7 @@ GATE_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+\.\d+$")  # <run-id>.<n> (used 
 JOB_KEEP_SECONDS = 3600
 CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
+IMAGES_BUSY = "Images are being built already; try again when that has finished."
 WHO = "dashboard"
 
 
@@ -422,6 +423,50 @@ def post_deploy(req, name):
     return {"job": job_id}
 
 
+def run_images_job(httpd, job: dict, profiles: list, build_all: bool, changed: bool) -> None:
+    """Background thread: build the step images, one job step per progress line, and keep the result."""
+    def progress(line):
+        with httpd.jobs_lock:
+            job["steps"].append({"label": line, "status": "done"})
+
+    result, status, message = None, "done", ""
+    try:
+        result = ops_images.build(profiles, build_all, changed, say=progress)
+        if not result["ok"]:
+            status, message = "failed", "At least one image failed to build; see the image logs."
+    except common.OpsError as err:
+        status, message = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message, time.time(), status
+
+
+def post_images_build(req):
+    """Start building step images in the background: {profiles: [...]} and/or {all, changed}; one build at a time."""
+    profiles = req.body.get("profiles") or []
+    build_all, changed = req.body.get("all", False), req.body.get("changed", False)
+    if not isinstance(profiles, list) or not all(isinstance(p, str) and p for p in profiles):
+        raise BadRequest("'profiles' should be a list of profile names.")
+    if not isinstance(build_all, bool) or not isinstance(changed, bool):
+        raise BadRequest("'all' and 'changed' should be true or false.")
+    ops_images.choose(profiles, build_all)          # an unknown profile is refused now, not in the job
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "images" for j in httpd.jobs.values()):
+            raise common.Conflict(IMAGES_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "images", "project": None, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    common.record_command(WHO, "images build" + (" --all" if build_all else "") + (" --changed" if changed else "")
+                          + "".join(f" --profile {p}" for p in profiles))
+    threading.Thread(target=run_images_job, args=(httpd, job, profiles, build_all, changed), daemon=True).start()
+    return {"job": job_id}
+
+
 def post_update_install(req):
     """Queue an install of the given (or newest) tag; the updater runs as its own unit."""
     tag = body_text(req, "tag", False)
@@ -677,6 +722,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),
+    ("POST", r"/api/images/build", post_images_build),
     ("POST", rf"/api/services/{NAME}/connect", post_service_connect),
     ("POST", rf"/api/services/{NAME}/disconnect", post_service_disconnect),
     ("POST", rf"/api/services/{NAME}/test", post_service_test),

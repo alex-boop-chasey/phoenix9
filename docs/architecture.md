@@ -482,7 +482,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
   gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
-  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}}`.
+  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}, image: {tag, id}}`.
+  `image` = the profile's step image tag and its exact id (`docker image inspect --format {{.Id}}` through
+  the docker adapter's `image_id`; `""` when the image was missing), written once at the run's first drive
+  (`runner._record_image`), so a later rebuild never changes what the run says it used. The Build tab shows
+  the first 12 characters of the id in the run header.
   Run status: `queued | running | waiting | paused-limit | done | failed | stopped`.
   Task status: `pending | running | passed | failed | skipped | waiting`.
   Step line status: `pending | running | passed | failed | skipped | waiting`.
@@ -949,6 +953,9 @@ profiles/<p>/image/Dockerfile -t <profile.toml image> --label phoenix9.commit=<H
 the base image (`phoenix9-step:base`, context `image/`) only with `--profile base` or `--all`. Default =
 profiles used by existing projects. `--changed` keeps images that are missing, unlabelled, or whose
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
+API: `POST /api/images/build` `{profiles?: [names], all?: bool, changed?: bool}` (the same choices; an unknown
+profile is refused at once with 400) builds in a background job (`{job}`, kind `images`, one at a time, 409
+while one runs; each progress line is a job step, `result` = the `{ok, built, skipped}` reply).
 
 New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
 

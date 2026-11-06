@@ -61,6 +61,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/update/install` | `ops.update.install` (queues the updater unit; never runs it) | `{tag?, yes: true}` | `{ok, queued, tag}` | 400 |
 | POST | `/api/update/rollback` | `ops.update.rollback` | `{yes: true}` | `{ok, queued}` | 400 |
 | POST | `/api/projects/<name>/deploy` | `ops.deploy.now` (in a background thread) | `{yes: true}` | `{job}` | 400, 404, 409 |
+| POST | `/api/images/build` | `ops.images.build` (in a background thread; `phoenix images build`) | `{profiles?: [name], all?: bool, changed?: bool}` (none = the profiles projects use) | `{job}` (kind `images`; `result` = `{ok, built: [{profile, tag, ok, log}], skipped}`) | 400 (bad body or unknown profile), 409 (a build is running) |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
@@ -119,7 +120,8 @@ tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished`
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
-not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>`).
+not started and `plan` is a preview from its overrides), `title`, `preset`, `max_tries`, `branch` (`phoenix/<run-id>`),
+`image {tag, id}` (the exact step image, once the run has started), `discarded` (and `discarded_at`, `discarded_by`) after `phoenix run discard`.
 
 **Global view** (`ops.app.global_view`): `values` (non-secret contents of `HOME/config/global.toml`),
 `github {connected, accounts}`, `default_models {<ai step>: {model, fallback_models}}`,
@@ -133,7 +135,7 @@ repo?, template?, path?}, profile, new_repo: {on, owner}, services: [], keys: [{
 The reply is `{job}` at once; ops runs in the background (one create at a time, else 409). Key values go
 straight to the keys store (`opts["keys"]`), never to a file.
 
-**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy", project, status: "running"|"done"|"failed",
+**Job** (`GET /api/jobs/<id>`, kept 1 hour): `{id, kind: "create" \| "deploy" \| "images" \| "restart", project, status: "running"|"done"|"failed",
 steps: [{label, status: "running"|"done"|"failed"}], message}`. Each progress line from ops starts a step and
 marks the previous one done; `message` is the ops error on failure (empty otherwise). Deploy jobs have no steps and add `result` (the `ops.deploy.now` result, `null` while running). One job per kind at a time: a second create while one creates, or a second deploy while one deploys, is 409; a create and a deploy may run together.
 

@@ -8,6 +8,7 @@ import pytest
 from phoenix9 import paths
 from phoenix9.__main__ import main
 from phoenix9.ops import images
+from test_api_server import api, dist  # noqa: F401  (fixtures)
 
 
 def git(root, *argv):
@@ -87,3 +88,36 @@ def test_images_build_failure_exit_1(lib, capsys):
 def test_unknown_profile_is_refused(lib, capsys):
     assert main(["images", "build", "--profile", "nope"]) == 1
     assert "no profile called 'nope'" in capsys.readouterr().err
+
+
+def wait_job(api, job_id):
+    import time
+    for _ in range(200):
+        status, body = api(f"/api/jobs/{job_id}")
+        if body["data"]["status"] != "running":
+            return body["data"]
+        time.sleep(0.02)
+    raise AssertionError("job never finished")
+
+
+def test_api_images_build_runs_in_the_background(lib, api, monkeypatch):
+    from test_api_server import POST_HEADERS
+    monkeypatch.setattr("phoenix9.ops.common.make_adapters", lambda: lib)
+    status, body = api("/api/images/build", "POST", POST_HEADERS, {"profiles": ["alpha"]})
+    assert status == 200
+    job = wait_job(api, body["data"]["job"])
+    assert job["kind"] == "images" and job["status"] == "done"
+    assert job["result"]["ok"] is True and [b["profile"] for b in job["result"]["built"]] == ["alpha"]
+    assert built_tags(lib) == ["phoenix9-step-alpha:1"]
+    assert '"who": "dashboard"' in (paths.logs() / "commands.jsonl").read_text()
+    status, body = api("/api/images/build", "POST", POST_HEADERS, {"all": True, "changed": True})
+    assert wait_job(api, body["data"]["job"])["status"] == "done"
+    assert "phoenix9-step:base" in built_tags(lib)
+
+
+def test_api_images_build_checks_the_body(lib, api):
+    from test_api_server import POST_HEADERS
+    assert api("/api/images/build", "POST", POST_HEADERS, {"profiles": "alpha"})[0] == 400
+    assert api("/api/images/build", "POST", POST_HEADERS, {"all": "yes"})[0] == 400
+    status, body = api("/api/images/build", "POST", POST_HEADERS, {"profiles": ["nope"]})
+    assert status == 400 and "no profile called 'nope'" in body["message"]

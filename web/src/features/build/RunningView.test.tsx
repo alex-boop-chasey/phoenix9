@@ -240,3 +240,12 @@ test("a running build has no Discard button", async () => {
   await screen.findByRole("heading", { name: "Pricing page" })
   expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
 })
+
+test("the run's exact image id shows small in the header", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ image: { tag: "phoenix9-step-web:1", id: "sha256:0123456789abcdef" } }) }))
+  show()
+  await screen.findByRole("heading", { name: "Pricing page" })
+  const id = screen.getByTestId("image-id")
+  expect(id).toHaveTextContent("0123456789ab")
+  expect(id).toHaveAttribute("title", "phoenix9-step-web:1 sha256:0123456789abcdef")
+})

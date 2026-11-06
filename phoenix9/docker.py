@@ -113,6 +113,11 @@ class DockerRunner:
         p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return p.returncode == 0
 
+    def image_id(self, tag: str) -> str:
+        """The exact id (sha256:...) of the image with this tag ('' when it is not on this machine)."""
+        p = subprocess.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], capture_output=True, text=True)
+        return p.stdout.strip() if p.returncode == 0 else ""
+
     def image_label(self, tag: str, label: str) -> str:
         """One label of an image ('' when the image or the label is missing)."""
         p = subprocess.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],

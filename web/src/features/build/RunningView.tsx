@@ -106,6 +106,7 @@ export function RunningView({ name, runId, mode }: Props) {
           <p className="small">
             Started <RelativeTime iso={started} />
             {d.branch && <> · branch <span className="mono">{d.branch}</span></>}
+            {d.image?.id && <> · image <span className="mono" title={`${d.image.tag} ${d.image.id}`} data-testid="image-id">{d.image.id.replace(/^sha256:/, "").slice(0, 12)}</span></>}
           </p>
         </div>
         {!s.active && <DiscardControl name={name} run={d} />}

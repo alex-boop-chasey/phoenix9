@@ -12,12 +12,16 @@ import { runText } from "./rows"
 /** The coloured state badge of a project: needs you, running, failed or idle. */
 export function StateBadge({ row }: { row: ProjectRow }) {
   const state = switchState(row)
-  if (state === "need") return <span className="badge b-need"><Icon name="bell-ringing" />Needs you</span>
-  if (state === "run") return <span className="badge b-run"><Wheel />{runText(row)}</span>
-  if (state === "fail") {
-    return <span className="badge b-bad"><Icon name="x-circle" />{row.run ? row.run_text : row.status_line}</span>
+  if (state === "need") return <span className="badge b-need"><Icon name="bell-ringing" /><span className="b-t">Needs you</span></span>
+  if (state === "run") {
+    const text = runText(row)
+    return <span className="badge b-run" title={text}><Wheel /><span className="b-t">{text}</span></span>
   }
-  return <span className="badge b-info"><Icon name="circle-dashed" />Idle</span>
+  if (state === "fail") {
+    const text = row.run ? row.run_text : row.status_line
+    return <span className="badge b-bad" title={text}><Icon name="x-circle" /><span className="b-t">{text}</span></span>
+  }
+  return <span className="badge b-info"><Icon name="circle-dashed" /><span className="b-t">Idle</span></span>
 }
 
 function RepoPart({ row }: { row: ProjectRow }) {
@@ -71,7 +75,7 @@ export const ProjectRowCard = memo(function ProjectRowCard({ row, gone, onRemove
         <Link className="p-name" to={`/p/${encodeURIComponent(row.name)}`}>{row.name}</Link>
         <span className="p-path">{row.path}</span>
       </div>
-      <div className="p-meta"><span><StateBadge row={row} /></span><RepoPart row={row} /></div>
+      <div className="p-meta"><span className="p-status"><StateBadge row={row} /></span><RepoPart row={row} /></div>
       <div className="p-acts">
         <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>
         <ChatButton row={row} onStart={() => onStartChat(row.name)} />

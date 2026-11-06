@@ -1,3 +1,6 @@
+/// <reference types="node" />
+import { readFileSync } from "node:fs"
+
 import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { Route, Routes, useLocation } from "react-router"
 
@@ -93,6 +96,25 @@ test("each row shows name, path, status, repo and the three buttons", async () =
   expect(within(rowOf("tiny-tool")).getByText("Running task 2 of 4")).toBeInTheDocument()
   expect(within(rowOf("notes-only")).getByText("No repo")).toBeInTheDocument()
   expect(within(rowOf("notes-only")).getByText("Idle")).toBeInTheDocument()
+})
+
+test("the status pill sits right after the name and path, then the repo, then the buttons", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  const row = rowOf("demo-site")
+  const order = [...row.querySelectorAll(".p-main, .p-status, .p-repo, .p-acts")].map((el) => el.className.split(" ")[0])
+  expect(order).toEqual(["p-main", "p-status", "p-repo", "p-acts"])
+  expect(within(row.querySelector(".p-status") as HTMLElement).getByText("Needs you")).toBeInTheDocument()
+})
+
+test("row columns are fixed widths with the repo left-aligned, so long repo names line up and have room", () => {
+  const css = readFileSync(`${process.cwd()}/src/styles/projects.css`, "utf8")   // vitest runs in web/
+  const wide = css.slice(css.indexOf("@container well (min-width:780px)"))
+  expect(wide).toMatch(/\.p-meta\{[^}]*grid-template-columns:\s*\d+(\.\d+)?rem minmax\(0,\s*1fr\)/)
+  expect(wide).not.toMatch(/\.p-meta\{[^}]*minmax\(\d+px,\s*auto\)/)
+  expect(css).toMatch(/\.p-repo\{[^}]*justify-self:\s*start/)
+  expect(css).toMatch(/\.p-repo\{[^}]*text-align:\s*left/)
 })
 
 test("clicking a row opens the project; clicking a button does not", async () => {

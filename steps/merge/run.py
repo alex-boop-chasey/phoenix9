@@ -117,17 +117,34 @@ def _stop_preview(ctx) -> None:
         ctx.log(deploy.try_stop_preview(ctx.adapters, ctx.project.name, ctx.run.id))
 
 
+def _tidy(ctx, branch, pushed) -> list:
+    """Delete a merged run branch here (and on GitHub when it was pushed); returns notes for what went wrong."""
+    git, code = ctx.adapters.git, ctx.project.code_dir
+    notes = []
+    try:
+        if ctx.worktree:
+            git.git(ctx.worktree, "checkout", "-q", "--detach")   # the worktree keeps its files but lets go of the branch
+        git.git(code, "branch", "-D", branch)
+    except Exception as err:
+        notes.append(f"merged, but the branch {branch} was not deleted here: {_first_line(str(err))}")
+    if pushed:
+        rc, out, err = _host_git(ctx, "push", "origin", "--delete", branch)
+        if rc != 0:
+            notes.append(f"merged, but the branch {branch} was not deleted on GitHub: {_first_line(err or out)}")
+    return notes
+
+
 def _auto(ctx, branch) -> StepResult:
     """Merge in code/ and push main and the branch when there is an origin."""
     sha = _local_merge(ctx, branch)
     preview = [f"preview was at {_preview_url(ctx)}"] if _preview_url(ctx) else []
     _stop_preview(ctx)
     if not ctx.adapters.git.remote_url(ctx.project.code_dir):
-        return StepResult("pass", ["local only (no GitHub repo)", *preview], produces={"merged": sha})
+        return StepResult("pass", ["local only (no GitHub repo)", *_tidy(ctx, branch, False), *preview], produces={"merged": sha})
     _push(ctx, ctx.adapters.git.default_branch(ctx.project.code_dir), branch)
     tag, note = _tag_release(ctx, sha)
     reasons = [f"release: {tag}"] if tag else [note] if note else []
-    return StepResult("pass", [*reasons, *preview], produces={"merged": sha})
+    return StepResult("pass", [*reasons, *_tidy(ctx, branch, True), *preview], produces={"merged": sha})
 
 
 def _open_request(ctx, branch) -> str:
@@ -223,8 +240,10 @@ def _approved(ctx) -> dict:
     if not mr.is_file():
         if not (on_main and clean):
             raise MergeError(f"{DIRTY}, so the run was not merged")
-        sha = _local_merge(ctx, git.branch_name(ctx.run.id))
-        return _remember_merged(ctx, {"merged": sha})
+        branch = git.branch_name(ctx.run.id)
+        sha = _local_merge(ctx, branch)
+        notes = _tidy(ctx, branch, False)
+        return _remember_merged(ctx, {"merged": sha, **({"note": "; ".join(notes)} if notes else {})})
     rc, out, err = ctx.adapters.host.gh("pr", "merge", mr.read_text().strip(), "--merge")
     if rc != 0:
         raise MergeError(f"GitHub refused the merge: {_first_line(err or out)}")

@@ -210,7 +210,7 @@ def _write_dependabot(code: Path, profile: str) -> None:
     atomic.write_text(code / ".github" / "dependabot.yml", f"version: 2\nupdates:\n{entries}")
 
 
-def _get_code(opts, facts, folder: Path, host, made: list) -> str:
+def _get_code(opts, facts, folder: Path, host, made: list, say) -> str:
     """Make code/ (or note where the code is); returns the repo name used ('' when none yet)."""
     code, source, tpl = folder / "code", facts["source"], facts["template"]
     if source == "repo":
@@ -220,7 +220,7 @@ def _get_code(opts, facts, folder: Path, host, made: list) -> str:
     if source == "code":
         return ""
     if source == "template" and tpl is None:        # a GitHub template repo
-        return _from_github_template(opts, facts, code, host, made)
+        return _from_github_template(opts, facts, code, host, made, say)
     code.mkdir()
     values = _placeholders(opts)
     if tpl and tpl["kind"] == "files":
@@ -230,12 +230,13 @@ def _get_code(opts, facts, folder: Path, host, made: list) -> str:
     return ""
 
 
-def _from_github_template(opts, facts, code: Path, host, made: list) -> str:
+def _from_github_template(opts, facts, code: Path, host, made: list, say) -> str:
     """Use a GitHub template repo: a new repo made from it, or a plain copy with its history dropped."""
     if facts["new_repo"]:
         full = f"{facts['new_repo']}/{opts['name']}"
         _run(host, f"Could not create GitHub repo {full}", ["gh", "repo", "create", full, "--private", "--template", opts["template"]])
         made.append(("repo", full))
+        _auto_delete_branches(host, full, say)
         _run(host, f"Could not copy {full} into code/", ["gh", "repo", "clone", full, str(code), "--", "-q"])
         code.mkdir(exist_ok=True)
         return full
@@ -245,11 +246,19 @@ def _from_github_template(opts, facts, code: Path, host, made: list) -> str:
     return ""
 
 
-def _make_repo(opts, facts, code: Path, host, made: list) -> str:
+def _auto_delete_branches(host, full: str, warn) -> None:
+    """Switch on GitHub's "delete head branches after merge" for the repo; a failure is only a warning."""
+    rc, out, err = host.gh("repo", "edit", full, "--delete-branch-on-merge")
+    if rc != 0:
+        warn(f"Warning: could not switch on automatic branch clean-up on GitHub: {_first_error(rc, out, err)}")
+
+
+def _make_repo(opts, facts, code: Path, host, made: list, say) -> str:
     """Create the private GitHub repo for a fresh code/, set origin, push; returns OWNER/NAME."""
     full = f"{facts['new_repo']}/{opts['name']}"
     _run(host, f"Could not create GitHub repo {full}", ["gh", "repo", "create", full, "--private"])
     made.append(("repo", full))
+    _auto_delete_branches(host, full, say)
     git.git(code, "remote", "add", "origin", f"https://github.com/{full}.git")
     _run(host, f"Could not push to {full}", ["git", *SAFE, "-C", str(code), "push", "-u", "origin", "main"], 300)
     return full
@@ -394,7 +403,7 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
     _make_folders(folder)
     _write_notes(folder, opts, facts, today)
     say("Getting the code")
-    repo = _get_code(opts, facts, folder, host, made)
+    repo = _get_code(opts, facts, folder, host, made, say)
     code = folder / "code"
     if facts["source"] in ("empty", "template") and not (code / ".git").exists():
         if facts["new_repo"] and not repo:
@@ -422,7 +431,7 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
         "chat_session_url": None, "environment_id": None, "services_set_up": []})
     if facts["new_repo"] and facts["source"] in ("empty", "template") and not repo:
         say("Creating the GitHub repo")
-        repo = _make_repo(opts, facts, code, host, made)
+        repo = _make_repo(opts, facts, code, host, made, say)
         project = json.loads((folder / ".phoenix" / "project.json").read_text(encoding="utf-8"))
         atomic.write_json(folder / ".phoenix" / "project.json", {**project, "repo": repo})
         atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo))

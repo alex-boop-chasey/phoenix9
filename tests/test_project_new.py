@@ -121,6 +121,20 @@ def test_new_repo_creates_and_pushes_via_gh(env):
     assert "- Repo: alex/demo" in (folder / "CLAUDE.md").read_text()
 
 
+def test_new_repo_switches_on_branch_auto_delete(env):
+    create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    create(env, name="a", profile="web", template="alex/starter", no_new_repo=False, new_repo="alex")
+    assert calls(env, "gh", "repo", "edit", "alex/demo", "--delete-branch-on-merge")
+    assert calls(env, "gh", "repo", "edit", "alex/a", "--delete-branch-on-merge")
+
+
+def test_branch_auto_delete_failure_is_a_warning(env):
+    env["host"].script(["gh", "repo", "edit"], rc=1, err="HTTP 403: no admin rights\n")
+    result = create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    assert result["repo"] == "alex/demo"
+    assert any(line.startswith("Warning:") and "HTTP 403" in line for line in result["steps"])
+
+
 def test_new_repo_gets_dependabot_for_detected_ecosystems(env):
     create(env, name="a", template="python-cli", no_new_repo=False, new_repo="alex")
     text = (env["projects"] / "a/code/.github/dependabot.yml").read_text()

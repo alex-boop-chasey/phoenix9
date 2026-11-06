@@ -184,10 +184,12 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
     state.set_status(folder, "stopped")
-    removed = docker.cleanup_orphans(common.make_adapters().docker, run_id)
+    adapters = common.make_adapters()
+    removed = docker.cleanup_orphans(adapters.docker, run_id)
+    notes = core.discard_branch(adapters, st["project"], run_id)
     events.emit("run.finished", project=st["project"], run=run_id, status="stopped", who=who)
     common.record_command(who, f"run stop {run_id}", st["project"], f"stopped run {run_id}")
-    return {"run_id": run_id, "status": "stopped", "containers_removed": removed}
+    return {"run_id": run_id, "status": "stopped", "containers_removed": removed, "notes": notes}
 
 
 list = list_

@@ -117,7 +117,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
-| work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed when the run ends; the branch stays) |
+| work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -935,3 +935,5 @@ profiles used by existing projects. `--changed` keeps images that are missing, u
 `image/` or `profiles/<p>/` files differ from the label's commit. Exit 1 when any build failed.
 
 New and imported projects get no chat service (`claude-rc@<name>`) and no `.vscode/tasks.json`; `project open` / `close` still work for older projects. The dashboard shows a chat button only while a project's chat is on.
+
+Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).

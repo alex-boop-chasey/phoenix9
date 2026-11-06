@@ -75,12 +75,12 @@ def test_smoke_run_builds_commits_and_merges(smoke):
                                {"hello.py": HELLO_NAME}])
     code = smoke["code"]
     assert st["status"] == "done", st
-    log = git(code, "log", "--format=%B%x00", f"phoenix/{st['run_id']}").split("\0")
+    log = git(code, "log", "--format=%B%x00", "main").split("\0")
     commits = [c for c in log if "Phoenix-Run" in c]
     assert len(commits) == 3
     for n in (1, 2, 3):
         assert any(f"Phoenix-Task: {n}" in c and f"Phoenix-Run: {st['run_id']}" in c for c in commits)
-    git(code, "merge-base", "--is-ancestor", f"phoenix/{st['run_id']}", "main")   # merged with a merge commit
+    assert git(code, "branch", "--list", f"phoenix/{st['run_id']}").strip() == ""   # merged, so the branch is gone
     assert (code / "hello.py").read_text() == HELLO_NAME
     summary = (run_dir / "summary.md").read_text()
     assert summary.count("passed") >= 3 and all(f"Task {n}:" in summary for n in (1, 2, 3))

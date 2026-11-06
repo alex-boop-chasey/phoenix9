@@ -62,7 +62,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span className="mark"><Icon name="flame" /></span>
           <span className="wordmark">
             <b>Phoenix</b>
-            {info && <span title="Installed release">{info.version}</span>}
+            {info && <span title="Installed release">{info.label ?? info.version}</span>}
           </span>
         </Link>
         <Link className="navlink" to="/" aria-current={inProjects ? "page" : undefined}>

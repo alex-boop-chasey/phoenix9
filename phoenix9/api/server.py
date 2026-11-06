@@ -87,7 +87,7 @@ def int_param(req, key: str, default: int) -> int:
 
 def get_info(req):
     """Reply with the app info."""
-    return app.info()
+    return app.info(req.server.tag)
 
 
 def get_health(req):

@@ -49,6 +49,7 @@ def test_info_reports_version_and_update_not_installed(env):
     env["host"].script(["gh", "auth", "status"], rc=1)
     data = app.info()
     assert data["version"] == phoenix9.__version__
+    assert data["label"] == "v9.1" and app.info("v9.2")["label"] == "v9.2"
     assert data["update"]["supported"] is True and data["update"]["available"] is False
     assert data["update"]["can_install"] is False and "not installed" in data["update"]["reason"]
     assert data["github"] == {"connected": False, "accounts": []}

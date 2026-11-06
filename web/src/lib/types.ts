@@ -7,6 +7,7 @@ export type StepGroup = "run-start" | "task" | "run-finish"
 
 export interface Info {
   version: string
+  label?: string
   update: {
     supported: boolean
     installed: string

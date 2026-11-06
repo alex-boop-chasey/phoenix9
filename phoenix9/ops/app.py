@@ -37,10 +37,17 @@ def release_tag() -> str:
         return ""
 
 
-def info() -> dict:
+def version_label(tag: str = "") -> str:
+    """The version as the header shows it: the install tag if known, else 'v' plus major.minor."""
+    if tag:
+        return tag
+    return "v" + ".".join(phoenix9.__version__.split(".")[:2])
+
+
+def info(tag: str = "") -> dict:
     """Version, update support, GitHub login and feature flags for the dashboard."""
     gh = github.status()
-    return {"version": phoenix9.__version__, "update": _update_info(),
+    return {"version": phoenix9.__version__, "label": version_label(tag), "update": _update_info(),
             "github": gh, "services": {"supported": True}}
 
 

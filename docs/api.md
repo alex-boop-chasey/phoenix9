@@ -109,7 +109,7 @@ plus:
 
 `vscode_url` is `paths.VSCODE_URL` + `?folder=<PHOENIX_PROJECTS>/<name>`.
 
-**Info** (`/api/info`): `version` (`phoenix9.__version__`), `update {supported, installed, newest,
+**Info** (`/api/info`): `version` (`phoenix9.__version__`), `label` (what the header shows: the install tag, else `v` + major.minor, e.g. `v9.1`), `update {supported, installed, newest,
 available, can_install, reason, endpoints {install, rollback}}`, `github {connected, accounts}`, `services {supported}` (true).
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,

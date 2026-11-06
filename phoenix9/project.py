@@ -654,11 +654,16 @@ def mark_used(name: str) -> None:
 
 
 def last_used(name: str, now: float):
-    """(seconds-since-epoch or None, '3h ago' style words or 'never')."""
-    path = _used_file(name)
-    if not path.exists():
+    """(seconds-since-epoch or None, '3h ago' style words or 'never'); counts Phoenix's and the `proj` tool's records."""
+    stamps = []
+    for path in (_used_file(name), paths.projects() / ".proj" / f"{name}.used"):
+        try:
+            stamps.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    if not stamps:
         return None, "never"
-    at = path.stat().st_mtime
+    at = max(stamps)
     secs = max(0, int(now - at))
     if secs < 3600:
         words = f"{secs // 60}m ago"

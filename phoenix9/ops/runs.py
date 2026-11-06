@@ -42,6 +42,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     except (ValueError, OSError) as err:
         raise OpsError(f"I could not start the run: {err}") from None
     run_id = run_dir.name
+    from phoenix9 import project as project_core
+    project_core.mark_used(project)
     common.record_command(who, f"run start {project}", project, f"started run {run_id}")
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
 

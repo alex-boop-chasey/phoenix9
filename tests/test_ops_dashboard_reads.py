@@ -279,3 +279,29 @@ def test_answered_waiting_run_shows_as_running(tmp_path):
     assert out["status"] == "running" and out["carrying_on"] is True
     assert out["steps"][0]["status"] == "running" and out["steps"][0]["answered"] is True
     assert out["tasks"]["1"]["answered"] is True and out["tasks"]["2"]["status"] == "passed"
+
+
+def test_run_start_marks_project_used(env):
+    folder = make(env)
+    queue_run(env)
+    assert (folder / ".phoenix" / "last-used").exists()
+
+
+def test_last_used_picks_newer_of_phoenix_and_proj_records(env):
+    import os
+    from phoenix9 import project
+    folder = make(env)
+    mine = folder / ".phoenix" / "last-used"
+    mine.parent.mkdir(exist_ok=True)
+    mine.touch()
+    theirs = env["projects"] / ".proj" / "demo.used"
+    theirs.parent.mkdir()
+    theirs.touch()
+    os.utime(mine, (1000, 1000))
+    os.utime(theirs, (5000, 5000))
+    assert project.last_used("demo", 5060)[0] == 5000
+    os.utime(mine, (9000, 9000))
+    assert project.last_used("demo", 9060)[0] == 9000
+    mine.unlink()
+    theirs.unlink()
+    assert project.last_used("demo", 9060) == (None, "never")

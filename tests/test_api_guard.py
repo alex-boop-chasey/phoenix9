@@ -27,10 +27,10 @@ def fakes(api, monkeypatch):
 # ---- the peer must be a root process ----
 
 def test_write_from_a_non_root_process_is_refused(api, fakes, monkeypatch):
-    """A POST from a program run by another user (e.g. grunt, uid 1000) gets 403 with a plain message."""
+    """A POST from a program run by another user (e.g. grunt) gets 403 with a plain message."""
     sent = []
     monkeypatch.setattr(agentlink, "send", lambda *a, **k: sent.append(a) or {"sent": True})
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     status, body = api("/api/agent/send", "POST", POST_HEADERS, {"text": "hi"})
     assert status == 403 and body["ok"] is False
     assert "root" in body["message"] and "uid" not in body["message"].lower()
@@ -42,14 +42,14 @@ def test_write_from_a_non_root_process_is_refused(api, fakes, monkeypatch):
                                   "/api/projects", "/api/nothing-here", "/", "/index.html"])
 def test_read_from_a_non_root_process_is_refused(api, fakes, path):
     """Reads need a root peer too: another user's program gets 403 with the plain message (any route)."""
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     status, body = api(path)
     assert status == 403 and body == {"ok": False, "message": server.NOT_ROOT}
 
 
 @pytest.mark.parametrize("path", ["/api/events", "/api/agent/stream"])
 def test_live_streams_from_a_non_root_process_are_refused(api, fakes, path):
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     status, resp, content = api(path, raw=True)
     assert status == 403 and json.loads(content)["message"] == server.NOT_ROOT
     assert "text/event-stream" not in resp.headers.get("Content-Type", "")
@@ -67,7 +67,7 @@ def test_read_from_a_root_peer_is_answered(api, fakes):
     assert api("/api/projects")[0] == 200
 
 
-@pytest.mark.parametrize("uid", [1000, 65534, None])
+@pytest.mark.parametrize("uid", [4242, 65534, None])
 def test_health_is_open_to_any_local_program(api, fakes, uid):
     fakes.host.peer_uid = uid
     assert api("/api/health")[0] == 200
@@ -83,7 +83,7 @@ def test_health_reveals_only_version_tag_and_an_origins_digest(api, fakes):
 
 
 def test_health_does_not_open_other_methods_or_lookalike_paths(api, fakes):
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     assert api("/api/health", "POST", POST_HEADERS, {})[0] == 403
     assert api("/api/healthz")[0] == 403
     assert api("/api/health/../global")[0] == 403
@@ -93,15 +93,15 @@ def test_peer_uids_setting_allows_other_uids(api, fakes):
     """access.peer_uids (default [0]) lists the uids allowed at the far end; the older name write_peer_uids also works."""
     (paths.home() / "config").mkdir(parents=True, exist_ok=True)
     gt = paths.home() / "config" / "global.toml"
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     assert access.peer_uids() == [0]
-    gt.write_text("[access]\npeer_uids = [0, 1000]\n")
-    assert access.peer_uids() == [0, 1000]
+    gt.write_text("[access]\npeer_uids = [0, 4242]\n")
+    assert access.peer_uids() == [0, 4242]
     assert api("/api/global")[0] == 200
     assert api("/api/anything", "POST", POST_HEADERS, {})[0] == 404
-    fakes.host.peer_uid = 0
-    gt.write_text("[access]\nwrite_peer_uids = [1000]\n")
-    assert access.peer_uids() == [1000]
+    fakes.host.peer_uid = 1001                       # not listed and not the API's own uid
+    gt.write_text("[access]\nwrite_peer_uids = [4242]\n")
+    assert access.peer_uids() == [4242]
     assert api("/api/global")[0] == 403
 
 
@@ -128,7 +128,7 @@ def test_root_peer_passes_the_guard(api, fakes):
 
 @pytest.mark.parametrize("method", ["PUT", "DELETE", "PATCH"])
 def test_other_write_methods_go_through_the_guard(api, fakes, method):
-    fakes.host.peer_uid = 1000
+    fakes.host.peer_uid = 4242
     assert api("/api/anything", method, POST_HEADERS, {})[0] == 403
     fakes.host.peer_uid = 0
     assert api("/api/anything", method, POST_HEADERS, {})[0] == 404
@@ -326,3 +326,15 @@ def test_lock_only_half_set_is_off_and_doctor_says_so(fakes):
     assert access.settings()["on"] is False
     ok, detail, fix = doctor.check_access(types.SimpleNamespace(ad=fakes))
     assert not ok and "aud" in detail and fix
+
+
+def test_the_api_always_allows_its_own_uid(api, fakes, monkeypatch):
+    """Inside a build box the tests run the API as uid 1000: its own uid is allowed, nothing else is added."""
+    from phoenix9.ops import app as app_ops
+    import os
+    monkeypatch.setattr(os, "getuid", lambda: 4242)
+    assert app_ops.allowed_peer_uids() == [0, 4242]
+    fakes.host.peer_uid = 4242
+    assert api("/api/global")[0] == 200
+    fakes.host.peer_uid = 1001
+    assert api("/api/global")[0] == 403

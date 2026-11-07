@@ -7,6 +7,7 @@ import { Icon } from "@/components/Icon"
 import { agentKeys, useRestartAgent, type AgentStatus } from "@/features/agent/useAgent"
 import { get } from "@/lib/api"
 
+/** How long the panel waits for the agent to wake before it gives up and says so. */
 export const WAKE_LIMIT_MS = 60_000
 const WAKE_POLL_MS = 2_000
 

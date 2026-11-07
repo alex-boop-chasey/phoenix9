@@ -4,6 +4,7 @@ import { useEffect } from "react"
 
 import { apiBase, get, post } from "@/lib/api"
 
+/** How often the panel re-reads messages when the live stream is not connected. */
 export const AGENT_POLL_MS = 4000
 const STATUS_MS = 3000
 const THREAD_GC_MS = 60 * 60 * 1000
@@ -54,6 +55,7 @@ export interface AgentContext { page?: string; project?: string; run?: string }
 export interface AgentSendBody { text: string; context?: AgentContext }
 export interface AgentSendResult { sent: boolean; at: string; after_line: number }
 
+/** React Query keys for the agent data, so every hook invalidates the same entries. */
 export const agentKeys = {
   status: () => ["agent", "status"] as const,
   messages: (session: string) => ["agent", "messages", session] as const,

@@ -47,17 +47,22 @@ def _git_out(host, where, *args) -> str | None:
 
 
 def _users_of(key: str, name: str, host) -> list:
-    """Who else points at this repo: other listed projects, removed-projects rows, the projects folder's own repo."""
+    """Who else points at this repo: every other folder in the projects folder (listed or not; its recorded repo,
+    the origin of its code/ and of the folder itself), removed-projects rows, the projects folder's own repo."""
     users = []
-    for other in project.project_names():
-        if other == name:
-            continue
+    try:
+        others = sorted(p for p in paths.projects().iterdir() if p.is_dir() and p.name != name)
+    except OSError:
+        others = []
+    for other in others:
         try:
-            theirs = project.repo_of(paths.projects() / other)
-        except Exception:       # an unreadable project might use it: count it, to be safe
-            theirs = key
-        if _key(theirs) == key:
-            users.append(f"project {other}")
+            theirs = [project._meta(other).get("repo")]
+            theirs += [_git_out(host, where, "remote", "get-url", "origin")
+                       for where in (other / "code", other) if (where / ".git").exists()]
+        except Exception:       # an unreadable folder might use it: count it, to be safe
+            theirs = [key]
+        if key in {_key(t) for t in theirs}:
+            users.append(f"{'project' if (other / 'CLAUDE.md').is_file() else 'folder'} {other.name}")
     users += [f"removed project {r['name']}" for r in removed_list()
               if r["name"] != name and _key(r.get("repo")) == key]
     if _key(_git_out(host, paths.projects(), "remote", "get-url", "origin")) == key:

@@ -1096,6 +1096,24 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
 
 
+# every folder, recorded repo and real origin (second review 3)
+
+def test_unlisted_folder_using_the_repo_keeps_it(env, unitdir):
+    _stuff(env)
+    stray = env["projects"] / "stray"          # no CLAUDE.md: not a listed project
+    git_repo(stray / "code", origin_url="git@github.com:me/alpha.git")
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "folder stray" in plan["repo_delete"]["why"]
+
+
+def test_project_whose_origin_differs_from_its_record_keeps_it(env, unitdir):
+    _stuff(env)
+    beta = make(env, "beta", meta={"repo": "me/beta", "source": "repo"})
+    git_repo(beta / "code", origin_url="https://github.com/me/alpha.git")
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "project beta" in plan["repo_delete"]["why"]
+
+
 # GitHub must hold nothing the bundle lacks (second review 2)
 
 def _ls_remote_calls(env):

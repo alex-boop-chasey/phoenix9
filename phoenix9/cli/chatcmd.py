@@ -17,6 +17,9 @@ def add(sub, common_parser) -> None:
     f.add_argument("project", help="the project")
     f.add_argument("--yes", action="store_true", help="confirm that you mean it")
     f.set_defaults(func=run_off)
+    c = cmds.add_parser("catch-up", parents=[common_parser], help="set up chats for existing projects that have none")
+    c.add_argument("--all", action="store_true", help="really do it (without it, only list what would be done)")
+    c.set_defaults(func=run_catch_up)
     p.set_defaults(func=lambda args: (p.print_help(), 0)[1])
 
 
@@ -39,3 +42,17 @@ def run_off(args) -> int:
         return problem(args, "This stops %s's chat and turns it off. Run it again with --yes to do it." % args.project)
     data = chat.off_chat(args.project, args.who)
     return show(args, data, data["message"])
+
+
+def run_catch_up(args) -> int:
+    """List the projects missing a chat; with --all set each up, one at a time."""
+    say = None if args.json else (lambda r: print("%s: %s" % (r["project"], r["message"]), flush=True))
+    data = chat.catch_up(args.who, args.all, say)
+    if args.all:
+        text = "Set up %d chat(s); %d failed." % (len(data["results"]) - data["failed"], data["failed"]) if data["todo"] else "Every project already has a chat."
+    elif data["todo"]:
+        text = "These projects have no chat yet:\n%s\nRun again with --all to set them up." % "\n".join("  " + n for n in data["todo"])
+    else:
+        text = "Every project already has a chat."
+    show(args, data, text)
+    return 1 if data["failed"] else 0

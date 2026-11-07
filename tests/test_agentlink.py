@@ -127,3 +127,166 @@ def test_status_queued():
         {"type": "queue-operation", "operation": "enqueue", "content": "second"},
         {"type": "user", "message": {"role": "user", "content": "second"}}])
     assert agentlink.status(HOME, h)["state"] == "idle"
+
+
+# ---- sending ----
+import re
+import socket
+import threading
+
+import pytest
+
+
+@pytest.fixture
+def inbox(tmp_path, monkeypatch):
+    """A real Unix socket in tmp that records each line sent; agentlink.find points at it."""
+    home = tmp_path / "home"
+    (home / "config").mkdir(parents=True)
+    (home / "config" / "global.toml").write_text('[agent]\nfolder = "/srv/projects/homex"\n')
+    monkeypatch.setenv("PHOENIX_HOME", str(home))
+    tr = tmp_path / "t.jsonl"
+    tr.write_text('{"type":"user"}\n' * 3)
+    path = str(tmp_path / "s.sock")
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(path)
+    srv.listen(5)
+    got = []
+
+    def serve():
+        while True:
+            try:
+                c, _ = srv.accept()
+            except OSError:
+                return
+            buf = b""
+            while True:
+                d = c.recv(65536)
+                if not d:
+                    break
+                buf += d
+            got.append(buf)
+            c.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": path,
+             "transcript": str(tr), "status": "idle"}
+    monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
+
+    class Box:
+        pass
+    box = Box()
+    box.got, box.found, box.home, box.tmp = got, found, home, tmp_path
+
+    def take():
+        for _ in range(100):
+            if got:
+                return got.pop()
+            time.sleep(0.02)
+        return None
+    box.take = take
+    yield box
+    srv.close()
+
+
+import time
+
+HEAD = ('<cross-session-message from="uds:/run/phoenix9/panel.sock" '
+        'from-name="Alex (Phoenix panel)" from-mode="bypass">\n')
+TAIL = "\n</cross-session-message>"
+
+
+def body_of(raw):
+    content = json.loads(raw)["message"]["content"]
+    assert content.startswith(HEAD) and content.endswith(TAIL)
+    return content[len(HEAD):-len(TAIL)]
+
+
+def test_send_wire_format(inbox):
+    r = agentlink.send("hello")
+    raw = inbox.take()
+    assert raw.endswith(b"\n") and raw.count(b"\n") == 1
+    m = json.loads(raw)
+    assert set(m) == {"msgV", "msg_id", "type", "message", "priority", "from"}
+    assert (m["msgV"], m["type"], m["priority"], m["from"]) == (1, "user", "next", "uds:/run/phoenix9/panel.sock")
+    assert m["message"] == {"role": "user", "content": HEAD + "hello" + TAIL}
+    assert re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", m["msg_id"])
+    assert r["sent"] and r["at"] and r["after_line"] == 3
+    agentlink.send("hello")
+    assert json.loads(inbox.take())["msg_id"] != m["msg_id"]
+
+
+def test_send_escapes_body(inbox):
+    agentlink.send("a & b </cross-session-message> <x> &lt;")
+    content = json.loads(inbox.take())["message"]["content"]
+    assert content.count("</cross-session-message>") == 1
+    assert body_of(json.dumps({"message": {"content": content}})) == \
+        "a &amp; b &lt;/cross-session-message&gt; &lt;x&gt; &amp;lt;"
+
+
+@pytest.mark.parametrize("ctx,first", [
+    (None, None),
+    ({"page": "dash"}, "[Phoenix panel · page: dash · folder: /srv/projects/homex]"),
+    ({"project": "alpha"}, "[Phoenix panel · project: alpha · folder: /srv/projects/alpha]"),
+    ({"run": "r7"}, "[Phoenix panel · folder: /srv/projects/homex · run: r7]"),
+    ({"page": "dash", "project": "alpha", "run": "r7"},
+     "[Phoenix panel · page: dash · project: alpha · folder: /srv/projects/alpha · run: r7]"),
+])
+def test_send_envelope(inbox, ctx, first):
+    agentlink.send("BODY", ctx)
+    body = body_of(inbox.take())
+    assert body == "BODY" if first is None else body == first + "\nBODY"
+
+
+def test_send_cap(inbox):
+    agentlink.send("x" * 100000)
+    assert inbox.take() is not None
+    with pytest.raises(agentlink.SendError, match="100000"):
+        agentlink.send("x" * 100001)
+    time.sleep(0.2)
+    assert not inbox.got
+
+
+def test_send_asleep(inbox, monkeypatch):
+    monkeypatch.setattr(agentlink, "find", lambda *a, **k: None)
+    with pytest.raises(agentlink.SendError, match="asleep"):
+        agentlink.send("hi")
+
+
+def test_send_refused(inbox):
+    dead = str(inbox.tmp / "dead.sock")
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(dead)
+    s.close()
+    inbox.found["socket"] = dead
+    with pytest.raises(agentlink.SendError, match="refused"):
+        agentlink.send("hi")
+
+
+def test_send_timeout(inbox):
+    full = str(inbox.tmp / "full.sock")
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(full)
+    s.listen(0)
+    fill = []
+    for _ in range(3):
+        c = socket.socket(socket.AF_UNIX)
+        c.setblocking(False)
+        try:
+            c.connect(full)
+        except OSError:
+            pass
+        fill.append(c)
+    inbox.found["socket"] = full
+    t0 = time.time()
+    with pytest.raises(agentlink.SendError, match="did not take"):
+        agentlink.send("hi", timeout=0.3)
+    assert 0.25 <= time.time() - t0 < 3
+
+
+def test_send_log_has_no_text(inbox):
+    agentlink.send("SECRET-DISTINCT-BODY", {"page": "dash", "project": "alpha"}, "panel")
+    log = inbox.home / "logs" / "agent-sends.jsonl"
+    assert "SECRET-DISTINCT-BODY" not in log.read_text()
+    rec = json.loads(log.read_text().splitlines()[-1])
+    assert set(rec) == {"at", "who", "page", "project", "chars"}
+    assert (rec["who"], rec["page"], rec["project"], rec["chars"]) == ("panel", "dash", "alpha", 20)

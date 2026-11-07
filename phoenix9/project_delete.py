@@ -376,7 +376,7 @@ def _step(steps: list, who: str, name: str, step: str, fn) -> None:
 
 
 def _refuse(name: str, who: str, adapters) -> None:
-    """Raise OpsError with the plain reasons when this project may not be deleted."""
+    """Raise Conflict with the plain reasons when this project may not be deleted."""
     reasons = _refusals(name, who, _chat(name, adapters)["state"])
     if reasons:
         raise common.Conflict(" ".join(reasons))

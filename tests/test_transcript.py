@@ -161,3 +161,24 @@ def test_real_fixture_holds_only_placeholders():
     bad = {s for ln in FIXTURE_REAL.read_text().splitlines() if ln.strip() for s in strings(json.loads(ln))
            if not allowed.match(s)}
     assert not bad, sorted(bad)[:10]
+
+
+# ---- one odd line never stops the parse ----
+
+def test_odd_lines_count_as_unknown_and_never_raise():
+    deep = "[" * 100000 + "]" * 100000
+    lines = [
+        j(type="assistant", message={"content": [{"type": "tool_use", "id": ["a", "list"], "name": "Bash",
+                                                  "input": {"command": "ls"}}]}),
+        j(type="assistant", timestamp="2026-11-06T10:00:00", message={"content": [{"type": "text", "text": "naive"}]}),
+        j(type="assistant", timestamp="2026-11-06T10:00:05Z", message={"content": [{"type": "thinking"}]}),
+        '{"type": "user", "message": {"content": %s}}' % deep,
+        deep,
+        j(type="user", message={"role": "user", "content": "still parsed"}),
+    ]
+    items, unknown = transcript.parse(lines)
+    assert items[-1]["type"] == "user" and items[-1]["text"] == "still parsed"
+    assert unknown >= 3
+    assert not [i for i in items if i["type"] == "action"]   # the half-made action was rolled back
+    thinking = [i for i in items if i["type"] == "thinking"]
+    assert thinking == [] or thinking[0]["duration_s"] is None or thinking[0]["duration_s"] >= 0

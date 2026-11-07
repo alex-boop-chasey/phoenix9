@@ -20,19 +20,35 @@ def parse(lines) -> tuple[list[dict], int]:
     """Parse transcript lines into (panel items, number of unknown or broken lines)."""
     state = {"items": [], "actions": {}, "session": None, "last_at": None, "unknown": 0}
     for number, raw in enumerate(lines, start=1):
+        _one(state, number, raw)
+    return state["items"], state["unknown"]
+
+
+def _one(state: dict, number: int, raw) -> None:
+    """Parse one line; anything odd in it (a list as a tool id, mixed timestamps, deep nesting) only counts as
+    unknown, and whatever that line had half-added is taken back."""
+    kept = len(state["items"])
+    kept_pending = len(state.setdefault("pending", []))
+    state["added"] = []                     # action ids this line adds (taken back if it fails)
+    try:
         obj = _load(raw)
         if obj is None:
             state["unknown"] += 1
-            continue
+            return
         _handle(state, number, obj)
-    return state["items"], state["unknown"]
+    except Exception:
+        del state["items"][kept:]
+        for key in state["added"]:
+            state["actions"].pop(key, None)
+        del state["pending"][kept_pending:]
+        state["unknown"] += 1
 
 
 def _load(raw) -> dict | None:
     """Decode one line to a JSON object, or None when it is blank-broken or not an object."""
     try:
         obj = json.loads(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, RecursionError):
         return None
     return obj if isinstance(obj, dict) else None
 
@@ -141,9 +157,9 @@ def _seconds(start, end) -> float | None:
     try:
         a = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
         b = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
-    except ValueError:
+        return max(0.0, (b - a).total_seconds())
+    except (ValueError, TypeError):      # missing, odd, or one naive and one with a time zone
         return None
-    return max(0.0, (b - a).total_seconds())
 
 
 def _tool_use(state: dict, number: int, block: dict) -> None:
@@ -156,6 +172,7 @@ def _tool_use(state: dict, number: int, block: dict) -> None:
     _add(state, number, item)
     if item["id"]:
         state["actions"][item["id"]] = item
+        state.setdefault("added", []).append(item["id"])
 
 
 def _input_summary(tool: str, data: dict) -> str:

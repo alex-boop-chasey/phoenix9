@@ -781,6 +781,26 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
   `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
   `phoenix agent restart --yes` restarts it by hand.
+- **Registry**: the list of Claude sessions in `/root/.claude/sessions/<pid>.json` (see "Finding the session").
+  Phoenix reads only those `.json` files and the transcripts, nothing else in Claude's home.
+- **Wire format**: `agentlink.wire_line()` builds one JSON line `{msgV: 1, msg_id, type: "user", message: {role:
+  "user", content}, priority: "next", from}`; the content is the text inside a `<cross-session-message>` wrapper
+  (the wrapper's own closing tag is escaped inside the text), with the panel envelope line first.
+  `connect_and_write()` writes it to the inbox socket within a timeout; failure is a `SendError`.
+- **Only the socket and files are touched**: Phoenix talks to the agent through its inbox socket, reads the
+  registry and transcript files, and restarts its unit. It never reads Claude's login file or the `*.key`
+  peer files (`tests/test_no_credentials_read.py`), never starts Claude for this and never drives the agent's
+  terminal.
+- **Settings**: `[agent]` in `global.toml`: `agent.folder` (default `/srv/projects/home`), `agent.unit` (default
+  `claude-rc@home`), `agent.watchdog` (default true).
+- **Doctor lines**: `agent-unit`, `agent-session`, `agent-socket` (folder 700, socket 600), `agent-transcript`
+  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`).
+- **Deploy files** (`deploy/agent/`): `agent-rules.md` (the rulebook; the admin setup step copies it to the agent
+  folder as `CLAUDE.md`, because builds may not write a file of that name), `settings.json` (the session-start
+  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker helpers).
+- **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
+  message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
+  `deploy/agent/agent-rules.md` (the agent's own rules) are in `safety_files` in `deploy/self-project.toml`.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
@@ -789,7 +809,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 | `docker` | V8 docker.py port: run a step container with limits, firewall, mounts | records calls, returns scripted exit codes and files |
 | `claude` | V8 claude.py port: `claude -p` stream-json in the container, usage-limit and model-unavailable detection | scripted sessions: writes given files into the worktree, returns given result/usage |
 | `git` | V8 git.py port: clones, worktrees, safe flags, diffs | real git on temp repos (git is always available) |
-| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME | records calls, returns canned output |
+| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `now`, `sleep` | records calls, returns canned output |
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
@@ -820,7 +840,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
    full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
    It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
    is the only place in phoenix9 that starts Claude on the host, and the only place that restarts the
-   Phoenix agent's service (`agent_restart`, a `systemctl restart` of the `agent.unit` setting, used by the
+   Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
    memory in `logs/agent-watch.json`).
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
@@ -897,7 +917,9 @@ carries a template (`deploy/self-project.toml`) that the chat copies into place.
 `fnmatch` globs matched against each changed path (`*` also crosses `/`; a bare folder name matches nothing
 inside it); Merge flags "changes safety code" for a match (`matches_safety` in `steps/merge/run.py`). The
 template lists the firewall and container launch files, the diff rules and secret scan, the secrets and key
-proxy modules, the updater and its units, and the check scripts, each with the reason beside it.
+proxy modules, the updater and its units, the agent link (`phoenix9/agentlink.py` writes to the agent's socket,
+`phoenix9/transcript.py` reads its untrusted output, `deploy/agent/agent-rules.md` is its rulebook), and the
+check scripts, each with the reason beside it.
 
 ## 14. Key proxy (`phoenix9/proxy.py`, phase 4)
 

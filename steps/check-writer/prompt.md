@@ -34,6 +34,51 @@ Write exactly one check file per Done-when bullet, all in `{{checks_dir}}/`, not
 - Secrets and test keys come from environment variables. Never write a key, password or token into a
   check.
 - Do not install anything. Assume the packages the project needs will be installed by the builder.
+- Call programs by path (`./bin/tool`, `python3 -m pkg`), not by a bare name that is not on PATH yet.
+
+## Checks are self-contained
+
+Phoenix runs each check in a fresh, empty container. Only PATH, HOME and TMPDIR are set there (plus
+the project's keys, for secrets). Nothing else from your session or from the builder's carries over.
+
+- A check creates every temp folder it uses (`TMP="$(mktemp -d)"`) and removes it at the end.
+- A check sets every environment variable it reads, in the check file itself, before it uses it:
+  `export NAME=...` in shell before running python or node, or `os.environ["NAME"] = ...` in python.
+  Never read a variable you did not set (only PATH, HOME, TMPDIR and the project's keys are given).
+- This includes programs the check writes into a heredoc: if the program reads `os.environ["X"]`,
+  the shell part must `export X=...` first.
+- Phoenix refuses checks that read a variable they never set, before locking them. It also refuses
+  checks whose red run is a crash in the check's own code (a KeyError reading os.environ, NameError,
+  SyntaxError, an unbound shell variable, "command not found") instead of a failure about the code.
+
+Worked example, a Python project whose code reads `PHOENIX_HOME` and `PHOENIX_PROJECTS`:
+
+```sh
+#!/bin/sh
+# 2-chat-open-starts-a-stopped-chat
+set -u
+ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"   # the repo root, from tests/phoenix/<run>/task-<n>/
+cd "$ROOT" || exit 1
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/home" "$TMP/projects/alpha"
+export PHOENIX_HOME="$TMP/home" PHOENIX_PROJECTS="$TMP/projects"   # set before python reads them
+fail() { echo "FAIL: $*" >&2; exit 1; }
+
+cat >"$TMP/check.py" <<'PY'
+import os, sys
+from pathlib import Path
+sys.path.insert(0, os.getcwd())
+root = Path(os.environ["PHOENIX_PROJECTS"])        # safe: the shell part exported it
+from myapp import chat                             # the task's code (a missing module is a proper red)
+assert chat.open_("alpha")["state"] == "live", "chat open did not start the chat"
+print("OK")
+PY
+python3 -I "$TMP/check.py" || fail "chat open starts a stopped chat"
+```
+
+The same rule in a pytest check file: take folders from `tmp_path` and set variables with
+`monkeypatch.setenv("PHOENIX_HOME", str(tmp_path / "home"))` before the code under test reads them.
 
 ## Rules
 
@@ -47,6 +92,12 @@ Write exactly one check file per Done-when bullet, all in `{{checks_dir}}/`, not
 ```
 {{repo_tree}}
 ```
+
+## Earlier tries of this task failed because
+{{failures}}
+
+If a reason above says a check is broken (it reads a variable it never sets, or it crashed in its own
+code), fix that check: the earlier checks were thrown away and you write them again.
 
 ## Checks of earlier tasks (already locked; for style and helpers to copy, do not edit)
 {{existing_checks}}

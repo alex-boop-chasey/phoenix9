@@ -277,3 +277,106 @@ def test_once_steps_not_rerun_on_attempt_2(tmp_path, runner):
     assert len(runner.adapters.claude.calls) == 1
     assert len(calls("builder")) == 2
     assert len(runner.adapters.docker.argvs) == 1
+
+
+# ---------------------------------------------------------------- self-contained checks (agent build 1b, task 6)
+UNSET = """#!/bin/sh
+set -u
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+{setup}
+cat >"$TMP/check.py" <<'PY'
+import os
+from pathlib import Path
+root = Path(os.environ["PHOENIX_PROJECTS"])
+assert (root / "alpha").is_dir()
+PY
+python3 -I "$TMP/check.py" || { echo "FAIL: alpha"; exit 1; }
+"""
+EXPORTED = 'export PHOENIX_HOME="$TMP/home" PHOENIX_PROJECTS="$TMP/projects"'
+
+
+def sh_checks(setup=""):
+    return {"tests/phoenix/{run_id}/task-1/1-a.sh": UNSET.replace("{setup}", setup),
+            "tests/phoenix/{run_id}/task-1/2-doc.sh": "#!/bin/sh\ngrep -q a README.md\n"}
+
+
+def platform(project):
+    (project / "phoenix.toml").write_text('profile = "platform"\n')
+
+
+def test_checkwriter_refuses_check_reading_unset_env(tmp_path, runner, project):
+    platform(project)
+    runner.adapters.claude.sessions += [session(sh_checks())]
+    run_dir = start(tmp_path, max_tries=1)
+    runner.drive(run_dir)
+    line = next(s for s in state.load(run_dir)["steps"] if s["step"] == "check-writer")
+    assert line["status"] == "failed"
+    assert "PHOENIX_PROJECTS" in line["note"] and "1-a.sh" in line["note"] and "export" in line["note"]
+    assert not (run_dir / "tasks/1/checks.lock.json").exists()
+    assert runner.adapters.docker.argvs == []                        # Red check never ran
+
+
+def test_checkwriter_accepts_same_check_with_export(tmp_path, runner, project):
+    platform(project)
+    runner.adapters.claude.sessions += [session(sh_checks(EXPORTED))]
+    runner.adapters.docker.exit_codes += [1]
+    run_dir = start(tmp_path)
+    runner.drive(run_dir)
+    steps = state.load(run_dir)["steps"]
+    assert [s["status"] for s in steps if s["step"] == "check-writer"] == ["passed"]
+    assert (run_dir / "tasks/1/checks.lock.json").exists()
+
+
+def test_checkwriter_retry_is_told_why(tmp_path, runner, project):
+    platform(project)
+    runner.adapters.claude.sessions += [session(sh_checks()), session(sh_checks(EXPORTED))]
+    runner.adapters.docker.exit_codes += [1]
+    run_dir = start(tmp_path, max_tries=2)
+    runner.drive(run_dir)
+    assert len(runner.adapters.claude.calls) == 2
+    second = (run_dir / "tasks/1/attempt-2/check-writer-prompt.md").read_text()
+    assert "PHOENIX_PROJECTS" in second
+    assert [s["status"] for s in state.load(run_dir)["steps"] if s["step"] == "check-writer"] == ["failed", "passed"]
+
+
+REAL_RED = """Traceback (most recent call last):
+  File "/tmp/tmp.8NE2nprqOu/check.py", line 10, in <module>
+    root = Path(os.environ["PHOENIX_PROJECTS"])
+                ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "<frozen os>", line 717, in __getitem__
+KeyError: '[secret]'
+FAIL: chat open behaviour
+"""
+
+
+def test_red_check_rejects_crash_in_check_setup(tmp_path, adapters, project, work):
+    mod = load("red-check")
+    adapters.docker.exit_codes += [1]
+    adapters.docker.outputs += [REAL_RED]
+    res = mod.run(red_ctx(tmp_path, project, adapters, work))
+    assert res.status == "fail"
+    assert "broken" in res.reasons[0] and "KeyError" in res.reasons[0] and "check.py line 10" in res.reasons[0]
+
+
+def test_red_check_accepts_assertion_about_the_code(tmp_path, adapters, project, work):
+    mod = load("red-check")
+    adapters.docker.exit_codes += [1]
+    adapters.docker.outputs += ['Traceback (most recent call last):\n  File "/tmp/t/check.py", line 4, in <module>\n'
+                                '    assert (root / "alpha").is_dir()\nAssertionError\nFAIL: alpha\n']
+    assert mod.run(red_ctx(tmp_path, project, adapters, work)).status == "pass"
+
+
+def test_broken_red_check_makes_checkwriter_write_again(tmp_path, runner, project):
+    platform(project)
+    runner.adapters.claude.sessions += [session(sh_checks(EXPORTED)), session(sh_checks(EXPORTED))]
+    runner.adapters.docker.exit_codes += [1, 1]
+    runner.adapters.docker.outputs += [REAL_RED, "FAIL: alpha"]
+    run_dir = start(tmp_path, max_tries=2)
+    runner.drive(run_dir)
+    steps = state.load(run_dir)["steps"]
+    assert [s["status"] for s in steps if s["step"] == "check-writer"] == ["passed", "passed"]
+    assert [s["status"] for s in steps if s["step"] == "red-check"] == ["failed", "passed"]
+    assert "KeyError" in (run_dir / "tasks/1/attempt-2/check-writer-prompt.md").read_text()
+    work = worktree(run_dir)
+    assert git(work, "log", "--format=%s").count("Checks for task 1") == 1    # attempt 1's checks were thrown away

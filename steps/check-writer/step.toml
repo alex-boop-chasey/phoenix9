@@ -4,7 +4,7 @@ description = "Writes the task's checks before any code exists."
 kind = "ai"
 level = "task"
 order = 10
-needs = ["task", "worktree"]
+needs = ["task", "worktree", "failures"]
 produces = ["checks"]
 default = "off"
 

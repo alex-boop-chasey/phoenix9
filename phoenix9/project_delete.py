@@ -239,7 +239,11 @@ def plan(name: str, who: str, adapters) -> dict:
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
               "refusals": _refusals(name, who, chat["state"], folder, adapters),
-              "safety_copy": str(paths.deleted_projects())}
+              "safety_copy": str(paths.deleted_projects()),
+              "keep_days": settings.delete_settings()["keep_days"]}
+    if result["keys"]:
+        result["keys_note"] = ("The saved keys are deleted and NOT kept in the safety copy. Copy their values "
+                               "somewhere safe first if you will need them.")
     if note:
         result["open_prs_note"] = note
     return result

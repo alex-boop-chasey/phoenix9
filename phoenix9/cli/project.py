@@ -143,6 +143,8 @@ def plan_text(p: dict) -> str:
     lines.append(f"  Unsaved edits (kept in the safety copy): {p.get('unsaved_edits', 0)}")
     lines.append(f"  Builds: {p['runs']['count']}")
     lines.append(f"  Saved keys: {', '.join(p['keys']) or '(none)'}")
+    if p.get("keys_note"):
+        lines.append(f"    {p['keys_note']}")
     lines.append(f"  Chat: {p['chat']['unit']} ({p['chat']['state']})")
     lines.append(f"  Safety copy goes under: {p['safety_copy']}")
     for d in p["deployments"]:

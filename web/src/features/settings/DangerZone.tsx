@@ -37,7 +37,7 @@ function StillLive({ items }: { items: DeleteLink[] }) {
 function PlanView({ plan }: { plan: DeletePlan }) {
   return (
     <div className="stackg" aria-label="What will be deleted">
-      <p>This cannot be undone. A safety copy is written to <code>{plan.safety_copy}</code> first, and kept for 30 days.</p>
+      <p>This cannot be undone. A safety copy is written to <code>{plan.safety_copy}</code> first, and kept for {plan.keep_days ?? 30} days.</p>
       <ul>
         <li>Folder <code>{plan.folder}</code> ({formatBytes(plan.size)})</li>
         <li>
@@ -52,7 +52,10 @@ function PlanView({ plan }: { plan: DeletePlan }) {
         <li>{plan.unpushed ? `${plural(plan.unpushed, "commit", "commits")} never pushed` : "No commits waiting to be pushed"}</li>
         {plan.unsaved_edits ? <li>{plural(plan.unsaved_edits, "unsaved edit", "unsaved edits")} (never committed; kept in the safety copy)</li> : null}
         <li>{plural(plan.runs.count, "Phoenix build", "Phoenix builds")} of history</li>
-        <li>{plan.keys.length ? `Saved project keys: ${plan.keys.join(", ")}` : "No saved project keys"}</li>
+        <li>
+          {plan.keys.length ? `Saved project keys: ${plan.keys.join(", ")}` : "No saved project keys"}
+          {plan.keys_note ? <b data-testid="keys-note"> {plan.keys_note}</b> : null}
+        </li>
         <li>The chat connection ({plan.chat.unit})</li>
       </ul>
       <StillLive items={plan.deployments} />

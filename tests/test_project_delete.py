@@ -1018,3 +1018,31 @@ def test_repo_with_no_commits_is_tar_only_and_kept(env, unitdir):
     copy = project_delete.Path(res["backup"])
     assert not (copy / "repo.bundle").exists() and "code/a.txt" in _names(copy / "files.tar.gz")
     assert _gh_deletes(env) == [] and res["steps"][-1]["kept"]
+
+
+# ---- saved keys are not in the copy (finding 10) ----
+
+KEYS_NOTE = "deleted and NOT kept in the safety copy"
+
+
+def test_plan_says_keys_are_not_kept(env, capsys):
+    from test_project_cmds import run_cmd
+    make(env, "alpha")
+    keys.set_key("alpha", "API_TOKEN", "sekret-value-123")
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert KEYS_NOTE in plan["keys_note"] and plan["keep_days"] == 30
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--dry-run")
+    assert KEYS_NOTE in out and "sekret-value-123" not in out
+
+
+def test_safety_copy_has_no_key_values(env, unitdir):
+    _stuff(env)
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    import tarfile
+    for part in ("files.tar.gz", "runs.tar.gz"):
+        with tarfile.open(project_delete.Path(res["backup"]) / part) as t:
+            for m in t.getmembers():
+                if m.isfile():
+                    assert b"sekret-value-123" not in t.extractfile(m).read()
+    for f in ("manifest.json", "RESTORE.md"):
+        assert "sekret-value-123" not in (project_delete.Path(res["backup"]) / f).read_text()

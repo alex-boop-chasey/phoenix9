@@ -854,7 +854,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 Only Alex can use it: the bottom of the project's Settings tab, or `phoenix project delete <name>`.
 
 1. **Dry run** (`project_delete.plan`, `GET /api/projects/<name>/delete-plan`, `--dry-run`): folder and size, GitHub
-   repo, open merge requests, commits never pushed, runs, key names (never values), chat unit, live deployments.
+   repo and whether it will really be deleted (`repo_delete: {repo, delete, why}`), open merge requests, commits never
+   pushed, unsaved edits (`git status --porcelain` count, kept in the copy), runs, key names (never values) with
+   `keys_note` saying the saved keys are deleted and NOT kept in the safety copy, chat unit, live deployments,
+   `keep_days`.
 2. **Confirm by typing the name** (`{"confirm": "<name>"}` in the API, `--confirm <name>` in the CLI).
 3. **Safety copy** (`backup`) in `paths.deleted_projects()` = `$PHOENIX_DELETED`, default `/root/deleted-projects`:
    `<name>-<YYYYMMDD-HHMM>/` (mode 700) holding `repo.bundle` (`git bundle --all`, checked with `git bundle verify`),

@@ -305,3 +305,22 @@ def test_send_log_has_no_text(inbox):
     rec = json.loads(log.read_text().splitlines()[-1])
     assert set(rec) == {"at", "who", "page", "project", "chars"}
     assert (rec["who"], rec["page"], rec["project"], rec["chars"]) == ("panel", "dash", "alpha", 20)
+
+
+def test_status_not_queued_once_the_queue_drained():
+    """A finished transcript whose queued messages were dequeued (or removed) is idle, not queued."""
+    h = FakeHost()
+    session(h, 10)
+    put_transcript(h, [
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"},
+        {"type": "queue-operation", "operation": "dequeue"},
+        {"type": "queue-operation", "operation": "enqueue", "content": "third"},
+        {"type": "queue-operation", "operation": "remove", "content": "third", "reason": "absorbed_mid_turn"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}},
+        {"type": "last-prompt", "sessionId": "x"}])
+    assert agentlink.status(HOME, h)["state"] == "idle"
+    put_transcript(h, [
+        {"type": "user", "message": {"role": "user", "content": "first"}},
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "working on first"}]}}])
+    assert agentlink.status(HOME, h)["state"] == "queued"

@@ -89,7 +89,7 @@ def _state(found: dict, items: list[dict]) -> str:
     for item in reversed(items):
         if item["type"] == "user":
             break
-        if item["type"] == "queued":
+        if item["type"] == "queued" and item.get("pending", True):
             return "queued"
     return "idle"
 

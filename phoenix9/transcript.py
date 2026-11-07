@@ -6,6 +6,14 @@ from phoenix9 import scrub
 
 PANEL_NAME = "Alex (Phoenix panel)"
 EXCERPT_LINES = 6
+# Claude Code's bookkeeping lines: known, and never shown in the panel.
+IGNORED_TYPES = frozenset({
+    "attachment", "atis-latch", "last-prompt", "custom-title", "agent-name", "mode", "summary",
+    "file-history-snapshot", "file-history-delta", "api-request", "api-request-blob", "api-request-shape",
+    "pr-link", "bridge-session", "ai-title", "tools-used", "frame-link", "cost-state", "permission-mode",
+    "artifact-autoreact-ledger", "artifact-comment-monitor"})
+IGNORED_SYSTEM = frozenset({"stop_hook_summary", "turn_duration", "bridge_status"})
+SYSTEM_WORDS = {"api_error": "The API returned an error."}
 
 
 def parse(lines) -> tuple[list[dict], int]:
@@ -34,7 +42,7 @@ def _handle(state: dict, number: int, obj: dict) -> None:
     kind = obj.get("type")
     handler = {"user": _user, "assistant": _assistant, "system": _system,
                "queue-operation": _queued}.get(kind)
-    if kind == "attachment":
+    if kind in IGNORED_TYPES:
         return
     if handler is None or (kind in ("user", "assistant") and not isinstance(obj.get("message"), dict)):
         state["unknown"] += 1
@@ -76,11 +84,24 @@ def _origin(obj: dict) -> str:
 def _user(state: dict, number: int, obj: dict, at) -> None:
     """Handle a user line: a message, or tool results for earlier actions."""
     content = obj["message"].get("content")
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_result":
-                _tool_result(state, block)
+    if obj.get("isCompactSummary") is True:
+        _add(state, number, {"type": "notice", "text": "Earlier conversation summarised.", "at": at})
         return
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            kind = block.get("type") if isinstance(block, dict) else None
+            if kind == "tool_result":
+                _tool_result(state, block)
+            elif kind == "text":
+                parts.append(str(block.get("text", "")))
+            elif kind == "image":
+                parts.append("[image]")
+            else:
+                state["unknown"] += 1
+        if not parts:
+            return
+        content = "\n".join(parts)
     if not isinstance(content, str):
         state["unknown"] += 1
         return
@@ -173,14 +194,30 @@ def _tool_result(state: dict, block: dict) -> None:
 
 
 def _queued(state: dict, number: int, obj: dict, at) -> None:
-    """Handle a queue-operation line as a queued item."""
-    text = obj.get("content")
-    _add(state, number, {"type": "queued", "text": scrub.scrub(text if isinstance(text, str) else ""), "at": at})
+    """enqueue adds a pending queued item; dequeue clears the oldest pending one, remove the one with the same
+    text (else the oldest). Other operations count as unknown."""
+    op, text = obj.get("operation"), obj.get("content")
+    text = text if isinstance(text, str) else ""
+    pending = state.setdefault("pending", [])
+    if op == "enqueue":
+        item = {"type": "queued", "text": scrub.scrub(text), "pending": True, "at": at}
+        _add(state, number, item)
+        pending.append((text, item))
+    elif op in ("dequeue", "remove"):
+        if not pending:
+            return
+        index = next((i for i, (t, _) in enumerate(pending) if t == text), 0) if op == "remove" else 0
+        pending.pop(index)[1]["pending"] = False
+    else:
+        state["unknown"] += 1
 
 
 def _system(state: dict, number: int, obj: dict, at) -> None:
-    """Handle a system line as a notice item."""
+    """Handle a system line as a notice item (hook summaries and turn timings are left out)."""
+    subtype = obj.get("subtype")
+    if subtype in IGNORED_SYSTEM:
+        return
     text = obj.get("content")
     if not isinstance(text, str):
-        text = str(obj.get("subtype") or "")
+        text = SYSTEM_WORDS.get(subtype) or str(subtype or "")
     _add(state, number, {"type": "notice", "text": scrub.scrub(text), "at": at})

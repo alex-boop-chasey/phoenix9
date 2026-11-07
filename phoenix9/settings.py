@@ -257,6 +257,18 @@ def chat_settings() -> dict:
     return out
 
 
+DELETE_DEFAULTS = {"keep_days": 30}
+
+
+def delete_settings() -> dict:
+    """The [delete] table of global.toml (keep_days: how long safety copies are kept) with defaults filled in."""
+    table = read_global().get("delete")
+    table = table if isinstance(table, dict) else {}
+    days = table.get("keep_days")
+    ok = isinstance(days, int) and not isinstance(days, bool) and days >= 0
+    return {"keep_days": days if ok else DELETE_DEFAULTS["keep_days"]}
+
+
 PROXY_PORTS_DEFAULT = "47100-47199"
 
 

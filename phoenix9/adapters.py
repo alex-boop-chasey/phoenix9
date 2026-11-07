@@ -1,6 +1,7 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import ipaddress
 import os
+import shutil
 import signal
 import subprocess
 import time
@@ -167,6 +168,17 @@ class Host:
         except OSError:
             return None
         return {"mode": st.st_mode & 0o7777, "uid": st.st_uid, "mtime": st.st_mtime}
+
+    def remove_tree(self, path) -> None:
+        """Delete a folder and everything in it (quiet when it is already gone)."""
+        shutil.rmtree(path, ignore_errors=True)
+
+    def remove_file(self, path) -> None:
+        """Delete one file (quiet when it is already gone)."""
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
 
     def read_lines(self, path) -> list[str]:
         """Read a text file as lines ([] when it is missing)."""

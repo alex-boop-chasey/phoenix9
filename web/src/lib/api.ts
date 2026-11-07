@@ -2,7 +2,7 @@
 import type {
   DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
-  DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
+  DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
   ChatInfo, ChatOpenResult,
@@ -124,6 +124,9 @@ export const api = {
   offChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/off`, { confirm: true }),
 
   removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
+  deletePlan: (name: string) => get<DeletePlan>(`projects/${e(name)}/delete-plan`),
+  deleteProject: (name: string, confirm: string) => post<DeleteResult>(`projects/${e(name)}/delete`, { confirm }),
+  deleteRepo: (name: string) => post<DeleteResult>(`projects/${e(name)}/delete-repo`, {}),
   importProject: (target: string) => post<ImportResult>("import", { target }),
   createProject: (form: CreateForm) => post<{ job: string }>("projects", form),
   editProject: (name: string, body: EditBody) => post<Project>(`projects/${e(name)}/edit`, body),

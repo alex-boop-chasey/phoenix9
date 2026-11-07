@@ -76,6 +76,7 @@ phoenix9/                      the Python package
   claude.py docker.py git.py watch.py   ports of V8, adapters (section 9)
   scrub.py                     secret redaction for every log line written
   project.py                   phoenix project (proj folded in) (phase 2)
+  project_delete.py            delete a project entirely: plan, safety copy, delete steps (safety file)
   keys.py                      per-project keys (phase 2; global secrets store phase 4)
   services.py                  services library loader (phase 2); project_services.py: a project's set
   proxy.py                     key proxy (phase 4)
@@ -813,7 +814,17 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker helpers).
 - **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
   message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
-  `deploy/agent/agent-rules.md` (the agent's own rules) are in `safety_files` in `deploy/self-project.toml`.
+  `deploy/agent/agent-rules.md` (the agent's own rules) and `phoenix9/project_delete.py` (deletes a whole project) are in `safety_files` in `deploy/self-project.toml`.
+- **Delete project** (`phoenix9/project_delete.py`, a safety file): `plan(name, who, adapters)` is the dry run for
+  "Delete project entirely": folder and size, GitHub repo, open merge requests, unpushed commits, runs, key names
+  (never values), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home, an active
+  build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
+  (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
+  `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
+  with a note when there is no git repo), `files.tar.gz` (notes and untracked files, no caches), `runs.tar.gz`
+  (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
+  copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
+  (default 30); the runner loop calls it once per pass.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
@@ -822,7 +833,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 | `docker` | V8 docker.py port: run a step container with limits, firewall, mounts | records calls, returns scripted exit codes and files |
 | `claude` | V8 claude.py port: `claude -p` stream-json in the container, usage-limit and model-unavailable detection | scripted sessions: writes given files into the worktree, returns given result/usage |
 | `git` | V8 git.py port: clones, worktrees, safe flags, diffs | real git on temp repos (git is always available) |
-| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `now`, `sleep` | records calls, returns canned output |
+| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `now`, `sleep`; deletes: `remove_tree(path)`, `remove_file(path)` (both quiet when the path is gone; used only by `project_delete.py`) | records calls, returns canned output |
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
@@ -830,6 +841,38 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 | `chat` | delegate mode (`phoenix9/chat.py`): `delegate(project, project_dir, gate_id, prompt, log_path) -> {started, handle, error}` starts a detached headless `claude -p <prompt> --permission-mode bypassPermissions --output-format text` in the project folder (own session, output to the log, env `PHOENIX_WHO=chat:delegate`, never `--bare`); `status(handle) -> running \| exited` (section 11, rule 1 exception) | `FakeChat.mode`: answer (acknowledges as chat:delegate) / exit / run / fail |
 `phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
 `subprocess` for these tools directly.
+
+## 9.5 Deleting a project (`phoenix9/project_delete.py`, a safety file)
+
+"Remove" only takes a project off the list; **Delete project entirely** is the one action that cannot be undone.
+Only Alex can use it: the bottom of the project's Settings tab, or `phoenix project delete <name>`.
+
+1. **Dry run** (`project_delete.plan`, `GET /api/projects/<name>/delete-plan`, `--dry-run`): folder and size, GitHub
+   repo, open merge requests, commits never pushed, runs, key names (never values), chat unit, live deployments.
+2. **Confirm by typing the name** (`{"confirm": "<name>"}` in the API, `--confirm <name>` in the CLI).
+3. **Safety copy** (`backup`) in `paths.deleted_projects()` = `$PHOENIX_DELETED`, default `/root/deleted-projects`:
+   `<name>-<YYYYMMDD-HHMM>/` (mode 700) holding `repo.bundle` (`git bundle --all`, checked with `git bundle verify`),
+   `files.tar.gz` (notes/ and non-git files, no node_modules, .venv or build caches), `runs.tar.gz` (HOME/runs/<name>
+   and HOME/work/<name>), `manifest.json` (name, folder, repo, who, when, plan) and `RESTORE.md`. If any part fails,
+   the half-made copy is removed, nothing is deleted and the error is shown.
+4. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat
+   unit `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed), the project folder, `HOME/keys/<name>.toml`,
+   Claude Code's folder trust entry (`project_removal.untrust`), the `removed_projects` row and INDEX.md line, and
+   last the GitHub repo (`gh repo delete <owner/name> --yes`).
+5. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
+   was NOT deleted, with the fix (`gh auth refresh -h github.com -s delete_repo`). `POST
+   /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo
+   from the newest safety copy's manifest.
+6. **Live deployments are never touched**: they are listed (`still_live`) with links.
+7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30); the runner loop calls
+   `prune_backups` on every pass.
+
+**Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`); a project with a build queued, running,
+waiting or paused; a project whose chat state is `working`; any caller other than `dashboard` or `cli` (the Phoenix
+agent and every `chat:*` caller, whatever the project's permissions).
+
+**Host adapter** (section 9): systemctl, `gh` and the filesystem deletes `remove_tree(path)` and `remove_file(path)`
+all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETED` to a pytest tmp folder.
 
 ## 10. Keys and secrets
 

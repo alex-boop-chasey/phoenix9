@@ -644,6 +644,27 @@ def post_remove(req, name):
         return projects.remove(check_name(name), WHO)
 
 
+def get_delete_plan(req, name):
+    """Reply with the dry run for deleting a project entirely (nothing is touched)."""
+    return projects.delete_plan(check_name(name), WHO)
+
+
+def post_delete(req, name):
+    """Delete a project entirely; the body must hold {"confirm": "<name>"} (the dry run is the GET delete-plan)."""
+    check_name(name)
+    confirm = req.body.get("confirm")
+    if not isinstance(confirm, str) or confirm != name:
+        raise BadRequest("Type the project's name to confirm. Nothing was deleted.")
+    with req.server.write_lock:
+        return projects.delete(name, confirm, WHO)
+
+
+def post_delete_repo(req, name):
+    """Retry deleting the GitHub repo of an already deleted project."""
+    with req.server.write_lock:
+        return projects.delete_repo(check_name(name), WHO)
+
+
 def get_chat(req, name):
     """Reply with the project's chat state."""
     return ops_chat.chat_state(check_name(name))
@@ -854,6 +875,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
+    ("GET", rf"/api/projects/{NAME}/delete-plan", get_delete_plan),
     ("GET", rf"/api/projects/{NAME}/keys", get_keys),
     ("GET", rf"/api/projects/{NAME}/settings", get_settings),
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
@@ -889,6 +911,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/projects", post_create),
     ("POST", r"/api/import", post_import),
     ("POST", rf"/api/projects/{NAME}/remove", post_remove),
+    ("POST", rf"/api/projects/{NAME}/delete", post_delete),
+    ("POST", rf"/api/projects/{NAME}/delete-repo", post_delete_repo),
     ("POST", r"/api/update/install", post_update_install),
     ("POST", r"/api/update/rollback", post_update_rollback),
     ("POST", rf"/api/projects/{NAME}/deploy", post_deploy),

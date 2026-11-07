@@ -144,6 +144,19 @@ export interface ImportCandidate {
 export interface FolderListing { path: string; root: string; parent: string | null; folders: { name: string; path: string }[] }
 
 export interface ImportResult { name: string; path: string; repo: string | null; was_removed: boolean; added: string[] }
+export interface DeleteLink { target: string; note: string; links: string[] }
+export interface DeletePlan {
+  name: string; folder: string; size: number; repo: string | null
+  open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
+  unpushed: number; runs: { count: number }; keys: string[]
+  chat: { unit: string; state: string }; deployments: DeleteLink[]
+  refusals: string[]; safety_copy: string
+}
+export interface DeleteStep { step: string; ok: boolean; words: string }
+export interface DeleteResult {
+  name: string; backup: string; steps: DeleteStep[]
+  not_done: { what: string; how: string }[]; still_live?: DeleteLink[]
+}
 export interface RemoveResult { name: string; path: string; repo: string | null; removed_on: string; kept: unknown }
 
 /** What was chosen when the project was set up (any may be null for older projects). */

@@ -61,3 +61,8 @@ def logs() -> Path:
 def events() -> Path:
     """The global event stream."""
     return home() / "events.jsonl"
+
+
+def deleted_projects() -> Path:
+    """Where the safety copies of deleted projects are kept."""
+    return Path(os.environ.get("PHOENIX_DELETED", "/root/deleted-projects"))

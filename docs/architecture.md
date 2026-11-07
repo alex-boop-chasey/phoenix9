@@ -821,12 +821,13 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
   `deploy/agent/agent-rules.md` (the agent's own rules) and `phoenix9/project_delete.py` (deletes a whole project) are in `safety_files` in `deploy/self-project.toml`.
 - **Delete project** (`phoenix9/project_delete.py`, a safety file): `plan(name, who, adapters)` is the dry run for
-  "Delete project entirely": folder and size, GitHub repo, open merge requests, unpushed commits, runs, key names
-  (never values), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home, an active
-  build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
+  "Delete project entirely": folder and size, GitHub repo with `repo_verdict` (deleted only when it is the project's
+  own, see section 9.5), open merge requests, unpushed commits, unsaved edits, runs, key names (never values; not
+  kept in the copy), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home also by real
+  name, a linked folder, an active build or delegate session, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
   (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
   `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
-  with a note when there is no git repo), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
+  with a note when there is no git repo or no commits; `git fetch --all` first), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
   (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
   copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
   (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
@@ -858,14 +859,17 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    pushed, unsaved edits (`git status --porcelain` count, kept in the copy), runs, key names (never values) with
    `keys_note` saying the saved keys are deleted and NOT kept in the safety copy, chat unit, live deployments,
    `keep_days`.
-2. **Confirm by typing the name** (`{"confirm": "<name>"}` in the API, `--confirm <name>` in the CLI).
+2. **Confirm by typing the name** (`{"confirm": "<name>"}` in the API; in the CLI `--confirm <name>` and then the name
+   typed again at a prompt on a real terminal: without a terminal (stdin not a tty, as in any Claude session) the
+   CLI refuses, and it refuses `--who` other than `cli`/`dashboard` and any `$PHOENIX_WHO` other than those).
 3. **Safety copy** (`backup`) in `paths.deleted_projects()` = `$PHOENIX_DELETED`, default `/root/deleted-projects`:
    `<name>-<YYYYMMDD-HHMM>/` (mode 700) holding `repo.bundle` (`git bundle --all`, checked with `git bundle verify`),
    `files.tar.gz` (the whole project folder: notes/, and all of code/ as it is on disk, so uncommitted and staged
    edits, untracked files, build output such as dist/build/target and nested repos with their own .git are kept;
    left out are only code/.git, which is the bundle, and pure caches: node_modules, .venv, venv, __pycache__,
    .pytest_cache, .mypy_cache, .ruff_cache, .next/cache, .turbo), `runs.tar.gz` (HOME/runs/<name>
-   and HOME/work/<name>), `manifest.json` (name, folder, repo, who, when, plan) and `RESTORE.md`. If any part fails,
+   and HOME/work/<name>), `manifest.json` (name, folder, repo, who, when, notes, `repo_delete`, `bundle_of`: the
+   origin repo the bundle was made from, plan) and `RESTORE.md`. Saved keys are NOT in the copy. If any part fails,
    the half-made copy is removed, nothing is deleted and the error is shown.
    Before bundling, `git fetch --all` (through the host adapter) brings in branches that are only on GitHub; a failed
    fetch is a note in the manifest, not a stop. A repo with no commits gets no bundle (its files are in the tar) and
@@ -879,6 +883,14 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    unit `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed), the project folder, `HOME/keys/<name>.toml`,
    Claude Code's folder trust entry (`project_removal.untrust`), the `removed_projects` row and INDEX.md line, and
    last the GitHub repo (`gh repo delete <owner/name> --yes`).
+   **Which GitHub repo** (`repo_verdict`): only one that is the project's own. All must hold: `.phoenix/project.json`
+   says Phoenix made it (`source` `empty` or `template`, with the repo recorded; never `repo`, `import` or `code`);
+   `git -C <folder>/code rev-parse --show-toplevel` is code/ itself (a plain code/ folder would otherwise find the
+   parent repo, e.g. `/srv/projects`, the notes repo of every project); code/'s origin is the recorded repo; code/
+   has commits; and no other listed project, removed-projects row or the projects folder's own repo points at the
+   same owner/name (compared ignoring case). The GitHub step also needs a verified bundle of that repo in the copy
+   and the folder really gone. Otherwise the step is `kept` (`ok`, with "GitHub repo <x> not deleted: it ..."),
+   or, when only the folder removal failed, not done, for the retry.
 6. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
    was NOT deleted, with the fix (`gh auth refresh -h github.com -s delete_repo`). `POST
    /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo

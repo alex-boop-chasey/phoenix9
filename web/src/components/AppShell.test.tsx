@@ -3,7 +3,7 @@ import { fireEvent, screen, within } from "@testing-library/react"
 import { AppShell } from "@/components/AppShell"
 import { crumbsFor } from "@/components/Crumbs"
 import { gate, info, projects } from "@/test/fixtures"
-import { mockApi } from "@/test/mockApi"
+import { agentRoutes, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -11,7 +11,9 @@ afterEach(() => vi.unstubAllGlobals())
 const withUpdate = (over: Partial<typeof info.update>) => ({ ...info, update: { ...info.update, ...over } })
 
 function setup(opts: { info?: unknown; gates?: unknown[]; route?: string; projects?: unknown[] } = {}) {
+  window.localStorage.clear()
   mockApi({
+    ...agentRoutes(),
     "GET /api/info": opts.info ?? info,
     "GET /api/projects": opts.projects ?? projects,
     "GET /api/gates": opts.gates ?? [],
@@ -100,15 +102,27 @@ test("phone picker opens and closes", async () => {
   expect(sheet).not.toHaveClass("open")
 })
 
-test("Ctrl+. toggles the agent drawer", async () => {
+test("Ctrl+. toggles the Phoenix agent panel and the button opens it", async () => {
   setup()
-  const drawer = screen.getByLabelText("Phoenix Agent", { selector: "aside" })
-  expect(drawer).not.toHaveClass("open")
-  fireEvent.click(screen.getByRole("button", { name: "Open Phoenix Agent" }))
-  expect(drawer).toHaveClass("open")
-  expect(screen.getByText("Phoenix Agent (coming in phase 6)")).toBeInTheDocument()
+  const panel = screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
+  expect(panel).not.toHaveClass("open")
+  fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+  expect(panel).toHaveClass("open")
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })
-  expect(drawer).not.toHaveClass("open")
+  expect(panel).not.toHaveClass("open")
+  fireEvent.keyDown(document, { key: ".", ctrlKey: true })
+  expect(panel).toHaveClass("open")
+  fireEvent.keyDown(document, { key: "Escape" })
+  expect(panel).not.toHaveClass("open")
+})
+
+test("the panel gives focus back to the header button", () => {
+  setup()
+  const btn = screen.getByRole("button", { name: "Phoenix agent" })
+  fireEvent.click(btn)
+  expect(screen.getByLabelText("Message")).toHaveFocus()
+  fireEvent.keyDown(document, { key: "Escape" })
+  expect(btn).toHaveFocus()
 })
 
 test("breadcrumbs show on the page", () => {
@@ -136,4 +150,30 @@ test("the sidebar's current project line has a Chat button with its dot", async 
   await within(switcher()).findByText("tiny-tool")
   expect(within(switcher()).getByRole("button", { name: /Chat/ })).toBeInTheDocument()
   expect(switcher().querySelector(".chatdot")).toHaveClass("chatdot-sleeping")
+})
+
+function stubWidth(phone: boolean) {
+  vi.stubGlobal("matchMedia", (q: string) => ({
+    matches: phone && q.includes("max-width: 719px"), media: q, addEventListener() {}, removeEventListener() {},
+  }))
+}
+
+test("the scrim shows behind the panel on phone width only", () => {
+  stubWidth(true)
+  const first = setup()
+  fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+  expect(screen.getByTestId("scrim")).toHaveClass("open")
+  first.unmount()
+  stubWidth(false)
+  setup()
+  fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+  expect(screen.getByTestId("scrim")).not.toHaveClass("open")
+})
+
+test("the open panel is remembered", () => {
+  setup()
+  fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+  const again = document.createElement("div")
+  expect(again).toBeTruthy()
+  expect(window.localStorage.getItem("phoenix.agent.open")).toBe("1")
 })

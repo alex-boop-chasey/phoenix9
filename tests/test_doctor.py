@@ -34,6 +34,26 @@ def tag_install(adapters, tag="v9.1"):
         subprocess.run(["git", *argv], cwd=inst, check=True, env=env)
 
 
+AGENT_SOCK = "/tmp/cc-socks-0/x.sock"
+AGENT_FOLDER = "/srv/projects/home"
+AGENT_TRANSCRIPT = "/root/.claude/projects/-srv-projects-home/s1.jsonl"
+
+
+def healthy_agent(h):
+    """Fake a running agent: session entry, private socket (folder 0700, socket 0600), clean transcript, set-up folder."""
+    h.pids.add(77)
+    h.files["/root/.claude/sessions/77.json"] = json.dumps({
+        "pid": 77, "cwd": AGENT_FOLDER, "name": "Phoenix agent", "status": "idle",
+        "messagingSocketPath": AGENT_SOCK, "kind": "interactive", "sessionId": "s1"})
+    h.files[AGENT_SOCK] = ""
+    h.stats["/tmp/cc-socks-0"] = {"mode": 0o700, "uid": 0}
+    h.stats[AGENT_SOCK] = {"mode": 0o600, "uid": 0}
+    h.files[AGENT_TRANSCRIPT] = "".join(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n"
+                                        for _ in range(20))
+    h.files[f"{AGENT_FOLDER}/CLAUDE.md"] = "x"
+    h.files[f"{AGENT_FOLDER}/.claude/settings.json"] = "{}"
+
+
 @pytest.fixture
 def healthy(adapters, phoenix_env, monkeypatch):
     """Healthy fakes: services up, API answers, HOME laid out, image built, probe and session succeed."""
@@ -58,6 +78,7 @@ def healthy(adapters, phoenix_env, monkeypatch):
     Usage = namedtuple("Usage", "total used free")
     monkeypatch.setattr(doctor.shutil, "disk_usage", lambda p: Usage(10**12, 0, 50 * doctor.GB))
     tag_install(adapters)
+    healthy_agent(adapters.host)
     return adapters
 
 
@@ -330,3 +351,54 @@ def test_api_check_reads_the_tag_inside_the_api_reply(adapters, monkeypatch):
     monkeypatch.setattr(doctor, "installed_tags", lambda ctx: ["v9.1"])
     ok, detail, _ = doctor.check_api(doctor.Context(adapters, "for-update"))
     assert ok and "API runs v9.1" in detail
+
+
+def agent_check(a, name):
+    return by_name(doctor.run_checks(a, "full"))[name]
+
+
+def test_agent_checks_pass_and_are_in_full_mode(healthy):
+    names = ("agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder")
+    assert all(n in doctor.CHECKS_BY_MODE["full"] for n in names)
+    assert all(agent_check(healthy, n)["ok"] for n in names)
+
+
+def test_agent_unit_inactive_fails_with_fix(healthy):
+    healthy.host.script(["systemctl", "is-active", "claude-rc@home"], 3, "inactive\n")
+    c = agent_check(healthy, "agent-unit")
+    assert not c["ok"] and "inactive" in c["detail"] and "systemctl start" in c["fix"]
+
+
+def test_agent_session_missing_fails_with_fix(healthy):
+    healthy.host.pids.clear()
+    c = agent_check(healthy, "agent-session")
+    assert not c["ok"] and c["fix"]
+
+
+@pytest.mark.parametrize("path,mode,uid,word", [
+    ("/tmp/cc-socks-0", 0o755, 0, "0755"), (AGENT_SOCK, 0o666, 0, "0666"), (AGENT_SOCK, 0o600, 1000, "root")])
+def test_agent_socket_wrong_mode_or_owner_fails(healthy, path, mode, uid, word):
+    healthy.host.stats[path] = {"mode": mode, "uid": uid}
+    c = agent_check(healthy, "agent-socket")
+    assert not c["ok"] and word in c["detail"] and "chmod" in c["fix"]
+
+
+def test_agent_socket_without_session_fails(healthy):
+    healthy.host.pids.clear()
+    assert not agent_check(healthy, "agent-socket")["ok"]
+
+
+def test_agent_transcript_parse_rate(healthy):
+    bad = healthy.host.files[AGENT_TRANSCRIPT] + "not json\n" * 5
+    healthy.host.files[AGENT_TRANSCRIPT] = bad
+    c = agent_check(healthy, "agent-transcript")
+    assert not c["ok"] and "unknown" in c["detail"] and c["fix"]
+    healthy.host.files[AGENT_TRANSCRIPT] = healthy.host.files[AGENT_TRANSCRIPT].replace("not json\n", "", 4)
+    assert agent_check(healthy, "agent-transcript")["ok"]    # 1 of 21 lines is under 5 %
+
+
+@pytest.mark.parametrize("missing", ["CLAUDE.md", ".claude/settings.json"])
+def test_agent_folder_missing_files_fail(healthy, missing):
+    del healthy.host.files[f"{AGENT_FOLDER}/{missing}"]
+    c = agent_check(healthy, "agent-folder")
+    assert not c["ok"] and missing in c["detail"] and c["fix"]

@@ -7,7 +7,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import transcript
 from phoenix9.library import read_toml
 
 MODES = ("full", "for-update", "quick")
@@ -15,6 +16,8 @@ GB = 1024 ** 3
 DISK_FAIL_GB, DISK_WARN_GB = 5, 15
 STALE_HOLD_S = 3 * 3600
 DEFAULT_API_PORT = 8095
+UNKNOWN_WARN_RATE = 0.05
+SOCKET_FOLDER_MODE, SOCKET_MODE = 0o700, 0o600
 SERVICES = ("phoenix-api", "phoenix-runner")
 HOME_FOLDERS = ("config", "secrets", "keys", "runs", "logs")
 PROBE_PROFILE = "python-script"
@@ -24,7 +27,8 @@ CHECKS_BY_MODE = {
     "quick": ("services", "api", "origins", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
-             "claude", "advisor", "disk", "updater", "project-links", "memory-files"),
+             "claude", "advisor", "disk", "updater", "project-links", "memory-files",
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder"),
 }
 
 
@@ -36,6 +40,7 @@ class Context:
         self.ad = adapters
         self.mode = mode
         self.claude_info: dict | None = None
+        self.agent_found: dict | None = None
 
 
 def _result(ok: bool, detail: str, fix: str = "") -> tuple[bool, str, str]:
@@ -382,11 +387,76 @@ def check_memory_files(ctx):
                    "Run `phoenix project check-files --all` to add what is missing.")
 
 
+def check_agent_unit(ctx):
+    """The agent's systemd unit is active."""
+    unit = settings.agent_settings()["unit"]
+    rc, out, _ = ctx.ad.host.systemctl("is-active", unit)
+    state = out.split()[0] if out.split() else "unknown"
+    return _result(rc == 0 and state == "active", f"{unit} is {state}",
+                   f"Start it with `systemctl start {unit}`, then read `journalctl -u {unit}`.")
+
+
+def check_agent_session(ctx):
+    """The agent's chat session is found in Claude's session list."""
+    found = agentlink.find(host=ctx.ad.host)
+    ctx.agent_found = found
+    return _result(found is not None, "the agent session is running" if found else "no agent session found",
+                   "Restart the agent with `phoenix agent restart --yes`, or check its unit with `systemctl status claude-rc@home`.")
+
+
+def check_agent_socket(ctx):
+    """The inbox socket folder is private (0700) and the socket is root-only (0600)."""
+    found = agentlink.find(host=ctx.ad.host)
+    if not found:
+        return _result(False, "no agent session, so no inbox socket to check", "Start the agent first (see the agent-session line).")
+    sock = found["socket"]
+    folder = sock.rsplit("/", 1)[0] or "/"
+    problems = []
+    for what, path, want in (("socket folder", folder, SOCKET_FOLDER_MODE), ("socket", sock, SOCKET_MODE)):
+        st = ctx.ad.host.stat(path)
+        if st is None:
+            problems.append(f"the {what} {path} cannot be read")
+            continue
+        if st["mode"] != want:
+            problems.append(f"the {what} {path} has mode {st['mode']:04o}, not {want:04o}")
+        if what == "socket" and st.get("uid") != 0:
+            problems.append(f"the socket {path} is not owned by root")
+    return _result(not problems, "socket folder is 0700 and the socket is 0600, owned by root" if not problems
+                   else "; ".join(problems),
+                   f"Run `chmod 700 {folder}` and `chmod 600 {sock}` (as root), or restart the agent.")
+
+
+def check_agent_transcript(ctx):
+    """Few lines of the agent's transcript are unknown to the parser (warn above 5 %)."""
+    found = agentlink.find(host=ctx.ad.host)
+    if not found or not found["transcript"]:
+        return _result(False, "no agent transcript to read", "Start the agent first (see the agent-session line).")
+    lines = [ln for ln in ctx.ad.host.read_lines(found["transcript"]) if ln.strip()]
+    if not lines:
+        return _result(True, "the transcript is empty so far")
+    unknown = transcript.parse(lines)[1]
+    rate = unknown / len(lines)
+    text = f"{unknown} of {len(lines)} transcript lines are unknown ({rate:.0%})"
+    return _result(rate <= UNKNOWN_WARN_RATE, text,
+                   "Claude Code's transcript format may have changed: update phoenix9/transcript.py.")
+
+
+def check_agent_folder(ctx):
+    """The agent folder has CLAUDE.md and .claude/settings.json."""
+    folder = settings.agent_settings()["folder"].rstrip("/")
+    missing = [n for n in ("CLAUDE.md", ".claude/settings.json") if not ctx.ad.host.exists(f"{folder}/{n}")]
+    return _result(not missing, f"{folder} has CLAUDE.md and .claude/settings.json" if not missing
+                   else f"{folder} lacks " + " and ".join(missing),
+                   f"Set the agent folder up again (copy the agent files into {folder}).")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
           "origins": check_origins,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
-          "project-links": check_project_links, "memory-files": check_memory_files}
+          "project-links": check_project_links, "memory-files": check_memory_files,
+          "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
+          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

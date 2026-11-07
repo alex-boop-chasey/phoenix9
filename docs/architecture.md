@@ -80,6 +80,7 @@ phoenix9/                      the Python package
   hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
+                               (full mode also has five agent lines: agent-unit, agent-session, agent-socket, agent-transcript, agent-folder)
   images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
   stepproxy.py                 starts the key proxies a step's `proxy` key asks for (section 14)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)

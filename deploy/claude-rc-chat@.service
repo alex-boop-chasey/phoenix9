@@ -1,13 +1,25 @@
 # Phoenix 9 project chat connection: one instance per project (claude-rc-chat@<project>).
-# Installed (copied) into /etc/systemd/system by deploy/install.sh; instances are started by `phoenix chat`.
+# Installed into /etc/systemd/system by deploy/install.sh and by the updater's unit sync; instances are started
+# and stopped by `phoenix chat`. Settings match the proven claude-rc@ unit (PATH to root's claude, IS_SANDBOX
+# for bypassPermissions as root, a start limit so a broken unit can't restart forever).
 [Unit]
-Description=Phoenix 9 project chat for %i
-After=network.target
+Description=Phoenix 9 project chat for %i (/srv/projects/%i)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
+User=root
 WorkingDirectory=/srv/projects/%i
 Environment=HOME=/root
-ExecStart=/usr/bin/env claude remote-control --name %i --spawn same-dir --capacity 3 --create-session-in-dir --permission-mode bypassPermissions
+Environment=IS_SANDBOX=1
+Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/root/.local/bin/claude remote-control --name %i --spawn same-dir --capacity 3 --create-session-in-dir --permission-mode bypassPermissions
 Restart=on-failure
-RestartSec=10
+RestartSec=30
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target

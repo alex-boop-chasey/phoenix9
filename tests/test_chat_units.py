@@ -87,3 +87,14 @@ def test_start_unit_reports_a_refusing_systemd_plainly(projects):
         chat_mod.start_unit(Host(), "alpha")
     assert "couldn't start the chat service claude-rc-chat@alpha" in str(e.value)
     assert "does not exist" in str(e.value)
+
+
+def test_chat_unit_template_has_the_settings_a_live_chat_needs():
+    """Found live: with `env claude` and no PATH the unit failed (status 127) and restarted forever."""
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "deploy" / "claude-rc-chat@.service").read_text()
+    assert "ExecStart=/root/.local/bin/claude remote-control" in text and "/usr/bin/env claude" not in text
+    assert "Environment=PATH=/root/.local/bin:" in text
+    assert "Environment=IS_SANDBOX=1" in text and "Environment=HOME=/root" in text
+    assert "StartLimitBurst=" in text and "[Install]" in text
+    assert "--create-session-in-dir" in text and "WorkingDirectory=/srv/projects/%i" in text

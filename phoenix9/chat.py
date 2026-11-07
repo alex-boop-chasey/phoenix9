@@ -103,8 +103,12 @@ def unit_main_pid(host, project: str) -> int | None:
 
 
 def start_unit(host, project: str) -> None:
-    """Enable and start the project's chat unit."""
-    host.systemctl("enable", "--now", chat_unit(project))
+    """Enable and start the project's chat unit; a plain NotReady-style error when systemd refuses."""
+    rc, _out, err = host.systemctl("enable", "--now", chat_unit(project))
+    if rc != 0:
+        from phoenix9.projectchat import NotReady
+        first = (err or "").strip().splitlines()[0] if (err or "").strip() else "systemctl exit %d" % rc
+        raise NotReady("Phoenix couldn't start the chat service %s: %s" % (chat_unit(project), first))
 
 
 def stop_unit(host, project: str) -> None:

@@ -71,3 +71,19 @@ def test_stop_conversation_registry(projects):
     with pytest.raises(ValueError):
         chat.stop_conversation(h, "alpha", 501)
     assert h.stopped == [500]
+
+
+def test_start_unit_reports_a_refusing_systemd_plainly(projects):
+    """When systemd refuses (e.g. the unit template is missing) the user sees why at once, not a 60 s wait."""
+    import pytest
+    from phoenix9 import chat as chat_mod
+    from phoenix9.projectchat import NotReady
+
+    class Host:
+        def systemctl(self, *args):
+            return 1, "", "Failed to enable unit: Unit file claude-rc-chat@test.service does not exist.\n"
+
+    with pytest.raises(NotReady) as e:
+        chat_mod.start_unit(Host(), "alpha")
+    assert "couldn't start the chat service claude-rc-chat@alpha" in str(e.value)
+    assert "does not exist" in str(e.value)

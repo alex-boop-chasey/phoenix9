@@ -118,3 +118,10 @@ is using the new one (`ss -ltn` lists the busy ports).
 - Service keys (for example GitHub) never enter a step container. A small key proxy outside the container
   adds the key to the few calls a project is allowed to make.
 - The dashboard listens on 127.0.0.1 only; the web server in front of it decides who can reach it.
+
+## The agent folder
+
+`deploy/agent/` holds the files the Phoenix agent's folder (`/srv/projects/home`) is set up from:
+`agent-rules.md` (copied in as `CLAUDE.md`), `settings.json` and `agents/` (navigator, editor, checker).
+An admin copies them into place; Phoenix never does it at runtime, and builds may not write any file
+named `CLAUDE.md`.

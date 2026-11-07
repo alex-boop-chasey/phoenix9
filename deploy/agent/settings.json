@@ -1,0 +1,15 @@
+{
+  "model": "claude-sonnet-5-5",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/opt/phoenix9/bin/phoenix agent brief"
+          }
+        ]
+      }
+    ]
+  }
+}

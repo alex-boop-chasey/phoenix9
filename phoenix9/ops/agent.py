@@ -36,7 +36,7 @@ def messages(after: int = 0, limit: int = 100) -> dict:
 def send(text: str, context: dict | None = None, who: str = "cli") -> dict:
     """Post a message to the agent and record who sent it; OpsError with the reason on failure."""
     try:
-        result = agentlink.send(text, context, who)
+        result = agentlink.send(text, context, who, host=_host())
     except agentlink.TooLong as e:
         raise common.OpsError(scrub.scrub(str(e)))
     except agentlink.SendError as e:

@@ -1,0 +1,13 @@
+# Phoenix 9 project chat connection: one instance per project (claude-rc-chat@<project>).
+# Installed (copied) into /etc/systemd/system by deploy/install.sh; instances are started by `phoenix chat`.
+[Unit]
+Description=Phoenix 9 project chat for %i
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/projects/%i
+Environment=HOME=/root
+ExecStart=/usr/bin/env claude remote-control --name %i --spawn same-dir --capacity 3 --create-session-in-dir --permission-mode bypassPermissions
+Restart=on-failure
+RestartSec=10

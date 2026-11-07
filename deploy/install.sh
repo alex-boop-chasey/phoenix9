@@ -226,6 +226,8 @@ say "Installing the systemd units"
 for unit in phoenix-api.service phoenix-runner.service phoenix9-update.service; do
     install -m 644 "$INSTALL/deploy/$unit" "$SYSTEMD_DIR/$unit"
 done
+# The project chat template: instances are started later by `phoenix chat`, never here.
+install -m 644 "$INSTALL/deploy/claude-rc-chat@.service" "$SYSTEMD_DIR/claude-rc-chat@.service"
 "$SYSTEMCTL" daemon-reload
 if [ "$NO_START" = yes ]; then
     say "Not starting the services (--no-start). Start them with: systemctl enable --now phoenix-runner phoenix-api"

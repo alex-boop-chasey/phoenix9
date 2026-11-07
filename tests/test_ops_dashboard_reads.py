@@ -15,7 +15,7 @@ from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_o
 SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
 ROW_KEYS = {"name", "description", "path", "repo", "repo_owner", "repo_name", "profile", "services", "size",
             "vscode_url", "vscode", "last_used", "last_used_at", "harness", "has_phoenix_toml",
-            "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text", "worker"}
+            "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text", "worker", "chat"}
 
 
 @pytest.fixture

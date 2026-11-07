@@ -5,6 +5,7 @@ import type {
   DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
+  ChatInfo, ChatOpenResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -116,6 +117,11 @@ export const api = {
   logs: (params: { project: string; run?: string; task?: number; step?: string; kind?: string }) =>
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
+
+  getChat: (project: string) => get<ChatInfo>(`chat/${e(project)}`),
+  openChat: (project: string) => post<ChatOpenResult>(`chat/${e(project)}/open`),
+  sleepChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/sleep`),
+  offChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/off`, { confirm: true }),
 
   removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
   importProject: (target: string) => post<ImportResult>("import", { target }),

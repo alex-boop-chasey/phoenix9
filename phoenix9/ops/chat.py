@@ -3,6 +3,15 @@ from phoenix9 import projectchat
 from phoenix9.ops import common
 
 
+def chat_state(project: str) -> dict:
+    """The project's chat state {state, bridge_session_id, web_url, app_url, last_active}; the project must exist."""
+    common.project_dir(project)
+    try:
+        return projectchat.state(project, common.make_adapters())
+    except ValueError:
+        raise common.NotFound("There is no project called '%s'." % project)
+
+
 def open_chat(project: str, who: str = "cli") -> dict:
     """Open the project's chat and return {state, web_url, app_url, bridge_session_id, message}."""
     common.project_dir(project)

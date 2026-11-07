@@ -33,3 +33,10 @@ and his projects. This file is copied into place as /srv/projects/home/CLAUDE.md
 - Every change gets a changelog line.
 - Read a project's CLAUDE.md and notes/NOW.md only when the work is about that project.
 - Write notes/NOW.md before any /clear.
+
+## Project chats
+
+- Each project can have its own chat. You may run `phoenix chat open <project>` and
+  `phoenix chat sleep <project>`.
+- Ask Alex first before `phoenix chat off <project> --yes`.
+- Read a project's chat links from `/srv/projects/<project>/.phoenix/chat.md`.

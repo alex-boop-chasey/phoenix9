@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
+from phoenix9.ops import agent as ops_agent, app, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -644,6 +644,32 @@ def post_remove(req, name):
         return projects.remove(check_name(name), WHO)
 
 
+def get_chat(req, name):
+    """Reply with the project's chat state."""
+    return ops_chat.chat_state(check_name(name))
+
+
+def post_chat_open(req, name):
+    """Open the project's chat (starting it if needed)."""
+    with req.server.write_lock:
+        return ops_chat.open_chat(check_name(name), WHO)
+
+
+def post_chat_sleep(req, name):
+    """Put the project's chat to sleep."""
+    with req.server.write_lock:
+        return ops_chat.sleep_chat(check_name(name), WHO)
+
+
+def post_chat_off(req, name):
+    """Turn the project's chat off (needs confirm)."""
+    check_name(name)
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Turning the chat off needs \"confirm\": true.")
+    with req.server.write_lock:
+        return ops_chat.off_chat(name, WHO)
+
+
 def get_import_candidates(req):
     """Reply with what can be imported."""
     return projects.import_candidates()
@@ -805,7 +831,7 @@ def post_global_models(req):
 
 def post_agent_send(req):
     """Send a message to the Phoenix agent (503 when it is asleep, 400 when too long)."""
-    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO)
+    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO, panel=True)
 
 
 def post_service_disconnect(req, name):
@@ -821,6 +847,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/update", get_update),
     ("GET", r"/api/update/log", get_update_log),
     ("GET", rf"/api/projects/{NAME}/deploys", get_deploys),
+    ("GET", rf"/api/chat/{NAME}", get_chat),
     ("GET", r"/api/projects", get_projects),
     ("GET", r"/api/import/candidates", get_import_candidates),
     ("GET", r"/api/folders", get_folders),
@@ -856,6 +883,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/agent/send", post_agent_send),
+    ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
+    ("POST", rf"/api/chat/{NAME}/sleep", post_chat_sleep),
+    ("POST", rf"/api/chat/{NAME}/off", post_chat_off),
     ("POST", r"/api/projects", post_create),
     ("POST", r"/api/import", post_import),
     ("POST", rf"/api/projects/{NAME}/remove", post_remove),

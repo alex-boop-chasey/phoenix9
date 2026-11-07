@@ -173,3 +173,11 @@ def test_doctor_fix_text_names_only_real_agent_commands():
         with pytest.raises(SystemExit) as stop:
             build_parser().parse_args(["agent", cmd, "--help"])
         assert stop.value.code == 0, cmd
+
+
+def test_rules_file_mentions_project_chats():
+    from pathlib import Path
+    text = (Path(__file__).resolve().parent.parent / "deploy/agent/agent-rules.md").read_text()
+    assert "phoenix chat open" in text and "phoenix chat sleep" in text
+    assert "Ask Alex first before `phoenix chat off" in text
+    assert ".phoenix/chat.md" in text

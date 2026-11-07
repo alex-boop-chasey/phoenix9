@@ -83,6 +83,8 @@ phoenix9/                      the Python package
   updater.py                   install / roll back a release tag, with recovery (phase 4, section 15)
   hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
+  projectchat.py               project chat: .phoenix/chat.md and the five chat states (Project chats)
+  ops/chat.py, cli/chatcmd.py  chat open_chat / sleep_chat / off_chat / catch_up and `phoenix chat ...`
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
                                (full mode also has five agent lines: agent-unit, agent-session, agent-socket, agent-transcript, agent-folder,
                                and `access`, the optional Cloudflare Access lock; a missing or empty transcript is a problem)
@@ -101,7 +103,8 @@ deployers/<name>/deployer.toml deployers library, section 4.7 (+ deploy.py)
 templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        phoenix-api.service, phoenix-runner.service, phoenix9-update.service, install.sh,
-                               update.sh, self-project.toml (section 15); README.md for the server owner
+                               update.sh, self-project.toml (section 15); README.md for the server owner;
+                               claude-rc-chat@.service (template unit, one chat per project)
                                Service env: all three units set `Environment=HOME=/root` (they have no `User=`, so
                                systemd would set no HOME; git then cannot read /root/.gitconfig, whose credential
                                helper is `gh auth git-credential`, and gh cannot find its login), plus
@@ -449,6 +452,10 @@ live_port = 8080              # unknown keys are an error; `required_settings` o
 For the project named in global.toml `[update] project` (phoenix9) `merge` must be `ask` and `[deploy] with`
 must be `none` (`settings.self_project_problems`). `deploy/self-project.toml` is its phoenix.toml.
 A merge of that project tags the merge commit as the next `v9.<n>` release (`phoenix9/release.py`).
+
+### 5.2b Chat settings
+`[chat]` in `global.toml` (`settings.chat_settings()`): `sleep_after_minutes` (default 120), `off_after_days` (3),
+`start_wait_seconds` (60), `wrap_up_minutes` (3), `claude_home` (`/root/.claude`).
 
 ### 5.3 The ai block (any ai step; harness spec section 5)
 `model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),
@@ -1212,9 +1219,19 @@ API: `POST /api/images/build` `{profiles?: [names], all?: bool, changed?: bool}`
 profile is refused at once with 400) builds in a background job (`{job}`, kind `images`, one at a time, 409
 while one runs; each progress line is a job step, `result` = the `{ok, built, skipped}` reply).
 
-Phoenix has no per-project chat (removed 2026-11-06): no chat button or link, no `project open` / `close` / `set-chat`, and it never starts, stops or reads a `claude-rc@<name>` service. New and imported projects get no `.vscode/tasks.json`. Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
+### Project chats
 
-Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. A push that fails with git's "could not read Username" (no HOME, so no gh credential helper) fails the step with "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"; other push failures read "GitHub refused the push: <first line>". When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
+Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`, `claude remote-control --name <name> --spawn same-dir`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
+
+- **Five states** (`projectchat.state` -> `{state, bridge_session_id, web_url, app_url, last_active}`): `off` (unit inactive or failed), `starting` (unit activating, or active with no conversation yet and no chat document), `sleeping` (unit active, no live session in Claude's registry, but a chat document exists), `live` (registry entry found, idle), `working` (registry entry found, status busy). The unit state comes from systemd, the session from the registry (`agentlink.find_in`); a live session refreshes the chat document (at most every 10 minutes).
+- **Chat document** `.phoenix/chat.md`: heading `# Chat: <project>`, then one `Key: value` line each, in this order: `Project`, `Desktop app link`, `Web link`, `Conversation id`, `Local session id`, `Created`, `Last active` (times are UTC `YYYY-MM-DDTHH:MM:SSZ`). Written atomically (`projectchat.write_chat_doc`), read strictly (`read_chat_doc` returns fields or a reason).
+- **Links**: desktop `claude://claude.ai/code/<id>`, web `https://claude.ai/code/<id>`, where `<id>` is the conversation (bridge session) id. Opening a sleeping chat returns the links without starting anything.
+- **Sleep and off rules** (`[chat]` settings): a live chat idle for `sleep_after_minutes` goes to sleep (after a `wrap_up_minutes` wrap-up message); a sleeping chat unused for `off_after_days` is switched off. Writing to a sleeping chat wakes it. The runner guard (`watch.check_chats`) runs every 10 minutes, skips projects with a live run and `home`, and records each action as a `command` event with who `runner`.
+- **Creation**: every new project and every Import sets up its chat (`projectchat.set_up`), which ends sleeping; `phoenix chat catch-up` lists existing projects without a chat document (`phoenix9` and `home` have their own), and `--all` sets them up one at a time.
+- **Commands**: `phoenix chat open|sleep|off|catch-up` (`phoenix9/cli/chatcmd.py` over `phoenix9/ops/chat.py`: `open_chat`, `sleep_chat`, `off_chat`, `chat_state`, `catch_up`); `off` needs `--yes`.
+- **Sender labels**: messages written into a chat say who sent them: `Phoenix (<who>)` for the CLI, runner and agent (who is cleaned to `[A-Za-z0-9/_.:-]`, 80 characters, else `unknown`) and `Alex (Phoenix panel)` for the dashboard panel.
+
+Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it removes the run's worktree (`git worktree remove --force`, run from the code folder through the git adapter) and deletes the run's branch locally and on origin when it was pushed; a failed removal or delete is a note on the step, not a failure (a worktree that cannot be removed is detached instead, so the branch can still go). A failed merge, and a failed run, keep their worktree for repair. A push that fails with git's "could not read Username" (no HOME, so no gh credential helper) fails the step with "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"; other push failures read "GitHub refused the push: <first line>". When the merge is left to GitHub (a merge request) nothing is deleted, the worktree included; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
 
 Discarding a run: a failed run keeps its worktree and branch (so it can be repaired) until `phoenix run discard
 <run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"

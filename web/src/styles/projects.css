@@ -68,3 +68,10 @@
   .fbar-2 .count{grid-column:1 / -1; margin-left:0}
   .fbar-1 .with-ico input{height:44px}
 }
+.chatbtn{display:inline-flex; flex-direction:column; gap:4px; align-items:flex-start}
+.chatbtn .chatweb{font-size:12px}
+.chatbtn .chaterr{font-size:12px; color:var(--bad)}
+.chatdot{display:inline-block; width:8px; height:8px; margin-left:8px; border-radius:50%; background:var(--text-3, #888)}
+.chatdot-live,.chatdot-working{background:var(--ok)}
+.chatdot-starting{background:var(--accent-3)}
+.chatdot-working{animation:pulse 1.6s ease-in-out infinite}

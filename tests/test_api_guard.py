@@ -193,23 +193,23 @@ def first_line(raw):
 
 def test_context_unknown_project_is_dropped(captured):
     make_project("alpha")
-    agentlink.send("hi", {"project": "alpha"})
+    agentlink.send("hi", {"project": "alpha"}, panel=True)
     assert "project: alpha · folder: /srv/projects/alpha" in first_line(captured[-1])
-    agentlink.send("hi", {"project": "../../etc", "page": "home"})
+    agentlink.send("hi", {"project": "../../etc", "page": "home"}, panel=True)
     line = first_line(captured[-1])
     assert "etc" not in line and "project:" not in line and "page: home · folder: /srv/projects/home]" in line
 
 
 @pytest.mark.parametrize("bad", ["a b", "x" * 81, "<script>", "home x", "a;rm -rf", ""])
 def test_context_page_and_run_must_match_the_pattern(captured, bad):
-    agentlink.send("hi", {"page": bad, "run": bad})
+    agentlink.send("hi", {"page": bad, "run": bad}, panel=True)
     assert len(captured[-1].splitlines()) == 1
     assert "page:" not in first_line(captured[-1]) and "run:" not in first_line(captured[-1])
 
 
 def test_context_newlines_are_stripped(captured):
     make_project("alpha")
-    agentlink.send("hi", {"page": "home\n", "run": "2026\r\n-r1", "project": "al\npha"})
+    agentlink.send("hi", {"page": "home\n", "run": "2026\r\n-r1", "project": "al\npha"}, panel=True)
     line = first_line(captured[-1])
     assert "page: home" in line and "run: 2026-r1" in line and "project: alpha" in line
     body = json.loads(captured[-1])["message"]["content"]
@@ -217,12 +217,12 @@ def test_context_newlines_are_stripped(captured):
 
 
 def test_context_folder_is_a_listed_project_or_the_agent_folder(captured):
-    agentlink.send("hi", {"project": "ghost", "run": "r1"})
+    agentlink.send("hi", {"project": "ghost", "run": "r1"}, panel=True)
     assert "folder: /srv/projects/home" in first_line(captured[-1])
 
 
 def test_context_values_that_are_not_text_are_dropped(captured):
-    agentlink.send("hi", {"page": 7, "run": ["x"], "project": None, "extra": "no"})
+    agentlink.send("hi", {"page": 7, "run": ["x"], "project": None, "extra": "no"}, panel=True)
     assert json.loads(captured[-1])["message"]["content"].split("\n")[1] == "hi"
 
 

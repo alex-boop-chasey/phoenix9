@@ -43,11 +43,12 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`, `chat`: the chat state or null) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
 | GET | `/api/projects/<name>/explain` | `ops.settings.explain` | | `{project, text}` | 400, 404 |
+| GET | `/api/chat/<name>` | `ops.chat.chat_state` | | `{state, bridge_session_id, web_url, app_url, last_active}` (state: off, starting, sleeping, live, working) | 404 |
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
@@ -93,6 +94,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
 | GET | `/api/folders?path=` | `ops.projects.list_folders` | | `{path, root, parent \| null, folders: [{name, path}]}`; sub-folders only, never hidden ones or symlinks leaving the projects folder; empty path = the projects folder | 400 (outside the projects folder), 404 |
 | POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added]}`; also takes it off the removed list and adds the trust entry; starts no service | 400, 404, 409 |
+| POST | `/api/chat/<name>/open` | `ops.chat.open_chat` | | `{state, web_url, app_url, bridge_session_id, message}` | 404, 503 |
+| POST | `/api/chat/<name>/sleep` | `ops.chat.sleep_chat` | | `{state, changed, message}` | 404 |
+| POST | `/api/chat/<name>/off` | `ops.chat.off_chat` | `{confirm: true}` | `{state, changed, message}` | 400, 404 |
 | POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |

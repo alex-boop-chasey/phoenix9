@@ -120,13 +120,28 @@ def _stop_preview(ctx) -> None:
         ctx.log(deploy.try_stop_preview(ctx.adapters, ctx.project.name, ctx.run.id))
 
 
-def _tidy(ctx, branch, pushed) -> list:
-    """Delete a merged run branch here (and on GitHub when it was pushed); returns notes for what went wrong."""
+def _remove_worktree(ctx) -> list:
+    """Remove the run's worktree after Phoenix's own merge; a failure is a note (the worktree is detached instead)."""
     git, code = ctx.adapters.git, ctx.project.code_dir
-    notes = []
+    if not ctx.worktree:
+        return []
     try:
-        if ctx.worktree:
-            git.git(ctx.worktree, "checkout", "-q", "--detach")   # the worktree keeps its files but lets go of the branch
+        git.git(code, "worktree", "remove", "--force", str(ctx.worktree))
+        return []
+    except Exception as err:
+        note = f"merged, but the worktree was not removed: {_first_line(str(err))}"
+    try:
+        git.git(ctx.worktree, "checkout", "-q", "--detach")   # keeps its files but lets go of the branch
+    except Exception:
+        pass
+    return [note]
+
+
+def _tidy(ctx, branch, pushed) -> list:
+    """Remove a merged run's worktree and delete its branch here (and on GitHub when pushed); returns notes for what went wrong."""
+    git, code = ctx.adapters.git, ctx.project.code_dir
+    notes = _remove_worktree(ctx)
+    try:
         git.git(code, "branch", "-D", branch)
     except Exception as err:
         notes.append(f"merged, but the branch {branch} was not deleted here: {_first_line(str(err))}")

@@ -125,3 +125,12 @@ is using the new one (`ss -ltn` lists the busy ports).
 `agent-rules.md` (copied in as `CLAUDE.md`), `settings.json` and `agents/` (navigator, editor, checker).
 An admin copies them into place; Phoenix never does it at runtime, and builds may not write any file
 named `CLAUDE.md`.
+
+## Project chats
+
+Each project can have its own chat: a Claude remote-control conversation in `/srv/projects/<name>`. It runs as an
+instance of the template unit `claude-rc-chat@.service` (for example `claude-rc-chat@myproject`). `install.sh` copies
+the template into `/etc/systemd/system` next to the other units; you never enable instances by hand, because
+`phoenix chat open|sleep|off` (and the runner, which puts idle chats to sleep every 10 minutes) start and stop them.
+After changing the template run `systemctl daemon-reload`. Existing projects get their chat with
+`phoenix chat catch-up --all`. Settings live in the `[chat]` table of `global.toml`.

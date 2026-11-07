@@ -1,5 +1,6 @@
 """Turn the agent's transcript lines (JSONL) into panel items; broken or unknown lines are only counted."""
 import json
+import re
 from datetime import datetime
 
 from phoenix9 import scrub
@@ -39,6 +40,9 @@ class Parser:
             _one(self.state, self.line, raw)
         updates = [i for i in self.state["finished"] if i["line"] <= before]
         return self.state["items"], updates
+
+
+_WRAPPER = re.compile(r"<cross-session-message\b[^>]*>(.*?)(?:</cross-session-message>)?\Z", re.S)
 
 
 def parse(lines) -> tuple[list[dict], int]:
@@ -148,7 +152,30 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
     origin = obj.get("origin")
     body = origin.get("body") if isinstance(origin, dict) else None
     text = body if isinstance(body, str) else content
+    _clear_delivered(state, [content, text])
     _add(state, number, {"type": "user", "text": scrub.scrub(text), "origin": _origin(obj), "at": at})
+
+
+def _unwrap(text: str) -> str:
+    """The plain body of a message: no cross-session wrapper or envelope line, entities unescaped, trimmed."""
+    text = text.strip()
+    match = _WRAPPER.match(text)
+    if match:
+        text = match.group(1).strip()
+        first, _, rest = text.partition("\n")
+        if first.startswith("[Phoenix") and first.endswith("]"):
+            text = rest
+    return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
+
+
+def _clear_delivered(state: dict, texts: list) -> None:
+    """A user line carrying the text of a pending queued item means it was delivered: clear the oldest match."""
+    pending = state.setdefault("pending", [])
+    bodies = {_unwrap(t) for t in texts if isinstance(t, str)}
+    for i, (queued, _) in enumerate(pending):
+        if _unwrap(queued) in bodies:
+            pending.pop(i)[1]["pending"] = False
+            return
 
 
 def _assistant(state: dict, number: int, obj: dict, at) -> None:

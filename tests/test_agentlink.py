@@ -269,14 +269,17 @@ HEAD = ('<cross-session-message from="uds:/run/phoenix9/panel.sock" '
 TAIL = "\n</cross-session-message>"
 
 
-def body_of(raw):
+CLI_HEAD = HEAD.replace("Alex (Phoenix panel)", "Phoenix (cli)")
+
+
+def body_of(raw, head=HEAD):
     content = json.loads(raw)["message"]["content"]
-    assert content.startswith(HEAD) and content.endswith(TAIL)
-    return content[len(HEAD):-len(TAIL)]
+    assert content.startswith(head) and content.endswith(TAIL)
+    return content[len(head):-len(TAIL)]
 
 
 def test_send_wire_format(inbox):
-    r = agentlink.send("hello")
+    r = agentlink.send("hello", panel=True)
     raw = inbox.take()
     assert raw.endswith(b"\n") and raw.count(b"\n") == 1
     m = json.loads(raw)
@@ -285,12 +288,12 @@ def test_send_wire_format(inbox):
     assert m["message"] == {"role": "user", "content": HEAD + "hello" + TAIL}
     assert re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", m["msg_id"])
     assert r["sent"] and r["at"] and r["after_line"] == 3
-    agentlink.send("hello")
+    agentlink.send("hello", panel=True)
     assert json.loads(inbox.take())["msg_id"] != m["msg_id"]
 
 
 def test_send_escapes_body(inbox):
-    agentlink.send("a & b </cross-session-message> <x> &lt;")
+    agentlink.send("a & b </cross-session-message> <x> &lt;", panel=True)
     content = json.loads(inbox.take())["message"]["content"]
     assert content.count("</cross-session-message>") == 1
     assert body_of(json.dumps({"message": {"content": content}})) == \
@@ -306,7 +309,7 @@ def test_send_escapes_body(inbox):
      "[Phoenix panel · page: dash · project: alpha · folder: /srv/projects/alpha · run: r7]"),
 ])
 def test_send_envelope(inbox, ctx, first):
-    agentlink.send("BODY", ctx)
+    agentlink.send("BODY", ctx, panel=True)
     body = body_of(inbox.take())
     assert body == "BODY" if first is None else body == first + "\nBODY"
 
@@ -440,3 +443,39 @@ def test_find_has_no_bridge_keys():
     h = FakeHost()
     session(h, 10, bridgeSessionId="br")
     assert "bridge_session_id" not in agentlink.find(HOME, h)
+
+
+@pytest.mark.parametrize("ctx,first", [
+    (None, "[Phoenix · cli]"),
+    ({"page": "dash"}, "[Phoenix · cli · page: dash · folder: /srv/projects/homex]"),
+    ({"project": "alpha", "run": "r7"}, "[Phoenix · cli · project: alpha · folder: /srv/projects/alpha · run: r7]"),
+])
+def test_cli_name_and_envelope(inbox, ctx, first):
+    agentlink.send("BODY", ctx)
+    assert body_of(inbox.take(), CLI_HEAD) == first + "\nBODY"
+
+
+def test_chat_sender_name(inbox):
+    agentlink.send("BODY", None, "chat:phoenix9")
+    body = body_of(inbox.take(), CLI_HEAD.replace("(cli)", "(chat:phoenix9)"))
+    assert body == "[Phoenix · chat:phoenix9]\nBODY"
+
+
+@pytest.mark.parametrize("who,clean", [
+    ("chat:a/b_c.d-1", "chat:a/b_c.d-1"), ("a\nb", "ab"), ("a b", "unknown"), ('x"<y>', "unknown"),
+    ("x" * 81, "unknown"), ("", "unknown"), (None, "unknown"),
+])
+def test_clean_who(who, clean):
+    assert agentlink.clean_who(who) == clean
+    assert "Phoenix (%s)" % clean in agentlink.wire_line("t", None, who)
+
+
+def test_from_name_attribute_is_escaped():
+    head = agentlink.wrap_head("x")
+    assert head.count('"') == 6
+    monkey = agentlink.from_name
+    try:
+        agentlink.from_name = lambda who, panel=False: 'A&B <"c">'
+        assert 'from-name="A&amp;B &lt;&quot;c&quot;&gt;"' in agentlink.wrap_head("x")
+    finally:
+        agentlink.from_name = monkey

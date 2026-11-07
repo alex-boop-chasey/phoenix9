@@ -50,6 +50,7 @@ function PlanView({ plan }: { plan: DeletePlan }) {
           {plan.open_prs_note ? <span className="help"> ({plan.open_prs_note})</span> : null}
         </li>
         <li>{plan.unpushed ? `${plural(plan.unpushed, "commit", "commits")} never pushed` : "No commits waiting to be pushed"}</li>
+        {plan.unsaved_edits ? <li>{plural(plan.unsaved_edits, "unsaved edit", "unsaved edits")} (never committed; kept in the safety copy)</li> : null}
         <li>{plural(plan.runs.count, "Phoenix build", "Phoenix builds")} of history</li>
         <li>{plan.keys.length ? `Saved project keys: ${plan.keys.join(", ")}` : "No saved project keys"}</li>
         <li>The chat connection ({plan.chat.unit})</li>

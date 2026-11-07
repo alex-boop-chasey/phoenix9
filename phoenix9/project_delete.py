@@ -18,6 +18,9 @@ STAMP_RE = re.compile(r"-(\d{8}-\d{4})$")
 CACHE_DIRS = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".nuxt", ".cache",
               ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".gradle", "target", ".parcel-cache",
               ".turbo", ".svelte-kit", ".eggs"}
+PURE_CACHES = {"node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+               ".turbo"}             # rebuilt by a tool, never anyone's work: the only folders left out of the copy
+PURE_CACHE_PAIRS = {(".next", "cache")}
 URL_RE = re.compile(r"^https?://\S+$")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
@@ -121,6 +124,15 @@ def _unpushed(host, folder) -> int:
         return 0
 
 
+def _unsaved(host, folder) -> int:
+    """How many changes git has not committed (git status --porcelain lines); 0 when there is no repo."""
+    code = folder / "code"
+    if not (code / ".git").exists():
+        return 0
+    rc, out, _ = host.run(git.git_argv("-C", str(code), "status", "--porcelain"))
+    return len([ln for ln in out.splitlines() if ln.strip()]) if rc == 0 else 0
+
+
 def _runs(name: str) -> dict:
     """{count, newest}: how many runs the project has and the ids of the newest few."""
     found = runs.list_runs(name)
@@ -184,7 +196,8 @@ def plan(name: str, who: str, adapters) -> dict:
     prs, note = _open_prs(host, repo)
     chat = _chat(name, adapters)
     result = {"name": name, "folder": str(folder), "size": host.du_bytes(folder), "repo": repo,
-              "repo_delete": repo_verdict(name, folder, host), "open_prs": prs, "unpushed": _unpushed(host, folder), "runs": _runs(name),
+              "repo_delete": repo_verdict(name, folder, host), "open_prs": prs, "unpushed": _unpushed(host, folder),
+              "unsaved_edits": _unsaved(host, folder), "runs": _runs(name),
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
               "refusals": _refusals(name, who, chat["state"]),
@@ -204,12 +217,31 @@ def _skip(rel_parts) -> bool:
     return any(part in CACHE_DIRS or part.endswith(".egg-info") for part in rel_parts[:-1]) or rel_parts[-1] in CACHE_DIRS
 
 
-def _untracked(host, code: Path) -> list:
-    """Paths (relative to code/) that git does not track, ignored ones too; raises OpsError if git fails."""
-    rc, out, err = host.run(git.git_argv("-C", str(code), "ls-files", "-z", "--others"))
-    if rc != 0:
-        raise common.OpsError(f"git could not list the untracked files: {(err or out).strip()[:200]}")
-    return [p for p in out.split("\0") if p]
+def _pure_cache(rel_parts) -> bool:
+    """True when this path (relative parts) is, or is inside, a pure cache folder (rebuilt by a tool)."""
+    parts = tuple(rel_parts)
+    return any(p in PURE_CACHES for p in parts) or any(parts[i:i + 2] in PURE_CACHE_PAIRS for i in range(len(parts) - 1))
+
+
+def _walk_code(code: Path):
+    """Every file and symlink in code/ for the copy: the whole working copy (uncommitted and staged edits,
+    untracked files, nested repos with their own .git, build output), skipping only code/.git (that is the
+    bundle) and pure caches. Links are stored as links, never followed."""
+    for root, dirs, files in os.walk(code):
+        rel = Path(root).relative_to(code).parts
+        keep = []
+        for d in dirs:
+            if (not rel and d == ".git") or _pure_cache((*rel, d)):
+                continue
+            if (Path(root) / d).is_symlink():
+                yield Path(root) / d
+                continue
+            keep.append(d)
+        dirs[:] = keep
+        for f in files:
+            if not rel and f == ".git":
+                continue
+            yield Path(root) / f
 
 
 def _walk(base: Path):
@@ -230,10 +262,8 @@ def _project_files(host, folder: Path) -> list:
     out = []
     for entry in sorted(folder.iterdir()):
         if entry.name == "code" and entry.is_dir() and not entry.is_symlink():
-            if (entry / ".git").exists():
-                found = [entry / p for p in _untracked(host, entry)]
-            else:
-                found = list(_walk(entry))
+            out += [p.relative_to(folder) for p in _walk_code(entry)]
+            continue
         elif entry.is_dir() and not entry.is_symlink():
             found = list(_walk(entry)) if entry.name not in CACHE_DIRS else []
         else:
@@ -293,7 +323,8 @@ def _restore_text(name: str, folder: str, repo: str | None, bundle: bool) -> str
     else:
         steps += [f"{n}. Make the folder: `mkdir -p {folder}`"]
     n += 1
-    steps += [f"{n}. Unpack the notes and untracked files into it: `tar -xzf files.tar.gz -C {folder}`"]
+    steps += [f"{n}. Unpack the notes and the code's working copy over it: `tar -xzf files.tar.gz -C {folder}` "
+              "(this brings back unsaved edits that were never committed, untracked files and nested repos)"]
     n += 1
     steps += [f"{n}. Optional: put the build history back: `tar -xzf runs.tar.gz -C <Phoenix home>` "
               "(run folders go to runs/, work folders to work/)."]

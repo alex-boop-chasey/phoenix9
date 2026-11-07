@@ -262,8 +262,38 @@ def test_backup_files_untracked_in_caches_out(env):
     dest = project_delete.backup("alpha", "cli", env["fakes"])
     names = _names(dest / "files.tar.gz")
     assert "notes/n.md" in names and "code/local.txt" in names and "CLAUDE.md" in names
-    assert "code/a.txt" not in names                       # tracked: it is in the bundle
-    assert not [n for n in names if "node_modules" in n or "__pycache__" in n or "dist" in n or ".git/" in n]
+    assert "code/a.txt" in names and "code/dist/o.js" in names   # the whole working copy, build output too
+    assert not [n for n in names if "node_modules" in n or "__pycache__" in n or n.startswith("code/.git")]
+
+
+def test_backup_keeps_unsaved_edits_and_nested_repos(env):
+    folder = _project_with_stuff(env)
+    code = folder / "code"
+    (code / "a.txt").write_text("edited, never committed")
+    (code / "staged.txt").write_text("staged")
+    subprocess.run(["git", "add", "staged.txt"], cwd=code, check=True)
+    git_repo(code / "vendor" / "lib")                  # a nested repo with its own history
+    (code / ".next" / "cache").mkdir(parents=True)
+    (code / ".next" / "cache" / "c.bin").write_text("x")
+    (code / ".next" / "server.js").write_text("x")
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["unsaved_edits"] == 8   # a.txt, staged.txt, vendor/, .next/ + local.txt, dist/, src/, node_modules/
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    import tarfile
+    with tarfile.open(dest / "files.tar.gz") as t:
+        names = t.getnames()
+        assert t.extractfile("code/a.txt").read() == b"edited, never committed"
+    assert "code/staged.txt" in names and "code/vendor/lib/a.txt" in names
+    assert any(n.startswith("code/vendor/lib/.git/") for n in names)
+    assert "code/.next/server.js" in names and not [n for n in names if ".next/cache" in n]
+    assert "unsaved" in (dest / "RESTORE.md").read_text()
+
+
+def test_cli_dry_run_shows_unsaved_edits(env, capsys):
+    from test_project_cmds import run_cmd
+    _project_with_stuff(env)
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--dry-run")
+    assert code == 0 and "Unsaved edits (kept in the safety copy): 4" in out
 
 
 def test_backup_runs_tar(env):

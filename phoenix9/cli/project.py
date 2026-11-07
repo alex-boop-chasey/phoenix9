@@ -139,6 +139,7 @@ def plan_text(p: dict) -> str:
     lines.append(f"  Open merge requests: {len(p['open_prs'])}")
     lines += [f"    #{r['number']} {r['title']} {r['url']}" for r in p["open_prs"]]
     lines.append(f"  Commits never pushed: {p['unpushed']}")
+    lines.append(f"  Unsaved edits (kept in the safety copy): {p.get('unsaved_edits', 0)}")
     lines.append(f"  Builds: {p['runs']['count']}")
     lines.append(f"  Saved keys: {', '.join(p['keys']) or '(none)'}")
     lines.append(f"  Chat: {p['chat']['unit']} ({p['chat']['state']})")

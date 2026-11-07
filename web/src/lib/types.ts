@@ -149,7 +149,7 @@ export interface DeletePlan {
   name: string; folder: string; size: number; repo: string | null
   repo_delete?: { repo: string | null; delete: boolean; why: string }
   open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
-  unpushed: number; runs: { count: number }; keys: string[]
+  unpushed: number; unsaved_edits?: number; runs: { count: number }; keys: string[]
   chat: { unit: string; state: string }; deployments: DeleteLink[]
   refusals: string[]; safety_copy: string
 }

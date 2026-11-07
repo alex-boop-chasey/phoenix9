@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals())
 const plan: DeletePlan = {
   name: "demo", folder: "/srv/projects/demo", size: 2048, repo: "me/demo",
   open_prs: [{ number: 7, title: "Add login", url: "https://github.com/me/demo/pull/7" }],
-  unpushed: 3, runs: { count: 4 }, keys: ["API_KEY"],
+  unpushed: 3, unsaved_edits: 2, runs: { count: 4 }, keys: ["API_KEY"],
   chat: { unit: "claude-rc-chat@demo", state: "off" },
   deployments: [{ target: "vercel", note: "still live, take it down yourself", links: ["https://demo.example.com"] }],
   refusals: [], safety_copy: "/root/deleted-projects",
@@ -57,6 +57,7 @@ test("shows the dry run in plain words", async () => {
   expect(screen.getByText("me/demo")).toBeInTheDocument()
   expect(screen.getByText(/#7 Add login/)).toBeInTheDocument()
   expect(screen.getByText(/3 commits never pushed/)).toBeInTheDocument()
+  expect(screen.getByText(/2 unsaved edits \(never committed; kept in the safety copy\)/)).toBeInTheDocument()
   expect(screen.getByText(/4 Phoenix builds of history/)).toBeInTheDocument()
   expect(screen.getByText(/API_KEY/)).toBeInTheDocument()
   expect(screen.getByText(/claude-rc-chat@demo/)).toBeInTheDocument()

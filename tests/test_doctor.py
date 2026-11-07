@@ -50,6 +50,9 @@ def healthy(adapters, phoenix_env, monkeypatch):
     host = adapters.host
     host.script(["systemctl", "is-active"], 0, "active\nactive\n")
     host.script(["systemctl", "cat"], 0, "[Unit]\n")
+    for pid, name in ((101, "phoenix-api"), (102, "phoenix-runner")):
+        host.script(["systemctl", "show", "-p", "MainPID", "--value", name], 0, f"{pid}\n")
+        host.files[f"/proc/{pid}/environ"] = "PATH=/usr/bin\0HOME=/root\0PHOENIX_HOME=/var/lib/phoenix9\0"
     host.script(["df"], 0, "    Avail\n 90000000000\n")
     adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
                          body=b'{"ok": true, "tag": "v9.1", "origins": ["https://phoenix.rebirthwebdesign.com.au"]}')
@@ -112,6 +115,10 @@ def _break_disk(a, home):
     a.host.script(["df"], 0, "Avail\n 1000000000\n")
 
 
+def _break_service_home(a, home):
+    a.host.files["/proc/102/environ"] = "PATH=/usr/bin\0PHOENIX_HOME=/var/lib/phoenix9\0"
+
+
 def _break_updater(a, home):
     a.host.script(["systemctl", "cat"], 1, "", "no such unit")
 
@@ -119,7 +126,7 @@ def _break_updater(a, home):
 @pytest.mark.parametrize("check,breaker", [
     ("services", _break_services), ("api", _break_api), ("home", _break_home), ("secrets", _break_secrets),
     ("images", _break_images), ("firewall", _break_firewall), ("claude", _break_claude),
-    ("disk", _break_disk), ("updater", _break_updater)])
+    ("disk", _break_disk), ("updater", _break_updater), ("service-home", _break_service_home)])
 def test_each_check_failure_reported_with_fix(healthy, phoenix_env, check, breaker):
     breaker(healthy, phoenix_env["home"])
     data = doctor.run_checks(healthy, "full")
@@ -151,7 +158,8 @@ def test_for_update_mode_runs_no_claude_session_and_checks_version(healthy):
 
 def test_quick_mode_subset(healthy):
     data = doctor.run_checks(healthy, "quick")
-    assert [c["name"] for c in data["checks"]] == ["services", "api", "origins", "home", "secrets", "disk"]
+    assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "home",
+                                                     "secrets", "disk"]
     assert healthy.docker.argvs == [] and healthy.proxy.started == []
 
 
@@ -330,3 +338,35 @@ def test_api_check_reads_the_tag_inside_the_api_reply(adapters, monkeypatch):
     monkeypatch.setattr(doctor, "installed_tags", lambda ctx: ["v9.1"])
     ok, detail, _ = doctor.check_api(doctor.Context(adapters, "for-update"))
     assert ok and "API runs v9.1" in detail
+
+
+def test_service_home_reads_each_running_service_environment(healthy):
+    check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
+    assert check["ok"] and "HOME" in check["detail"]
+    assert ["systemctl", "show", "-p", "MainPID", "--value", "phoenix-runner"] in healthy.host.calls
+    assert "service-home" in doctor.CHECKS_BY_MODE["full"]
+
+
+def test_service_home_missing_names_the_service_and_the_fix(healthy):
+    healthy.host.files["/proc/101/environ"] = "PATH=/usr/bin\0"
+    check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
+    assert not check["ok"] and "phoenix-api has no HOME" in check["detail"]
+    assert "phoenix-runner" not in check["detail"]
+    assert "Environment=HOME=/root" in check["fix"] and "daemon-reload" in check["fix"]
+
+
+def test_service_home_of_a_stopped_service_uses_its_unit_settings(healthy):
+    healthy.host.script(["systemctl", "show", "-p", "MainPID", "--value", "phoenix-api"], 0, "0\n")
+    healthy.host.script(["systemctl", "show", "-p", "Environment", "--value", "phoenix-api"], 0,
+                        "PHOENIX_HOME=/var/lib/phoenix9 PYTHONUNBUFFERED=1\n")
+    check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
+    assert not check["ok"] and "phoenix-api has no HOME" in check["detail"]
+    healthy.host.script(["systemctl", "show", "-p", "Environment", "--value", "phoenix-api"], 0,
+                        "PHOENIX_HOME=/var/lib/phoenix9 HOME=/root\n")
+    assert by_name(doctor.run_checks(healthy, "quick"))["service-home"]["ok"]
+
+
+def test_service_home_unreadable_environment_is_a_problem(healthy):
+    del healthy.host.files["/proc/101/environ"]
+    check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
+    assert not check["ok"] and "could not read phoenix-api's environment" in check["detail"]

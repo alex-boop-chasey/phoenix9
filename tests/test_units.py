@@ -27,6 +27,11 @@ def test_units_content():
     assert "[Install]" not in lines("phoenix9-update.service")
 
 
+def test_every_unit_sets_home_so_git_and_gh_find_roots_login():
+    for name in ("phoenix-api.service", "phoenix-runner.service", "phoenix9-update.service"):
+        assert "Environment=HOME=/root" in lines(name), name
+
+
 def test_self_project_lists_new_safety_files():
     text = (DEPLOY / "self-project.toml").read_text()
     for name in ("deploy/install.sh", "deploy/phoenix-api.service", "deploy/phoenix-runner.service"):

@@ -94,6 +94,10 @@ templates/<name>/template.toml project templates menu (phase 2)
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        phoenix-api.service, phoenix-runner.service, phoenix9-update.service, install.sh,
                                update.sh, self-project.toml (section 15); README.md for the server owner
+                               Service env: all three units set `Environment=HOME=/root` (they have no `User=`, so
+                               systemd would set no HOME; git then cannot read /root/.gitconfig, whose credential
+                               helper is `gh auth git-credential`, and gh cannot find its login), plus
+                               PHOENIX_HOME, PHOENIX_INSTALL (and PYTHONUNBUFFERED for api/runner)
 web/                           React app (phase 3)
                                src/pages, src/features/<area>, src/components/ui (shadcn), src/lib (api client, types, theme), e2e/ (Playwright)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
@@ -1050,6 +1054,7 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | --- | --- | --- | --- | --- |
 | `python`, `library` | Python 3.12+; the step library loads | | | yes |
 | `services` | `systemctl is-active phoenix-api phoenix-runner` (host adapter) | yes | yes | yes |
+| `service-home` | "services: HOME set": for phoenix-api and phoenix-runner, `systemctl show -p MainPID --value` then `/proc/<pid>/environ` (host adapter `read_text`); a stopped service is judged by `systemctl show -p Environment --value`. PROBLEM when HOME is missing or the environment cannot be read; the fix is `Environment=HOME=/root` in the unit, `systemctl daemon-reload`, restart | yes | | yes |
 | `api` | GET `127.0.0.1:<PHOENIX_API_PORT from HOME/config/api.env, default 8095>/api/health` is 200; in `for-update` its `tag` is one of the `v9.<n>` tags at the installed copy's HEAD | yes | yes (tag) | yes |
 | `origins` | the `origins` the running API reports in `/api/health` match the `allowed_origins` setting (section 5.5); fix: `phoenix service restart api --yes` | yes | | yes |
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
@@ -1073,7 +1078,7 @@ while one runs; each progress line is a job step, `result` = the `{ok, built, sk
 
 Phoenix has no per-project chat (removed 2026-11-06): no chat button or link, no `project open` / `close` / `set-chat`, and it never starts, stops or reads a `claude-rc@<name>` service. New and imported projects get no `.vscode/tasks.json`. Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
 
-Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
+Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it deletes the run's branch locally (the worktree is detached first, keeping its files) and on origin when it was pushed; a failed delete is a note on the step, not a failure. A push that fails with git's "could not read Username" (no HOME, so no gh credential helper) fails the step with "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"; other push failures read "GitHub refused the push: <first line>". When the merge is left to GitHub (a merge request) nothing is deleted; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).
 
 Discarding a run: a failed run keeps its worktree and branch (so it can be repaired) until `phoenix run discard
 <run> --yes` (API `POST /api/runs/<project>/<run>/discard` `{confirm: true}`, the Build tab's "Discard work"

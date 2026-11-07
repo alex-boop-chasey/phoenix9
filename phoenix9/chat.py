@@ -75,3 +75,52 @@ def agent_restart(adapters, why: str) -> None:
     unit = settings.agent_settings()["unit"]
     adapters.host.systemctl("restart", unit)
     adapters.notify.send(scrub.scrub(f"Phoenix agent restarted: {why}"))
+
+
+def chat_unit(project: str) -> str:
+    """The systemd unit that holds a project's chat connection; refuses any name that is not a listed project."""
+    from phoenix9 import project as project_mod
+    if not isinstance(project, str) or project not in project_mod.project_names():
+        raise ValueError(f"not a listed project: {project!r}")
+    return f"claude-rc-chat@{project}"
+
+
+def unit_state(host, project: str) -> str:
+    """The chat unit's state: active, activating, inactive or failed (anything else reads as inactive)."""
+    _, out, _ = host.systemctl("is-active", chat_unit(project))
+    word = out.strip().splitlines()[0] if out.strip() else ""
+    return word if word in ("active", "activating", "inactive", "failed") else "inactive"
+
+
+def unit_main_pid(host, project: str) -> int | None:
+    """The chat unit's main process id, or None when it is not running."""
+    rc, out, _ = host.systemctl("show", "-p", "MainPID", "--value", chat_unit(project))
+    try:
+        pid = int(out.strip()) if rc == 0 else 0
+    except ValueError:
+        pid = 0
+    return pid or None
+
+
+def start_unit(host, project: str) -> None:
+    """Enable and start the project's chat unit."""
+    host.systemctl("enable", "--now", chat_unit(project))
+
+
+def stop_unit(host, project: str) -> None:
+    """Disable and stop the project's chat unit."""
+    host.systemctl("disable", "--now", chat_unit(project))
+
+
+def stop_conversation(host, project: str, pid: int) -> None:
+    """Send SIGTERM to a conversation process, only if it is the unit's main process's direct child or a
+    registry entry for this project; raises ValueError for any other pid."""
+    from phoenix9 import agentlink, paths
+    chat_unit(project)
+    main = unit_main_pid(host, project)
+    if main is not None and host.parent_pid(pid) == main:
+        return host.stop_pid(pid)
+    live = agentlink._live_in(host, agentlink.CLAUDE_HOME, str(paths.projects() / project))
+    if any(e["pid"] == pid for e in live):
+        return host.stop_pid(pid)
+    raise ValueError(f"process {pid} is not a conversation of project {project}")

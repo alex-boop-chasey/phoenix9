@@ -1,0 +1,73 @@
+"""Tests for the project chat unit helpers (FakeHost only)."""
+import json
+
+import pytest
+
+from phoenix9 import agentlink, chat
+from tests.fakes import FakeHost
+
+U = "claude-rc-chat@alpha"
+
+
+@pytest.fixture
+def projects(tmp_path, monkeypatch):
+    """Two listed projects and one plain folder, in a temp projects folder."""
+    root = tmp_path / "projects"
+    for n in ("alpha", "beta"):
+        (root / n).mkdir(parents=True)
+        (root / n / "CLAUDE.md").write_text("x")
+    (root / "nofile").mkdir()
+    monkeypatch.setenv("PHOENIX_PROJECTS", str(root))
+    monkeypatch.setenv("PHOENIX_HOME", str(tmp_path / "home"))
+    agentlink.forget()
+    return root
+
+
+def test_chat_unit_names(projects):
+    """Only listed project names make a unit name."""
+    assert chat.chat_unit("alpha") == U
+    for bad in ("nofile", "ghost", "", "../alpha", "alpha;ls"):
+        with pytest.raises(ValueError):
+            chat.chat_unit(bad)
+
+
+def test_state_pid_start_stop(projects):
+    """The helpers call systemctl with the right words."""
+    h = FakeHost()
+    h.script(["systemctl", "is-active", U], rc=3, out="failed\n")
+    assert chat.unit_state(h, "alpha") == "failed"
+    h.script(["systemctl", "show"], out="42\n")
+    assert chat.unit_main_pid(h, "alpha") == 42
+    chat.start_unit(h, "alpha")
+    chat.stop_unit(h, "alpha")
+    assert h.calls[-2] == ["systemctl", "enable", "--now", U]
+    assert h.calls[-1] == ["systemctl", "disable", "--now", U]
+
+
+def test_stop_conversation_rules(projects):
+    """Only the unit's direct child or a registry entry of the project is stopped."""
+    h = FakeHost()
+    h.pids |= {100, 200, 201, 300}
+    h.parents.update({200: 100, 201: 200, 300: 1})
+    h.script(["systemctl", "show"], out="100\n")
+    chat.stop_conversation(h, "alpha", 200)
+    for pid in (201, 300):
+        with pytest.raises(ValueError):
+            chat.stop_conversation(h, "alpha", pid)
+    assert h.stopped == [200]
+
+
+def test_stop_conversation_registry(projects):
+    """A live registry entry for the project may be stopped; another project's may not."""
+    h = FakeHost()
+    h.script(["systemctl", "show"], out="0\n")
+    for pid, name in ((500, "alpha"), (501, "beta")):
+        sock = f"/tmp/cc-socks-0/s{pid}.sock"
+        h.files[f"/root/.claude/sessions/{pid}.json"] = json.dumps(
+            {"pid": pid, "cwd": str(projects / name), "name": "x", "messagingSocketPath": sock})
+        h.files[sock] = ""
+        h.pids.add(pid)
+    chat.stop_conversation(h, "alpha", 500)
+    with pytest.raises(ValueError):
+        chat.stop_conversation(h, "alpha", 501)
+    assert h.stopped == [500]

@@ -1,6 +1,7 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
 import ipaddress
 import os
+import signal
 import subprocess
 import time
 import urllib.error
@@ -94,6 +95,13 @@ class Host:
         except (ProcessLookupError, ValueError, OverflowError, TypeError):
             return False
         return True
+
+    def stop_pid(self, pid) -> None:
+        """Send SIGTERM to one process (quiet when it is already gone)."""
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except (ProcessLookupError, ValueError, OverflowError, TypeError):
+            pass
 
     def socket_uid(self, local, remote, tables=TCP_TABLES) -> int | None:
         """The uid owning the TCP socket whose own end is `local` and far end is `remote` (address tuples),

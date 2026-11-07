@@ -258,15 +258,19 @@ def chat_settings() -> dict:
 
 
 DELETE_DEFAULTS = {"keep_days": 30}
+KEEP_DAYS_RANGE = (1, 3650)
 
 
 def delete_settings() -> dict:
-    """The [delete] table of global.toml (keep_days: how long safety copies are kept) with defaults filled in."""
+    """The [delete] table of global.toml (keep_days: how long safety copies are kept) with defaults filled in.
+
+    keep_days is clamped to 1..3650, so a 0 or a negative number can never make the runner wipe a fresh copy."""
     table = read_global().get("delete")
     table = table if isinstance(table, dict) else {}
     days = table.get("keep_days")
-    ok = isinstance(days, int) and not isinstance(days, bool) and days >= 0
-    return {"keep_days": days if ok else DELETE_DEFAULTS["keep_days"]}
+    if not isinstance(days, int) or isinstance(days, bool):
+        days = DELETE_DEFAULTS["keep_days"]
+    return {"keep_days": min(max(days, KEEP_DAYS_RANGE[0]), KEEP_DAYS_RANGE[1])}
 
 
 PROXY_PORTS_DEFAULT = "47100-47199"

@@ -37,18 +37,29 @@ function StillLive({ items }: { items: DeleteLink[] }) {
 function PlanView({ plan }: { plan: DeletePlan }) {
   return (
     <div className="stackg" aria-label="What will be deleted">
-      <p>This cannot be undone. A safety copy is written to <code>{plan.safety_copy}</code> first, and kept for 30 days.</p>
+      <p>This cannot be undone. A safety copy is written to <code>{plan.safety_copy}</code> first, and kept for {plan.keep_days ?? 30} days.</p>
       <ul>
         <li>Folder <code>{plan.folder}</code> ({formatBytes(plan.size)})</li>
-        <li>{plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}</li>
+        <li>
+          {plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}
+          {plan.repo && plan.repo_delete ? (
+            <span className="help" data-testid="repo-verdict">
+              {plan.repo_delete.delete ? " (will be deleted)" : ` (kept: ${plan.repo_delete.reason ?? plan.repo_delete.why})`}
+            </span>
+          ) : null}
+        </li>
         <li>
           {plan.open_prs.length ? plural(plan.open_prs.length, "open merge request", "open merge requests") : "No open merge requests"}
           {plan.open_prs.map((p) => <span key={p.number}> · <a href={p.url} target="_blank" rel="noreferrer">#{p.number} {p.title}</a></span>)}
           {plan.open_prs_note ? <span className="help"> ({plan.open_prs_note})</span> : null}
         </li>
         <li>{plan.unpushed ? `${plural(plan.unpushed, "commit", "commits")} never pushed` : "No commits waiting to be pushed"}</li>
+        {plan.unsaved_edits ? <li>{plural(plan.unsaved_edits, "unsaved edit", "unsaved edits")} (never committed; kept in the safety copy)</li> : null}
         <li>{plural(plan.runs.count, "Phoenix build", "Phoenix builds")} of history</li>
-        <li>{plan.keys.length ? `Saved project keys: ${plan.keys.join(", ")}` : "No saved project keys"}</li>
+        <li>
+          {plan.keys.length ? `Saved project keys: ${plan.keys.join(", ")}` : "No saved project keys"}
+          {plan.keys_note ? <b data-testid="keys-note"> {plan.keys_note}</b> : null}
+        </li>
         <li>The chat connection ({plan.chat.unit})</li>
       </ul>
       <StillLive items={plan.deployments} />
@@ -63,7 +74,7 @@ function ResultView({ result, onRepo, retrying }: { result: DeleteResult; onRepo
     <div className="stackg" aria-label="Result">
       <p>Safety copy: <code>{result.backup}</code></p>
       <ul>
-        {result.steps.map((s) => <li key={s.step}>{s.ok ? "Done" : "Not done"}: {s.step}. {s.words}</li>)}
+        {result.steps.map((s) => <li key={s.step}>{s.kept ? "Kept" : s.ok ? "Done" : "Not done"}: {s.step}. {s.words}</li>)}
       </ul>
       {result.not_done.length > 0 && (
         <div role="alert">

@@ -1,4 +1,5 @@
 """Commands for `phoenix project`: list, show, edit, remove, import, check-files, new, templates, keys and services."""
+import os
 import sys
 
 from phoenix9 import project_services
@@ -127,18 +128,31 @@ def remove_(args) -> int:
                          f"Bring it back with: phoenix project import {args.name}")
 
 
+def _repo_mark(p: dict) -> str:
+    """' (will be deleted)' or ' (kept: <reason>)' after the GitHub repo in the plan ('' when there is no repo)."""
+    verdict = p.get("repo_delete") or {}
+    if not p.get("repo") or not verdict:
+        return ""
+    if verdict.get("delete"):
+        return " (will be deleted)"
+    return f" (kept: {verdict.get('reason') or verdict.get('why', '')})"
+
+
 def plan_text(p: dict) -> str:
     """The delete plan in plain English."""
     lines = [f"Deleting {p['name']} would remove:",
              f"  Folder: {p['folder']} ({_size(p['size'])})",
-             f"  GitHub repo: {p['repo'] or '(none)'}"]
+             f"  GitHub repo: {p['repo'] or '(none)'}{_repo_mark(p)}"]
     if p.get("open_prs_note"):
         lines.append(f"    {p['open_prs_note']}")
     lines.append(f"  Open merge requests: {len(p['open_prs'])}")
     lines += [f"    #{r['number']} {r['title']} {r['url']}" for r in p["open_prs"]]
     lines.append(f"  Commits never pushed: {p['unpushed']}")
+    lines.append(f"  Unsaved edits (kept in the safety copy): {p.get('unsaved_edits', 0)}")
     lines.append(f"  Builds: {p['runs']['count']}")
     lines.append(f"  Saved keys: {', '.join(p['keys']) or '(none)'}")
+    if p.get("keys_note"):
+        lines.append(f"    {p['keys_note']}")
     lines.append(f"  Chat: {p['chat']['unit']} ({p['chat']['state']})")
     lines.append(f"  Safety copy goes under: {p['safety_copy']}")
     for d in p["deployments"]:
@@ -150,8 +164,43 @@ def plan_text(p: dict) -> str:
     return "\n".join(lines)
 
 
+DELETE_CALLERS = ("cli", "dashboard")
+
+
+def _stdin_is_tty() -> bool:
+    """True when a person is at the terminal (stdin is a terminal, not a pipe or a script)."""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _ask(prompt: str) -> str:
+    """Ask on the terminal (the prompt goes to stderr so --json output stays clean); '' when nothing is typed."""
+    sys.stderr.write(prompt)
+    sys.stderr.flush()
+    return sys.stdin.readline().strip()
+
+
+def _alex_here(args, what: str) -> str | None:
+    """Why a delete from the command line is refused (None when Alex is at a terminal and typed the name).
+
+    Only `cli` or `dashboard` may delete; a chat or agent session (PHOENIX_WHO set to anything else, e.g. the
+    chat units' chat:<project>) cannot get round that with --who; and the name must be typed at a prompt on a
+    real terminal, which a Claude session's commands do not have."""
+    env_who = os.environ.get("PHOENIX_WHO")
+    if args.who not in DELETE_CALLERS or (env_who and env_who not in DELETE_CALLERS):
+        return "Only Alex can delete a project, from the dashboard or the command line."
+    if not _stdin_is_tty():
+        return (f"{what} needs Alex at a terminal: run it yourself in an SSH terminal (it asks you to type the "
+                "name). Nothing was deleted.")
+    if _ask(f"Type {args.name} to confirm ({what.lower()} cannot be undone): ") != args.name:
+        return "The name did not match. Nothing was deleted."
+    return None
+
+
 def delete_(args) -> int:
-    """Show the delete plan (--dry-run), or delete the project entirely (--confirm <name>)."""
+    """Show the delete plan (--dry-run), or delete the project entirely (--confirm <name> plus the typed name)."""
     try:
         if args.dry_run:
             r = projects.delete_plan(args.name, args.who)
@@ -159,6 +208,9 @@ def delete_(args) -> int:
         if args.confirm != args.name:
             return problem(args, f"This deletes {args.name} for good. Run it with --dry-run to see what goes, "
                                  f"then again with --confirm {args.name} to do it.")
+        why = _alex_here(args, "Deleting a project")
+        if why:
+            return problem(args, why)
         r = projects.delete(args.name, args.confirm, args.who)
     except OpsError as e:
         return problem(args, str(e))
@@ -168,7 +220,8 @@ def delete_(args) -> int:
 def result_text(r: dict) -> str:
     """A delete result in plain English: each step, what was not done, what is still live."""
     lines = [f"Safety copy: {r['backup']}"]
-    lines += [f"{'Done' if s['ok'] else 'FAILED'}: {s['step']}. {s['words']}" for s in r["steps"]]
+    lines += [f"{'Kept' if s.get('kept') else 'Done' if s['ok'] else 'FAILED'}: {s['step']}. {s['words']}"
+              for s in r["steps"]]
     if r["not_done"]:
         lines.append("Not done:")
         lines += [f"  {n['what']} {n['how']}" if n["how"] != n["what"] else f"  {n['what']}" for n in r["not_done"]]
@@ -185,6 +238,9 @@ def result_text(r: dict) -> str:
 
 def delete_repo_(args) -> int:
     """Retry only the GitHub repo delete of a project that is already deleted."""
+    why = _alex_here(args, "Deleting a GitHub repo")
+    if why:
+        return problem(args, why)
     try:
         r = projects.delete_repo(args.name, args.who)
     except OpsError as e:

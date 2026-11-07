@@ -277,3 +277,45 @@ def test_new_chat_not_set_up_still_creates_project(env, tmp_path, monkeypatch):
     assert result["chat"] == "not set up yet"
     assert "chat not set up yet: press Chat to try again" in result["chat_message"]
     assert "chat not set up yet: press Chat to try again" in lines
+
+
+# ---- Phoenix records the repos it creates (delete safety) ----
+
+VIEW = ["gh", "repo", "view"]
+
+
+def _meta(env, name):
+    return json.loads((env["projects"] / name / ".phoenix/project.json").read_text())
+
+
+def test_new_repo_is_recorded_as_phoenix_made_with_its_id(env):
+    env["host"].script(VIEW + ["alex/demo", "--json", "id,nameWithOwner"], out='{"id": "R_1", "nameWithOwner": "alex/demo"}')
+    create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    meta = _meta(env, "demo")
+    assert meta["phoenix_made_repo"] == "alex/demo" and meta["phoenix_made_repo_id"] == "R_1"
+
+
+def test_github_template_new_repo_is_recorded_too(env):
+    env["host"].script(VIEW + ["alex/a", "--json", "id,nameWithOwner"], out='{"id": "R_2", "nameWithOwner": "alex/a"}')
+    create(env, name="a", profile="web", template="alex/starter", no_new_repo=False, new_repo="alex")
+    assert _meta(env, "a")["phoenix_made_repo"] == "alex/a" and _meta(env, "a")["phoenix_made_repo_id"] == "R_2"
+
+
+def test_repo_not_made_by_phoenix_is_not_recorded(env):
+    create(env, name="b", profile="web", template="alex/starter")
+    create(env, name="c", profile="python-script")
+    for name in ("b", "c"):
+        assert _meta(env, name).get("phoenix_made_repo") is None
+
+
+def test_id_left_out_when_github_does_not_answer(env):
+    create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    assert _meta(env, "demo")["phoenix_made_repo"] == "alex/demo" and _meta(env, "demo").get("phoenix_made_repo_id") is None
+
+
+def test_edit_repo_forgets_phoenix_made(env):
+    env["host"].script(VIEW + ["alex/demo", "--json", "id,nameWithOwner"], out='{"id": "R_1", "nameWithOwner": "alex/demo"}')
+    create(env, profile="python-script", no_new_repo=False, new_repo="alex")
+    project.edit("demo", env["fakes"], "alex", repo="someone/else")
+    meta = _meta(env, "demo")
+    assert meta["repo"] == "someone/else" and "phoenix_made_repo" not in meta and "phoenix_made_repo_id" not in meta

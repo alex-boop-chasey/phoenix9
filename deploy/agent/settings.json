@@ -1,5 +1,8 @@
 {
   "model": "claude-sonnet-5-5",
+  "env": {
+    "PHOENIX_WHO": "chat:home"
+  },
   "hooks": {
     "SessionStart": [
       {

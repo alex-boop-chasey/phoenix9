@@ -11,7 +11,8 @@ afterEach(() => vi.unstubAllGlobals())
 const plan: DeletePlan = {
   name: "demo", folder: "/srv/projects/demo", size: 2048, repo: "me/demo",
   open_prs: [{ number: 7, title: "Add login", url: "https://github.com/me/demo/pull/7" }],
-  unpushed: 3, runs: { count: 4 }, keys: ["API_KEY"],
+  unpushed: 3, unsaved_edits: 2, runs: { count: 4 }, keys: ["API_KEY"], keep_days: 14,
+  keys_note: "The saved keys are deleted and NOT kept in the safety copy.",
   chat: { unit: "claude-rc-chat@demo", state: "off" },
   deployments: [{ target: "vercel", note: "still live, take it down yourself", links: ["https://demo.example.com"] }],
   refusals: [], safety_copy: "/root/deleted-projects",
@@ -57,8 +58,11 @@ test("shows the dry run in plain words", async () => {
   expect(screen.getByText("me/demo")).toBeInTheDocument()
   expect(screen.getByText(/#7 Add login/)).toBeInTheDocument()
   expect(screen.getByText(/3 commits never pushed/)).toBeInTheDocument()
+  expect(screen.getByText(/2 unsaved edits \(never committed; kept in the safety copy\)/)).toBeInTheDocument()
   expect(screen.getByText(/4 Phoenix builds of history/)).toBeInTheDocument()
   expect(screen.getByText(/API_KEY/)).toBeInTheDocument()
+  expect(screen.getByTestId("keys-note")).toHaveTextContent("NOT kept in the safety copy")
+  expect(screen.getByText(/kept for 14 days/)).toBeInTheDocument()
   expect(screen.getByText(/claude-rc-chat@demo/)).toBeInTheDocument()
   expect(screen.getByRole("link", { name: "https://demo.example.com" })).toBeInTheDocument()
 })
@@ -130,4 +134,24 @@ test("an error from the server is shown and nothing is claimed deleted", async (
   await userEvent.click(deleteButton())
   expect(await screen.findByText("The safety copy failed. Nothing was deleted.")).toBeInTheDocument()
   expect(screen.queryByText(/Safety copy:/)).toBeNull()
+})
+
+test("a GitHub repo that is not the project's own is shown as kept", async () => {
+  const why = "GitHub repo me/demo not deleted: it is the projects folder's shared repo."
+  const reason = "it is the projects folder's shared repo"
+  const kept: DeleteResult = { ...done, steps: [done.steps[0]!, { step: "GitHub repo", ok: true, kept: true, words: why }] }
+  await open({
+    "GET /api/projects/demo/delete-plan": { ...plan, repo_delete: { repo: "me/demo", delete: false, why, reason } },
+    "POST /api/projects/demo/delete": kept,
+  })
+  expect(await screen.findByTestId("repo-verdict")).toHaveTextContent(`(kept: ${reason})`)
+  await userEvent.type(await screen.findByLabelText("Type demo to confirm"), "demo")
+  await userEvent.click(deleteButton())
+  expect(await screen.findByText(/Kept: GitHub repo/)).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Delete repo" })).toBeNull()
+})
+
+test("a GitHub repo that will go says so on its line", async () => {
+  await open({ "GET /api/projects/demo/delete-plan": { ...plan, repo_delete: { repo: "me/demo", delete: true, why: "x" } } })
+  expect(await screen.findByTestId("repo-verdict")).toHaveTextContent("(will be deleted)")
 })

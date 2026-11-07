@@ -2,6 +2,7 @@
 # ported from reference/v8/phoenix/watch.py (crash counting, limit_notice, drive_safely)
 from __future__ import annotations
 
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
@@ -277,6 +278,15 @@ def catch_up() -> list[str]:
     return closed
 
 
+def prune_deleted_copies(adapters) -> None:
+    """Remove old safety copies of deleted projects; never raises (a problem is one log line, the loop goes on)."""
+    try:
+        project_delete.prune_backups(adapters, adapters.clock.now())
+    except Exception as err:  # noqa: BLE001 - cleaning up old copies must not stop the runner
+        print(f"phoenix runner: could not prune old deleted-project copies: {type(err).__name__}: {err}",
+              file=sys.stderr, flush=True)
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     heartbeat.reset_progress()
@@ -291,7 +301,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             watch_once(adapters, runner, memory)
             check_agent(adapters, memory)
             check_chats(adapters, memory)
-            project_delete.prune_backups(adapters, adapters.clock.now())
+            prune_deleted_copies(adapters)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

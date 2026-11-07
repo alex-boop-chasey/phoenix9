@@ -66,3 +66,8 @@ def events() -> Path:
 def deleted_projects() -> Path:
     """Where the safety copies of deleted projects are kept."""
     return Path(os.environ.get("PHOENIX_DELETED", "/root/deleted-projects"))
+
+
+def project_lock(name: str) -> Path:
+    """The per-project lock file: held while a project is deleted, and briefly while a run of it is queued."""
+    return home() / "locks" / f"project-{name}.lock"

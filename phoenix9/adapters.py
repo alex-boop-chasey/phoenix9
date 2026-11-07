@@ -157,6 +157,20 @@ class Host:
         except (OSError, ValueError, IndexError):
             return None
 
+    def process_cwds(self) -> list[dict]:
+        """Every running process's working folder from /proc/<pid>/cwd, as {pid, name, cwd} (unreadable ones skipped)."""
+        found = []
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                cwd = os.readlink(entry / "cwd")
+                name = (entry / "comm").read_text().strip()
+            except OSError:
+                continue
+            found.append({"pid": int(entry.name), "name": name, "cwd": cwd})
+        return found
+
     def realpath(self, path) -> str:
         """The path with every symlink resolved (the path itself when it cannot be resolved)."""
         return os.path.realpath(path)

@@ -26,6 +26,7 @@ class FakeHost:
         self.parents: dict[int, int] = {}    # pid -> parent pid
         self.stopped: list[int] = []         # pids sent SIGTERM through stop_pid()
         self.programs: dict[str, list[int]] = {}  # program name -> uids of its running processes
+        self.proc_cwds: list[dict] = []      # running processes as {pid, name, cwd} (process_cwds())
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -95,6 +96,10 @@ class FakeHost:
     def program_uids(self, name, proc=None):
         """The uids scripted in .programs for a program name ([] when not running)."""
         return sorted(set(self.programs.get(name, [])))
+
+    def process_cwds(self):
+        """The processes set in .proc_cwds."""
+        return list(self.proc_cwds)
 
     def parent_pid(self, pid):
         """The parent from .parents (None when not set)."""

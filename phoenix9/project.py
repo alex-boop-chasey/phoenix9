@@ -256,6 +256,28 @@ def _make_repo(opts, facts, code: Path, host, made: list, say) -> str:
     return full
 
 
+def _repo_id(host, full: str) -> str | None:
+    """GitHub's id for the repo OWNER/NAME (None when GitHub does not say, or names another repo)."""
+    rc, out, _ = host.gh("repo", "view", full, "--json", "id,nameWithOwner")
+    try:
+        data = json.loads(out) if rc == 0 else {}
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or str(data.get("nameWithOwner", "")).lower() != full.lower():
+        return None
+    return str(data["id"]) if data.get("id") else None
+
+
+MADE_REPO_FIELDS = ("phoenix_made_repo", "phoenix_made_repo_id")
+
+
+def forget_made_repo(folder: Path) -> None:
+    """Drop the record that Phoenix created the project's GitHub repo (after the repo is changed or imported)."""
+    meta = _meta(folder)
+    if any(k in meta for k in MADE_REPO_FIELDS):
+        atomic.write_json(_meta_file(folder), {k: v for k, v in meta.items() if k not in MADE_REPO_FIELDS})
+
+
 def _claude_md(opts, facts, repo: str) -> str:
     name, tpl = opts["name"], facts["template"]
     where = opts["code"] if facts["source"] == "code" else "code/"
@@ -399,18 +421,27 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
         "created": today, "who": who, "source": facts["source"], "template": tpl_name, "profile": facts["profile"],
         "repo": repo or opts.get("repo") or None, "code": opts["code"] if facts["source"] == "code" else "code/",
         "services_set_up": []})
+    made_here = repo if facts["source"] == "template" and facts["template"] is None and facts["new_repo"] else ""
     if facts["new_repo"] and facts["source"] in ("empty", "template") and not repo:
         say("Creating the GitHub repo")
-        repo = _make_repo(opts, facts, code, host, made, say)
+        repo = made_here = _make_repo(opts, facts, code, host, made, say)
         project = json.loads((folder / ".phoenix" / "project.json").read_text(encoding="utf-8"))
         atomic.write_json(folder / ".phoenix" / "project.json", {**project, "repo": repo})
         atomic.write_text(folder / "CLAUDE.md", _claude_md(opts, facts, repo))
+    if made_here:      # only a repo Phoenix itself just created may ever be deleted with the project
+        _save_meta(folder, phoenix_made_repo=made_here, phoenix_made_repo_id=_repo_id(host, made_here))
     trust(host, folder)
     return {"repo": repo or opts.get("repo") or "", "today": today}
 
 
 def create(opts: dict, adapters, who: str, progress=None) -> dict:
-    """Make a new project from the form (project-setup spec section 6); undoes everything on failure."""
+    """Make a new project from the form (project-setup spec section 6); undoes everything on failure.
+    Holds the per-project lock, so a project of the same name cannot be made in the middle of a delete."""
+    with common.project_lock(str(opts.get("name") or "")):
+        return _create(opts, adapters, who, progress)
+
+
+def _create(opts: dict, adapters, who: str, progress=None) -> dict:
     steps: list[str] = []
 
     def say(line: str) -> None:
@@ -750,7 +781,13 @@ def _set_origin(host, folder: Path, repo: str) -> None:
 
 
 def edit(name: str, adapters, who: str, description_text=None, profile=None, repo=None) -> dict:
-    """Change a project's description, profile or repo; checks everything before changing anything."""
+    """Change a project's description, profile or repo; checks everything before changing anything.
+    Holds the per-project lock (never in the middle of a delete)."""
+    with common.project_lock(name):
+        return _edit(name, adapters, who, description_text, profile, repo)
+
+
+def _edit(name: str, adapters, who: str, description_text=None, profile=None, repo=None) -> dict:
     folder = paths.projects() / name
     if description_text is None and profile is None and repo is None:
         raise OpsError("Nothing to change: give --description, --profile or --repo.")
@@ -780,6 +817,7 @@ def edit(name: str, adapters, who: str, description_text=None, profile=None, rep
     if repo is not None:
         _set_origin(adapters.host, folder, repo)
         _save_meta(folder, repo=repo)
+        forget_made_repo(folder)       # whatever repo it is now, Phoenix did not create it
         _edit_line(folder, "Repo", repo)
         changed.append(f"repo to {repo}")
     events.emit("project.changed", project=name, who=who, what="edit", fields=changed)

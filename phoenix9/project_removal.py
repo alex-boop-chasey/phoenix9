@@ -63,7 +63,12 @@ def _folder_repo(folder: Path) -> str:
 
 
 def remove(name: str, who: str, adapters) -> dict:
-    """Take a project off Phoenix's list; keeps every file."""
+    """Take a project off Phoenix's list; keeps every file. Holds the per-project lock."""
+    with common.project_lock(name):
+        return _remove(name, who, adapters)
+
+
+def _remove(name: str, who: str, adapters) -> dict:
     if name in PROTECTED:
         raise OpsError(PROTECTED[name])
     folder = common.project_dir(name)
@@ -153,8 +158,13 @@ def add_standard_files(folder: Path, name: str, repo: str) -> list:
 
 
 def import_(name_or_path: str, who: str, adapters) -> dict:
-    """Bring a removed project or an unlisted folder into Phoenix (no service is started)."""
+    """Bring a removed project or an unlisted folder into Phoenix (no service is started). Holds the per-project lock."""
     name = _find(name_or_path)
+    with common.project_lock(name):
+        return _import(name, who, adapters)
+
+
+def _import(name: str, who: str, adapters) -> dict:
     folder = paths.projects() / name
     if not folder.is_dir():
         raise NotFound(f"There is no folder called '{name}' to import.")
@@ -167,6 +177,7 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
         raise OpsError(f"'{name}' is not a good project name: use lowercase letters, digits and dashes (up to 41).")
     repo = _folder_repo(folder)
     added = add_standard_files(folder, name, repo)
+    project.forget_made_repo(folder)   # an imported folder's repo is never treated as one Phoenix created
     _save_removed([r for r in removed_list() if r["name"] != name])
     project.trust(adapters.host, folder)
     project.mark_used(name)

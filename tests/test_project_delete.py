@@ -805,3 +805,32 @@ def test_chat_units_say_who_they_are():
     assert "Environment=PHOENIX_WHO=chat:%i" in (root / "deploy" / "claude-rc-chat@.service").read_text()
     agent = json.loads((root / "deploy" / "agent" / "settings.json").read_text())
     assert agent["env"]["PHOENIX_WHO"] == "chat:home"
+
+
+# ---- keep_days and a prune that cannot stop the runner (finding 5) ----
+
+@pytest.mark.parametrize("raw,want", [("0", 1), ("-5", 1), ("1", 1), ("45", 45), ("3650", 3650), ("99999", 3650),
+                                      ('"x"', 30), ("true", 30), ("2.5", 30)])
+def test_keep_days_clamped(env, raw, want):
+    from phoenix9 import settings
+    (env["home"] / "config").mkdir(exist_ok=True)
+    (env["home"] / "config" / "global.toml").write_text(f"[delete]\nkeep_days = {raw}\n")
+    assert settings.delete_settings()["keep_days"] == want
+
+
+def test_keep_days_zero_does_not_wipe_todays_copy(env):
+    (env["home"] / "config").mkdir()
+    (env["home"] / "config" / "global.toml").write_text("[delete]\nkeep_days = 0\n")
+    fresh = _fake_copy("b", "20261106-2300")
+    now = datetime.datetime(2026, 11, 7, tzinfo=datetime.timezone.utc).timestamp()
+    assert project_delete.prune_backups(env["fakes"], now) == [] and fresh.exists()
+
+
+def test_runner_prune_never_raises(env, monkeypatch, capsys):
+    from phoenix9 import watch
+
+    def boom(adapters, now):
+        raise PermissionError("no access")
+    monkeypatch.setattr(watch.project_delete, "prune_backups", boom)
+    watch.prune_deleted_copies(env["fakes"])
+    assert "no access" in capsys.readouterr().err

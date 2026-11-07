@@ -829,7 +829,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   with a note when there is no git repo), `files.tar.gz` (notes and untracked files, no caches), `runs.tar.gz`
   (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
   copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
-  (default 30); the runner loop calls it once per pass.
+  (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
+  which never raises (a failure is one stderr line in the runner's journal).
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
@@ -869,8 +870,8 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo
    from the newest safety copy's manifest.
 6. **Live deployments are never touched**: they are listed (`still_live`) with links.
-7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30); the runner loop calls
-   `prune_backups` on every pass.
+7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30, clamped to 1..3650);
+   the runner loop calls `prune_backups` on every pass, wrapped so a failure only logs a line.
 
 **Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`); a project with a build queued, running,
 waiting or paused; a project whose chat state is `working`; any caller other than `dashboard` or `cli` (the Phoenix

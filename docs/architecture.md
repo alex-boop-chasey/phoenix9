@@ -1360,3 +1360,8 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
 ### Pull requests (`ops.github.prs`, `prs` card)
 - `ops.github.prs(project=None, state="open")` runs `gh pr list --repo <owner/name> --state <state> --json ...` through the Host adapter and returns rows `{project, number, title, state, draft, checks, url, updated_at}`. Answers are cached in memory for 60 s per (repo, state); a gh failure gives `{project, error}` for that project.
 - The `prs` card lists those rows with one link per pull request. Each `projects` card row also carries `needs_merge` and `pr: {number, title, url}` (true when the project has an open, non-draft pull request).
+
+### Log, diff and update cards
+- `log` card (`project`, `id`, `tail` or `lines`): the last lines of `ops.logs.read` (already scrubbed). Count is clamped to 1-200 (default 50); `truncated` is true when lines were cut. Action: route `p/<name>/logs` with param `log`.
+- `diff` card (`project`, `id`): refuses logs whose kind is not `diff`. Data is `files: [{name, added, removed, lines}]` from at most 2000 lines.
+- `update` card (no query): data is `ops.update.status()`; actions are a route to `settings` (param `section: updates`) and, when an update is available, Install = `POST /api/update/install` body `{yes: true, tag: <newest>}` (as the Install button sends it), `confirm`, `danger`. Watches event types `["update"]`.

@@ -12,7 +12,10 @@ this file records a deliberate simplification (section 12).
 ## 1. Language, tools, tests
 
 - Python: system `python3` (3.14 on the server; code must run on 3.12+). **Standard library only.**
-  pytest is the only dev dependency and is already installed system-wide for root and the grunt user.
+  pytest is the only dev dependency and is already installed system-wide for root and the grunt user
+  (and in the step image, pinned in image/versions.env). `pyproject.toml` declares no dependencies at
+  all (`dependencies = []`, no optional ones), so the Lockfile step asks phoenix9 for no uv/poetry
+  lockfile; tests/test_self_project.py checks this.
 - Front end (phase 3 on): `web/`, React + TypeScript + Vite + Tailwind + shadcn/ui, Vitest, Playwright.
   Node 24, pnpm 12 (corepack). Versions pinned in `web/package.json` + `pnpm-lock.yaml`. The
   `@playwright/test` version must equal the browser build installed in `/opt/pw-browsers`

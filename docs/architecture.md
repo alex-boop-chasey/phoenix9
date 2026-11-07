@@ -876,7 +876,9 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
 7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30, clamped to 1..3650);
    the runner loop calls `prune_backups` on every pass, wrapped so a failure only logs a line.
 
-**Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`); a project with a build queued, running,
+**Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`, checked against the folder's real name
+too, so a link called something else cannot delete them); a project folder that is a link, or whose real parent is
+not the real projects folder; a project with a build queued, running,
 waiting or paused; a project whose chat state is `working`; any caller other than `dashboard` or `cli` (the Phoenix
 agent and every `chat:*` caller, whatever the project's permissions).
 

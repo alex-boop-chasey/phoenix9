@@ -854,3 +854,38 @@ def test_without_git_build_output_is_kept(env):
                  "site/build/index.html"):
         assert kept in names, kept
     assert not [n for n in names if "node_modules" in n or ".venv" in n or ".turbo" in n or "__pycache__" in n]
+
+
+# ---- links and protected projects under another name (finding 7) ----
+
+def test_refuses_a_linked_project_folder(env, unitdir, tmp_path):
+    outside = tmp_path / "elsewhere" / "real"
+    (outside / "notes").mkdir(parents=True)
+    (outside / "CLAUDE.md").write_text("# real\n")
+    (env["projects"] / "alias").symlink_to(outside)
+    plan = project_delete.plan("alias", "cli", env["fakes"])
+    assert any("link" in r for r in plan["refusals"])
+    with pytest.raises(OpsError, match="link"):
+        project_delete.delete("alias", "alias", "cli", env["fakes"])
+    assert (outside / "CLAUDE.md").is_file() and (env["projects"] / "alias").is_symlink()
+    assert not paths.deleted_projects().exists() or list(paths.deleted_projects().iterdir()) == []
+
+
+def test_refuses_a_link_to_a_protected_project(env, unitdir):
+    real = make(env, "phoenix9")
+    (env["projects"] / "p9").symlink_to(real)
+    refusals = project_delete.plan("p9", "cli", env["fakes"])["refusals"]
+    assert any("phoenix9 is Phoenix itself" in r for r in refusals)
+    with pytest.raises(OpsError):
+        project_delete.delete("p9", "p9", "cli", env["fakes"])
+    assert (real / "CLAUDE.md").is_file()
+
+
+def test_projects_root_may_itself_be_a_link(env, unitdir, tmp_path, monkeypatch):
+    """/srv/projects is a link to the Docker volume: a normal project inside it is still fine."""
+    folder = make(env, "alpha")
+    link = tmp_path / "srv-projects"
+    link.symlink_to(env["projects"])
+    monkeypatch.setenv("PHOENIX_PROJECTS", str(link))
+    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
+    assert folder.is_dir()

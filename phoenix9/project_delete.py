@@ -170,11 +170,27 @@ def _chat(name: str, adapters) -> dict:
         return {"unit": unit, "state": "off"}
 
 
-def _refusals(name: str, who: str, chat_state: str) -> list:
+def _folder_refusals(name: str, folder: Path | None) -> list:
+    """Refusals about the folder itself: a link, a folder that is really somewhere else, a protected project."""
+    if folder is None:
+        return []
+    out = []
+    real = Path(os.path.realpath(folder))
+    if folder.is_symlink():
+        out.append(f"{folder} is a link to {real}, so it cannot be deleted from here.")
+    elif real.parent != Path(os.path.realpath(paths.projects())):
+        out.append(f"{folder} is really {real}, outside the projects folder, so it cannot be deleted from here.")
+    if real.name in PROTECTED and real.name != name:
+        out.append(PROTECTED[real.name].replace("removed", "deleted"))
+    return out
+
+
+def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None) -> list:
     """Plain sentences for everything that stops a delete (empty when it can run)."""
     out = []
     if name in PROTECTED:
         out.append(PROTECTED[name].replace("removed", "deleted"))
+    out += _folder_refusals(name, folder)
     if who not in ALLOWED_CALLERS:
         out.append("Only Alex can delete a project, from the dashboard or the command line.")
     busy = [r for r in runs.list_runs(name) if r["status"] in status.ACTIVE]
@@ -197,7 +213,7 @@ def plan(name: str, who: str, adapters) -> dict:
               "unsaved_edits": _unsaved(host, folder), "runs": _runs(name),
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
-              "refusals": _refusals(name, who, chat["state"]),
+              "refusals": _refusals(name, who, chat["state"], folder),
               "safety_copy": str(paths.deleted_projects())}
     if note:
         result["open_prs_note"] = note
@@ -470,7 +486,7 @@ def _step(steps: list, who: str, name: str, step: str, fn) -> None:
 
 def _refuse(name: str, who: str, adapters) -> None:
     """Raise Conflict with the plain reasons when this project may not be deleted."""
-    reasons = _refusals(name, who, _chat(name, adapters)["state"])
+    reasons = _refusals(name, who, _chat(name, adapters)["state"], common.project_dir(name))
     if reasons:
         raise common.Conflict(" ".join(reasons))
 

@@ -260,3 +260,27 @@ def secret_files() -> list[dict]:
             names = []
         out.append({"file": path.name, "names": names, "modified": path.stat().st_mtime})
     return out
+
+
+def load_all_secrets() -> int:
+    """Teach the process-wide scrubber every saved secret: the global secrets/*.env files and every project's
+    secret keys (called as the CLI and the API start, so transcript excerpts and logs never show them).
+    Returns how many values were added; a file that cannot be read is skipped, never fatal."""
+    values: list[str] = []
+    folder = paths.secrets()
+    try:
+        files = sorted(p for p in folder.glob("*.env") if p.is_file()) if folder.is_dir() else []
+        values += scrub.secrets_from(files)
+    except (OSError, UnicodeDecodeError):
+        pass
+    try:
+        names = sorted(p.stem for p in paths.keys().glob("*.toml")) if paths.keys().is_dir() else []
+    except OSError:
+        names = []
+    for name in names:
+        try:
+            values += secret_values(name)
+        except (OSError, ValueError, KeyError):
+            continue
+    scrub.add_secrets(values)
+    return len(values)

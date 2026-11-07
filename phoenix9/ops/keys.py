@@ -206,3 +206,8 @@ def audit() -> dict:
     global_rows = _global_rows(library, problems)
     _account_problems(library, global_rows, problems)
     return {"global": global_rows, "projects": _project_rows(library, problems), "problems": problems}
+
+
+def load_secrets() -> int:
+    """Teach this process's scrubber every saved secret (global secret files and project keys)."""
+    return keys.load_all_secrets()

@@ -62,3 +62,15 @@ def test_line_numbers():
     assert of(items, "user")[0]["line"] == 1
     assert of(items, "queued")[0]["line"] == 8
     assert all(isinstance(i["line"], int) for i in items)
+
+
+def test_excerpt_is_scrubbed_before_it_is_cut():
+    """A private key whose BEGIN line falls outside the last 6 lines is still masked."""
+    pem = ["-----BEGIN RSA PRIVATE KEY-----"] + ["QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo%04d" % i for i in range(8)] + \
+          ["-----END RSA PRIVATE KEY-----"]
+    lines = [json.dumps({"type": "assistant", "message": {"content": [
+                 {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "cat id_rsa"}}]}}),
+             json.dumps({"type": "user", "message": {"content": [
+                 {"type": "tool_result", "tool_use_id": "t1", "content": "\n".join(pem + ["done"])}]}})]
+    items, _ = transcript.parse(lines)
+    assert "QUJDREVG" not in items[0]["excerpt"]

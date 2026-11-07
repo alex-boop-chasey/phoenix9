@@ -168,8 +168,8 @@ def _tool_result(state: dict, block: dict) -> None:
         state["unknown"] += 1
         return
     item["status"] = "error" if block.get("is_error") else "ok"
-    tail = _result_text(block.get("content")).splitlines()[-EXCERPT_LINES:]
-    item["excerpt"] = scrub.scrub("\n".join(tail))
+    tail = scrub.scrub(_result_text(block.get("content"))).splitlines()[-EXCERPT_LINES:]
+    item["excerpt"] = "\n".join(tail)
 
 
 def _queued(state: dict, number: int, obj: dict, at) -> None:

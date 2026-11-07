@@ -1,9 +1,64 @@
-"""Secret scrubbing: replace known secret values with [secret] before anything is written to a log."""
+"""Secret scrubbing: replace known secret values with [secret] before anything is written to a log.
+
+Besides the values it was told about, the scrubber masks the shapes of common secrets nobody registered:
+Anthropic keys (sk-ant-...), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_..., github_pat_...), PEM private key
+blocks (also a block's tail without its BEGIN line), and NAME=value where the name says KEY, TOKEN, SECRET
+or PASSWORD."""
 import json
+import re
 from pathlib import Path
 
 MIN_SECRET_LEN = 8
 MASK = "[secret]"
+PATTERNS = [
+    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)"), MASK),
+    (re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}"), MASK),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), MASK),
+    (re.compile(r"(?<![A-Za-z0-9_])gh[pousr]_[A-Za-z0-9]{20,}"), MASK),
+]
+PEM_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
+B64_LINE = re.compile(r"[ \t]*[A-Za-z0-9+/=]{16,}[ \t]*\r?")
+# NAME=value, NAME: value: the name (at most 80 characters, starting where a word starts) is checked in Python
+# so the pattern never backtracks over long runs of text.
+ASSIGN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]{0,80})([ \t]*[=:][ \t]*)([\"']?)"
+                    r"([A-Za-z0-9_+/.~-][^\s\"';&|()]{5,})")
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD", re.I)
+
+
+def _assign(m) -> str:
+    name, sep, quote, value = m.groups()
+    if not SECRET_NAME.search(name) or value.startswith(MASK):
+        return m.group(0)
+    return name + sep + quote + MASK
+
+
+def _pem_tails(s: str) -> str:
+    """Mask the base64 lines just above each END PRIVATE KEY line (a key's tail without its BEGIN line)."""
+    out, pos = [], 0
+    for m in PEM_END.finditer(s):
+        start = m.start()
+        while True:                       # walk back one whole line at a time while it looks like base64
+            prev_end = s.rfind("\n", 0, start)
+            if prev_end < 0:
+                break
+            line_start = s.rfind("\n", 0, prev_end) + 1
+            if line_start < pos or not B64_LINE.fullmatch(s, line_start, prev_end):
+                break
+            start = line_start
+        if start < m.start():
+            out.append(s[pos:start])
+            out.append(MASK)
+            pos = m.end()
+    out.append(s[pos:])
+    return "".join(out)
+
+
+def mask_patterns(s: str) -> str:
+    """Mask the secret shapes: known token prefixes, PEM private keys (and their tails), NAME=value assignments."""
+    for rx, repl in PATTERNS:
+        s = rx.sub(repl, s)
+    s = _pem_tails(s)
+    return ASSIGN.sub(_assign, s)
 
 
 class Scrubber:
@@ -32,7 +87,7 @@ class Scrubber:
         """Return the text with every known secret replaced by [secret], longest first."""
         for secret in self._secrets:
             s = s.replace(secret, MASK)
-        return s
+        return mask_patterns(s)
 
     @classmethod
     def from_env_files(cls, paths) -> "Scrubber":

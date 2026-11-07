@@ -1035,6 +1035,7 @@ def make_server(port: int, host: str = "127.0.0.1", web_dist=None) -> ThreadingH
     """Build the API server on 127.0.0.1 (not started); `host` may only say localhost."""
     if host not in ("127.0.0.1", "localhost"):
         raise ValueError("The API only listens on 127.0.0.1.")
+    keys.load_secrets()                   # transcript excerpts and logs never show a saved secret
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     httpd.write_lock = threading.Lock()   # one write at a time

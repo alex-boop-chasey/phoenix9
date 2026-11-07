@@ -848,7 +848,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
    is the only place in phoenix9 that starts Claude on the host, and the only place that restarts the
    Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
-   memory in `logs/agent-watch.json`).
+   memory in `logs/agent-watch.json`). Project chats (`phoenix9/chat.py` and `phoenix9/projectchat.py`)
+   add only unit and process control through the Host adapter: `chat_unit` (`claude-rc-chat@<listed
+   project>`), `unit_state` (`systemctl is-active`), `unit_main_pid`, `start_unit` (`systemctl enable --now`),
+   `stop_unit` (`systemctl disable --now`) and `stop_conversation` (`Host.stop_pid`, SIGTERM, only to the
+   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself there.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).

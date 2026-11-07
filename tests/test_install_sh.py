@@ -250,3 +250,15 @@ def test_bad_proxy_ports_refused(box):
     fake_firewall(box)
     p = install(box, args=["--dry-run"])
     assert p.returncode != 0 and "proxy_ports" in p.stderr
+
+
+def test_chat_template_command_line():
+    text = (Path(__file__).resolve().parent.parent / "deploy" / "claude-rc-chat@.service").read_text()
+    assert "--create-session-in-dir" in text and "--bare" not in text
+    assert "WorkingDirectory=/srv/projects/%i" in text
+
+
+def test_chat_template_installed_no_instance_enabled(box):
+    assert install(box).returncode == 0
+    assert (box["root"] / "units" / "claude-rc-chat@.service").is_file()
+    assert "claude-rc-chat" not in box["log"].read_text()

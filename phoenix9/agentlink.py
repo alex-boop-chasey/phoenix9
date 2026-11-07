@@ -14,8 +14,9 @@ CLAUDE_HOME = "/root/.claude"
 AGENT_NAME = "Phoenix agent"
 SOCKET_FOLDER = "/tmp/cc-socks-0"          # where Claude Code (run as root) puts each session's inbox socket
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId", "startedAt")
-_chosen: dict = {}       # Claude home -> the pid find() picked last time (kept while it stays live)
+KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId", "startedAt", "bridgeSessionId")
+BRIDGE_RE = re.compile(r"^[A-Za-z0-9_-]{1,100}$", re.ASCII)
+_chosen: dict = {}       # (Claude home, folder) -> the pid find() picked last time (kept while it stays live)
 
 
 def forget() -> None:
@@ -93,20 +94,55 @@ def _started(e: dict) -> tuple:
     return (at if isinstance(at, (int, float)) and not isinstance(at, bool) else float("inf"), e["pid"])
 
 
-def _choose(host, home: str, pool: list[dict]) -> dict:
-    """One session, chosen the same way every time: the agent unit's main process (or its direct child), else the
-    one picked last time while it is still live, else the oldest; it never flips between two live sessions."""
+def _choose(host, key, pool: list[dict], main_pid=None) -> dict:
+    """One session, chosen the same way every time: the unit's main process (or its direct child), else the
+    one picked last time while it is still live, else the oldest; it never flips between two live sessions.
+    main_pid may be a number, None, or a function that looks it up (only called when there is a choice)."""
     if len(pool) == 1:
-        _chosen[home] = pool[0]["pid"]
+        _chosen[key] = pool[0]["pid"]
         return pool[0]
-    main = _main_pid(host)
+    main = main_pid() if callable(main_pid) else main_pid
     if main is not None:
         mine = [e for e in pool if e["pid"] == main or host.parent_pid(e["pid"]) == main]
         pool = mine or pool
-    kept = [e for e in pool if e["pid"] == _chosen.get(home)]
+    kept = [e for e in pool if e["pid"] == _chosen.get(key)]
     best = kept[0] if kept else min(pool, key=_started)
-    _chosen[home] = best["pid"]
+    _chosen[key] = best["pid"]
     return best
+
+
+def _bridge_id(value) -> str | None:
+    """The registry bridgeSessionId when it is a plain id (letters, digits, _ -; at most 100), else None."""
+    return value if isinstance(value, str) and BRIDGE_RE.fullmatch(value) else None
+
+
+def _live_in(host, home: str, folder: str) -> list[dict]:
+    """All live registry entries whose cwd resolves to folder."""
+    entries = (_entry(host, home, n) for n in sorted(host.list_dir(home + "/sessions")))
+    return [e for e in entries if e and _is_live(host, e, folder)]
+
+
+def _shape(host, home: str, best: dict) -> dict:
+    """The found-session dict for one registry entry (without bridge id and mtime)."""
+    sid = best["sessionId"]
+    path = transcript_path(home, best["cwd"], sid, host) if is_session_id(sid) else None
+    return {"pid": best["pid"], "session_id": sid, "name": best["name"],
+            "socket": best["messagingSocketPath"], "transcript": path, "status": best["status"]}
+
+
+def find_in(folder, home_dir=CLAUDE_HOME, host=None, main_pid=None) -> dict | None:
+    """The live session working in folder as {pid, session_id, name, socket, transcript, status,
+    bridge_session_id, mtime}, or None."""
+    host = host or Host()
+    home = str(home_dir).rstrip("/")
+    live = _live_in(host, home, str(folder))
+    if not live:
+        return None
+    best = _choose(host, (home, host.realpath(str(folder))), live, main_pid)
+    found = _shape(host, home, best)
+    found["bridge_session_id"] = _bridge_id(best["bridgeSessionId"])
+    found["mtime"] = best["mtime"]
+    return found
 
 
 def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
@@ -114,16 +150,12 @@ def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
     host = host or Host()
     home = str(home_dir).rstrip("/")
     folder = settings.agent_settings()["folder"]
-    entries = (_entry(host, home, n) for n in sorted(host.list_dir(home + "/sessions")))
-    live = [e for e in entries if e and _is_live(host, e, folder)]
+    live = _live_in(host, home, folder)
     if not live:
         return None
     named = [e for e in live if e["name"] == AGENT_NAME]
-    best = _choose(host, home, named or live)
-    sid = best["sessionId"]
-    path = transcript_path(home, best["cwd"], sid, host) if is_session_id(sid) else None
-    return {"pid": best["pid"], "session_id": sid, "name": best["name"],
-            "socket": best["messagingSocketPath"], "transcript": path, "status": best["status"]}
+    best = _choose(host, (home, host.realpath(folder)), named or live, lambda: _main_pid(host))
+    return _shape(host, home, best)
 
 
 def _items(host, found: dict) -> list[dict]:
@@ -272,20 +304,30 @@ def _log_send(who: str, context: dict, chars: int) -> None:
         f.write(scrub.scrub(json.dumps(rec)) + "\n")
 
 
-def send(text: str, context: dict | None = None, who: str = "cli", timeout: float = SEND_TIMEOUT,
-         host=None) -> dict:
-    """Post a message into the agent's inbox; returns {sent, at, after_line}."""
+def send_to(found: dict, text: str, context: dict | None = None, who: str = "cli",
+            timeout: float = SEND_TIMEOUT, host=None) -> dict:
+    """Post a message into the given session's inbox; returns {sent, at, after_line}."""
     context = context or {}
     if len(text) > MAX_CHARS:
         raise TooLong("That message is %d characters long; the limit is %d. Nothing was sent."
-                        % (len(text), MAX_CHARS))
+                      % (len(text), MAX_CHARS))
     context = clean_context(context)
     host = host or Host()
-    found = find(host=host)
-    if found is None:
-        raise SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
     after = len(host.read_lines(found["transcript"])) if found.get("transcript") else 0
     connect_and_write(found["socket"], wire_line(text, context).encode("utf-8"), timeout)
     _log_send(who, context, len(text))
     return {"sent": True, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "after_line": after}
+
+
+def send(text: str, context: dict | None = None, who: str = "cli", timeout: float = SEND_TIMEOUT,
+         host=None) -> dict:
+    """Post a message into the agent's inbox; returns {sent, at, after_line}."""
+    host = host or Host()
+    if len(text) > MAX_CHARS:
+        raise TooLong("That message is %d characters long; the limit is %d. Nothing was sent."
+                      % (len(text), MAX_CHARS))
+    found = find(host=host)
+    if found is None:
+        raise SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
+    return send_to(found, text, context, who, timeout, host)

@@ -409,3 +409,34 @@ def test_socket_must_be_in_the_messaging_socket_folder(sock):
     h = FakeHost()
     session(h, 10, sock=sock)
     assert agentlink.find(HOME, h) is None
+
+
+def test_find_in_two_projects_side_by_side():
+    h = FakeHost()
+    session(h, 10, cwd="/srv/projects/alpha", sock="/tmp/cc-socks-0/a.sock", bridgeSessionId="br_A", mtime=5)
+    session(h, 11, cwd="/srv/projects/beta", sock="/tmp/cc-socks-0/b.sock", bridgeSessionId="br_B", sid=SID_OLD)
+    a = agentlink.find_in("/srv/projects/alpha", HOME, h)
+    b = agentlink.find_in("/srv/projects/beta", HOME, h)
+    assert (a["pid"], a["bridge_session_id"], a["mtime"]) == (10, "br_A", 5)
+    assert (b["pid"], b["bridge_session_id"]) == (11, "br_B")
+    assert agentlink.find_in("/srv/projects/gamma", HOME, h) is None
+
+
+def test_find_in_follows_a_symlinked_folder():
+    h = FakeHost()
+    h.realpaths["/srv/projects/alpha"] = "/data/alpha"
+    session(h, 10, cwd="/data/alpha")
+    assert agentlink.find_in("/srv/projects/alpha", HOME, h)["pid"] == 10
+
+
+def test_find_in_drops_a_bad_bridge_id():
+    for bad in ["a b", "x" * 101, "../x", 5, ""]:
+        h = FakeHost()
+        session(h, 10, bridgeSessionId=bad)
+        assert agentlink.find_in(FOLDER, HOME, h)["bridge_session_id"] is None
+
+
+def test_find_has_no_bridge_keys():
+    h = FakeHost()
+    session(h, 10, bridgeSessionId="br")
+    assert "bridge_session_id" not in agentlink.find(HOME, h)

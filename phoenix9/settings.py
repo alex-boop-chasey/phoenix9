@@ -238,6 +238,25 @@ def agent_settings() -> dict:
     return out
 
 
+CHAT_DEFAULTS = {"sleep_after_minutes": 120, "off_after_days": 3, "start_wait_seconds": 60,
+                 "wrap_up_minutes": 3, "claude_home": "/root/.claude"}
+
+
+def chat_settings() -> dict:
+    """The [chat] table of global.toml (sleep, off, wait, wrap-up, claude home) with defaults filled in."""
+    table = read_global().get("chat")
+    table = table if isinstance(table, dict) else {}
+    out = {}
+    for key, default in CHAT_DEFAULTS.items():
+        value = table.get(key)
+        if isinstance(default, str):
+            ok = isinstance(value, str) and bool(value)
+        else:
+            ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
+        out[key] = value if ok else default
+    return out
+
+
 PROXY_PORTS_DEFAULT = "47100-47199"
 
 

@@ -28,7 +28,7 @@ CHECKS_BY_MODE = {
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files",
-             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "access"),
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "project-chats", "access"),
 }
 
 
@@ -529,6 +529,25 @@ def check_agent_folder(ctx):
                    f"Set the agent folder up again (copy the agent files into {folder}).")
 
 
+def check_project_chats(ctx):
+    """Lists each project's chat unit and its state; warns about failed units and unreadable chat documents."""
+    from phoenix9 import chat, projectchat
+    lines, warnings = [], []
+    for name in project.project_names():
+        word = projectchat.state(name, ctx.ad)["state"]
+        lines.append(f"{name}: {word}")
+        if chat.unit_state(ctx.ad.host, name) == "failed":
+            warnings.append(f"{name}: the chat unit failed")
+        _, reason = projectchat.read_chat_doc(name)
+        if reason and reason != "no chat document":
+            warnings.append(f"{name}: the chat document is unreadable ({reason})")
+    detail = "; ".join(lines) if lines else "no projects yet"
+    if warnings:
+        detail += "\nWarning: " + "; ".join(warnings)
+    fix = "; ".join(f"`phoenix chat off {w.split(':')[0]} --yes`, then press Chat" for w in warnings)
+    return _result(not warnings, detail, fix)
+
+
 def check_access(ctx):
     """The optional Cloudflare Access lock on the API (every route but /api/health): off, on, or half set up."""
     cfg = access.settings()
@@ -548,7 +567,8 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
           "project-links": check_project_links, "memory-files": check_memory_files,
           "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
-          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder, "access": check_access}
+          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder,
+          "project-chats": check_project_chats, "access": check_access}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

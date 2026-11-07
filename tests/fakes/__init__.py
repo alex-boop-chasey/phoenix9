@@ -23,6 +23,7 @@ class FakeHost:
         self.peer_uid: int | None = 0        # who owns the far end of every API connection (root unless set)
         self.socket_lookups: list = []       # (local, remote) of each socket_uid() call
         self.parents: dict[int, int] = {}    # pid -> parent pid
+        self.stopped: list[int] = []         # pids sent SIGTERM through stop_pid()
         self.programs: dict[str, list[int]] = {}  # program name -> uids of its running processes
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
@@ -79,6 +80,11 @@ class FakeHost:
     def pid_alive(self, pid):
         """True when the pid is in .pids."""
         return pid in self.pids
+
+    def stop_pid(self, pid):
+        """Record the pid as stopped and drop it from .pids."""
+        self.stopped.append(pid)
+        self.pids.discard(pid)
 
     def socket_uid(self, local, remote, tables=None):
         """The scripted .peer_uid for any socket (the lookup is recorded)."""

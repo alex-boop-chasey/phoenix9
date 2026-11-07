@@ -380,3 +380,26 @@ def test_catch_up_json_shape_and_event(world):
     assert {r["project"]: r["ok"] for r in data["results"]} == {"alpha": True, "beta": True, "bad": False}
     cmds = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
     assert any(c["who"] == "t3" and "chat catch-up" in c["command"] for c in cmds)
+
+
+def test_open_waits_for_the_conversation_id_not_just_the_session(setup, sent):
+    """Found live: the session appeared before Claude Code wrote its claude.ai id, and the first press
+    returned "live" with no links (or the old document's link). Wait until the live id is there."""
+    a = setup("inactive", appear_after=1, doc=B1, notes=False)
+    real_add = a.host.add_session
+    tries = {"n": 0}
+
+    def add_without_id_first():
+        real_add()
+        tries["n"] += 1
+        if tries["n"] < 4:                        # the first few looks: no bridgeSessionId yet
+            key = "%s/sessions/10.json" % HOME
+            data = json.loads(a.host.files[key])
+            data.pop("bridgeSessionId", None)
+            a.host.files[key] = json.dumps(data)
+    a.host.add_session = add_without_id_first
+    a.clock.host = a.host
+    code, out, _ = run("chat", "open", "alpha", "--json")
+    data = json.loads(out)
+    assert code == 0 and data["bridge_session_id"] == B2, data      # the new id, never the stale B1
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2

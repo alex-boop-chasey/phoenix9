@@ -154,9 +154,12 @@ def origins_digest(origins) -> str:
 
 
 def allowed_peer_uids() -> list[int]:
-    """The uids the API answers (access.peer_uids, default [0])."""
+    """The uids allowed at the far end of an API connection: access.peer_uids, plus the uid this process
+    itself runs as (root on the server, so nothing widens there; the step box's user when the tests start a
+    real API inside a build container)."""
+    import os
     from phoenix9 import access
-    return access.peer_uids()
+    return sorted(set(access.peer_uids()) | {os.getuid()})
 
 
 def write_peer_uid(client, local) -> int | None:

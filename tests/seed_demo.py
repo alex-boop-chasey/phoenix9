@@ -469,6 +469,81 @@ def _seed_extras(home: Path, projects: Path) -> None:
     services.write_registry(registry)
 
 
+AGENT_SESSION = "5e1f0c2a-7b3d-4c8e-9a10-d30a9e470001"
+AGENT_EARLIER = "5e1f0c2a-7b3d-4c8e-9a10-d30a9e470000"
+AGENT_PID = 4242
+AGENT_SOCKET = "/tmp/cc-socks-0/demo-agent.sock"
+PANEL_PEER = "Alex (Phoenix panel)"
+
+
+def claude_home(home) -> Path:
+    """The demo copy of Claude's own folder (registry and transcripts), inside the demo home."""
+    return Path(home) / "claude-home"
+
+
+def _t(minute: int, second: int = 0) -> str:
+    """A fixed demo time on 2026-11-06."""
+    return "2026-11-06T10:%02d:%02dZ" % (minute, second)
+
+
+def _agent_line(kind: str, session: str, at: str, message=None, **extra) -> str:
+    """One transcript line as JSON text."""
+    obj = {"type": kind, "sessionId": session, "timestamp": at, **extra}
+    if message is not None:
+        obj["message"] = message
+    return json.dumps(obj)
+
+
+def _say(role: str, content, session: str, at: str, **extra) -> str:
+    """One user or assistant transcript line."""
+    return _agent_line(role, session, at, {"role": role, "content": content}, **extra)
+
+
+def agent_transcript_lines() -> list:
+    """The demo conversation: every kind of panel item (user from the panel, the app and a peer, agent text,
+    thinking, actions that worked and failed, a queued message, a notice and a session divider)."""
+    s = AGENT_SESSION
+    peer = lambda name: {"origin": {"kind": "peer", "name": name}}
+    return [
+        _say("user", "<cross-session-message>\nHow is demo-site doing?\n</cross-session-message>", s, _t(0),
+             **peer(PANEL_PEER)),
+        _say("assistant", [{"type": "thinking", "thinking": "", "signature": "x"}], s, _t(0, 4)),
+        _say("assistant", [{"type": "tool_use", "id": "toolu_demo_1", "name": "Bash",
+                            "input": {"command": "phoenix status demo-site"}}], s, _t(0, 5)),
+        _say("user", [{"type": "tool_result", "tool_use_id": "toolu_demo_1",
+                       "content": "demo-site: build running (task 2/3)\nNeeds you: 1"}], s, _t(0, 7)),
+        _say("assistant", [{"type": "text", "text": "demo-site has a build running, on task **2 of 3**. "
+                            "One question is waiting for you."}], s, _t(0, 9)),
+        _say("user", "Can you look at the contact form too?", s, _t(1)),
+        _say("assistant", [{"type": "tool_use", "id": "toolu_demo_2", "name": "Read",
+                            "input": {"file_path": "/srv/projects/demo-site/src/form.ts"}}], s, _t(1, 3)),
+        _say("user", [{"type": "tool_result", "tool_use_id": "toolu_demo_2", "is_error": True,
+                       "content": "File does not exist."}], s, _t(1, 4)),
+        _say("assistant", [{"type": "text", "text": "I could not find that file. I will look again."}], s, _t(1, 6)),
+        _agent_line("queue-operation", s, _t(2), operation="enqueue", content="Also check the footer"),
+        _agent_line("queue-operation", s, _t(2, 5), operation="dequeue"),
+        _say("user", "Also check the footer", s, _t(2, 6), **peer("Phoenix (cli)")),
+        _agent_line("system", s, _t(3), subtype="api_error", content="The API returned an error."),
+        _say("assistant", [{"type": "text", "text": "Back again. The footer looks fine."}], s, _t(3, 10)),
+        _say("user", "Thanks, carry on.", AGENT_EARLIER, _t(5)),
+    ]
+
+
+def _seed_agent(home: Path) -> None:
+    """A fake live Phoenix agent: a registry entry, its transcript, and one earlier conversation."""
+    from phoenix9 import agentlink, settings
+    base = claude_home(home)
+    folder = settings.agent_settings()["folder"]
+    entry = {"pid": AGENT_PID, "cwd": folder, "name": agentlink.AGENT_NAME, "status": "idle",
+             "messagingSocketPath": AGENT_SOCKET, "kind": "interactive", "sessionId": AGENT_SESSION,
+             "startedAt": 1793959200000}
+    atomic.write_text(base / "sessions" / f"{AGENT_PID}.json", json.dumps(entry))
+    path = Path(agentlink.transcript_path(base, folder, AGENT_SESSION))
+    atomic.write_text(path, "\n".join(agent_transcript_lines()) + "\n")
+    earlier = _say("user", "An earlier chat.", AGENT_EARLIER, "2026-11-05T09:00:00Z")
+    atomic.write_text(path.parent / f"{AGENT_EARLIER}.jsonl", earlier + "\n")
+
+
 def seed(home: Path, projects: Path) -> None:
     """Empty the two folders (only if they are empty or demo folders) and fill them with the demo data."""
     home, projects = Path(home), Path(projects)
@@ -487,6 +562,7 @@ def seed(home: Path, projects: Path) -> None:
     _seed_install(home)
     _seed_extras(home, projects)
     _seed_deploys("demo-site")
+    _seed_agent(home)
     all_events = []
     for run in RUNS:
         all_events += _write_run(json.loads(json.dumps(run)))

@@ -105,6 +105,10 @@ class SendError(Exception):
     """A message could not be delivered to the agent; the text says why in plain English."""
 
 
+class TooLong(SendError):
+    """The message is over the length limit (a caller mistake, not an outage)."""
+
+
 def _escape(text: str) -> str:
     """Escape & < > so the body cannot close the wrapper early."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -188,7 +192,7 @@ def send(text: str, context: dict | None = None, who: str = "cli", timeout: floa
     """Post a message into the agent's inbox; returns {sent, at, after_line}."""
     context = context or {}
     if len(text) > MAX_CHARS:
-        raise SendError("That message is %d characters long; the limit is %d. Nothing was sent."
+        raise TooLong("That message is %d characters long; the limit is %d. Nothing was sent."
                         % (len(text), MAX_CHARS))
     host = host or Host()
     found = find(host=host)

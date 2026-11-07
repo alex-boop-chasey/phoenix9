@@ -18,6 +18,10 @@ class Conflict(OpsError):
     """The thing asked for is already done or in the way (the API answers 409)."""
 
 
+class Unavailable(OpsError):
+    """The thing asked for cannot be reached right now (the API answers 503)."""
+
+
 def make_adapters():
     """The adapters ops use for outside things (real ones; tests replace this function)."""
     return adapters_mod.real()

@@ -4,7 +4,7 @@ import os
 import re
 import time
 
-from phoenix9 import paths
+from phoenix9 import agentlink, paths, transcript
 
 MAX_STREAMS = 20
 TOO_MANY = "Too many live views open."
@@ -93,20 +93,35 @@ def frame(number: int, event: dict, raw: bytes) -> bytes:
     return b"id: %d\nevent: %s\ndata: %s\n\n" % (number, kind.encode(), raw)
 
 
-def serve(handler) -> None:
-    """Answer GET /api/events: send events as they are appended until the client leaves or the server stops."""
+def serve(handler, body=None) -> None:
+    """Answer a live stream (default GET /api/events) until the client leaves or the server stops."""
     httpd = handler.server
     with httpd.streams_lock:
         if httpd.streams >= MAX_STREAMS:
             return handler.fail(503, TOO_MANY)
         httpd.streams += 1
     try:
-        stream(handler)
+        (body or stream)(handler)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
         pass
     finally:
         with httpd.streams_lock:
             httpd.streams -= 1
+
+
+def start(handler):
+    """Send the stream headers and the first comment; returns the output file."""
+    handler.status = 200
+    handler.send_response(200)
+    for key, value in (("Content-Type", "text/event-stream"), ("Cache-Control", "no-store"),
+                       ("X-Accel-Buffering", "no"), ("Connection", "keep-alive")):
+        handler.send_header(key, value)
+    handler.end_headers()
+    handler.close_connection = True
+    out = handler.wfile
+    out.write(b": connected\n\n")
+    out.flush()
+    return out
 
 
 def stream(handler) -> None:
@@ -119,16 +134,7 @@ def stream(handler) -> None:
     else:
         offset, count = position_after(path, 1 << 62)
     tail, ping = _tail_seconds(), _ping_seconds()
-    handler.status = 200
-    handler.send_response(200)
-    for key, value in (("Content-Type", "text/event-stream"), ("Cache-Control", "no-store"),
-                       ("X-Accel-Buffering", "no"), ("Connection", "keep-alive")):
-        handler.send_header(key, value)
-    handler.end_headers()
-    handler.close_connection = True
-    out = handler.wfile
-    out.write(b": connected\n\n")
-    out.flush()
+    out = start(handler)
     last_write = time.monotonic()
     stopping = handler.server.stopping
     while not stopping.is_set():
@@ -154,3 +160,58 @@ def recent(project, after, limit: int) -> dict:
         if event is not None and wanted(event, project) and (after is None or number > after):
             found.append({"id": number, **event})
     return {"events": found[-limit:] if after is None else found[:limit], "next": count}
+
+
+def _tail_items(path, offset: int, count: int, sent: int):
+    """(new panel items, offset, count, sent) for the complete lines added to the transcript since last time."""
+    lines, new_offset, new_count = new_lines(path, offset, count)
+    if new_count < count:  # the file shrank and started again
+        sent = 0
+    if not lines:
+        return [], new_offset, new_count, sent
+    raw = _read_from(path, 0)[:new_offset].split(b"\n")[:new_count]
+    items = transcript.parse([r.decode("utf-8", errors="replace") for r in raw])[0]
+    return [i for i in items if i["line"] > sent], new_offset, new_count, new_count
+
+
+def item_frame(item: dict) -> bytes:
+    """One server-sent event for a panel item: id = transcript line, name = item."""
+    return b"id: %d\nevent: item\ndata: %s\n\n" % (item["line"], json.dumps(item).encode())
+
+
+def session_frame(session_id) -> bytes:
+    """The server-sent event telling the client the agent's session changed."""
+    return b"event: session\ndata: %s\n\n" % json.dumps({"session_id": session_id}).encode()
+
+
+def agent_stream(handler) -> None:
+    """The body of GET /api/agent/stream: panel items as the agent's transcript grows, a frame when the session changes."""
+    after = handler.query.get("after") or handler.headers.get("Last-Event-ID", "").strip()
+    found = agentlink.find()
+    session = found["session_id"] if found else None
+    path = found["transcript"] if found else None
+    offset = count = 0
+    if path:
+        offset, count = position_after(path, int(after) if after.isdigit() else 1 << 62)
+    sent = count
+    tail, ping = _tail_seconds(), _ping_seconds()
+    out = start(handler)
+    last_write = time.monotonic()
+    stopping = handler.server.stopping
+    while not stopping.is_set():
+        found = agentlink.find()
+        if found is not None and found["session_id"] != session:
+            session, path = found["session_id"], found["transcript"]
+            offset = count = sent = 0
+            out.write(session_frame(session))
+            last_write = time.monotonic()
+        if path:
+            items, offset, count, sent = _tail_items(path, offset, count, sent)
+            for item in items:
+                out.write(item_frame(item))
+                last_write = time.monotonic()
+        if time.monotonic() - last_write >= ping:
+            out.write(b": ping\n\n")
+            last_write = time.monotonic()
+        out.flush()
+        stopping.wait(tail)

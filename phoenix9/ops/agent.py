@@ -6,6 +6,9 @@ from phoenix9 import agentlink, scrub, settings, transcript
 from phoenix9.ops import common
 
 
+MAX_CHARS = agentlink.MAX_CHARS
+
+
 def _host():
     """The host adapter used for every read."""
     return common.make_adapters().host
@@ -34,8 +37,10 @@ def send(text: str, context: dict | None = None, who: str = "cli") -> dict:
     """Post a message to the agent and record who sent it; OpsError with the reason on failure."""
     try:
         result = agentlink.send(text, context, who)
-    except agentlink.SendError as e:
+    except agentlink.TooLong as e:
         raise common.OpsError(scrub.scrub(str(e)))
+    except agentlink.SendError as e:
+        raise common.Unavailable(scrub.scrub(str(e)))
     common.record_command(who, "agent send")
     return result
 

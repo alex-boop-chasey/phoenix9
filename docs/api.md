@@ -14,7 +14,7 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
   Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
-- POST bodies are JSON objects of at most 64 KB.
+- POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
 - Nothing in the API does work itself; it calls ops.
@@ -69,6 +69,11 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
+| GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
+| GET | `/api/agent/messages?after=&limit=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000) | 400 |
+| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream: one `item` frame per new Agent item (`id` = transcript line), an `event: session` frame (`{session_id}`) when the session changes, then items from line 1 of the new transcript; starts after `after` / `Last-Event-ID`, else at the end; same tail and ping timing as `/api/events` | 503 (too many streams) |
+| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
+| GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |
@@ -165,6 +170,14 @@ from the project's own settings.
 row is named in one 400. **Settings**: `set` values are typed JSON by dotted key; one bad key means nothing is
 written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
 (needs the Planner on); `overrides` are frozen into the run.
+
+## Agent items
+
+Items come from the agent's transcript (`phoenix9/transcript.py`); each has `type` and `line` (its transcript line
+number). Types: `user` `{text, origin: panel|app|peer:<name>, at}`, `agent` `{markdown, at}`,
+`thinking` `{duration_s, at}`, `action` (a tool call: its title, `status`, and an excerpt of the result),
+`queued`, `session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines).
+`/api/agent/messages` wraps them as `{items, unknown, last_line, session_id}`.
 
 ## Overrides shape (wizard and defaults)
 

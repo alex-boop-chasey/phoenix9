@@ -9,6 +9,7 @@ from phoenix9.stepctx import StepResult
 MR_FILE = "merge-request.txt"
 NOTE_FILE = "merge-note.md"
 DIRTY = "code/ has local changes"
+NO_LOGIN = "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"
 
 
 class MergeError(Exception):
@@ -49,6 +50,8 @@ def _push(ctx, *refs):
     """Push refs to origin once; raise MergeError with a plain reason when it fails."""
     rc, out, err = _host_git(ctx, "push", "origin", *refs)
     if rc != 0:
+        if "could not read Username" in f"{err}\n{out}":
+            raise MergeError(NO_LOGIN)
         raise MergeError(f"GitHub refused the push: {_first_line(err or out)}")
 
 

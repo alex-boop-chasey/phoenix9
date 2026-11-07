@@ -24,9 +24,9 @@ PROBE_PROFILE = "python-script"
 CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
-    "quick": ("services", "api", "origins", "home", "secrets", "disk"),
+    "quick": ("services", "service-home", "api", "origins", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
-    "full": ("python", "library", "services", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
+    "full": ("python", "library", "services", "service-home", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files",
              "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder"),
 }
@@ -87,6 +87,43 @@ def check_services(ctx):
            if i >= len(states) or states[i] != "active"]
     return _result(not bad, "phoenix-api and phoenix-runner are active" if not bad else "; ".join(bad),
                    "Start them with `systemctl start phoenix-api phoenix-runner`, then read `journalctl -u phoenix-api`.")
+
+
+def _service_env(ctx, name: str) -> dict | None:
+    """The environment of a running service (/proc/<MainPID>/environ), or its unit's Environment= when stopped;
+    None when it cannot be read."""
+    rc, out, _ = ctx.ad.host.run(["systemctl", "show", "-p", "MainPID", "--value", name])
+    pid = out.strip()
+    if rc == 0 and pid.isdigit() and pid != "0":
+        try:
+            text = ctx.ad.host.read_text(f"/proc/{pid}/environ")
+        except (OSError, UnicodeDecodeError):
+            return None
+        pairs = text.split("\0")
+    else:
+        rc, out, _ = ctx.ad.host.run(["systemctl", "show", "-p", "Environment", "--value", name])
+        if rc != 0:
+            return None
+        pairs = out.split()
+    return dict(p.split("=", 1) for p in pairs if "=" in p)
+
+
+def check_service_home(ctx):
+    """phoenix-api and phoenix-runner run with HOME set, so git and gh can read root's GitHub login."""
+    problems = []
+    for name in SERVICES:
+        env = _service_env(ctx, name)
+        if env is None:
+            problems.append(f"could not read {name}'s environment")
+        elif not env.get("HOME"):
+            problems.append(f"{name} has no HOME")
+    if not problems:
+        return _result(True, "services: HOME set for phoenix-api and phoenix-runner")
+    return _result(False, "services: HOME not set: " + "; ".join(problems) +
+                   " (git and gh cannot find the GitHub login, so pushes fail)",
+                   "Add `Environment=HOME=/root` to the unit in /etc/systemd/system (deploy/install.sh or "
+                   "`phoenix update install` copies the fixed units), then run `systemctl daemon-reload && "
+                   "systemctl restart phoenix-api phoenix-runner`. Run `phoenix doctor` as root.")
 
 
 def api_port() -> int:
@@ -450,7 +487,8 @@ def check_agent_folder(ctx):
                    f"Set the agent folder up again (copy the agent files into {folder}).")
 
 
-CHECKS = {"python": check_python, "library": check_library, "services": check_services, "api": check_api,
+CHECKS = {"python": check_python, "library": check_library, "services": check_services,
+          "service-home": check_service_home, "api": check_api,
           "origins": check_origins,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,

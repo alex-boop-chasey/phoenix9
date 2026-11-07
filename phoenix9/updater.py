@@ -32,6 +32,8 @@ TAG_RE = r"^v9\.(0|[1-9][0-9]*)$"
 _TAG = re.compile(TAG_RE)
 SERVICES = ("phoenix-runner", "phoenix-api")
 UNIT = "phoenix9-update.service"
+UNIT_FILES = ("phoenix-api.service", "phoenix-runner.service", UNIT)   # the ones install.sh copies
+DEFAULT_SYSTEMD_DIR = "/etc/systemd/system"
 CRED = ("-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")   # host gh login
 CHECKS_S, PNPM_S, IMAGES_S, DOCTOR_S = 30 * 60, 15 * 60, 60 * 60, 5 * 60
 HEALTH_TRIES, HEALTH_GAP_S, POLL_S, LOG_TAIL = 3, 10, 5, 40
@@ -144,6 +146,11 @@ def _rm(path: Path) -> None:
 def _rename(src: Path, dst: Path) -> None:
     """Rename one folder (one atomic step; tests make it fail to simulate a crash)."""
     os.rename(src, dst)
+
+
+def systemd_dir() -> Path:
+    """Where the unit files are installed (PHOENIX_SYSTEMD_DIR, same default as deploy/install.sh)."""
+    return Path(os.environ.get("PHOENIX_SYSTEMD_DIR") or DEFAULT_SYSTEMD_DIR)
 
 
 def _valid_tag(tag) -> bool:
@@ -270,8 +277,36 @@ class _Update:
         tags = [t for t in (self.try_git(folder, "tag", "--points-at", "HEAD") or "").split() if _valid_tag(t)]
         return {"tag": max(tags, key=_tag_number) if tags else "unknown", "commit": commit}
 
+    def sync_units(self) -> None:
+        """Copy the installed copy's unit files that differ from the ones in the systemd folder, then
+        `systemctl daemon-reload`. Called before every restart, so an install brings in the new units and
+        a rollback, failed health check or recovery puts the previous copy's units back."""
+        source, target = folders()["install"] / "deploy", systemd_dir()
+        changed = []
+        for name in UNIT_FILES:
+            try:
+                text = (source / name).read_text(encoding="utf-8")
+            except OSError:
+                continue                 # an old copy without this unit: leave the installed one alone
+            try:
+                same = (target / name).read_text(encoding="utf-8") == text
+            except OSError:
+                same = False
+            if not same:
+                atomic.write_text(target / name, text, 0o644)
+                self.log(f"unit file {name} updated in {target} from {source}")
+                changed.append(name)
+        if changed:
+            rc, _, err = self.ad.host.systemctl("daemon-reload")
+            self.log(f"systemctl daemon-reload: exit {rc}{' ' + err.strip() if rc and err else ''}")
+
     def restart(self) -> None:
-        """Restart the Phoenix services (systemctl only; nothing is ever stopped by name or pattern)."""
+        """Bring the unit files in line with the installed copy, then restart the Phoenix services
+        (systemctl only; nothing is ever stopped by name or pattern)."""
+        try:
+            self.sync_units()
+        except OSError as err:          # a unit problem must not stop the restart (health check decides)
+            self.log(f"could not update the unit files: {err}")
         rc, _, err = self.ad.host.systemctl("restart", *SERVICES)
         self.log(f"restart {' '.join(SERVICES)}: exit {rc}{' ' + err.strip() if rc and err else ''}")
 

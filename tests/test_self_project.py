@@ -65,3 +65,12 @@ def test_self_project_toml_valid_and_safety_files_exist(tmp_path):
         assert matches(path, data["safety_files"]), f"{path} is not flagged"
     folder = project(tmp_path, text)
     assert settings.check(folder, lib) == []
+
+
+def test_phoenix9_pyproject_declares_no_dependencies():
+    """Phoenix installs nothing from pyproject (pytest comes from the step image and the server), so the
+    lockfile step must not ask phoenix9 for a uv/poetry lockfile."""
+    data = tomllib.loads((REPO / "pyproject.toml").read_text())
+    assert data["project"]["dependencies"] == []
+    assert "optional-dependencies" not in data["project"] and "dependency-groups" not in data
+    assert load("lockfile")._has_dependencies(REPO) is False

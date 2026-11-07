@@ -11,6 +11,9 @@ WorkingDirectory=/opt/phoenix9
 Environment=PHOENIX_HOME=/var/lib/phoenix9
 Environment=PHOENIX_INSTALL=/opt/phoenix9
 Environment=PYTHONUNBUFFERED=1
+# Without User= systemd sets no HOME: git and gh then cannot read root's login
+# (/root/.gitconfig's credential helper is `gh auth git-credential`), so pushes fail.
+Environment=HOME=/root
 ExecStart=/opt/phoenix9/bin/phoenix runner serve
 Restart=on-failure
 RestartSec=5

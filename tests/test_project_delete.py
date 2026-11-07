@@ -541,7 +541,21 @@ def test_cli_delete_needs_matching_confirm(env, capsys, unitdir):
     assert not [c for c in env["host"].calls if c[0] in ("remove_tree", "gh")]
 
 
-def test_cli_delete_text_and_json(env, capsys, unitdir):
+@pytest.fixture
+def at_terminal(monkeypatch):
+    """Pretend Alex is at a terminal and types the name asked for at the prompt."""
+    from phoenix9.cli import project as cli_project
+    asked = []
+    monkeypatch.setattr(cli_project, "_stdin_is_tty", lambda: True)
+
+    def ask(prompt):
+        asked.append(prompt)
+        return prompt.split("Type ")[1].split(" ")[0]
+    monkeypatch.setattr(cli_project, "_ask", ask)
+    return asked
+
+
+def test_cli_delete_text_and_json(env, capsys, unitdir, at_terminal):
     from test_project_cmds import run_cmd
     folder = _stuff(env)
     code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")
@@ -549,14 +563,14 @@ def test_cli_delete_text_and_json(env, capsys, unitdir):
     assert not folder.exists()
 
 
-def test_cli_delete_json(env, capsys, unitdir):
+def test_cli_delete_json(env, capsys, unitdir, at_terminal):
     from test_project_cmds import run_cmd
     _stuff(env)
     code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--json")
     assert code == 0 and [s["step"] for s in json.loads(out)["steps"]][-1] == "GitHub repo"
 
 
-def test_cli_delete_scope_then_delete_repo(env, capsys, unitdir):
+def test_cli_delete_scope_then_delete_repo(env, capsys, unitdir, at_terminal):
     from test_project_cmds import run_cmd
     _stuff(env)
     env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
@@ -569,7 +583,7 @@ def test_cli_delete_scope_then_delete_repo(env, capsys, unitdir):
 
 
 @pytest.mark.parametrize("who", ["chat:alpha", "chat:delegate", "agent"])
-def test_cli_refuses_chat_callers(env, capsys, unitdir, monkeypatch, who):
+def test_cli_refuses_chat_callers(env, capsys, unitdir, monkeypatch, at_terminal, who):
     from test_project_cmds import run_cmd
     folder = _stuff(env)
     code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--who", who)
@@ -730,3 +744,64 @@ def test_no_github_delete_when_bundle_is_of_another_repo(env, unitdir):
     env["host"].script(["gh", "repo", "delete"], rc=0)
     res = project_delete.delete_repo("alpha", "cli", env["fakes"])
     assert _gh_deletes(env) == [] and "bundle" in res["steps"][-1]["words"]
+
+
+# ---- only Alex, at a terminal (finding 4) ----
+
+def test_cli_delete_needs_a_terminal(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")
+    assert code == 1 and "terminal" in err
+    _all_there(folder)
+    assert not [c for c in env["host"].calls if c[0] in ("remove_tree", "gh")]
+
+
+def test_cli_delete_repo_needs_a_terminal(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    assert run_cmd(capsys, "project", "delete-repo", "alpha")[0] == 1
+
+
+def test_cli_delete_typed_name_must_match(env, capsys, unitdir, monkeypatch):
+    from test_project_cmds import run_cmd
+    from phoenix9.cli import project as cli_project
+    folder = _stuff(env)
+    monkeypatch.setattr(cli_project, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(cli_project, "_ask", lambda prompt: "alph")
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")
+    assert code == 1 and "did not match" in err
+    _all_there(folder)
+
+
+def test_cli_delete_asks_for_the_name(env, capsys, unitdir, at_terminal):
+    from test_project_cmds import run_cmd
+    _stuff(env)
+    assert run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")[0] == 0
+    assert at_terminal and "Type alpha " in at_terminal[0]
+
+
+@pytest.mark.parametrize("who", ["runner", "phoenix-agent", "chat:home"])
+def test_cli_who_must_be_cli_or_dashboard(env, capsys, unitdir, at_terminal, who):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--who", who)
+    assert code == 1 and "Only Alex" in err
+    _all_there(folder)
+
+
+def test_chat_env_cannot_be_overridden_with_who(env, capsys, unitdir, at_terminal, monkeypatch):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    monkeypatch.setenv("PHOENIX_WHO", "chat:alpha")
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--who", "cli")
+    assert code == 1 and "Only Alex" in err
+    assert run_cmd(capsys, "project", "delete-repo", "alpha", "--who", "dashboard")[0] == 1
+    _all_there(folder)
+
+
+def test_chat_units_say_who_they_are():
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    assert "Environment=PHOENIX_WHO=chat:%i" in (root / "deploy" / "claude-rc-chat@.service").read_text()
+    agent = json.loads((root / "deploy" / "agent" / "settings.json").read_text())
+    assert agent["env"]["PHOENIX_WHO"] == "chat:home"

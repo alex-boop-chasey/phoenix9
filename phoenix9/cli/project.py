@@ -1,4 +1,5 @@
 """Commands for `phoenix project`: list, show, edit, remove, import, check-files, new, templates, keys and services."""
+import os
 import sys
 
 from phoenix9 import project_services
@@ -153,8 +154,43 @@ def plan_text(p: dict) -> str:
     return "\n".join(lines)
 
 
+DELETE_CALLERS = ("cli", "dashboard")
+
+
+def _stdin_is_tty() -> bool:
+    """True when a person is at the terminal (stdin is a terminal, not a pipe or a script)."""
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _ask(prompt: str) -> str:
+    """Ask on the terminal (the prompt goes to stderr so --json output stays clean); '' when nothing is typed."""
+    sys.stderr.write(prompt)
+    sys.stderr.flush()
+    return sys.stdin.readline().strip()
+
+
+def _alex_here(args, what: str) -> str | None:
+    """Why a delete from the command line is refused (None when Alex is at a terminal and typed the name).
+
+    Only `cli` or `dashboard` may delete; a chat or agent session (PHOENIX_WHO set to anything else, e.g. the
+    chat units' chat:<project>) cannot get round that with --who; and the name must be typed at a prompt on a
+    real terminal, which a Claude session's commands do not have."""
+    env_who = os.environ.get("PHOENIX_WHO")
+    if args.who not in DELETE_CALLERS or (env_who and env_who not in DELETE_CALLERS):
+        return "Only Alex can delete a project, from the dashboard or the command line."
+    if not _stdin_is_tty():
+        return (f"{what} needs Alex at a terminal: run it yourself in an SSH terminal (it asks you to type the "
+                "name). Nothing was deleted.")
+    if _ask(f"Type {args.name} to confirm ({what.lower()} cannot be undone): ") != args.name:
+        return "The name did not match. Nothing was deleted."
+    return None
+
+
 def delete_(args) -> int:
-    """Show the delete plan (--dry-run), or delete the project entirely (--confirm <name>)."""
+    """Show the delete plan (--dry-run), or delete the project entirely (--confirm <name> plus the typed name)."""
     try:
         if args.dry_run:
             r = projects.delete_plan(args.name, args.who)
@@ -162,6 +198,9 @@ def delete_(args) -> int:
         if args.confirm != args.name:
             return problem(args, f"This deletes {args.name} for good. Run it with --dry-run to see what goes, "
                                  f"then again with --confirm {args.name} to do it.")
+        why = _alex_here(args, "Deleting a project")
+        if why:
+            return problem(args, why)
         r = projects.delete(args.name, args.confirm, args.who)
     except OpsError as e:
         return problem(args, str(e))
@@ -189,6 +228,9 @@ def result_text(r: dict) -> str:
 
 def delete_repo_(args) -> int:
     """Retry only the GitHub repo delete of a project that is already deleted."""
+    why = _alex_here(args, "Deleting a GitHub repo")
+    if why:
+        return problem(args, why)
     try:
         r = projects.delete_repo(args.name, args.who)
     except OpsError as e:

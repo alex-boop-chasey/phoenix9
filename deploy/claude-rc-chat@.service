@@ -15,6 +15,8 @@ User=root
 WorkingDirectory=/srv/projects/%i
 Environment=HOME=/root
 Environment=IS_SANDBOX=1
+# Who this chat is in Phoenix's log; Phoenix refuses project deletes from any chat:* caller.
+Environment=PHOENIX_WHO=chat:%i
 Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/root/.local/bin/claude remote-control --name %i --spawn same-dir --capacity 3 --create-session-in-dir --permission-mode bypassPermissions
 Restart=on-failure

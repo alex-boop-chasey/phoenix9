@@ -807,6 +807,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   terminal.
 - **Settings**: `[agent]` in `global.toml`: `agent.folder` (default `/srv/projects/home`), `agent.unit` (default
   `claude-rc@home`), `agent.watchdog` (default true).
+- **Who it is**: `deploy/agent/settings.json` sets `env.PHOENIX_WHO=chat:home`, so every `phoenix` command the agent
+  runs is logged as `chat:home` (and is refused for project deletes). For belt and braces, give the unit the same:
+  a drop-in `/etc/systemd/system/claude-rc@home.service.d/phoenix-who.conf` holding `[Service]` and
+  `Environment=PHOENIX_WHO=chat:home`, then `systemctl daemon-reload` and restart the unit. Project chats get
+  `Environment=PHOENIX_WHO=chat:%i` from `deploy/claude-rc-chat@.service`.
 - **Doctor lines**: `agent-unit`, `agent-session`, `agent-socket` (folder 700, socket 600), `agent-transcript`
   (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`).
 - **Deploy files** (`deploy/agent/`): `agent-rules.md` (the rulebook; the admin setup step copies it to the agent

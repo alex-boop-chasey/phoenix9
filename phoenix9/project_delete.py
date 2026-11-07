@@ -634,19 +634,19 @@ def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict
         steps.append({"step": "GitHub repo", "ok": True, "kept": True, "words": verdict.get("why") or "Kept."})
         common.record_command(who, f"project delete {name}: GitHub repo (kept)", name)
         return
-    state = {}
+    outcome = {}
 
     def run() -> str:
         ok, words, scope = _gh_delete(repo, host)
-        state.update(ok=ok, scope=scope)
+        outcome.update(ok=ok, scope=scope)
         if not ok:
             raise common.OpsError(words)
         return words
     _step(steps, who, name, "GitHub repo", run)
     if not steps[-1]["ok"]:
         how = ("Delete it on GitHub, or run `gh auth refresh -h github.com -s delete_repo` once in your own "
-               "terminal and press Delete repo again." if state.get("scope") else steps[-1]["words"])
-        not_done.append({"what": steps[-1]["words"] if state.get("scope") else f"GitHub repo {repo}", "how": how})
+               "terminal and press Delete repo again." if outcome.get("scope") else steps[-1]["words"])
+        not_done.append({"what": steps[-1]["words"] if outcome.get("scope") else f"GitHub repo {repo}", "how": how})
 
 
 def _newest_copy(name: str) -> Path | None:
@@ -686,5 +686,5 @@ def delete_repo(name: str, who: str, adapters) -> dict:
         raise common.Conflict(f"GitHub repo {verdict.get('repo')} is not deleted: it is in use by {', '.join(users)}.")
     steps, not_done = [], []
     _github_step(steps, not_done, who, name, verdict, adapters.host)
-    events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] else "github repo kept")
+    events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] and not steps[0].get("kept") else "github repo kept")
     return {"name": name, "backup": str(copy), "steps": steps, "not_done": not_done}

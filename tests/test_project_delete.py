@@ -1046,3 +1046,13 @@ def test_safety_copy_has_no_key_values(env, unitdir):
                     assert b"sekret-value-123" not in t.extractfile(m).read()
     for f in ("manifest.json", "RESTORE.md"):
         assert "sekret-value-123" not in (project_delete.Path(res["backup"]) / f).read_text()
+
+
+def test_retry_event_says_kept_when_kept(env, unitdir):
+    folder = _stuff(env)
+    meta = json.loads((folder / ".phoenix" / "project.json").read_text())
+    (folder / ".phoenix" / "project.json").write_text(json.dumps({**meta, "source": "repo"}))
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    project_delete.delete_repo("alpha", "cli", env["fakes"])
+    last = [e for e in events_mod.read(paths.events()) if e["type"] == "project.changed"][-1]
+    assert last["data"]["what"] == "github repo kept"

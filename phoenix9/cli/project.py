@@ -127,7 +127,10 @@ def import_(args) -> int:
                 for c in found]
         return show(args, found, table(rows, ["name", "path", "repo", "status"]) if rows else "Nothing to import.")
     r = projects.import_(args.target, args.who)
-    return show(args, r, f"Imported {r['name']}. It is back on Phoenix's list.")
+    text = f"Imported {r['name']}. It is back on Phoenix's list."
+    if r.get("chat_message"):
+        text += " (" + r["chat_message"] + ")"
+    return show(args, r, text)
 
 
 def check_files_(args) -> int:

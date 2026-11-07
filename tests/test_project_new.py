@@ -55,7 +55,7 @@ def test_new_empty_no_repo(env):
     assert info["who"] == "alex" and info["source"] == "empty" and "chat_session_url" not in info
     assert info["services_set_up"] == [] and info["repo"] is None
     assert git.git(folder / "code", "rev-list", "--count", "HEAD").strip() == "1"
-    assert not calls(env, "systemctl", "enable") and not calls(env, "systemctl", "start")
+    assert len(calls(env, "systemctl", "enable")) == 1      # only the project chat unit is started
     trusted = json.loads(env["host"].files[env["claude"]])["projects"]
     assert trusted[str(folder)]["hasTrustDialogAccepted"] is True
     assert not (folder / ".vscode").exists()
@@ -240,3 +240,40 @@ def test_cli_needs_new_repo_choice(env, capsys):
     assert main(["project", "new", "demo", "--profile", "python-script"]) == 1
     assert "--new-repo OWNER or --no-new-repo" in capsys.readouterr().err
     assert not (env["projects"] / "demo").exists()
+
+
+def chat_env(env, tmp_path, monkeypatch, mode):
+    """Swap in a host whose chat unit comes up (or fails) and a send_to that records messages."""
+    from fakes.chathost import chat_adapters
+    from phoenix9 import agentlink
+    sent = []
+    monkeypatch.setattr(agentlink, "send_to", lambda found, text, *a, **k: sent.append(text) or {"sent": True})
+    agentlink.forget()
+    fakes = chat_adapters(tmp_path, mode, env["projects"] / "demo", env["claude"])
+    return fakes, sent
+
+
+def test_new_chat_written_and_asleep(env, tmp_path, monkeypatch):
+    from phoenix9 import projectchat
+    fakes, sent = chat_env(env, tmp_path, monkeypatch, "ok")
+    lines = []
+    result = project.create(opts(profile="python-script"), fakes, "alex", progress=lines.append)
+    assert result["chat"] == "sleeping" and "chat_message" not in result
+    assert (env["projects"] / "demo" / ".phoenix" / "chat.md").is_file()
+    enables = [c for c in fakes.host.calls if c[:2] == ["systemctl", "enable"]]
+    assert len(enables) == 1 and "claude-rc-chat@demo" in enables[0]
+    assert fakes.host.stopped == [10]
+    assert not [c for c in fakes.host.calls if c[:2] == ["systemctl", "disable"]]
+    assert not any("Wrap up" in t for t in sent)
+    assert projectchat.state("demo", fakes)["state"] == "sleeping"
+    assert not any("not set up yet" in x for x in lines)
+
+
+def test_new_chat_not_set_up_still_creates_project(env, tmp_path, monkeypatch):
+    fakes, _ = chat_env(env, tmp_path, monkeypatch, "fail")
+    lines = []
+    result = project.create(opts(profile="python-script"), fakes, "alex", progress=lines.append)
+    assert (env["projects"] / "demo" / "CLAUDE.md").is_file()
+    assert result["chat"] == "not set up yet"
+    assert "chat not set up yet: press Chat to try again" in result["chat_message"]
+    assert "chat not set up yet: press Chat to try again" in lines

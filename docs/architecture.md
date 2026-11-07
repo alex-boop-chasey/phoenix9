@@ -973,11 +973,22 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   build --changed --json` from `-next` when `git diff --name-only <installed> <tag> -- image profiles`
   is not empty (a failing diff is an error, never "nothing changed"; images are rebuilt only once no
   run is mid-task) - failure releases the hold, drops `-next`, `images-failed`, no swap. Note: a
-  rollback (automatic or manual) does NOT revert rebuilt images; swap; `systemctl restart
+  rollback (automatic or manual) does NOT revert rebuilt images; swap; unit sync (below); `systemctl restart
   phoenix-runner phoenix-api`; health = `<install>/bin/phoenix doctor --for-update --json`, 3 tries
   10 s apart; healthy = the new copy's one-time migrations (`<install>/bin/phoenix settings global migrate
   --json`, section 5.5; a failure is only a log line) then `installed`; unhealthy = `-prev` back, new copy to `-failed`, restart, health
   again: `rolled-back` or `rolled-back-unhealthy` (urgent notify "Phoenix 9 may be down").
+- **Unit sync** (`_Update.sync_units`, run at the start of every `restart()`): compares the INSTALLED
+  copy's `deploy/phoenix-api.service`, `deploy/phoenix-runner.service` and `deploy/phoenix9-update.service`
+  with the files in the systemd folder (`PHOENIX_SYSTEMD_DIR`, default `/etc/systemd/system`, the same
+  setting as install.sh), copies the ones that differ (mode 0644, one swap each), then runs `systemctl
+  daemon-reload` (host adapter) once if anything changed; each copied unit and the reload are lines in
+  `updater.log`. A unit file missing from the copy is left alone. Because it always follows whichever
+  copy is installed right before a restart, an install brings in the new units after the swap and before
+  the restart, and a failed health check, a manual rollback or a recovery puts the previous copy's units
+  back. Note: the update is run by the OLD installed updater (update.sh), so the first install of a
+  version that adds this sync does not sync yet; units hand-edited in the systemd folder are replaced by
+  the installed copy's at the next restart.
 - **Rollback** (`rollback()`): refused without `-prev`, and refused "could not read the installed
   version" when git cannot read the installed commit (recovery would not know which way to go); hold + idle wait; exchange `install` and
   `-prev` (stage `-prev` as `-next`, then the same swap as an install); restart; health; healthy =

@@ -107,10 +107,19 @@ def _state_words(row: dict) -> str:
     return "idle"
 
 
+def _chat_part(row: dict) -> str:
+    """' · chat: <state>' for a row, or '' when its chat is null, missing or unreadable."""
+    chat = row.get("chat")
+    state = chat.get("state") if isinstance(chat, dict) else None
+    return " · chat: %s" % state if isinstance(state, str) and state else ""
+
+
 def _project_line(row: dict) -> str:
-    """One project as '<name> · <state> · <repo or no repo>', cut to 120 characters."""
+    """One project as '<name> · <state> · <repo> · chat: <state>', cut to 120 characters."""
     line = "%s · %s · %s" % (row["name"], _state_words(row), row.get("repo") or "no repo")
-    return scrub.scrub(line.replace("\n", " "))[:LINE_MAX]
+    line = scrub.scrub(line.replace("\n", " "))
+    chat = scrub.scrub(_chat_part(row).replace("\n", " "))
+    return (line[:max(0, LINE_MAX - len(chat))] + chat)[:LINE_MAX]
 
 
 def _now_notes(host) -> list[str]:

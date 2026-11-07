@@ -96,3 +96,21 @@ def test_send_records_and_wraps_errors(host, monkeypatch):
     monkeypatch.setattr(agentlink, "send", bad)
     with pytest.raises(common.OpsError, match="asleep"):
         agent.send("x")
+
+
+def test_project_line_shows_chat_state():
+    row = {"name": "phoenix9", "repo": "github.com/x/y", "chat": {"state": "sleeping"}}
+    assert agent._project_line(row).endswith(" · chat: sleeping")
+
+
+def test_project_line_leaves_chat_out_when_null_or_missing():
+    row = {"name": "phoenix9", "repo": "github.com/x/y"}
+    assert "chat" not in agent._project_line(row)
+    assert "chat" not in agent._project_line({**row, "chat": None})
+
+
+def test_project_line_keeps_size_limit_with_chat():
+    row = {"name": "p" * 200, "repo": "r" * 200, "chat": {"state": "working"}}
+    line = agent._project_line(row)
+    assert len(line) <= agent.LINE_MAX
+    assert line.endswith("chat: working")

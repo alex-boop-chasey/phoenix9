@@ -147,7 +147,7 @@ export interface ImportResult { name: string; path: string; repo: string | null;
 export interface DeleteLink { target: string; note: string; links: string[] }
 export interface DeletePlan {
   name: string; folder: string; size: number; repo: string | null
-  repo_delete?: { repo: string | null; delete: boolean; why: string }
+  repo_delete?: { repo: string | null; delete: boolean; why: string; reason?: string }
   open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
   unpushed: number; unsaved_edits?: number; runs: { count: number }; keys: string[]; keys_note?: string
   keep_days?: number

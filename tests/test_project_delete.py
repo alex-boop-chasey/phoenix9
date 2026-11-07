@@ -1098,6 +1098,37 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
 
 
+# the shared-repo reason first, and "(kept: ...)" on the would-remove line (second review 9)
+
+@pytest.mark.parametrize("meta", [None, {"source": "empty", "repo": "me/projects", "phoenix_made_repo": "me/projects",
+                                         "phoenix_made_repo_id": "R_p"}])
+def test_parent_repo_reason_comes_first(env, meta):
+    _shared_parent(env)
+    folder = make(env, "plain", meta=meta)
+    (folder / "code").mkdir()
+    host_git(env["host"], folder)
+    verdict = project_delete.plan("plain", "cli", env["fakes"])["repo_delete"]
+    assert verdict["why"] == "GitHub repo me/projects not deleted: it is the projects folder's shared repo."
+    assert verdict["reason"] == "it is the projects folder's shared repo"
+
+
+def test_cli_marks_a_kept_repo_on_its_line(env, capsys):
+    from test_project_cmds import run_cmd
+    _shared_parent(env)
+    folder = make(env, "plain")
+    (folder / "code").mkdir()
+    host_git(env["host"], folder)
+    out = run_cmd(capsys, "project", "delete", "plain", "--dry-run")[1]
+    assert "  GitHub repo: me/projects (kept: it is the projects folder's shared repo)" in out
+
+
+def test_cli_says_when_the_repo_goes(env, capsys):
+    from test_project_cmds import run_cmd
+    _project_with_stuff(env)
+    out = run_cmd(capsys, "project", "delete", "alpha", "--dry-run")[1]
+    assert "  GitHub repo: me/alpha (will be deleted)" in out
+
+
 # no bundle: code/.git goes in the tar (second review 8)
 
 def test_no_bundle_keeps_code_git_in_the_tar(env, unitdir):

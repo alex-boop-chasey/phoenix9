@@ -81,7 +81,17 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
         return {"repo": None, "delete": False, "why": "There is no GitHub repo."}
 
     def keep(why: str) -> dict:
-        return {"repo": shown, "delete": False, "why": f"GitHub repo {shown} not deleted: it {why}."}
+        return {"repo": shown, "delete": False, "reason": f"it {why}",
+                "why": f"GitHub repo {shown} not deleted: it {why}."}
+    key0 = _key(shown)
+    if _key(_git_out(host, paths.projects(), "remote", "get-url", "origin")) == key0:
+        return keep("is the projects folder's shared repo")
+    code0 = folder / "code"
+    if code0.is_dir() and not code0.is_symlink():
+        top0 = _git_out(host, code0, "rev-parse", "--show-toplevel")
+        if top0 and Path(os.path.realpath(folder)).is_relative_to(os.path.realpath(top0)):
+            return keep("is the projects folder's shared repo" if os.path.realpath(top0) != os.path.realpath(folder)
+                        else "is not this project's own repo")
     meta = project._meta(folder)
     key = _key(meta.get("repo"))
     if (meta.get("source") not in OWN_SOURCES or not key or key != _key(shown)

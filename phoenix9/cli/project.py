@@ -128,13 +128,21 @@ def remove_(args) -> int:
                          f"Bring it back with: phoenix project import {args.name}")
 
 
+def _repo_mark(p: dict) -> str:
+    """' (will be deleted)' or ' (kept: <reason>)' after the GitHub repo in the plan ('' when there is no repo)."""
+    verdict = p.get("repo_delete") or {}
+    if not p.get("repo") or not verdict:
+        return ""
+    if verdict.get("delete"):
+        return " (will be deleted)"
+    return f" (kept: {verdict.get('reason') or verdict.get('why', '')})"
+
+
 def plan_text(p: dict) -> str:
     """The delete plan in plain English."""
     lines = [f"Deleting {p['name']} would remove:",
              f"  Folder: {p['folder']} ({_size(p['size'])})",
-             f"  GitHub repo: {p['repo'] or '(none)'}"]
-    if p["repo"] and p.get("repo_delete"):
-        lines.append(f"    {p['repo_delete']['why']}")
+             f"  GitHub repo: {p['repo'] or '(none)'}{_repo_mark(p)}"]
     if p.get("open_prs_note"):
         lines.append(f"    {p['open_prs_note']}")
     lines.append(f"  Open merge requests: {len(p['open_prs'])}")

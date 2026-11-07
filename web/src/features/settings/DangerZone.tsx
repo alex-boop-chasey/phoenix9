@@ -42,7 +42,11 @@ function PlanView({ plan }: { plan: DeletePlan }) {
         <li>Folder <code>{plan.folder}</code> ({formatBytes(plan.size)})</li>
         <li>
           {plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}
-          {plan.repo && plan.repo_delete ? <span className="help" data-testid="repo-verdict"> ({plan.repo_delete.why})</span> : null}
+          {plan.repo && plan.repo_delete ? (
+            <span className="help" data-testid="repo-verdict">
+              {plan.repo_delete.delete ? " (will be deleted)" : ` (kept: ${plan.repo_delete.reason ?? plan.repo_delete.why})`}
+            </span>
+          ) : null}
         </li>
         <li>
           {plan.open_prs.length ? plural(plan.open_prs.length, "open merge request", "open merge requests") : "No open merge requests"}

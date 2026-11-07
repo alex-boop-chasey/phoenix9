@@ -83,6 +83,10 @@ phoenix9/                      the Python package
   hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
+                               (full mode also has five agent lines: agent-unit, agent-session, agent-socket, agent-transcript, agent-folder,
+                               and `access`, the optional Cloudflare Access lock; a missing or empty transcript is a problem)
+  access.py                    who may use the API: allowed peer uids and the optional Cloudflare Access lock (section 8.5)
+  agentlink.py transcript.py   the Phoenix agent link: find the session, parse its transcript (section 8.6)
   images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
   stepproxy.py                 starts the key proxies a step's `proxy` key asks for (section 14)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
@@ -124,7 +128,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | --- | --- | --- | --- |
 | HOME | `/var/lib/phoenix9` | `PHOENIX_HOME` | everything below |
 | config | HOME/config | | `global.toml` (non-secret global settings; `proxy_ports = "47100-47199"` (key proxy port range, section 14); `[update]` table: `project = "phoenix9"`, `repo = "alex-boop-chasey/phoenix9"`, `tag_prefix = "v9."`, defaults when absent; read by `settings.read_global()`; `[dashboard]` table:
-`dashboard_url`, `allowed_origins`, `vscode_url` (section 5.5); `[[removed_projects]]` rows `name`, `path`, `repo`, `removed_on` for projects taken off Phoenix's list by `phoenix project remove`, section 3 of `docs/design/phase-4-5-project-list.md`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`, written once by `install.sh`, read by the API unit and by doctor, default
+`dashboard_url`, `allowed_origins`, `vscode_url` (section 5.5); `[access]` table: `peer_uids` (uids the API answers, default `[0]`), `team_domain` + `aud` (optional Cloudflare Access lock; section 8.5); `[[removed_projects]]` rows `name`, `path`, `repo`, `removed_on` for projects taken off Phoenix's list by `phoenix project remove`, section 3 of `docs/design/phase-4-5-project-list.md`), `services.toml` (which account services are connected: names only, never values), `api.env` (`PHOENIX_API_PORT=<port>`, written once by `install.sh`, read by the API unit and by doctor, default
 8095; `PHOENIX_API_ORIGINS=<origin>,<origin>`, written only from the `allowed_origins` setting, section 5.5), `doctor.json` (advisor availability, written by the doctor's `advisor` check, section 15) |
 | secrets | HOME/secrets (0700) | | `<name>.env` files, 0600: `claude.env`, `github.env`, `telegram.env`, `service-<name>.env` |
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
@@ -468,8 +472,8 @@ No address is hard-coded anywhere else. HOME/config/global.toml `[dashboard]`:
   lower-case host, IPv6 kept in brackets, no port when it is the default `:443` for https or `:80` for http),
   so the guard's plain string compare matches. Host names may only hold letters, digits, dots and dashes (or be
   an IP address); quotes, `\`, `*`, `%`, spaces and the entries `null` / `*` are refused. The API reads `PHOENIX_API_ORIGINS` (how api.env hands
-  the setting to the process) and falls back to the setting when it is unset; `/api/health` says which origins
-  the running API has, and the doctor's `origins` check compares them with the setting. A refused write says
+  the setting to the process) and falls back to the setting when it is unset; `/api/health` gives a digest of the origins
+  the running API has (not the origins themselves), and the doctor's `origins` check compares it with the setting. A refused write says
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
   Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
 - `vscode_url` (default empty = not set): the VS Code base address; project links are
@@ -718,13 +722,65 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - Stdlib `ThreadingHTTPServer` on 127.0.0.1 (port 8090 once installed). JSON under `/api/...`, the
   event stream at `/api/events` (server-sent events; each event's id = its line number in
   HOME/events.jsonl, so `Last-Event-ID` resumes), everything else = static files from `web/dist`.
-- Writes (POST/PUT/DELETE) need header `X-Phoenix: 1` and an `Origin` in the allowed origins
+- Writes (POST/PUT/DELETE/PATCH) need header `X-Phoenix: 1` and an `Origin` in the allowed origins
   (`PHOENIX_API_ORIGINS`, else the `allowed_origins` setting; section 5.5). Revealing a key is a POST for that reason.
+- Every request (any method, any route: reads, `/api/events`, `/api/agent/stream` and the web app's files too)
+  needs the far end of the TCP connection to be a process owned by an allowed uid: global.toml
+  `[access] peer_uids` (a non-empty list of uids, default `[0]` = root only; `write_peer_uids` is the older name
+  for the same setting; anything that is not such a list is ignored, root only, and doctor's `upstream` line says
+  so). The API asks the host adapter (`Host.socket_uid`, which reads `/proc/net/tcp` and `tcp6` for the socket
+  whose ends match the connection) and refuses any other owner (for example the `grunt` user or `nobody`) with a
+  plain 403, and refuses when the owner cannot be found. The dashboard's real traffic arrives through cloudflared
+  and code-server, which both run as root; doctor's `upstream` line reports the uid each runs as (found by
+  program name in `/proc/*/cmdline`, `Host.program_uids`) and fails when one is not allowed. The only exception is
+  `GET /api/health` (exact path, GET only): any local program may call it (doctor, the updater's health check
+  through doctor, `phoenix service restart`), and it shows only `version`, `tag` and `origins_digest`. The CLI and
+  the updater otherwise never go through the API (they call ops directly).
+- Optional second lock: when global.toml has both `[access] team_domain` (e.g. `rebirth.cloudflareaccess.com`)
+  and `aud` (the Access application's audience tag), writes also need a valid Cloudflare Access token in
+  `Cf-Access-Jwt-Assertion` (`phoenix9/access.py`): RS256 checked with the standard library alone
+  (RSASSA-PKCS1-v1_5 / SHA-256), keys from `https://<team_domain>/cdn-cgi/access/certs` kept for an hour
+  (fetched again early, at most once a minute, for an unknown key id), `aud`, `exp` and `nbf` checked with 30 s
+  leeway, `iss` (when present) must be `https://<team_domain>`. Set it by editing global.toml; doctor's
+  `access` line reports it off, on, or half set up (a problem). When on it covers every request (reads and the
+  web app's files too) except `GET /api/health`, so the dashboard only works through the Access address.
+- At start (`phoenix` main and `make_server`) every saved secret (the global `secrets/*.env` files and every
+  project's secret keys) is loaded into the scrubber, so transcript excerpts and logs never show them.
 - The web app uses hash routes (`#/`, `#/new`, `#/p/<name>/<tab>`, `#/settings`) and relative asset
   and API paths, so it works behind code-server's `/proxy/<port>/` prefix.
 - Endpoints and the ops function behind each are listed in `docs/api.md` (written in phase 3 step 1).
 - The wizard's "remember these" writes its answers into the project's phoenix.toml (preset, steps
   on/off, per-step ai settings, max_tries, on_failure, merge, deploy); "notifications" = `steps.notify.on`.
+
+## 8.6 The Phoenix agent link (`phoenix9/agentlink.py`, `transcript.py`, `api/stream.py`)
+
+- **Finding the session**: `find()` reads Claude's registry `/root/.claude/sessions/<pid>.json` (never the
+  `*.key` peer files or Claude's login file; a test checks). A session counts when its cwd is the agent folder,
+  its pid is alive and its inbox socket sits directly in `/tmp/cc-socks-0` (no `..`, no sub-folder). With more
+  than one, the choice is stable: the agent unit's main process or its direct child (`systemctl show -p
+  MainPID`; claude remote-control runs sessions as children), else the session picked last time while it is
+  alive, else the oldest (`startedAt`). Sessions named "Phoenix agent" come before others.
+- **Transcript path**: `/root/.claude/projects/<folder>/<session>.jsonl`, where `<folder>` is the *real* path of
+  the working folder (symlinks resolved: `/srv/projects` points into Docker's storage) with every character
+  that is not a letter or digit replaced by `-` (Claude Code's rule; e.g. `-var-lib-docker-volumes-phoenix-cache--data-projects-home`).
+  The session id must be a UUID before it is put in a path.
+- **Parser**: `transcript.Parser` keeps its state between `feed()` calls (the stream feeds only new lines);
+  `parse()` is one feed. Claude Code's bookkeeping lines (attachment, atis-latch, last-prompt, custom-title,
+  agent-name, mode, summary, file-history-*, api-request*, pr-link, bridge-session, ai-title, tools-used,
+  frame-link, cost-state, permission-mode, artifact-*) are known and ignored, as are system hook summaries and
+  turn timings. Only `queue-operation` enqueue makes a queued item; dequeue (oldest) and remove (same text)
+  clear it. Each line is parsed in its own try/except: an odd line counts as unknown and is rolled back.
+  `tests/fixtures/agent-transcript-real.jsonl` is a sanitised copy of real transcripts (text replaced by
+  placeholders); its unknown rate must stay under 2 %.
+- **Sending**: the panel context is cleaned first: `project` only when it is a listed project, `page`/`run`
+  only when they match `[A-Za-z0-9/_.-]{1,80}`, newlines stripped; the folder line is `/srv/projects/<project>`
+  or the agent folder, nothing else.
+- **Brief** (`phoenix agent brief`): project and NOW.md lines cut to 120 characters, the whole text at most 7,900
+  (projects dropped from the end first, as "N more projects", then NOW.md lines).
+- **Watchdog** (`agentwatch.py`): two bad checks in a row restart the unit (then the count starts again, and
+  10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
+  `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
+  `phoenix agent restart --yes` restarts it by hand.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
@@ -751,7 +807,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - The dashboard's Reveal button (behind the code-server login) is the only way to see a saved
   secret value; the CLI has no reveal.
 - Values are never printed by any command (`phoenix keys` shows `••••••`), never passed on a command
-  line (read from stdin or a file), never logged. `scrub.py` redacts every known secret value.
+  line (read from stdin or a file), never logged. `scrub.py` redacts every known secret value, plus the shapes of common unregistered secrets
+  (sk-ant-, GitHub token prefixes, PEM private keys) and `NAME=value` / `NAME: value` where one part of the name
+  (split on `_ - .`, case changes and digits) is key(s), token(s), secret(s), password(s), passwd or pwd, or the
+  name is one of a few joined forms such as `apikey` or `accesstoken`: `API_KEY`, `apiKey`, `GITHUB_TOKEN` and
+  `db-password` are masked, `monkey`, `turkey` and `keyboard` are not.
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 
@@ -759,7 +819,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
    exception: the `delegate` failure mode starts a headless Claude session in the project folder with
    full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
    It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
-   is the only place in phoenix9 that starts Claude on the host.
+   is the only place in phoenix9 that starts Claude on the host, and the only place that restarts the
+   Phoenix agent's service (`agent_restart`, a `systemctl restart` of the `agent.unit` setting, used by the
+   watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
+   memory in `logs/agent-watch.json`).
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -1070,7 +1133,8 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | `services` | `systemctl is-active phoenix-api phoenix-runner` (host adapter) | yes | yes | yes |
 | `service-home` | "services: HOME set": for phoenix-api and phoenix-runner, `systemctl show -p MainPID --value` then `/proc/<pid>/environ` (host adapter `read_text`); a stopped service is judged by `systemctl show -p Environment --value`. PROBLEM when HOME is missing or the environment cannot be read; the fix is `Environment=HOME=/root` in the unit, `systemctl daemon-reload`, restart | yes | | yes |
 | `api` | GET `127.0.0.1:<PHOENIX_API_PORT from HOME/config/api.env, default 8095>/api/health` is 200; in `for-update` its `tag` is one of the `v9.<n>` tags at the installed copy's HEAD | yes | yes (tag) | yes |
-| `origins` | the `origins` the running API reports in `/api/health` match the `allowed_origins` setting (section 5.5); fix: `phoenix service restart api --yes` | yes | | yes |
+| `origins` | the `origins_digest` the running API reports in `/api/health` matches the digest of the `allowed_origins` setting (an older API's `origins` list is compared as it is; section 5.5); fix: `phoenix service restart api --yes` | yes | | yes |
+| `upstream` | every running `cloudflared` and `code-server` process (what sits in front of the dashboard) runs as a uid in `[access] peer_uids` (default `[0]`), and that setting is valid; passes with a note when neither is running; fix: run it as root or add its uid to `peer_uids` (section 8.5) | yes | | yes |
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
 | `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
 | `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |

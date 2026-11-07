@@ -14,9 +14,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
+from phoenix9.ops import agent as ops_agent, app, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
+MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
@@ -73,6 +74,45 @@ def refusal(headers) -> str:
             "settings > Dashboard addresses (or run `phoenix settings global set allowed_origins=...`).")
 
 
+NOT_ROOT = ("Refused: this request came from a program on the server that isn't run by root (or another user "
+            "Phoenix allows).")
+PEER_UNKNOWN = "Refused: Phoenix couldn't tell which program on the server sent this request."
+NO_ACCESS = "Refused: Phoenix needs a Cloudflare Access sign-in. Open the dashboard through its Access address."
+WRITE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
+
+
+OPEN_PATHS = ("/api/health",)   # answered for any local program, with no Access token: the doctor, the updater and
+                                # `phoenix service restart` call it; it shows only the version, tag and an origins digest
+
+
+def peer_refusal(handler) -> str:
+    """'' when the far end of the connection is a process run by an allowed uid (access.peer_uids, default root:
+    cloudflared and code-server run as root); else the plain refusal. The owner is looked up through the host
+    adapter (/proc/net/tcp on the real host)."""
+    try:
+        uid = app.write_peer_uid(handler.client_address, handler.connection.getsockname())
+    except Exception:
+        api_log(traceback.format_exc())
+        uid = None
+    if uid is None:
+        return PEER_UNKNOWN
+    try:
+        allowed = app.allowed_peer_uids()
+    except Exception:
+        api_log(traceback.format_exc())
+        allowed = [0]
+    return "" if uid in allowed else NOT_ROOT
+
+
+def access_refusal(headers) -> str:
+    """'' when the optional Cloudflare Access lock is off or the request carries a valid token; else the refusal."""
+    why = app.access_lock_problem(headers.get("Cf-Access-Jwt-Assertion"))
+    if why is None:
+        return ""
+    api_log(f"request refused by the Access lock: {why}")
+    return NO_ACCESS
+
+
 def api_log(text: str) -> None:
     """Append one scrubbed line to HOME/logs/api.log (never fails the request)."""
     try:
@@ -116,9 +156,11 @@ def get_info(req):
 
 
 def get_health(req):
-    """Reply that the server is up (version and tag only; no ops call that can fail)."""
+    """Reply that the server is up: version, tag and a digest of the allowed origins only (any local program may
+    ask, so nothing else; no ops call that can fail)."""
     import phoenix9
-    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag, "origins": allowed_origins()}
+    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag,
+            "origins_digest": app.origins_digest(allowed_origins())}
 
 
 def get_update(req):
@@ -304,6 +346,24 @@ def get_services(req):
 def get_keys_audit(req):
     """Reply with the keys audit (names and problems only)."""
     return keys.audit()
+
+
+def get_agent(req):
+    """Reply with the Phoenix agent's state."""
+    return ops_agent.status()
+
+
+def get_agent_messages(req):
+    """Reply with panel items after a line number."""
+    after, limit = int_param(req, "after", 0), int_param(req, "limit", 100)
+    if after < 0 or limit < 0:
+        raise BadRequest("'after' and 'limit' should not be negative.")
+    return ops_agent.messages(after, min(limit, 1000))
+
+
+def get_agent_sessions(req):
+    """Reply with the agent's earlier conversations."""
+    return ops_agent.sessions()
 
 
 # ---- POST handlers: check the shape of the body, call one ops function ----
@@ -743,6 +803,11 @@ def post_global_models(req):
         return app.set_default_models(steps, who=WHO)
 
 
+def post_agent_send(req):
+    """Send a message to the Phoenix agent (503 when it is asleep, 400 when too long)."""
+    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO)
+
+
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -769,6 +834,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
+    ("GET", r"/api/agent", get_agent),
+    ("GET", r"/api/agent/messages", get_agent_messages),
+    ("GET", r"/api/agent/sessions", get_agent_sessions),
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/gates", get_gates),
@@ -787,6 +855,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/services", get_services),
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
+    ("POST", r"/api/agent/send", post_agent_send),
     ("POST", r"/api/projects", post_create),
     ("POST", r"/api/import", post_import),
     ("POST", rf"/api/projects/{NAME}/remove", post_remove),
@@ -827,7 +896,8 @@ def find_route(method: str, path: str):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """One request: guard (POST), body (POST), route, reply, log."""
+    """One request: guard (every route but GET /api/health: allowed peer uid, optional Access token; writes also
+    the header and origin), body, route, reply, log."""
     server_version = "phoenix-api"
 
     # ported from reference/selector/selector/server.py:119 (send_json)
@@ -855,6 +925,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.handle_request("POST")
 
+    def do_PUT(self):
+        self.handle_request("PUT")
+
+    def do_DELETE(self):
+        self.handle_request("DELETE")
+
+    def do_PATCH(self):
+        self.handle_request("PATCH")
+
     def handle_request(self, method):
         started = time.monotonic()
         url = urlsplit(self.path)
@@ -878,13 +957,21 @@ class Handler(BaseHTTPRequestHandler):
         api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
 
     def dispatch(self, method):
-        if method == "POST":
+        if not (method == "GET" and self.path_only.rstrip("/") in OPEN_PATHS):
+            why = peer_refusal(self) or access_refusal(self.headers)
+            if why:
+                self.close_connection = True  # don't read a body we refuse
+                return self.fail(403, why)
+        if method in WRITE_METHODS:
             if not self.guard_ok():
+                self.close_connection = True
                 return self.fail(403, refusal(self.headers))
             if self.read_body() is None:
                 return
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":
             return stream.serve(self)
+        if method == "GET" and self.path_only.rstrip("/") == "/api/agent/stream":
+            return stream.serve(self, stream.agent_stream)
         route = find_route(method, self.path_only)
         if route is None:
             if method == "GET" and not self.path_only.startswith("/api/"):
@@ -904,6 +991,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(409, {"ok": False, "message": str(err), "needs_force": True, "would_lose": err.lost})
         except common.Conflict as err:
             self.fail(409, str(err))
+        except common.Unavailable as err:
+            self.fail(503, str(err))
         except common.OpsError as err:
             self.fail(400, str(err))
 
@@ -918,7 +1007,8 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        if length < 0 or length > MAX_BODY:
+        limit = MAX_AGENT_BODY if self.path_only.rstrip("/") == "/api/agent/send" else MAX_BODY
+        if length < 0 or length > limit:
             self.close_connection = True  # don't read a body we refuse
             self.fail(400, "The request was too big.")
             return None
@@ -961,6 +1051,7 @@ def make_server(port: int, host: str = "127.0.0.1", web_dist=None) -> ThreadingH
     """Build the API server on 127.0.0.1 (not started); `host` may only say localhost."""
     if host not in ("127.0.0.1", "localhost"):
         raise ValueError("The API only listens on 127.0.0.1.")
+    keys.load_secrets()                   # transcript excerpts and logs never show a saved secret
     httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     httpd.daemon_threads = True
     httpd.write_lock = threading.Lock()   # one write at a time

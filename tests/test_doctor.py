@@ -6,7 +6,7 @@ from collections import namedtuple
 
 import pytest
 
-from phoenix9 import claude, doctor, paths
+from phoenix9 import addresses, claude, doctor, paths
 from phoenix9.__main__ import main
 
 PROBE_OK = ("blocked ip-blocked anthropic=200 cannot-flush no-sudo v6-blocked dns-allowed-ok dns-random-blocked "
@@ -34,6 +34,27 @@ def tag_install(adapters, tag="v9.1"):
         subprocess.run(["git", *argv], cwd=inst, check=True, env=env)
 
 
+AGENT_SOCK = "/tmp/cc-socks-0/x.sock"
+AGENT_FOLDER = "/srv/projects/home"
+AGENT_SID = "aaaaaaaa-1111-4111-8111-111111111111"
+AGENT_TRANSCRIPT = "/root/.claude/projects/-srv-projects-home/%s.jsonl" % AGENT_SID
+
+
+def healthy_agent(h):
+    """Fake a running agent: session entry, private socket (folder 0700, socket 0600), clean transcript, set-up folder."""
+    h.pids.add(77)
+    h.files["/root/.claude/sessions/77.json"] = json.dumps({
+        "pid": 77, "cwd": AGENT_FOLDER, "name": "Phoenix agent", "status": "idle",
+        "messagingSocketPath": AGENT_SOCK, "kind": "interactive", "sessionId": AGENT_SID})
+    h.files[AGENT_SOCK] = ""
+    h.stats["/tmp/cc-socks-0"] = {"mode": 0o700, "uid": 0}
+    h.stats[AGENT_SOCK] = {"mode": 0o600, "uid": 0}
+    h.files[AGENT_TRANSCRIPT] = "".join(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n"
+                                        for _ in range(20))
+    h.files[f"{AGENT_FOLDER}/CLAUDE.md"] = "x"
+    h.files[f"{AGENT_FOLDER}/.claude/settings.json"] = "{}"
+
+
 @pytest.fixture
 def healthy(adapters, phoenix_env, monkeypatch):
     """Healthy fakes: services up, API answers, HOME laid out, image built, probe and session succeed."""
@@ -55,12 +76,14 @@ def healthy(adapters, phoenix_env, monkeypatch):
         host.files[f"/proc/{pid}/environ"] = "PATH=/usr/bin\0HOME=/root\0PHOENIX_HOME=/var/lib/phoenix9\0"
     host.script(["df"], 0, "    Avail\n 90000000000\n")
     adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
-                         body=b'{"ok": true, "tag": "v9.1", "origins": ["https://phoenix.rebirthwebdesign.com.au"]}')
+                         body=json.dumps({"ok": True, "tag": "v9.1", "origins_digest": addresses.origins_digest(
+                             ["https://phoenix.rebirthwebdesign.com.au"])}).encode())
     adapters.docker.images[IMAGE] = {}
     adapters.docker.outputs[:] = [PROBE_OK, session_log()]
     Usage = namedtuple("Usage", "total used free")
     monkeypatch.setattr(doctor.shutil, "disk_usage", lambda p: Usage(10**12, 0, 50 * doctor.GB))
     tag_install(adapters)
+    healthy_agent(adapters.host)
     return adapters
 
 
@@ -123,10 +146,32 @@ def _break_updater(a, home):
     a.host.script(["systemctl", "cat"], 1, "", "no such unit")
 
 
+def _break_agent_unit(a, home):
+    a.host.script(["systemctl", "is-active", "claude-rc@home"], 3, "inactive\n")
+
+
+def _break_agent_session(a, home):
+    a.host.pids.clear()
+
+
+def _break_agent_socket(a, home):
+    a.host.stats[AGENT_SOCK] = {"mode": 0o666, "uid": 0}
+
+
+def _break_agent_transcript(a, home):
+    a.host.files[AGENT_TRANSCRIPT] += "not json\n" * 5
+
+
+def _break_agent_folder(a, home):
+    del a.host.files[f"{AGENT_FOLDER}/CLAUDE.md"]
+
+
 @pytest.mark.parametrize("check,breaker", [
     ("services", _break_services), ("api", _break_api), ("home", _break_home), ("secrets", _break_secrets),
     ("images", _break_images), ("firewall", _break_firewall), ("claude", _break_claude),
-    ("disk", _break_disk), ("updater", _break_updater), ("service-home", _break_service_home)])
+    ("disk", _break_disk), ("updater", _break_updater), ("service-home", _break_service_home),
+    ("agent-unit", _break_agent_unit), ("agent-session", _break_agent_session), ("agent-socket", _break_agent_socket),
+    ("agent-transcript", _break_agent_transcript), ("agent-folder", _break_agent_folder)])
 def test_each_check_failure_reported_with_fix(healthy, phoenix_env, check, breaker):
     breaker(healthy, phoenix_env["home"])
     data = doctor.run_checks(healthy, "full")
@@ -158,7 +203,7 @@ def test_for_update_mode_runs_no_claude_session_and_checks_version(healthy):
 
 def test_quick_mode_subset(healthy):
     data = doctor.run_checks(healthy, "quick")
-    assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "home",
+    assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "upstream", "home",
                                                      "secrets", "disk"]
     assert healthy.docker.argvs == [] and healthy.proxy.started == []
 
@@ -340,6 +385,57 @@ def test_api_check_reads_the_tag_inside_the_api_reply(adapters, monkeypatch):
     assert ok and "API runs v9.1" in detail
 
 
+def agent_check(a, name):
+    return by_name(doctor.run_checks(a, "full"))[name]
+
+
+def test_agent_checks_pass_and_are_in_full_mode(healthy):
+    names = ("agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder")
+    assert all(n in doctor.CHECKS_BY_MODE["full"] for n in names)
+    assert all(agent_check(healthy, n)["ok"] for n in names)
+
+
+def test_agent_unit_inactive_fails_with_fix(healthy):
+    healthy.host.script(["systemctl", "is-active", "claude-rc@home"], 3, "inactive\n")
+    c = agent_check(healthy, "agent-unit")
+    assert not c["ok"] and "inactive" in c["detail"] and "systemctl start" in c["fix"]
+
+
+def test_agent_session_missing_fails_with_fix(healthy):
+    healthy.host.pids.clear()
+    c = agent_check(healthy, "agent-session")
+    assert not c["ok"] and c["fix"]
+
+
+@pytest.mark.parametrize("path,mode,uid,word", [
+    ("/tmp/cc-socks-0", 0o755, 0, "0755"), (AGENT_SOCK, 0o666, 0, "0666"), (AGENT_SOCK, 0o600, 1000, "root")])
+def test_agent_socket_wrong_mode_or_owner_fails(healthy, path, mode, uid, word):
+    healthy.host.stats[path] = {"mode": mode, "uid": uid}
+    c = agent_check(healthy, "agent-socket")
+    assert not c["ok"] and word in c["detail"] and "chmod" in c["fix"]
+
+
+def test_agent_socket_without_session_fails(healthy):
+    healthy.host.pids.clear()
+    assert not agent_check(healthy, "agent-socket")["ok"]
+
+
+def test_agent_transcript_parse_rate(healthy):
+    bad = healthy.host.files[AGENT_TRANSCRIPT] + "not json\n" * 5
+    healthy.host.files[AGENT_TRANSCRIPT] = bad
+    c = agent_check(healthy, "agent-transcript")
+    assert not c["ok"] and "unknown" in c["detail"] and c["fix"]
+    healthy.host.files[AGENT_TRANSCRIPT] = healthy.host.files[AGENT_TRANSCRIPT].replace("not json\n", "", 4)
+    assert agent_check(healthy, "agent-transcript")["ok"]    # 1 of 21 lines is under 5 %
+
+
+@pytest.mark.parametrize("missing", ["CLAUDE.md", ".claude/settings.json"])
+def test_agent_folder_missing_files_fail(healthy, missing):
+    del healthy.host.files[f"{AGENT_FOLDER}/{missing}"]
+    c = agent_check(healthy, "agent-folder")
+    assert not c["ok"] and missing in c["detail"] and c["fix"]
+
+
 def test_service_home_reads_each_running_service_environment(healthy):
     check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
     assert check["ok"] and "HOME" in check["detail"]
@@ -370,3 +466,66 @@ def test_service_home_unreadable_environment_is_a_problem(healthy):
     del healthy.host.files["/proc/101/environ"]
     check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
     assert not check["ok"] and "could not read phoenix-api's environment" in check["detail"]
+
+
+@pytest.mark.parametrize("content", [None, "", "\n\n"])
+def test_agent_transcript_missing_or_empty_is_not_a_pass(healthy, content):
+    """A transcript that is not there (wrong folder rule) or has nothing in it must not read as healthy."""
+    if content is None:
+        del healthy.host.files[AGENT_TRANSCRIPT]
+    else:
+        healthy.host.files[AGENT_TRANSCRIPT] = content
+    c = agent_check(healthy, "agent-transcript")
+    assert not c["ok"] and AGENT_TRANSCRIPT in c["detail"] and c["fix"]
+
+
+# ---- the program in front of the dashboard runs as an allowed uid ----
+
+def test_upstream_check_passes_when_cloudflared_runs_as_root(healthy):
+    healthy.host.programs = {"cloudflared": [0], "code-server": [0]}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "cloudflared runs as uid 0" in c["detail"] and "code-server runs as uid 0" in c["detail"]
+    assert "upstream" in doctor.CHECKS_BY_MODE["quick"] and "upstream" in doctor.CHECKS_BY_MODE["full"]
+
+
+def test_upstream_check_fails_when_cloudflared_runs_as_another_user(healthy):
+    healthy.host.programs = {"cloudflared": [997]}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert not c["ok"] and "cloudflared runs as uid 997" in c["detail"] and "not allowed" in c["detail"]
+    assert "access.peer_uids" in c["fix"]
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "config" / "global.toml").write_text("[access]\npeer_uids = [0, 997]\n")
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "997" in c["detail"]
+
+
+def test_upstream_check_with_nothing_running_says_so(healthy):
+    healthy.host.programs = {}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "cloudflared is not running" in c["detail"]
+
+
+def test_upstream_check_reports_a_wrong_peer_uids_setting(healthy):
+    healthy.host.programs = {"cloudflared": [0]}
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "config" / "global.toml").write_text('[access]\npeer_uids = "root"\n')
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert not c["ok"] and "peer_uids" in c["detail"] and c["fix"]
+
+
+def test_host_program_uids_reads_proc(tmp_path):
+    """The real host finds processes by program name (argv[0], or argv[1] for an interpreter) and their uid."""
+    from phoenix9 import adapters as real
+    for pid, argv, uid in ((10, ["/usr/bin/cloudflared", "tunnel"], 0),
+                           (11, ["/usr/lib/code-server/lib/node", "/usr/lib/code-server"], 0),
+                           (12, ["/usr/bin/cloudflared"], 997),
+                           (13, ["/bin/bash", "-c", "cloudflared"], 1000)):
+        d = tmp_path / str(pid)
+        d.mkdir()
+        (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        (d / "status").write_text(f"Name:\tx\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
+    (tmp_path / "self").mkdir()
+    host = real.Host()
+    assert host.program_uids("cloudflared", proc=str(tmp_path)) == [0, 997]
+    assert host.program_uids("code-server", proc=str(tmp_path)) == [0]
+    assert host.program_uids("nginx", proc=str(tmp_path)) == []

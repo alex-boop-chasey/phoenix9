@@ -120,3 +120,29 @@ def test_services_test_cli(adapters, monkeypatch, capsys):
     ops.connect("resend", {"RESEND_API_KEY": SECRET}, who="t", check=False)
     assert main(["services", "test", "resend"]) == 0
     assert "the key works" in capsys.readouterr().out
+
+
+DEFAULT_AGENT = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
+
+
+def _global(tmp_path, monkeypatch, text):
+    monkeypatch.setenv("PHOENIX_HOME", str(tmp_path))
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "global.toml").write_text(text)
+
+
+def test_agent_settings_defaults(tmp_path, monkeypatch):
+    _global(tmp_path, monkeypatch, "")
+    assert settings.agent_settings() == DEFAULT_AGENT
+
+
+def test_agent_settings_overrides(tmp_path, monkeypatch):
+    _global(tmp_path, monkeypatch, '[agent]\nfolder = "/tmp/x"\nunit = "u@y"\nwatchdog = false\n')
+    assert settings.agent_settings() == {"folder": "/tmp/x", "unit": "u@y", "watchdog": False}
+
+
+def test_agent_settings_broken_values_fall_back(tmp_path, monkeypatch):
+    _global(tmp_path, monkeypatch, '[agent]\nfolder = 5\nunit = ""\nwatchdog = "no"\n')
+    assert settings.agent_settings() == DEFAULT_AGENT
+    _global(tmp_path, monkeypatch, 'agent = "oops"\n')
+    assert settings.agent_settings() == DEFAULT_AGENT

@@ -1,4 +1,5 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
+import ipaddress
 import os
 import subprocess
 import time
@@ -11,6 +12,27 @@ from typing import Any
 from phoenix9.docker import DockerRunner
 
 NOTIFY_MAX = 600
+TCP_TABLES = ("/proc/net/tcp", "/proc/net/tcp6")
+INTERPRETERS = ("node", "python3", "python")   # program_uids looks past these to the script they run
+
+
+def _proc_addr(text: str):
+    """(ip address, port) of one /proc/net/tcp address ('0100007F:1F9F'); IPv4-mapped IPv6 reads as IPv4."""
+    hexip, hexport = text.split(":")
+    raw = bytes.fromhex(hexip)
+    raw = b"".join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4))   # each 32-bit word is little-endian
+    ip = ipaddress.ip_address(raw)
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip, int(hexport, 16)
+
+
+def _norm(addr):
+    """(ip address, port) of a socket address tuple, with IPv4-mapped IPv6 as IPv4."""
+    ip = ipaddress.ip_address(addr[0].split("%")[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip, int(addr[1])
 DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 
 
@@ -51,6 +73,99 @@ class Host:
         if rc != 0 or not out.split():
             return 0
         return int(out.split()[0])
+
+    def list_dir(self, path) -> list[str]:
+        """List the names in a folder ([] when it is missing or unreadable)."""
+        try:
+            return os.listdir(path)
+        except OSError:
+            return []
+
+    def exists(self, path) -> bool:
+        """Say whether a path exists."""
+        return os.path.exists(path)
+
+    def pid_alive(self, pid) -> bool:
+        """Say whether a process with this id is running."""
+        try:
+            os.kill(int(pid), 0)
+        except PermissionError:
+            return True      # it is there, just not ours to signal
+        except (ProcessLookupError, ValueError, OverflowError, TypeError):
+            return False
+        return True
+
+    def socket_uid(self, local, remote, tables=TCP_TABLES) -> int | None:
+        """The uid owning the TCP socket whose own end is `local` and far end is `remote` (address tuples),
+        read from /proc/net/tcp and tcp6; None when there is no such socket or more than one owner."""
+        want = (_norm(local), _norm(remote))
+        uids = set()
+        for table in tables:
+            try:
+                rows = open(table, encoding="ascii").read().splitlines()[1:]
+            except OSError:
+                continue
+            for row in rows:
+                parts = row.split()
+                try:
+                    if (_proc_addr(parts[1]), _proc_addr(parts[2])) == want:
+                        uids.add(int(parts[7]))
+                except (IndexError, ValueError):
+                    continue
+        return uids.pop() if len(uids) == 1 else None
+
+    def program_uids(self, name: str, proc: str = "/proc") -> list[int]:
+        """The effective uids of running processes of a program (sorted, no repeats): those whose argv[0], or
+        argv[1] when argv[0] is an interpreter such as node, has the base name `name`."""
+        uids = set()
+        try:
+            pids = [p for p in os.listdir(proc) if p.isdigit()]
+        except OSError:
+            return []
+        for pid in pids:
+            try:
+                argv = Path(proc, pid, "cmdline").read_bytes().split(b"\0")
+                status = Path(proc, pid, "status").read_text(errors="replace")
+            except OSError:
+                continue
+            names = [os.path.basename(a.decode(errors="replace")) for a in argv[:2] if a]
+            if name not in names[:1] and not (len(names) == 2 and names[0] in INTERPRETERS and names[1] == name):
+                continue
+            for line in status.splitlines():
+                if line.startswith("Uid:"):
+                    try:
+                        uids.add(int(line.split()[2]))
+                    except (IndexError, ValueError):
+                        pass
+                    break
+        return sorted(uids)
+
+    def parent_pid(self, pid) -> int | None:
+        """The parent process id of a process (None when it is gone or cannot be read)."""
+        try:
+            stat = Path(f"/proc/{int(pid)}/stat").read_text()
+            return int(stat.rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    def realpath(self, path) -> str:
+        """The path with every symlink resolved (the path itself when it cannot be resolved)."""
+        return os.path.realpath(path)
+
+    def stat(self, path) -> dict | None:
+        """Return {mode, uid, mtime} of a path, or None when it is missing."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return {"mode": st.st_mode & 0o7777, "uid": st.st_uid, "mtime": st.st_mtime}
+
+    def read_lines(self, path) -> list[str]:
+        """Read a text file as lines ([] when it is missing)."""
+        try:
+            return Path(path).read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        except OSError:
+            return []
 
 
 class Clock:

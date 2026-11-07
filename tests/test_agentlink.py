@@ -1,0 +1,411 @@
+"""Tests for finding the agent session and its state."""
+import json
+
+from phoenix9 import agentlink
+from tests.fakes import FakeHost
+
+HOME = "/root/.claude"
+FOLDER = "/srv/projects/home"
+SOCK = "/tmp/cc-socks-0/a.sock"
+SID = "0feb0729-478d-4dc7-879a-b3fe804f3466"
+SID_OLD = "11111111-2222-4333-8444-555555555555"
+SID_NEW = "99999999-8888-4777-8666-555555555555"
+
+
+def session(host, pid, alive=True, cwd=FOLDER, name="Phoenix agent", status="idle", sock=SOCK,
+            sid=SID, mtime=None, **extra):
+    """Register a session file (and a live pid and socket) in the fake host."""
+    data = {"pid": pid, "cwd": cwd, "name": name, "status": status, "messagingSocketPath": sock,
+            "kind": "interactive", "sessionId": sid, **extra}
+    data = {k: v for k, v in data.items() if v is not None}
+    host.files["%s/sessions/%d.json" % (HOME, pid)] = json.dumps(data)
+    host.files["%s/sessions/%d.abc.key" % (HOME, pid)] = '{"peerToken": "x"}'
+    if mtime is not None:
+        host.stats["%s/sessions/%d.json" % (HOME, pid)] = {"mode": 0o600, "uid": 0, "mtime": mtime}
+    if alive:
+        host.pids.add(pid)
+    if sock:
+        host.files[sock] = ""
+
+
+def put_transcript(host, lines, sid=SID):
+    """Write transcript lines where find() will look for them."""
+    host.files[agentlink.transcript_path(HOME, FOLDER, sid, host)] = "\n".join(json.dumps(x) for x in lines) + "\n"
+
+
+def test_none():
+    assert agentlink.find(HOME, FakeHost()) is None
+    assert agentlink.status(HOME, FakeHost())["state"] == "asleep"
+
+
+def test_dead_pid():
+    h = FakeHost()
+    session(h, 10, alive=False)
+    assert agentlink.find(HOME, h) is None
+
+
+def test_missing_socket():
+    h = FakeHost()
+    session(h, 10)
+    del h.files[SOCK]
+    assert agentlink.find(HOME, h) is None
+
+
+def test_wrong_folder():
+    h = FakeHost()
+    session(h, 10, cwd="/srv/projects/other")
+    assert agentlink.find(HOME, h) is None
+
+
+def test_found_fields():
+    h = FakeHost()
+    session(h, 10, status="busy")
+    assert agentlink.find(HOME, h) == {
+        "pid": 10, "session_id": SID, "name": "Phoenix agent", "socket": SOCK,
+        "transcript": "/root/.claude/projects/-srv-projects-home/%s.jsonl" % SID, "status": "busy"}
+
+
+def test_transcript_encoding():
+    """Claude Code's rule: every character that is not a letter or digit becomes '-'."""
+    assert agentlink.transcript_path(HOME, "/a/b.c/d_e f", "s") == "/root/.claude/projects/-a-b-c-d-e-f/s.jsonl"
+    assert agentlink.encode_folder("/var/lib/docker/volumes/phoenix-cache/_data/projects/home") == \
+        "-var-lib-docker-volumes-phoenix-cache--data-projects-home"
+
+
+def test_transcript_uses_the_real_path_of_the_folder():
+    """/srv/projects is a symlink on the server: the transcript folder is named after where it really points."""
+    h = FakeHost()
+    h.realpaths[FOLDER] = "/var/lib/docker/volumes/phoenix-cache/_data/projects/home"
+    session(h, 10)
+    assert agentlink.find(HOME, h)["transcript"] == \
+        "/root/.claude/projects/-var-lib-docker-volumes-phoenix-cache--data-projects-home/%s.jsonl" % SID
+
+
+def test_named_wins_over_newer():
+    h = FakeHost()
+    session(h, 10, name="Phoenix agent", sid=SID_OLD, mtime=1)
+    session(h, 11, name="other", sid=SID_NEW, mtime=9, sock="/tmp/cc-socks-0/b.sock")
+    assert agentlink.find(HOME, h)["pid"] == 10
+
+
+def test_oldest_when_unnamed():
+    """Without the unit's main process to go by, the session that started first wins (not the newest file)."""
+    h = FakeHost()
+    session(h, 10, name="x", mtime=9, startedAt=100)
+    session(h, 11, name="y", mtime=1, startedAt=200, sock="/tmp/cc-socks-0/b.sock")
+    assert agentlink.find(HOME, h)["pid"] == 10
+
+
+def two_agents(h):
+    session(h, 10, sid=SID_OLD, mtime=1, startedAt=100)
+    session(h, 11, sid=SID_NEW, mtime=9, startedAt=200, sock="/tmp/cc-socks-0/b.sock")
+
+
+def test_unit_main_pid_wins():
+    h = FakeHost()
+    two_agents(h)
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "11\n")
+    assert agentlink.find(HOME, h)["pid"] == 11
+
+
+def test_child_of_the_unit_main_pid_wins():
+    """claude remote-control (the unit's main process) runs each session as its child."""
+    h = FakeHost()
+    two_agents(h)
+    h.parents[11] = 500
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "500\n")
+    assert agentlink.find(HOME, h)["pid"] == 11
+
+
+def test_choice_does_not_flip_while_both_live():
+    """Registry rewrites (mtime changes) and a lost MainPID never move the choice while it is alive."""
+    h = FakeHost()
+    two_agents(h)
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "11\n")
+    assert agentlink.find(HOME, h)["pid"] == 11
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "0\n")
+    for mtime in (50, 1, 99):
+        h.stats["%s/sessions/10.json" % HOME] = {"mode": 0o600, "uid": 0, "mtime": mtime}
+        assert agentlink.find(HOME, h)["pid"] == 11
+    h.pids.discard(11)
+    assert agentlink.find(HOME, h)["pid"] == 10
+
+
+def test_single_session_needs_no_systemctl():
+    h = FakeHost()
+    session(h, 10)
+    agentlink.find(HOME, h)
+    assert not h.calls
+
+
+def test_missing_keys():
+    h = FakeHost()
+    session(h, 10, name=None, status=None, sid=None, kind=None, mystery=1)
+    found = agentlink.find(HOME, h)
+    assert found["name"] is None and found["status"] is None and found["transcript"] is None
+    assert agentlink.status(HOME, h)["state"] == "idle"
+
+
+def test_status_busy_and_idle():
+    h = FakeHost()
+    session(h, 10, status="busy")
+    assert agentlink.status(HOME, h)["state"] == "working"
+    session(h, 10, status="idle")
+    assert agentlink.status(HOME, h) == {"state": "idle", "pid": 10, "session_id": SID,
+                                         "name": "Phoenix agent"}
+
+
+def test_status_running_action():
+    h = FakeHost()
+    session(h, 10)
+    put_transcript(h, [{"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "sleep 9"}}]}}])
+    assert agentlink.status(HOME, h)["state"] == "working"
+
+
+def test_status_finished_action_is_idle():
+    h = FakeHost()
+    session(h, 10)
+    put_transcript(h, [
+        {"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "ls"}}]}},
+        {"type": "user", "message": {"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": "ok", "is_error": False}]}}])
+    assert agentlink.status(HOME, h)["state"] == "idle"
+
+
+def test_status_queued():
+    h = FakeHost()
+    session(h, 10)
+    put_transcript(h, [
+        {"type": "user", "message": {"role": "user", "content": "first"}},
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"}])
+    assert agentlink.status(HOME, h)["state"] == "queued"
+    put_transcript(h, [
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"},
+        {"type": "user", "message": {"role": "user", "content": "second"}}])
+    assert agentlink.status(HOME, h)["state"] == "idle"
+
+
+# ---- sending ----
+import re
+import socket
+import threading
+
+import pytest
+
+
+@pytest.fixture
+def inbox(tmp_path, monkeypatch):
+    """A real Unix socket in tmp that records each line sent; agentlink.find points at it."""
+    home = tmp_path / "home"
+    (home / "config").mkdir(parents=True)
+    (home / "config" / "global.toml").write_text('[agent]\nfolder = "/srv/projects/homex"\n')
+    monkeypatch.setenv("PHOENIX_HOME", str(home))
+    from phoenix9 import paths
+    (paths.projects() / "alpha").mkdir(parents=True)
+    (paths.projects() / "alpha" / "CLAUDE.md").write_text("# alpha\n")     # a listed project
+    tr = tmp_path / "t.jsonl"
+    tr.write_text('{"type":"user"}\n' * 3)
+    path = str(tmp_path / "s.sock")
+    srv = socket.socket(socket.AF_UNIX)
+    srv.bind(path)
+    srv.listen(5)
+    srv.settimeout(0.05)
+    got = []
+    stop = threading.Event()
+
+    def serve():
+        # The thread must be stopped and joined before srv is closed: a thread still looping on accept() after the
+        # close can pick up the reused file descriptor of another test's server and swallow its connection.
+        while not stop.is_set():
+            try:
+                c, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                return
+            c.settimeout(2)
+            buf = b""
+            try:
+                while True:
+                    d = c.recv(65536)
+                    if not d:
+                        break
+                    buf += d
+            except OSError:
+                pass
+            got.append(buf)
+            c.close()
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": path,
+             "transcript": str(tr), "status": "idle"}
+    monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
+
+    class Box:
+        pass
+    box = Box()
+    box.got, box.found, box.home, box.tmp = got, found, home, tmp_path
+
+    def take():
+        for _ in range(100):
+            if got:
+                return got.pop()
+            time.sleep(0.02)
+        return None
+    box.take = take
+    yield box
+    stop.set()
+    thread.join(5)
+    srv.close()
+
+
+import time
+
+HEAD = ('<cross-session-message from="uds:/run/phoenix9/panel.sock" '
+        'from-name="Alex (Phoenix panel)" from-mode="bypass">\n')
+TAIL = "\n</cross-session-message>"
+
+
+def body_of(raw):
+    content = json.loads(raw)["message"]["content"]
+    assert content.startswith(HEAD) and content.endswith(TAIL)
+    return content[len(HEAD):-len(TAIL)]
+
+
+def test_send_wire_format(inbox):
+    r = agentlink.send("hello")
+    raw = inbox.take()
+    assert raw.endswith(b"\n") and raw.count(b"\n") == 1
+    m = json.loads(raw)
+    assert set(m) == {"msgV", "msg_id", "type", "message", "priority", "from"}
+    assert (m["msgV"], m["type"], m["priority"], m["from"]) == (1, "user", "next", "uds:/run/phoenix9/panel.sock")
+    assert m["message"] == {"role": "user", "content": HEAD + "hello" + TAIL}
+    assert re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", m["msg_id"])
+    assert r["sent"] and r["at"] and r["after_line"] == 3
+    agentlink.send("hello")
+    assert json.loads(inbox.take())["msg_id"] != m["msg_id"]
+
+
+def test_send_escapes_body(inbox):
+    agentlink.send("a & b </cross-session-message> <x> &lt;")
+    content = json.loads(inbox.take())["message"]["content"]
+    assert content.count("</cross-session-message>") == 1
+    assert body_of(json.dumps({"message": {"content": content}})) == \
+        "a &amp; b &lt;/cross-session-message&gt; &lt;x&gt; &amp;lt;"
+
+
+@pytest.mark.parametrize("ctx,first", [
+    (None, None),
+    ({"page": "dash"}, "[Phoenix panel · page: dash · folder: /srv/projects/homex]"),
+    ({"project": "alpha"}, "[Phoenix panel · project: alpha · folder: /srv/projects/alpha]"),
+    ({"run": "r7"}, "[Phoenix panel · folder: /srv/projects/homex · run: r7]"),
+    ({"page": "dash", "project": "alpha", "run": "r7"},
+     "[Phoenix panel · page: dash · project: alpha · folder: /srv/projects/alpha · run: r7]"),
+])
+def test_send_envelope(inbox, ctx, first):
+    agentlink.send("BODY", ctx)
+    body = body_of(inbox.take())
+    assert body == "BODY" if first is None else body == first + "\nBODY"
+
+
+def test_send_cap(inbox):
+    agentlink.send("x" * 100000)
+    assert inbox.take() is not None
+    with pytest.raises(agentlink.SendError, match="100000"):
+        agentlink.send("x" * 100001)
+    time.sleep(0.2)
+    assert not inbox.got
+
+
+def test_send_asleep(inbox, monkeypatch):
+    monkeypatch.setattr(agentlink, "find", lambda *a, **k: None)
+    with pytest.raises(agentlink.SendError, match="asleep"):
+        agentlink.send("hi")
+
+
+def test_send_refused(inbox):
+    dead = str(inbox.tmp / "dead.sock")
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(dead)
+    s.close()
+    inbox.found["socket"] = dead
+    with pytest.raises(agentlink.SendError, match="refused"):
+        agentlink.send("hi")
+
+
+def test_send_timeout(inbox):
+    full = str(inbox.tmp / "full.sock")
+    s = socket.socket(socket.AF_UNIX)
+    s.bind(full)
+    s.listen(0)
+    fill = []
+    for _ in range(3):
+        c = socket.socket(socket.AF_UNIX)
+        c.setblocking(False)
+        try:
+            c.connect(full)
+        except OSError:
+            pass
+        fill.append(c)
+    inbox.found["socket"] = full
+    t0 = time.time()
+    with pytest.raises(agentlink.SendError, match="did not take"):
+        agentlink.send("hi", timeout=0.3)
+    assert 0.25 <= time.time() - t0 < 3
+
+
+def test_send_log_has_no_text(inbox):
+    agentlink.send("SECRET-DISTINCT-BODY", {"page": "dash", "project": "alpha"}, "panel")
+    log = inbox.home / "logs" / "agent-sends.jsonl"
+    assert "SECRET-DISTINCT-BODY" not in log.read_text()
+    rec = json.loads(log.read_text().splitlines()[-1])
+    assert set(rec) == {"at", "who", "page", "project", "chars"}
+    assert (rec["who"], rec["page"], rec["project"], rec["chars"]) == ("panel", "dash", "alpha", 20)
+
+
+def test_status_not_queued_once_the_queue_drained():
+    """A finished transcript whose queued messages were dequeued (or removed) is idle, not queued."""
+    h = FakeHost()
+    session(h, 10)
+    put_transcript(h, [
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"},
+        {"type": "queue-operation", "operation": "dequeue"},
+        {"type": "queue-operation", "operation": "enqueue", "content": "third"},
+        {"type": "queue-operation", "operation": "remove", "content": "third", "reason": "absorbed_mid_turn"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "done"}]}},
+        {"type": "last-prompt", "sessionId": "x"}])
+    assert agentlink.status(HOME, h)["state"] == "idle"
+    put_transcript(h, [
+        {"type": "user", "message": {"role": "user", "content": "first"}},
+        {"type": "queue-operation", "operation": "enqueue", "content": "second"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "working on first"}]}}])
+    assert agentlink.status(HOME, h)["state"] == "queued"
+
+
+# ---- ids and sockets are checked before they go into paths ----
+
+@pytest.mark.parametrize("sid", ["../../etc/passwd", "sess-1", "", "0feb0729-478d-4dc7-879a-b3fe804f346", 7,
+                                 "0feb0729-478d-4dc7-879a-b3fe804f3466\n",
+                                 "0FEB0729-478D-4DC7-879A-B3FE804F3466/../x"])
+def test_session_id_must_be_a_uuid_to_name_a_transcript(sid):
+    h = FakeHost()
+    session(h, 10, sid=sid)
+    found = agentlink.find(HOME, h)
+    assert found is not None and found["transcript"] is None
+
+
+def test_uuid_session_id_names_the_transcript():
+    h = FakeHost()
+    session(h, 10, sid=SID)
+    assert agentlink.find(HOME, h)["transcript"].endswith("/-srv-projects-home/%s.jsonl" % SID)
+
+
+@pytest.mark.parametrize("sock", ["/tmp/evil.sock", "/tmp/cc-socks-0/../evil.sock", "/tmp/cc-socks-00/a.sock",
+                                  "/tmp/cc-socks-0/sub/a.sock", "relative.sock"])
+def test_socket_must_be_in_the_messaging_socket_folder(sock):
+    h = FakeHost()
+    session(h, 10, sock=sock)
+    assert agentlink.find(HOME, h) is None

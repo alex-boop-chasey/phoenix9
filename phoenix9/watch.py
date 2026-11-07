@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentwatch, atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9.stepctx import UsageLimit
 
@@ -22,6 +22,7 @@ class Memory:
     """What the loop remembers between rounds: crashes in a row per run."""
 
     crashes: dict = field(default_factory=dict)
+    agent_checked: float | None = None    # when the agent watchdog last ran
 
 
 def all_states() -> list[dict]:
@@ -199,6 +200,21 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
     return chosen["run_id"]
 
 
+AGENT_CHECK_S = 60
+
+
+def check_agent(adapters, memory: Memory) -> None:
+    """Run the agent watchdog about every minute; a problem there never stops the loop."""
+    now = adapters.clock.now()
+    if memory.agent_checked is not None and now - memory.agent_checked < AGENT_CHECK_S:
+        return
+    memory.agent_checked = now
+    try:
+        agentwatch.check_once(adapters)
+    except Exception:  # noqa: BLE001 - the watchdog must not stop the loop
+        pass
+
+
 def catch_up() -> list[str]:
     """Close the open questions of runs that already ended (left by older code); one event each, who = phoenix."""
     closed = []
@@ -220,6 +236,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     try:
         while True:
             watch_once(adapters, runner, memory)
+            check_agent(adapters, memory)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

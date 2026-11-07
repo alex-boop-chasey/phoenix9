@@ -1,9 +1,82 @@
-"""Secret scrubbing: replace known secret values with [secret] before anything is written to a log."""
+"""Secret scrubbing: replace known secret values with [secret] before anything is written to a log.
+
+Besides the values it was told about, the scrubber masks the shapes of common secrets nobody registered:
+Anthropic keys (sk-ant-...), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_..., github_pat_...), PEM private key
+blocks (also a block's tail without its BEGIN line), and NAME=value where a part of the name (split on _ - .
+and case changes) is KEY, TOKEN, SECRET or PASSWORD: API_KEY and apiKey are masked, monkey and keyboard are not."""
 import json
+import re
 from pathlib import Path
 
 MIN_SECRET_LEN = 8
 MASK = "[secret]"
+PATTERNS = [
+    (re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)"), MASK),
+    (re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}"), MASK),
+    (re.compile(r"github_pat_[A-Za-z0-9_]{20,}"), MASK),
+    (re.compile(r"(?<![A-Za-z0-9_])gh[pousr]_[A-Za-z0-9]{20,}"), MASK),
+]
+PEM_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
+B64_LINE = re.compile(r"[ \t]*[A-Za-z0-9+/=]{16,}[ \t]*\r?")
+# NAME=value, NAME: value: the name (at most 80 characters, starting where a word starts) is checked in Python
+# so the pattern never backtracks over long runs of text.
+ASSIGN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]{0,80})([ \t]*[=:][ \t]*)([\"']?)"
+                    r"([A-Za-z0-9_+/.~-][^\s\"';&|()]{5,})")
+# The name's parts: split on _ - . and at case changes (apiKey, APIKey) and digits. Each piece is a plain run, so
+# this stays linear; names are at most 81 characters anyway.
+NAME_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+SECRET_WORDS = frozenset({"key", "keys", "token", "tokens", "secret", "secrets", "password", "passwords",
+                          "passwd", "pwd"})
+# names written as one lower-case word that still say "secret" (apikey, accesstoken, ...)
+SECRET_COMPOUNDS = frozenset({"apikey", "apikeys", "accesskey", "secretkey", "privatekey", "authtoken",
+                              "accesstoken", "refreshtoken", "apitoken", "apisecret", "clientsecret"})
+
+
+def name_parts(name: str) -> list[str]:
+    """The lower-case parts of a NAME: AWS_SECRET-access.Key -> aws, secret, access, key; myAPIKey2 -> my, api, key, 2."""
+    return [p.lower() for p in NAME_PART.findall(name)]
+
+
+def secret_name(name: str) -> bool:
+    """True when one part of the name is a secret word (API_KEY, apiKey, db-password; not monkey or keyboard)."""
+    parts = name_parts(name)
+    return any(p in SECRET_WORDS or p in SECRET_COMPOUNDS for p in parts)
+
+
+def _assign(m) -> str:
+    name, sep, quote, value = m.groups()
+    if not secret_name(name) or value.startswith(MASK):
+        return m.group(0)
+    return name + sep + quote + MASK
+
+
+def _pem_tails(s: str) -> str:
+    """Mask the base64 lines just above each END PRIVATE KEY line (a key's tail without its BEGIN line)."""
+    out, pos = [], 0
+    for m in PEM_END.finditer(s):
+        start = m.start()
+        while True:                       # walk back one whole line at a time while it looks like base64
+            prev_end = s.rfind("\n", 0, start)
+            if prev_end < 0:
+                break
+            line_start = s.rfind("\n", 0, prev_end) + 1
+            if line_start < pos or not B64_LINE.fullmatch(s, line_start, prev_end):
+                break
+            start = line_start
+        if start < m.start():
+            out.append(s[pos:start])
+            out.append(MASK)
+            pos = m.end()
+    out.append(s[pos:])
+    return "".join(out)
+
+
+def mask_patterns(s: str) -> str:
+    """Mask the secret shapes: known token prefixes, PEM private keys (and their tails), NAME=value assignments."""
+    for rx, repl in PATTERNS:
+        s = rx.sub(repl, s)
+    s = _pem_tails(s)
+    return ASSIGN.sub(_assign, s)
 
 
 class Scrubber:
@@ -32,7 +105,7 @@ class Scrubber:
         """Return the text with every known secret replaced by [secret], longest first."""
         for secret in self._secrets:
             s = s.replace(secret, MASK)
-        return s
+        return mask_patterns(s)
 
     @classmethod
     def from_env_files(cls, paths) -> "Scrubber":

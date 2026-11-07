@@ -223,6 +223,21 @@ def update_settings() -> dict:
     return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
 
 
+AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
+
+
+def agent_settings() -> dict:
+    """The [agent] table of global.toml (folder, unit, watchdog) with defaults filled in."""
+    table = read_global().get("agent")
+    table = table if isinstance(table, dict) else {}
+    out = {}
+    for key, default in AGENT_DEFAULTS.items():
+        value = table.get(key)
+        ok = isinstance(value, bool) if isinstance(default, bool) else (isinstance(value, str) and value)
+        out[key] = value if ok else default
+    return out
+
+
 PROXY_PORTS_DEFAULT = "47100-47199"
 
 

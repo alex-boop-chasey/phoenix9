@@ -120,22 +120,36 @@ def test_api_writes_addresses_and_reads_them_back(api, fakes):
     assert status == 400 and "http or https" in body["message"]
 
 
-def test_health_reports_the_running_origins(api, fakes):
-    assert api("/api/health")[1]["data"]["origins"] == [NEW]
+def test_health_reports_a_digest_of_the_running_origins(api, fakes):
+    data = api("/api/health")[1]["data"]
+    assert "origins" not in data and data["origins_digest"] == addresses.origins_digest([NEW])
+    assert addresses.origins_digest([NEW, OLD]) == addresses.origins_digest([OLD, NEW, OLD])
+    assert addresses.origins_digest([NEW]) != addresses.origins_digest([OLD])
 
 
-def check_origins(adapters, served):
+def check_origins(adapters, served=None, digest=None):
+    data = {"ok": True}
+    if served is not None:
+        data["origins"] = served          # an API from before the digest
+    if digest is not None:
+        data["origins_digest"] = digest
     adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
-                         body=json.dumps({"ok": True, "data": {"ok": True, "origins": served}}).encode())
+                         body=json.dumps({"ok": True, "data": data}).encode())
     return doctor.check_origins(doctor.Context(adapters, "quick"))
 
 
 def test_doctor_compares_the_running_origins_with_the_setting(fakes):
-    ok, detail, _ = check_origins(fakes, [NEW])
+    ok, detail, _ = check_origins(fakes, digest=addresses.origins_digest([NEW]))
     assert ok and NEW in detail
-    ok, detail, fix = check_origins(fakes, [OLD])
-    assert not ok and f"the running API allows {OLD}" in detail and f"the setting says {NEW}" in detail
+    ok, detail, fix = check_origins(fakes, digest=addresses.origins_digest([OLD]))
+    assert not ok and "different origins" in detail and f"the setting says {NEW}" in detail
     assert "phoenix service restart api" in fix
+    ok, detail, _ = check_origins(fakes, served=[NEW])
+    assert ok and NEW in detail
+    ok, detail, fix = check_origins(fakes, served=[OLD])
+    assert not ok and f"the running API allows {OLD}" in detail and f"the setting says {NEW}" in detail
+    ok, detail, _ = check_origins(fakes)
+    assert not ok and "did not say" in detail
     assert "origins" in doctor.CHECKS_BY_MODE["quick"] and "origins" in doctor.CHECKS_BY_MODE["full"]
 
 

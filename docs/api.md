@@ -14,7 +14,17 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
   Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
-- POST bodies are JSON objects of at most 64 KB.
+- Every request, any method and any route (reads, the live streams and the web app's files too), must come from
+  a process owned by an allowed uid on this server (looked up in `/proc/net/tcp`; global.toml `[access] peer_uids`,
+  default `[0]` = root only; the older name `write_peer_uids` also works): any other user gets 403 "Refused: this
+  request came from a program on the server that isn't run by root (or another user Phoenix allows).", and an owner
+  that cannot be found gets 403 "Refused: Phoenix couldn't tell which program on the server sent this request."
+  When global.toml `[access] team_domain` and `aud` are both set, every request also needs a valid Cloudflare Access
+  token in `Cf-Access-Jwt-Assertion` (else 403 "Refused: Phoenix needs a Cloudflare Access sign-in. ..."; architecture
+  8.5). The one exception to both is `GET /api/health`, open to any local program (doctor, the updater and
+  `phoenix service restart` call it); it shows only the version, release tag and a digest of the allowed origins.
+  The CLI never goes through the API (it calls ops directly).
+- POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
 - Nothing in the API does work itself; it calls ops.
@@ -56,7 +66,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/doctor?mode=quick\|full` | `ops.doctor.run` | | `{ok, checks: [{name, ok, detail, fix}], checked_at}` | 400 |
 | GET | `/api/services` | `ops.services.list_` | | `{supported: true, services: [row + endpoints {connect, disconnect}]}`; row = `{name, title, description, support, connected, note, account_keys, checked, checked_at, project_keys, hosts, used_by}` | |
 | GET | `/api/keys/audit` | `ops.keys.audit` | | `{global: [{file, names, used_by, modified, mode, mode_ok}], projects: [{project, name, secret, set, used, last_touched, service}], problems: [text]}` (never a value) | |
-| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins}`; `tag` is the running copy's release tag, `""` when unknown; `origins` = the page origins this running API allows | |
+| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins_digest}`; `tag` is the running copy's release tag, `""` when unknown; `origins_digest` = 16 hex characters of the SHA-256 of the sorted allowed page origins (one per line), so the doctor can compare them with the setting without the reply showing them. Open to any local program, no Access token needed (the only such route) | |
 | GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line], off_release, off_release_note}` (`off_release_note` says how to get back to a release when the installed copy is on a commit with no release tag, else `""`); `refresh=1` asks GitHub for the newest tag | |
 | GET | `/api/update/log?lines=200` | `ops.update.log` | | `{lines, checks_file}` | |
 | GET | `/api/update/history` | `ops.update.history` | | `{history: [{at, action, tag, result, reason, who}]}` newest first (from `HOME/update/history.jsonl`) | |
@@ -69,6 +79,11 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
+| GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
+| GET | `/api/agent/messages?after=&limit=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000) | 400 |
+| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |
+| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` (context values that are not allowed are dropped: `project` must be a listed project, `page`/`run` must match `[A-Za-z0-9/_.-]{1,80}`; newlines are stripped) | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
+| GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |
@@ -166,6 +181,34 @@ row is named in one 400. **Settings**: `set` values are typed JSON by dotted key
 written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
 (needs the Planner on); `overrides` are frozen into the run.
 
+## Agent items
+
+Items come from the agent's transcript (`phoenix9/transcript.py`); each has `type` and `line` (its transcript line
+number). Types: `user` `{text, origin: panel|app|peer:<name>, at}`, `agent` `{markdown, at}`,
+`thinking` `{duration_s, at}`, `action` (a tool call: its title, `status`, and an excerpt of the result),
+`queued` `{text, pending, at}` (`pending` turns false when the queue-operation dequeue/remove for it arrives),
+`session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines;
+hook summaries and turn timings are left out). An `action` has `{id (the tool id), tool, title, input_summary,
+status: running|ok|error, excerpt?, done_line?}`; `done_line` is the transcript line of its result. A user line
+made of text blocks is a `user` item (an image shows as `[image]`).
+`/api/agent/messages` wraps them as `{items, unknown, last_line, session_id}`.
+
+## Agent stream frames
+
+`GET /api/agent/stream` sends server-sent events; every `id` is `<session id>:<transcript line>`.
+
+- `event: item`, data = one Agent item (above); id = `<session>:<item line>`.
+- `event: update`, data = `{type: "update", id, line, status, excerpt}`: an action already sent (usually while
+  `running`) has finished; `id` is the action's tool id (the same `id` as its item), `line` its item's line;
+  the SSE id = `<session>:<line of the result>`. A stream resumed from line N also gets updates for actions at or
+  before N that finished after N. (The web panel uses these from build 2.)
+- `event: session`, data = `{session_id}`: the agent's session changed; items from line 1 of the new transcript
+  follow. Also sent first when a `Last-Event-ID` names another session (or no session).
+- Where it starts: `?after=<n>` = after line n of the current session; else a `Last-Event-ID` of
+  `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
+  line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
+  ping timing as `/api/events`.
+
 ## Overrides shape (wizard and defaults)
 
 The same nesting as phoenix.toml (architecture 5.2) and the same keys `settings.effective(...,
@@ -183,7 +226,7 @@ run_overrides=)` validates, for example:
 One event line is `{ts, type, project, run, task, step, data}` (architecture section 8). Server-sent
 event ids are line numbers in `HOME/events.jsonl` (architecture 8.5).
 
-`GET /api/events?project=` is a server-sent stream (no write guard): it starts after the `Last-Event-ID` line,
+`GET /api/events?project=` is a server-sent stream (the peer and Access checks as every route; no header/origin check): it starts after the `Last-Event-ID` line,
 else at the end of the file; polls every `PHOENIX_API_TAIL_SECONDS` (0.5); sends `: ping` every
 `PHOENIX_API_PING_SECONDS` (15); at most 20 open streams (the 21st gets 503). Frames are
 `id: <line>\nevent: <type>\ndata: <line>`. If the file shrinks the stream restarts at line 0.

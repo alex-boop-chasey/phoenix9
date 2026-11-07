@@ -5,6 +5,7 @@ defaults when absent. The API reads its allowed origins from PHOENIX_API_ORIGINS
 that is set (save() keeps it in step with the setting), else from the setting itself. Nothing else in Phoenix
 holds a hard-coded address (docs/architecture.md section 5.5).
 """
+import hashlib
 import re
 from urllib.parse import urlsplit
 
@@ -22,6 +23,13 @@ class AddressError(ValueError):
 
 HOST_RE = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*\.?")
 DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def origins_digest(origins) -> str:
+    """A short digest of a list of page origins (order and repeats ignored): /api/health reports this instead of
+    the origins themselves, and the doctor compares it with the digest of the allowed_origins setting."""
+    text = "\n".join(sorted({str(o) for o in origins}))
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
 
 
 def _host_ok(parts) -> bool:

@@ -4,10 +4,11 @@ import os
 import sys
 
 from phoenix9 import __version__
-from phoenix9.cli import api, deploy, doctor, gate, images, keys, library, models, output, project, run, runner, service, services, settings, update
+from phoenix9 import keys as keys_core
+from phoenix9.cli import agent, api, deploy, doctor, gate, images, keys, library, models, output, project, run, runner, service, services, settings, update
 from phoenix9.ops.common import OpsError
 
-GROUPS = (run, gate, settings, library, project, doctor, api, service, services, keys, update, deploy, images, models)
+GROUPS = (run, gate, settings, library, project, doctor, api, service, services, keys, update, deploy, images, models, agent)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -29,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """Run one command; exit code 0 ok, 1 refused or a problem, 2 usage error."""
     argv = sys.argv[1:] if argv is None else argv
+    keys_core.load_all_secrets()   # every saved secret is scrubbed from what this process prints or logs
     if argv[:2] == ["runner", "serve"]:  # hidden: the systemd service runs this
         return runner.serve()
     parser = build_parser()

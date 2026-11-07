@@ -7,7 +7,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import access, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import transcript
 from phoenix9.library import read_toml
 
 MODES = ("full", "for-update", "quick")
@@ -15,16 +16,19 @@ GB = 1024 ** 3
 DISK_FAIL_GB, DISK_WARN_GB = 5, 15
 STALE_HOLD_S = 3 * 3600
 DEFAULT_API_PORT = 8095
+UNKNOWN_WARN_RATE = 0.05
+SOCKET_FOLDER_MODE, SOCKET_MODE = 0o700, 0o600
 SERVICES = ("phoenix-api", "phoenix-runner")
 HOME_FOLDERS = ("config", "secrets", "keys", "runs", "logs")
 PROBE_PROFILE = "python-script"
 CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
-    "quick": ("services", "service-home", "api", "origins", "home", "secrets", "disk"),
+    "quick": ("services", "service-home", "api", "origins", "upstream", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
-    "full": ("python", "library", "services", "service-home", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
-             "claude", "advisor", "disk", "updater", "project-links", "memory-files"),
+    "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
+             "claude", "advisor", "disk", "updater", "project-links", "memory-files",
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "access"),
 }
 
 
@@ -36,6 +40,7 @@ class Context:
         self.ad = adapters
         self.mode = mode
         self.claude_info: dict | None = None
+        self.agent_found: dict | None = None
 
 
 def _result(ok: bool, detail: str, fix: str = "") -> tuple[bool, str, str]:
@@ -175,22 +180,55 @@ def check_api(ctx):
 
 
 def check_origins(ctx):
-    """The page origins the running API allows (from /api/health) match the allowed_origins setting."""
+    """The page origins the running API allows (a digest in /api/health) match the allowed_origins setting."""
     from phoenix9 import addresses
     url = f"http://127.0.0.1:{api_port()}/api/health"
     want = addresses.read()["allowed_origins"]
     fix = "Restart the API with `phoenix service restart api --yes` so it picks up the setting."
     try:
         status, _, body = ctx.ad.http.request("GET", url, timeout=10)
-        served = health_fields(body).get("origins") if status == 200 else None
+        fields = health_fields(body) if status == 200 else {}
     except Exception:  # noqa: BLE001 - the api check reports why the API did not answer
-        served = None
-    if not isinstance(served, list):
+        fields = {}
+    digest, served = fields.get("origins_digest"), fields.get("origins")
+    if isinstance(digest, str) and digest:
+        ok = digest == addresses.origins_digest(want)
+        return _result(ok, f"the running API allows {', '.join(want)}" if ok else
+                       f"the running API allows different origins; the setting says {', '.join(want)}", fix)
+    if not isinstance(served, list):     # an API from before the digest sent the list itself
         return _result(False, "the running API did not say which origins it allows (old version or not answering)", fix)
     ok = sorted(served) == sorted(want)
     detail = (f"the running API allows {', '.join(served)}" if ok else
               f"the running API allows {', '.join(served) or 'nothing'}; the setting says {', '.join(want)}")
     return _result(ok, detail, fix)
+
+
+UPSTREAM_PROGRAMS = ("cloudflared", "code-server")   # what sits in front of the dashboard and connects to the API
+
+
+def check_upstream(ctx):
+    """The programs in front of the dashboard (cloudflared, code-server) run as a uid the API answers."""
+    allowed = access.peer_uids()
+    problem = access.peer_uids_problem()
+    found = {name: ctx.ad.host.program_uids(name) for name in UPSTREAM_PROGRAMS}
+    parts, bad = [], []
+    for name, uids in found.items():
+        for uid in uids:
+            parts.append(f"{name} runs as uid {uid}")
+            if uid not in allowed:
+                bad.append(f"{name} (uid {uid})")
+    allowed_text = ", ".join(str(u) for u in allowed)
+    setting = f"{paths.home()}/config/global.toml"
+    if problem:
+        return _result(False, problem, f"Fix access.peer_uids in {setting}, e.g. peer_uids = [0].")
+    if bad:
+        return _result(False, f"{'; '.join(parts)}: {', '.join(bad)} not allowed, so the dashboard is refused "
+                       f"(the API allows uid {allowed_text})",
+                       f"Run it as root, or add its uid to access.peer_uids in {setting}.")
+    if not parts:
+        return _result(True, f"cloudflared is not running (nothing in front of the dashboard to check; "
+                       f"the API allows uid {allowed_text})")
+    return _result(True, f"{'; '.join(parts)}; the API allows uid {allowed_text}")
 
 
 def _mode(path: Path) -> int:
@@ -419,12 +457,98 @@ def check_memory_files(ctx):
                    "Run `phoenix project check-files --all` to add what is missing.")
 
 
+def check_agent_unit(ctx):
+    """The agent's systemd unit is active."""
+    unit = settings.agent_settings()["unit"]
+    rc, out, _ = ctx.ad.host.systemctl("is-active", unit)
+    state = out.split()[0] if out.split() else "unknown"
+    ok = rc == 0 and state == "active"
+    detail = f"{unit} is {state}"
+    if not ok:
+        from phoenix9 import agentwatch
+        if agentwatch.memory()["stopped"]:
+            detail += ": stopped by someone, so the watchdog leaves it alone"
+    return _result(ok, detail, f"Start it with `systemctl start {unit}`, then read `journalctl -u {unit}`.")
+
+
+def check_agent_session(ctx):
+    """The agent's chat session is found in Claude's session list."""
+    found = agentlink.find(host=ctx.ad.host)
+    ctx.agent_found = found
+    return _result(found is not None, "the agent session is running" if found else "no agent session found",
+                   "Restart the agent with `phoenix agent restart --yes`, or check its unit with `systemctl status claude-rc@home`.")
+
+
+def check_agent_socket(ctx):
+    """The inbox socket folder is private (0700) and the socket is root-only (0600)."""
+    found = agentlink.find(host=ctx.ad.host)
+    if not found:
+        return _result(False, "no agent session, so no inbox socket to check", "Start the agent first (see the agent-session line).")
+    sock = found["socket"]
+    folder = sock.rsplit("/", 1)[0] or "/"
+    problems = []
+    for what, path, want in (("socket folder", folder, SOCKET_FOLDER_MODE), ("socket", sock, SOCKET_MODE)):
+        st = ctx.ad.host.stat(path)
+        if st is None:
+            problems.append(f"the {what} {path} cannot be read")
+            continue
+        if st["mode"] != want:
+            problems.append(f"the {what} {path} has mode {st['mode']:04o}, not {want:04o}")
+        if what == "socket" and st.get("uid") != 0:
+            problems.append(f"the socket {path} is not owned by root")
+    return _result(not problems, "socket folder is 0700 and the socket is 0600, owned by root" if not problems
+                   else "; ".join(problems),
+                   f"Run `chmod 700 {folder}` and `chmod 600 {sock}` (as root), or restart the agent.")
+
+
+def check_agent_transcript(ctx):
+    """Few lines of the agent's transcript are unknown to the parser (warn above 5 %)."""
+    found = agentlink.find(host=ctx.ad.host)
+    if not found or not found["transcript"]:
+        return _result(False, "no agent transcript to read", "Start the agent first (see the agent-session line).")
+    path = found["transcript"]
+    lines = [ln for ln in ctx.ad.host.read_lines(path) if ln.strip()]
+    if not lines:
+        what = "is empty" if ctx.ad.host.exists(path) else "was not found"
+        return _result(False, f"the agent transcript {path} {what}",
+                       "If the agent has only just started, send it a message and check again; otherwise Claude "
+                       "Code may name its transcript folders differently now: update phoenix9/agentlink.py.")
+    unknown = transcript.parse(lines)[1]
+    rate = unknown / len(lines)
+    text = f"{unknown} of {len(lines)} transcript lines are unknown ({rate:.0%})"
+    return _result(rate <= UNKNOWN_WARN_RATE, text,
+                   "Claude Code's transcript format may have changed: update phoenix9/transcript.py.")
+
+
+def check_agent_folder(ctx):
+    """The agent folder has CLAUDE.md and .claude/settings.json."""
+    folder = settings.agent_settings()["folder"].rstrip("/")
+    missing = [n for n in ("CLAUDE.md", ".claude/settings.json") if not ctx.ad.host.exists(f"{folder}/{n}")]
+    return _result(not missing, f"{folder} has CLAUDE.md and .claude/settings.json" if not missing
+                   else f"{folder} lacks " + " and ".join(missing),
+                   f"Set the agent folder up again (copy the agent files into {folder}).")
+
+
+def check_access(ctx):
+    """The optional Cloudflare Access lock on the API (every route but /api/health): off, on, or half set up."""
+    cfg = access.settings()
+    if cfg["on"]:
+        return _result(True, f"the dashboard needs a Cloudflare Access token from {cfg['team_domain']}")
+    if cfg["team_domain"] or cfg["aud"]:
+        missing = "aud" if cfg["team_domain"] else "team_domain"
+        return _result(False, f"the Access lock is half set up: access.{missing} is missing, so it is off",
+                       f"Add access.{missing} to {paths.home()}/config/global.toml, or remove the [access] table.")
+    return _result(True, "the optional Cloudflare Access lock is off (the API still answers only allowed uids on this server)")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services,
           "service-home": check_service_home, "api": check_api,
-          "origins": check_origins,
+          "origins": check_origins, "upstream": check_upstream,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
-          "project-links": check_project_links, "memory-files": check_memory_files}
+          "project-links": check_project_links, "memory-files": check_memory_files,
+          "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
+          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder, "access": check_access}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

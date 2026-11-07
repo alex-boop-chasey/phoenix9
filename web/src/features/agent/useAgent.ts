@@ -58,6 +58,7 @@ export const agentKeys = {
   status: () => ["agent", "status"] as const,
   messages: (session: string) => ["agent", "messages", session] as const,
   sessions: () => ["agent", "sessions"] as const,
+  earlier: (session: string) => ["agent", "earlier", session] as const,
 }
 
 const sessionKey = (id: string | null | undefined) => id ?? "none"
@@ -233,5 +234,22 @@ export function useSendToAgent() {
   return useMutation({
     mutationFn: (body: AgentSendBody) => post<AgentSendResult>("agent/send", body),
     onSettled: () => void qc.invalidateQueries({ queryKey: agentKeys.status() }),
+  })
+}
+
+/** One earlier conversation, read-only (fetched once; it no longer changes). */
+export function useEarlierSession(session: string | null) {
+  return useQuery({
+    queryKey: agentKeys.earlier(session ?? ""),
+    queryFn: () => get<AgentMessages>("agent/messages", { limit: PAGE_LIMIT, session }),
+    enabled: session !== null,
+    staleTime: Infinity,
+  })
+}
+
+/** Restart the Phoenix agent's service (the caller has already asked Alex to confirm). */
+export function useRestartAgent() {
+  return useMutation({
+    mutationFn: () => post<{ restarted: boolean; unit: string }>("agent/restart", { confirm: true }),
   })
 }

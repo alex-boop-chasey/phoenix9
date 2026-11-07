@@ -358,7 +358,7 @@ def get_agent_messages(req):
     after, limit = int_param(req, "after", 0), int_param(req, "limit", 100)
     if after < 0 or limit < 0:
         raise BadRequest("'after' and 'limit' should not be negative.")
-    return ops_agent.messages(after, min(limit, 1000))
+    return ops_agent.messages(after, min(limit, 1000), req.query.get("session") or None)
 
 
 def get_agent_sessions(req):
@@ -855,6 +855,14 @@ def post_agent_send(req):
     return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO, panel=True)
 
 
+def post_agent_restart(req):
+    """Restart the Phoenix agent's service (the body must be {"confirm": true}, else 409)."""
+    if req.body.get("confirm") is not True:
+        raise common.Conflict("Restarting the Phoenix agent needs \"confirm\": true. Nothing was restarted.")
+    with req.server.write_lock:
+        return ops_agent.restart(WHO)
+
+
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -905,6 +913,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/agent/send", post_agent_send),
+    ("POST", r"/api/agent/restart", post_agent_restart),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
     ("POST", rf"/api/chat/{NAME}/sleep", post_chat_sleep),
     ("POST", rf"/api/chat/{NAME}/off", post_chat_off),

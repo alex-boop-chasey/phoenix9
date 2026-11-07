@@ -19,10 +19,19 @@ def status() -> dict:
     return agentlink.status(host=_host())
 
 
-def messages(after: int = 0, limit: int = 100) -> dict:
-    """Panel items after a line number (at most limit) plus {unknown, last_line, session_id}."""
+def _earlier(host, session: str) -> dict | None:
+    """The transcript of one earlier conversation, or None when there is no such session file."""
+    if not agentlink.is_session_id(session):
+        raise common.OpsError("That is not a conversation id.")
+    cwd = settings.agent_settings()["folder"]
+    path = agentlink.transcript_path(agentlink.CLAUDE_HOME, cwd, session, host)
+    return {"session_id": session, "transcript": path} if host.stat(path) else None
+
+
+def messages(after: int = 0, limit: int = 100, session: str | None = None) -> dict:
+    """Panel items after a line number (at most limit) plus {unknown, last_line, session_id}; `session` reads an earlier one."""
     host = _host()
-    found = agentlink.find(host=host)
+    found = _earlier(host, session) if session else agentlink.find(host=host)
     if found is None or not found.get("transcript"):
         return {"items": [], "unknown": 0, "last_line": 0,
                 "session_id": found["session_id"] if found else None}

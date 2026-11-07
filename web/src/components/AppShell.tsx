@@ -6,6 +6,7 @@ import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { AgentPanel } from "@/features/agent/AgentPanel"
+import { useAgentAlerts } from "@/features/agent/alerts"
 import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { useInfo, useProjects } from "@/lib/queries"
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const phone = usePhoneWidth()
   const [sheet, setSheet] = useState(false)
   const [wire, setWire] = useState(false)
+  const unread = useAgentAlerts(drawer, () => setDrawer(true))
   const agentBtn = useRef<HTMLButtonElement>(null)
   useLiveEvents()
 
@@ -89,6 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>
+            {unread > 0 && <span className="cnt" data-testid="agent-unread" aria-label={`${unread} unread`}>{unread}</span>}
           </button>
           <ThemeToggle />
           <Link className="hbtn" to="/settings" aria-label="Settings" title="Phoenix settings">

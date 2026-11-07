@@ -146,3 +146,17 @@
 .ag-prog::after{content:""; display:block; height:100%; width:40%; background:var(--accent); animation:ag-prog 1s linear infinite}
 @keyframes ag-prog{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
 @media (prefers-reduced-motion:reduce){.ag-prog::after{animation:none; width:100%; opacity:.6}}
+
+/* Phoenix agent panel: asleep card, history menu, banners, loading rows */
+.ag-asleep{padding:24px 8px}
+.ag-actions{display:flex; gap:8px; flex-wrap:wrap; justify-content:center}
+.ag-fail{color:var(--bad)}
+.ag-hist{position:relative}
+.ag-menu{position:absolute; right:0; top:100%; z-index:5; min-width:240px; max-height:60vh; overflow:auto; background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-md); box-shadow:var(--shadow-3); padding:4px}
+.ag-menu-item{display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; background:none; border:0; padding:8px 10px; border-radius:var(--r-sm); color:var(--text); cursor:pointer; font-size:13px}
+.ag-menu-item:hover,.ag-menu-item:focus-visible{background:var(--surface-2)}
+.ag-menu-note{padding:8px 10px; color:var(--text-2); font-size:13px}
+.ag-banner{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 20px; background:var(--surface-2); border-bottom:1px solid var(--line); color:var(--text-2); font-size:13px}
+.ag-skel{width:100%; display:flex; flex-direction:column; gap:12px; padding:16px 20px; align-self:start}
+.ag-skel-row{display:block; height:16px; border-radius:8px; background:var(--surface-2); animation:ag-blink 1.4s infinite ease-in-out}
+@media (prefers-reduced-motion:reduce){.ag-skel-row{animation:none}}

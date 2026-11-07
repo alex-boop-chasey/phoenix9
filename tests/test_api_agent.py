@@ -69,6 +69,15 @@ def test_messages_after_and_limit(api, host):
     assert api("/api/agent/messages?limit=-1")[0] == 400
 
 
+def test_messages_of_an_earlier_session(api, host):
+    """?session= reads an earlier conversation; odd ids give 400."""
+    data = api("/api/agent/messages?session=" + S0)[1]["data"]
+    assert data["session_id"] == S0 and [i["type"] for i in data["items"]] == ["user"]
+    assert api("/api/agent/messages?session=..%2Fx")[0] == 400
+    missing = api("/api/agent/messages?session=cccccccc-0000-4000-8000-000000000000")[1]["data"]
+    assert missing["items"] == []
+
+
 def test_sessions_newest_first(api, host):
     """GET /api/agent/sessions lists earlier conversations."""
     data = api("/api/agent/sessions")[1]["data"]
@@ -110,6 +119,46 @@ def test_send_bad_body_is_400(api, host, sent):
     """Empty text or a non-object context gives 400."""
     assert api("/api/agent/send", "POST", POST_HEADERS, {"text": " "})[0] == 400
     assert api("/api/agent/send", "POST", POST_HEADERS, {"text": "a", "context": 3})[0] == 400
+
+
+# ---- restart ----
+
+@pytest.fixture
+def restarts(host, monkeypatch):
+    """Adapters with a fake host and notifier; returns the list of notices sent."""
+    notes = []
+    notify = types.SimpleNamespace(send=lambda text, *a, **k: notes.append(text))
+    monkeypatch.setattr(common, "make_adapters", lambda: types.SimpleNamespace(host=host, notify=notify))
+    return notes
+
+
+def restart_calls(host):
+    """The systemctl restarts the fake host saw."""
+    return [c for c in host.calls if c[:2] == ["systemctl", "restart"]]
+
+
+def test_restart_needs_confirm(api, host, restarts):
+    """No confirm (or confirm not true) gives 409 and restarts nothing."""
+    for body in ({}, {"confirm": "yes"}, {"confirm": False}):
+        status, reply = api("/api/agent/restart", "POST", POST_HEADERS, body)
+        assert status == 409 and "confirm" in reply["message"]
+    assert restart_calls(host) == [] and restarts == []
+
+
+def test_restart_with_confirm(api, host, restarts):
+    """confirm true restarts the agent unit through the host adapter and tells Alex."""
+    status, reply = api("/api/agent/restart", "POST", POST_HEADERS, {"confirm": True})
+    assert status == 200 and reply["data"]["restarted"] is True
+    assert len(restart_calls(host)) == 1 and restarts and "restarted" in restarts[0]
+
+
+def test_restart_checks_header_and_origin(api, host, restarts):
+    """A missing header or a foreign Origin gives 403 and restarts nothing."""
+    body = {"confirm": True}
+    assert api("/api/agent/restart", "POST", {"Origin": POST_HEADERS["Origin"]}, body)[0] == 403
+    assert api("/api/agent/restart", "POST", {**POST_HEADERS, "Origin": "http://evil.test"}, body)[0] == 403
+    assert api("/api/agent/restart", "POST", {"X-Phoenix": "1"}, body)[0] == 403
+    assert restart_calls(host) == []
 
 
 # ---- the live stream ----

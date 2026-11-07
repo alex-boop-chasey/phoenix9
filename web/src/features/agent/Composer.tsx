@@ -22,7 +22,7 @@ function fit(el: HTMLTextAreaElement | null) {
 }
 
 /** The footer message box with its send button, hints and the still-queued question. */
-export function Composer({ contextOn = true, inputRef }: { contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement> }) {
+export function Composer({ contextOn = true, inputRef, offline = false }: { contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement>; offline?: boolean }) {
   const [text, setText] = useState("")
   const [ask, setAsk] = useState(false)
   const [el, setEl] = useState<HTMLTextAreaElement | null>(null)
@@ -30,7 +30,7 @@ export function Composer({ contextOn = true, inputRef }: { contextOn?: boolean; 
   const items = useAgentMessages().data?.items ?? []
   const next = useNextContext()
   const send = useSendToAgent()
-  const asleep = status?.state === "asleep"
+  const asleep = status?.state === "asleep" || offline
   const stillQueued = items.some((i) => i.type === "queued" && i.pending)
   const blank = !text.trim()
 
@@ -71,7 +71,7 @@ export function Composer({ contextOn = true, inputRef }: { contextOn?: boolean; 
     <div className="ag-comp">
       {send.isPending && <div className="ag-prog" role="progressbar" aria-label="Sending" />}
       {text.startsWith("/") && <p className="ag-hint" role="status">{SLASH_HINT}</p>}
-      {asleep && <p className="ag-reason" id="agentWhy">The Phoenix agent is asleep, so messages can't be sent right now.</p>}
+      {asleep && <p className="ag-reason" id="agentWhy">{offline ? "Phoenix is not answering, so messages can't be sent right now." : "The Phoenix agent is asleep, so messages can't be sent right now."}</p>}
       {ask && (
         <div className="ag-queued" role="group" aria-label="Still queued">
           <span>Still queued. Send anyway?</span>

@@ -826,7 +826,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
   (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
   `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
-  with a note when there is no git repo), `files.tar.gz` (notes and untracked files, no caches), `runs.tar.gz`
+  with a note when there is no git repo), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
   (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
   copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
   (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
@@ -858,7 +858,10 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
 2. **Confirm by typing the name** (`{"confirm": "<name>"}` in the API, `--confirm <name>` in the CLI).
 3. **Safety copy** (`backup`) in `paths.deleted_projects()` = `$PHOENIX_DELETED`, default `/root/deleted-projects`:
    `<name>-<YYYYMMDD-HHMM>/` (mode 700) holding `repo.bundle` (`git bundle --all`, checked with `git bundle verify`),
-   `files.tar.gz` (notes/ and non-git files, no node_modules, .venv or build caches), `runs.tar.gz` (HOME/runs/<name>
+   `files.tar.gz` (the whole project folder: notes/, and all of code/ as it is on disk, so uncommitted and staged
+   edits, untracked files, build output such as dist/build/target and nested repos with their own .git are kept;
+   left out are only code/.git, which is the bundle, and pure caches: node_modules, .venv, venv, __pycache__,
+   .pytest_cache, .mypy_cache, .ruff_cache, .next/cache, .turbo), `runs.tar.gz` (HOME/runs/<name>
    and HOME/work/<name>), `manifest.json` (name, folder, repo, who, when, plan) and `RESTORE.md`. If any part fails,
    the half-made copy is removed, nothing is deleted and the error is shown.
 4. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat

@@ -834,3 +834,23 @@ def test_runner_prune_never_raises(env, monkeypatch, capsys):
     monkeypatch.setattr(watch.project_delete, "prune_backups", boom)
     watch.prune_deleted_copies(env["fakes"])
     assert "no access" in capsys.readouterr().err
+
+
+# ---- only pure caches are left out (finding 6) ----
+
+def test_without_git_build_output_is_kept(env):
+    folder = make(env, "plain")
+    code = folder / "code"
+    for d in ("dist", "build", "target", ".cache", "pkg.egg-info", "node_modules", ".venv", ".turbo"):
+        (code / d).mkdir(parents=True)
+        (code / d / "f").write_text("x")
+    (folder / "site" / "build").mkdir(parents=True)
+    (folder / "site" / "build" / "index.html").write_text("x")
+    (folder / "site" / "__pycache__").mkdir()
+    (folder / "site" / "__pycache__" / "m.pyc").write_text("x")
+    dest = project_delete.backup("plain", "cli", env["fakes"])
+    names = _names(dest / "files.tar.gz")
+    for kept in ("code/dist/f", "code/build/f", "code/target/f", "code/.cache/f", "code/pkg.egg-info/f",
+                 "site/build/index.html"):
+        assert kept in names, kept
+    assert not [n for n in names if "node_modules" in n or ".venv" in n or ".turbo" in n or "__pycache__" in n]

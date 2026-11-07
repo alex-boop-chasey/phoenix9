@@ -15,9 +15,6 @@ STILL_LIVE = "still live, take it down yourself"
 NEWEST_RUNS = 5
 STAMP_FORMAT = "%Y%m%d-%H%M"
 STAMP_RE = re.compile(r"-(\d{8}-\d{4})$")
-CACHE_DIRS = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".nuxt", ".cache",
-              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".gradle", "target", ".parcel-cache",
-              ".turbo", ".svelte-kit", ".eggs"}
 PURE_CACHES = {"node_modules", ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
                ".turbo"}             # rebuilt by a tool, never anyone's work: the only folders left out of the copy
 PURE_CACHE_PAIRS = {(".next", "cache")}
@@ -212,9 +209,6 @@ def _stamp(now: float) -> str:
     return datetime.fromtimestamp(now, timezone.utc).strftime(STAMP_FORMAT)
 
 
-def _skip(rel_parts) -> bool:
-    """True when any folder on this path is a cache or build folder."""
-    return any(part in CACHE_DIRS or part.endswith(".egg-info") for part in rel_parts[:-1]) or rel_parts[-1] in CACHE_DIRS
 
 
 def _pure_cache(rel_parts) -> bool:
@@ -244,11 +238,13 @@ def _walk_code(code: Path):
             yield Path(root) / f
 
 
-def _walk(base: Path):
-    """Every file and symlink under base (as paths), not following links and skipping cache folders."""
+def _walk(base: Path, rel_base: tuple = ()):
+    """Every file and symlink under base (as paths), not following links and skipping only pure caches.
+
+    Build output (dist, build, target...) is kept: without git it may be the only copy of someone's work."""
     for root, dirs, files in os.walk(base):
-        rel = Path(root).relative_to(base).parts
-        dirs[:] = [d for d in dirs if not _skip((*rel, d))]
+        rel = (*rel_base, *Path(root).relative_to(base).parts)
+        dirs[:] = [d for d in dirs if not _pure_cache((*rel, d))]
         for f in files:
             yield Path(root) / f
         for d in list(dirs):
@@ -265,10 +261,10 @@ def _project_files(host, folder: Path) -> list:
             out += [p.relative_to(folder) for p in _walk_code(entry)]
             continue
         elif entry.is_dir() and not entry.is_symlink():
-            found = list(_walk(entry)) if entry.name not in CACHE_DIRS else []
+            found = [] if _pure_cache((entry.name,)) else list(_walk(entry, (entry.name,)))
         else:
             found = [entry]
-        out += [p.relative_to(folder) for p in found if not _skip(p.relative_to(folder).parts) and (p.exists() or p.is_symlink())]
+        out += [p.relative_to(folder) for p in found if p.exists() or p.is_symlink()]
     return out
 
 

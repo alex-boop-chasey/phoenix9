@@ -1,5 +1,7 @@
 """Shared pieces of the ops layer: the plain-words error, project lookup and the command record."""
 import json
+import re
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from phoenix9 import adapters as adapters_mod, events, paths, scrub
@@ -20,6 +22,30 @@ class Conflict(OpsError):
 
 class Unavailable(OpsError):
     """The thing asked for cannot be reached right now (the API answers 503)."""
+
+
+PROJECT_LOCK_WAIT = 10.0     # seconds a project change waits for the per-project lock (a delete holds it)
+_LOCK_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
+
+@contextmanager
+def project_lock(name: str, wait: float | None = None):
+    """Hold the per-project lock (paths.project_lock) while a project is created, edited, removed or imported,
+    so none of that happens in the middle of a delete; Conflict when it stays busy. A name that is not a
+    plain name takes no lock (the caller refuses it anyway)."""
+    if not _LOCK_NAME.fullmatch(name or ""):
+        yield
+        return
+    from phoenix9 import state
+    lock = state.Lock(paths.project_lock(name), wait=PROJECT_LOCK_WAIT if wait is None else wait)
+    try:
+        lock.__enter__()
+    except TimeoutError:
+        raise Conflict(f"{name} is being changed right now (it may be being deleted). Try again in a minute.") from None
+    try:
+        yield
+    finally:
+        lock.__exit__(None, None, None)
 
 
 def make_adapters():

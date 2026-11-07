@@ -435,7 +435,13 @@ def _build(opts, facts, adapters, who, folder: Path, made: list, say) -> dict:
 
 
 def create(opts: dict, adapters, who: str, progress=None) -> dict:
-    """Make a new project from the form (project-setup spec section 6); undoes everything on failure."""
+    """Make a new project from the form (project-setup spec section 6); undoes everything on failure.
+    Holds the per-project lock, so a project of the same name cannot be made in the middle of a delete."""
+    with common.project_lock(str(opts.get("name") or "")):
+        return _create(opts, adapters, who, progress)
+
+
+def _create(opts: dict, adapters, who: str, progress=None) -> dict:
     steps: list[str] = []
 
     def say(line: str) -> None:
@@ -775,7 +781,13 @@ def _set_origin(host, folder: Path, repo: str) -> None:
 
 
 def edit(name: str, adapters, who: str, description_text=None, profile=None, repo=None) -> dict:
-    """Change a project's description, profile or repo; checks everything before changing anything."""
+    """Change a project's description, profile or repo; checks everything before changing anything.
+    Holds the per-project lock (never in the middle of a delete)."""
+    with common.project_lock(name):
+        return _edit(name, adapters, who, description_text, profile, repo)
+
+
+def _edit(name: str, adapters, who: str, description_text=None, profile=None, repo=None) -> dict:
     folder = paths.projects() / name
     if description_text is None and profile is None and repo is None:
         raise OpsError("Nothing to change: give --description, --profile or --repo.")

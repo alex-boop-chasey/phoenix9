@@ -1098,6 +1098,39 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
 
 
+# the project lock also covers new, edit, remove and import (second review 7)
+
+def _locked_calls(env):
+    from phoenix9 import project, project_removal
+    return {
+        "edit": lambda: project.edit("alpha", env["fakes"], "alex", description_text="New words."),
+        "remove": lambda: project_removal.remove("alpha", "alex", env["fakes"]),
+        "import": lambda: project_removal.import_("alpha", "alex", env["fakes"]),
+        "new": lambda: project.create({"name": "alpha", "no_new_repo": True}, env["fakes"], "alex"),
+    }
+
+
+@pytest.mark.parametrize("what", ["edit", "remove", "import", "new"])
+def test_project_changes_wait_for_the_lock(env, monkeypatch, what):
+    from phoenix9 import state
+    from phoenix9.ops import common
+    make(env, "alpha")
+    monkeypatch.setattr(common, "PROJECT_LOCK_WAIT", 0.05)
+    before = (env["projects"] / "alpha" / "CLAUDE.md").read_text()
+    with state.Lock(paths.project_lock("alpha")):
+        with pytest.raises(OpsError, match="being changed"):
+            _locked_calls(env)[what]()
+    assert (env["projects"] / "alpha" / "CLAUDE.md").read_text() == before
+
+
+def test_project_changes_work_when_the_lock_is_free(env):
+    make(env, "alpha")
+    _locked_calls(env)["edit"]()
+    _locked_calls(env)["remove"]()
+    _locked_calls(env)["import"]()
+    assert "New words." in (env["projects"] / "alpha" / "CLAUDE.md").read_text()
+
+
 # GitHub's id must be the one recorded at creation (second review 6)
 
 def test_repo_id_checked_right_before(env, unitdir):

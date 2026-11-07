@@ -101,3 +101,95 @@ def test_atomic_write(project, monkeypatch):
         pc.sync_chat_doc("alpha", found(B2, SID2), T0 + 5000)
     assert doc().read_text() == keep
     assert [p.name for p in doc().parent.iterdir()] == ["chat.md"]
+
+
+# ---- state ----
+import json  # noqa: E402
+
+from phoenix9 import agentlink  # noqa: E402
+from tests.fakes import FakeHost, fake_adapters  # noqa: E402
+
+HOME = "/root/.claude"
+
+
+def make_adapters(tmp_path, unit, status=None, bridge=None, sid=SID, parent=100):
+    agentlink.forget()
+    host = FakeHost()
+    host.script(["systemctl", "is-active"], rc=0 if unit == "active" else 3, out=unit + "\n")
+    host.script(["systemctl", "show"], out="100\n")
+    if status is not None:
+        sock = "/tmp/cc-socks-0/a.sock"
+        data = {"pid": 10, "cwd": str(paths.projects() / "alpha"), "name": "alpha", "status": status,
+                "messagingSocketPath": sock, "kind": "interactive", "sessionId": sid, "startedAt": 1}
+        if bridge:
+            data["bridgeSessionId"] = bridge
+        host.files["%s/sessions/10.json" % HOME] = json.dumps(data)
+        host.files[sock] = ""
+        host.pids |= {100, 10}
+        host.parents[10] = parent
+    adapters = fake_adapters(tmp_path)
+    adapters.host = host
+    return adapters
+
+
+def put_doc():
+    pc.write_chat_doc("alpha", pc.build_fields("alpha", B2, SID2, T0, T0))
+
+
+@pytest.fixture
+def listed(project):
+    (paths.projects() / "alpha" / "CLAUDE.md").write_text("x")
+
+
+@pytest.mark.parametrize("unit", ["inactive", "failed"])
+def test_state_off(listed, tmp_path, unit):
+    assert pc.state("alpha", make_adapters(tmp_path, unit))["state"] == "off"
+
+
+def test_state_starting(listed, tmp_path):
+    assert pc.state("alpha", make_adapters(tmp_path, "activating"))["state"] == "starting"
+    s = pc.state("alpha", make_adapters(tmp_path, "active"))
+    assert s["state"] == "starting" and s["web_url"] is None and s["app_url"] is None
+
+
+def test_state_sleeping(listed, tmp_path):
+    put_doc()
+    s = pc.state("alpha", make_adapters(tmp_path, "active"))
+    assert s["state"] == "sleeping" and s["bridge_session_id"] == B2
+    assert s["web_url"] == "https://claude.ai/code/" + B2
+    assert s["app_url"] == "claude://claude.ai/code/" + B2
+    assert s["last_active"] == T0
+
+
+def test_state_live_and_working(listed, tmp_path):
+    s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))
+    assert s["state"] == "live" and s["bridge_session_id"] == B1
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B1
+    assert pc.state("alpha", make_adapters(tmp_path, "active", "busy", B1))["state"] == "working"
+
+
+def test_state_registry_beats_document(listed, tmp_path):
+    put_doc()
+    s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))
+    assert s["bridge_session_id"] == B1
+    fields, _ = pc.read_chat_doc("alpha")
+    assert fields["Conversation id"] == B1 and fields["Local session id"] == SID
+
+
+def test_state_unreadable_document(listed, tmp_path):
+    doc().parent.mkdir(exist_ok=True)
+    doc().write_text("garbage\x00")
+    s = pc.state("alpha", make_adapters(tmp_path, "active"))
+    assert s["state"] == "starting" and s["bridge_session_id"] is None
+    s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))
+    assert s["state"] == "live" and pc.read_chat_doc("alpha")[0] is not None
+
+
+def test_state_foreign_process_is_not_live(listed, tmp_path):
+    s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1, parent=999))
+    assert s["state"] == "starting"
+
+
+def test_state_unknown_project(listed, tmp_path):
+    with pytest.raises(ValueError):
+        pc.state("ghost", make_adapters(tmp_path, "active", "idle", B1))

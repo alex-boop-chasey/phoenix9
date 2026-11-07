@@ -1,9 +1,9 @@
-"""A project's chat document (.phoenix/chat.md): written, parsed strictly and kept up to date."""
+"""A project's chat: its document (.phoenix/chat.md) and its state (off, starting, sleeping, live, working)."""
 import calendar
 import re
 import time
 
-from phoenix9 import agentlink, atomic, paths
+from phoenix9 import agentlink, atomic, chat, paths
 
 KEYS = ("Project", "Desktop app link", "Web link", "Conversation id", "Local session id",
         "Created", "Last active")
@@ -113,3 +113,51 @@ def sync_chat_doc(project: str, found: dict, now: float) -> bool:
         return False
     write_chat_doc(project, dict(current, **{"Last active": format_time(now)}))
     return True
+
+
+def _session_process(host, project: str) -> dict | None:
+    """The project's live conversation process (the unit's main process or its direct child), or None."""
+    folder = str(paths.projects() / project)
+    main = chat.unit_main_pid(host, project)
+    found = agentlink.find_in(folder, agentlink.CLAUDE_HOME, host, main)
+    if found is None or main is None:
+        return None
+    if found["pid"] != main and host.parent_pid(found["pid"]) != main:
+        return None
+    return found
+
+
+def _newest(host, found: dict | None, fields: dict | None) -> float | None:
+    """The newest of the registry mtime, transcript mtime and document Last active, or None."""
+    times = []
+    if found:
+        times.append(found.get("mtime"))
+        if found.get("transcript"):
+            times.append((host.stat(found["transcript"]) or {}).get("mtime"))
+    if fields:
+        times.append(parse_time(fields["Last active"]))
+    times = [t for t in times if isinstance(t, (int, float)) and t]
+    return max(times) if times else None
+
+
+def state(project: str, adapters) -> dict:
+    """A project's chat as {state, bridge_session_id, web_url, app_url, last_active}; refuses unknown projects."""
+    host = adapters.host
+    unit = chat.unit_state(host, project)
+    found = _session_process(host, project) if unit == "active" else None
+    if found:
+        sync_chat_doc(project, found, time.time())
+    fields, _ = read_chat_doc(project)
+    bridge = (found or {}).get("bridge_session_id") or (fields or {}).get("Conversation id")
+    if unit in ("inactive", "failed"):
+        word = "off"
+    elif unit == "activating":
+        word = "starting"
+    elif found:
+        word = "working" if found.get("status") == "busy" else "live"
+    else:
+        word = "sleeping" if fields else "starting"
+    return {"state": word, "bridge_session_id": bridge,
+            "web_url": WEB_PREFIX + bridge if bridge else None,
+            "app_url": DESKTOP_PREFIX + bridge if bridge else None,
+            "last_active": _newest(host, found, fields)}

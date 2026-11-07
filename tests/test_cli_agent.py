@@ -148,3 +148,28 @@ def test_brief_fits_without_cutting_when_small(host, monkeypatch):
     host.files["/srv/projects/home/notes/NOW.md"] = "short note"
     data = agent.brief()
     assert "more projects" not in data["text"] and "short note" in data["text"]
+
+
+def test_agent_restart_needs_yes_and_restarts_the_unit(host, monkeypatch, capsys):
+    """`phoenix agent restart --yes` restarts the agent's unit (the doctor's fix text names this command)."""
+    from tests.fakes import FakeNotify
+    notify = FakeNotify()
+    monkeypatch.setattr(common, "make_adapters", lambda: types.SimpleNamespace(host=host, notify=notify))
+    code, out, err = run(capsys, "agent", "restart")
+    assert code == 1 and "--yes" in out + err
+    assert not [c for c in host.calls if c[:2] == ["systemctl", "restart"]]
+    code, out, _ = run(capsys, "agent", "restart", "--yes")
+    assert code == 0 and "restart" in out.lower()
+    assert ["systemctl", "restart", "claude-rc@home"] in host.calls
+    assert notify.messages and "asked by cli" in notify.messages[0]
+
+
+def test_doctor_fix_text_names_only_real_agent_commands():
+    import re
+    from phoenix9 import doctor
+    from phoenix9.__main__ import build_parser
+    source = open(doctor.__file__, encoding="utf-8").read()
+    for cmd in set(re.findall(r"`phoenix agent (\w+)", source)):
+        with pytest.raises(SystemExit) as stop:
+            build_parser().parse_args(["agent", cmd, "--help"])
+        assert stop.value.code == 0, cmd

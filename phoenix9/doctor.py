@@ -429,8 +429,13 @@ def check_agent_unit(ctx):
     unit = settings.agent_settings()["unit"]
     rc, out, _ = ctx.ad.host.systemctl("is-active", unit)
     state = out.split()[0] if out.split() else "unknown"
-    return _result(rc == 0 and state == "active", f"{unit} is {state}",
-                   f"Start it with `systemctl start {unit}`, then read `journalctl -u {unit}`.")
+    ok = rc == 0 and state == "active"
+    detail = f"{unit} is {state}"
+    if not ok:
+        from phoenix9 import agentwatch
+        if agentwatch.memory()["stopped"]:
+            detail += ": stopped by someone, so the watchdog leaves it alone"
+    return _result(ok, detail, f"Start it with `systemctl start {unit}`, then read `journalctl -u {unit}`.")
 
 
 def check_agent_session(ctx):

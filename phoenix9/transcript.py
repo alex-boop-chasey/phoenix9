@@ -16,12 +16,36 @@ IGNORED_SYSTEM = frozenset({"stop_hook_summary", "turn_duration", "bridge_status
 SYSTEM_WORDS = {"api_error": "The API returned an error."}
 
 
+class Parser:
+    """A transcript parser that keeps its state between calls, so a growing transcript is read once, line by line
+    (the live stream feeds it only the lines added since the last tick)."""
+
+    def __init__(self):
+        """Start before line 1."""
+        self.state = {"items": [], "actions": {}, "session": None, "last_at": None, "unknown": 0, "pending": []}
+        self.line = 0
+
+    @property
+    def unknown(self) -> int:
+        """Unknown or broken lines so far."""
+        return self.state["unknown"]
+
+    def feed(self, lines) -> tuple[list[dict], list[dict]]:
+        """Parse the next lines; returns (the items they made, the earlier actions they finished)."""
+        before = self.line
+        self.state["items"], self.state["finished"] = [], []
+        for raw in lines:
+            self.line += 1
+            _one(self.state, self.line, raw)
+        updates = [i for i in self.state["finished"] if i["line"] <= before]
+        return self.state["items"], updates
+
+
 def parse(lines) -> tuple[list[dict], int]:
     """Parse transcript lines into (panel items, number of unknown or broken lines)."""
-    state = {"items": [], "actions": {}, "session": None, "last_at": None, "unknown": 0}
-    for number, raw in enumerate(lines, start=1):
-        _one(state, number, raw)
-    return state["items"], state["unknown"]
+    parser = Parser()
+    items, _ = parser.feed(lines)
+    return items, parser.unknown
 
 
 def _one(state: dict, number: int, raw) -> None:
@@ -208,6 +232,7 @@ def _tool_result(state: dict, block: dict, number: int) -> None:
         return
     item["status"] = "error" if block.get("is_error") else "ok"
     item["done_line"] = number
+    state.setdefault("finished", []).append(item)
     tail = scrub.scrub(_result_text(block.get("content"))).splitlines()[-EXCERPT_LINES:]
     item["excerpt"] = "\n".join(tail)
 

@@ -265,3 +265,24 @@ def test_stream_last_event_id_from_another_session_starts_at_the_beginning(live,
     assert got.index("event: session") < got.index("id: a:1")
     assert all("id: a:%d" % n in got for n in range(1, 6))
     conn.close()
+
+
+def test_stream_parses_each_line_once(live, tmp_session, monkeypatch):
+    """The stream keeps the parser's state between ticks and hands it only the new lines."""
+    from phoenix9 import transcript
+    fed = []
+    real = transcript.Parser.feed
+
+    def spy(self, lines):
+        fed.append(len(lines))
+        return real(self, lines)
+    monkeypatch.setattr(transcript.Parser, "feed", spy)
+    path = tmp_session["path"]("a")
+    add(path, say("user", "one", 0, "a"), say("assistant", "two", 1, "a"))
+    conn, resp = open_stream(live[1])
+    read_until(resp, ": connected")
+    for n in range(3):
+        add(path, say("assistant", "more %d" % n, 2, "a"))
+        read_until(resp, "more %d" % n)
+    conn.close()
+    assert sum(fed) == 5

@@ -162,23 +162,33 @@ def recent(project, after, limit: int) -> dict:
     return {"events": found[-limit:] if after is None else found[:limit], "next": count}
 
 
-def _tail_items(path, offset: int, count: int, sent: int):
-    """(new frames, offset, count, sent) for the complete lines added to the transcript since last time.
+def _decoded(raws) -> list[str]:
+    return [r.decode("utf-8", errors="replace") for r in raws]
 
-    A frame is ("item", item) for an item after line `sent`, or ("update", item) for an action at or before `sent`
-    that one of the new lines finished; frames come in line order."""
+
+def _tail_items(path, offset: int, count: int, parser):
+    """(new frames, offset, count, parser) for the complete lines added to the transcript since last time; only
+    those lines are parsed (the parser keeps its state). A file that shrank starts again with a fresh parser.
+
+    A frame is ("item", item) for a new item, or ("update", item) for an action from an earlier tick that one of
+    the new lines finished; frames come in line order."""
     lines, new_offset, new_count = new_lines(path, offset, count)
-    if new_count < count:  # the file shrank and started again
-        sent = 0
+    if new_count < count or new_offset < offset:  # the file shrank and started again
+        parser = transcript.Parser()
     if not lines:
-        return [], new_offset, new_count, sent
-    raw = _read_from(path, 0)[:new_offset].split(b"\n")[:new_count]
-    items = transcript.parse([r.decode("utf-8", errors="replace") for r in raw])[0]
-    found = [(i["line"], "item", i) for i in items if i["line"] > sent]
-    found += [(i["done_line"], "update", i) for i in items
-              if i["type"] == "action" and i["line"] <= sent and i.get("done_line", 0) > sent]
+        return [], new_offset, new_count, parser
+    items, updates = parser.feed(_decoded(raw for _, raw in lines))
+    found = [(i["line"], "item", i) for i in items] + [(i["done_line"], "update", i) for i in updates]
     found.sort(key=lambda f: f[0])
-    return [(kind, item) for _, kind, item in found], new_offset, new_count, new_count
+    return [(kind, item) for _, kind, item in found], new_offset, new_count, parser
+
+
+def _primed(path, offset: int) -> "transcript.Parser":
+    """A parser that has read the lines before offset (sent nothing), so later results find their actions."""
+    parser = transcript.Parser()
+    raws = _read_from(path, 0)[:offset].split(b"\n")[:-1] if offset else []
+    parser.feed(_decoded(raws))
+    return parser
 
 
 def event_id(session, line: int) -> bytes:
@@ -231,7 +241,7 @@ def agent_stream(handler) -> None:
     offset = count = 0
     if path:
         offset, count = position_after(path, 1 << 62 if resume is None else max(resume, 0))
-    sent = count
+    parser = _primed(path, offset) if path else transcript.Parser()
     tail, ping = _tail_seconds(), _ping_seconds()
     out = start(handler)
     if resume == -1 and session is not None:
@@ -242,11 +252,12 @@ def agent_stream(handler) -> None:
         found = agentlink.find()
         if found is not None and found["session_id"] != session:
             session, path = found["session_id"], found["transcript"]
-            offset = count = sent = 0
+            offset = count = 0
+            parser = transcript.Parser()
             out.write(session_frame(session))
             last_write = time.monotonic()
         if path:
-            found, offset, count, sent = _tail_items(path, offset, count, sent)
+            found, offset, count, parser = _tail_items(path, offset, count, parser)
             for kind, item in found:
                 out.write(item_frame(item, session) if kind == "item" else update_frame(item, session))
                 last_write = time.monotonic()

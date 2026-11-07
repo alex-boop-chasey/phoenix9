@@ -22,6 +22,9 @@ def add(sub, common_parser) -> None:
     r.add_argument("--after", type=int, default=0, help="only items after this line number")
     r.add_argument("--tail", type=int, help="only the last N items")
     r.set_defaults(func=run_read)
+    x = cmds.add_parser("restart", parents=[common_parser], help="restart the agent's service (needs --yes)")
+    x.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    x.set_defaults(func=run_restart)
     w = cmds.add_parser("watch", parents=[common_parser], help="check once that the agent is running; restart it if not")
     w.set_defaults(func=run_watch)
     p.set_defaults(func=lambda args: (p.print_help(), 0)[1])
@@ -75,3 +78,12 @@ def run_watch(args) -> int:
     common.record_command(args.who, "agent watch")
     result = agentwatch.check_once(adapters.real())
     return show(args, {"result": result}, "Agent watchdog: %s." % result)
+
+
+def run_restart(args) -> int:
+    """Restart the agent's systemd service."""
+    if not args.yes:
+        return problem(args, "This restarts the Phoenix agent's service; a reply it is writing is cut off. "
+                             "Add --yes to go ahead.")
+    data = agent.restart(args.who)
+    return show(args, data, "Asked systemd to restart %s." % data["unit"])

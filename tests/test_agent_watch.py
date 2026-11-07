@@ -84,3 +84,44 @@ def test_no_run_state_touched(ad, tmp_path):
     run(ad, 3)
     assert not (tmp_path / "home" / "runs").exists()
     assert agentwatch.memory_path().name == "agent-watch.json"
+
+
+def memory():
+    return json.loads(agentwatch.memory_path().read_text())
+
+
+def test_bad_count_resets_after_a_restart(ad):
+    sick(ad.host)
+    run(ad, 2)
+    assert len(restarts(ad.host)) == 1 and memory()["bad"] == 0
+
+
+def stopped_on_purpose(host):
+    sick(host)
+    host.script(["systemctl", "show"], 0, "ActiveState=inactive\nResult=success\n")
+
+
+def test_unit_stopped_on_purpose_is_left_alone(ad):
+    """`systemctl stop` leaves the unit inactive with Result=success: the watchdog records it and never restarts."""
+    stopped_on_purpose(ad.host)
+    results = [agentwatch.check_once(ad) for _ in range(5)]
+    assert results == ["stopped"] * 5 and not restarts(ad.host) and not ad.notify.messages
+    assert memory()["stopped"] is True and memory()["bad"] == 0
+    healthy(ad.host)
+    assert agentwatch.check_once(ad) == "ok" and memory()["stopped"] is False
+
+
+@pytest.mark.parametrize("show", ["ActiveState=failed\nResult=exit-code\n", "ActiveState=inactive\nResult=signal\n"])
+def test_unit_that_failed_is_restarted(ad, show):
+    sick(ad.host)
+    ad.host.script(["systemctl", "show"], 0, show)
+    run(ad, 2)
+    assert len(restarts(ad.host)) == 1
+
+
+def test_doctor_says_the_agent_was_stopped_by_someone(ad):
+    from phoenix9 import doctor
+    stopped_on_purpose(ad.host)
+    agentwatch.check_once(ad)
+    ok, detail, fix = doctor.check_agent_unit(types.SimpleNamespace(ad=ad))
+    assert not ok and "stopped by someone" in detail and "systemctl start" in fix

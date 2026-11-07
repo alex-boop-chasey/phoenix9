@@ -45,6 +45,15 @@ def send(text: str, context: dict | None = None, who: str = "cli") -> dict:
     return result
 
 
+def restart(who: str = "cli") -> dict:
+    """Restart the agent's systemd service (the `agent.unit` setting) and tell Alex; {restarted, unit}."""
+    from phoenix9 import chat
+    unit = settings.agent_settings()["unit"]
+    chat.agent_restart(common.make_adapters(), "asked by %s" % who)
+    common.record_command(who, "agent restart")
+    return {"restarted": True, "unit": unit}
+
+
 def _first_time(lines) -> str | None:
     """The first timestamp found in a transcript's lines."""
     for raw in lines:

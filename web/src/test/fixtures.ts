@@ -73,3 +73,41 @@ export const globalView: GlobalView = {
   supported: { services: false, update: false, secrets: false },
   addresses: { dashboard_url: "https://phoenix.example.test/", allowed_origins: ["https://phoenix.example.test"], vscode_url: "" },
 }
+
+// Phoenix agent (docs/api.md "Agent items").
+import type {
+  AgentMessages, AgentSessionRow, AgentState, AgentStatus,
+} from "@/features/agent/useAgent"
+
+export function agentStatus(state: AgentState, over: Partial<AgentStatus> = {}): AgentStatus {
+  const asleep = state === "asleep"
+  return { state, pid: asleep ? null : 4242, session_id: asleep ? null : "sess-1", name: "phoenix", ...over }
+}
+
+export const agentStatuses: Record<AgentState, AgentStatus> = {
+  asleep: agentStatus("asleep"),
+  idle: agentStatus("idle"),
+  working: agentStatus("working"),
+  queued: agentStatus("queued"),
+}
+
+export const agentMessages: AgentMessages = {
+  session_id: "sess-1",
+  unknown: 0,
+  last_line: 8,
+  items: [
+    { type: "user", line: 1, text: "Check the build", origin: "panel", at: "2026-11-07T10:00:00Z" },
+    { type: "thinking", line: 2, duration_s: 4, at: "2026-11-07T10:00:04Z" },
+    { type: "action", line: 3, id: "tool-1", tool: "Bash", title: "Run the tests", input_summary: "pytest -q", status: "running" },
+    { type: "agent", line: 4, markdown: "Looking at **it** now.", at: "2026-11-07T10:00:09Z" },
+    { type: "queued", line: 5, text: "Also the docs", pending: true, at: "2026-11-07T10:00:10Z" },
+    { type: "notice", line: 6, text: "Context compacted" },
+    { type: "session", line: 7, session_id: "sess-1" },
+    { type: "user", line: 8, text: "From the app", origin: "app", at: "2026-11-07T10:01:00Z" },
+  ],
+}
+
+export const agentSessions: AgentSessionRow[] = [
+  { session_id: "sess-2", started: "2026-11-07T11:00:00Z", lines: 12 },
+  { session_id: "sess-1", started: "2026-11-07T10:00:00Z", lines: 8 },
+]

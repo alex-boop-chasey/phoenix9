@@ -83,7 +83,7 @@ def test_send_records_and_wraps_errors(host, monkeypatch):
     """Send records a command event and turns SendError into OpsError."""
     seen = {}
 
-    def fake_send(t, c=None, w="cli", host=None):
+    def fake_send(t, c=None, w="cli", host=None, panel=False):
         seen["host"] = host
         return {"sent": True}
     monkeypatch.setattr(agentlink, "send", fake_send)

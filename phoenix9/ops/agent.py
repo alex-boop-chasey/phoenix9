@@ -33,10 +33,10 @@ def messages(after: int = 0, limit: int = 100) -> dict:
             "session_id": found["session_id"]}
 
 
-def send(text: str, context: dict | None = None, who: str = "cli") -> dict:
+def send(text: str, context: dict | None = None, who: str = "cli", panel: bool = False) -> dict:
     """Post a message to the agent and record who sent it; OpsError with the reason on failure."""
     try:
-        result = agentlink.send(text, context, who, host=_host())
+        result = agentlink.send(text, context, who, host=_host(), panel=panel)
     except agentlink.TooLong as e:
         raise common.OpsError(scrub.scrub(str(e)))
     except agentlink.SendError as e:

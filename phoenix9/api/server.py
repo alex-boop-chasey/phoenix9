@@ -831,7 +831,7 @@ def post_global_models(req):
 
 def post_agent_send(req):
     """Send a message to the Phoenix agent (503 when it is asleep, 400 when too long)."""
-    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO)
+    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO, panel=True)
 
 
 def post_service_disconnect(req, name):

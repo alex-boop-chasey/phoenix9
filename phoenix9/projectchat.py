@@ -194,7 +194,7 @@ def _prime(project: str, adapters, who: str) -> str | None:
     try:
         if found is None:
             raise agentlink.SendError("no conversation to write to")
-        agentlink.send_to(found, PRIME_TEXT, {"project": project}, who, host=adapters.host)
+        agentlink.send_to(found, PRIME_TEXT, {"project": project}, "chat:%s" % project, host=adapters.host)
     except agentlink.SendError:
         return PRIME_FAILED
     return None
@@ -255,7 +255,7 @@ def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dic
     found = _session_process(host, project)
     if found is not None and wrap_up:
         try:
-            agentlink.send_to(found, WRAP_UP_TEXT, {"project": project}, who, host=host)
+            agentlink.send_to(found, WRAP_UP_TEXT, {"project": project}, "chat:%s" % project, host=host)
             _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
         except agentlink.SendError:
             pass

@@ -192,7 +192,7 @@ def status(home_dir=CLAUDE_HOME, host=None) -> dict:
 MAX_CHARS = 100_000
 SEND_TIMEOUT = 5.0
 PANEL_FROM = "uds:/run/phoenix9/panel.sock"
-WRAP_HEAD = '<cross-session-message from="%s" from-name="Alex (Phoenix panel)" from-mode="bypass">' % PANEL_FROM
+PANEL_NAME = "Alex (Phoenix panel)"
 
 
 class SendError(Exception):
@@ -230,9 +230,29 @@ def clean_context(context) -> dict:
     return out
 
 
-def envelope(context: dict | None) -> str:
-    """The first line telling the agent where in the panel the message came from ('' when empty). The folder is
-    only ever /srv/projects/<listed project> or the agent folder."""
+WHO_RE = re.compile(r"^[A-Za-z0-9/_.:-]{1,80}$")
+
+
+def clean_who(who) -> str:
+    """The sender name the agent may be told: newlines stripped, only [A-Za-z0-9/_.:-], at most 80, else 'unknown'."""
+    value = who.replace("\r", "").replace("\n", "") if isinstance(who, str) else ""
+    return value if WHO_RE.fullmatch(value) else "unknown"
+
+
+def from_name(who: str, panel: bool = False) -> str:
+    """The from-name for a message: 'Alex (Phoenix panel)' from the panel, else 'Phoenix (<who>)'."""
+    return PANEL_NAME if panel else "Phoenix (%s)" % clean_who(who)
+
+
+def wrap_head(who: str, panel: bool = False) -> str:
+    """The opening cross-session-message tag, with the from-name escaped."""
+    name = _escape(from_name(who, panel)).replace('"', "&quot;")
+    return '<cross-session-message from="%s" from-name="%s" from-mode="bypass">' % (PANEL_FROM, name)
+
+
+def envelope(context: dict | None, who: str = "cli", panel: bool = False) -> str:
+    """The first line telling the agent who sent the message and where from ('' for an empty panel message). The
+    folder is only ever /srv/projects/<listed project> or the agent folder."""
     context = clean_context(context)
     project, page, run = context.get("project"), context.get("page"), context.get("run")
     parts = []
@@ -246,14 +266,16 @@ def envelope(context: dict | None) -> str:
         parts.append("folder: %s" % settings.agent_settings()["folder"])
     if run:
         parts.append("run: %s" % run)
-    return "[Phoenix panel · %s]" % " · ".join(parts) if parts else ""
+    if panel:
+        return "[Phoenix panel · %s]" % " · ".join(parts) if parts else ""
+    return "[%s]" % " · ".join(["Phoenix", clean_who(who)] + parts)
 
 
-def wire_line(text: str, context: dict | None) -> str:
+def wire_line(text: str, context: dict | None, who: str = "cli", panel: bool = False) -> str:
     """The exact one-line JSON the agent's inbox socket expects (with a fresh msg_id)."""
-    first = envelope(context)
+    first = envelope(context, who, panel)
     body = _escape(("%s\n%s" % (first, text)) if first else text)
-    content = "%s\n%s\n</cross-session-message>" % (WRAP_HEAD, body)
+    content = "%s\n%s\n</cross-session-message>" % (wrap_head(who, panel), body)
     msg = {"msgV": 1, "msg_id": str(uuid.uuid4()), "type": "user",
            "message": {"role": "user", "content": content}, "priority": "next", "from": PANEL_FROM}
     return json.dumps(msg, ensure_ascii=False) + "\n"
@@ -305,7 +327,7 @@ def _log_send(who: str, context: dict, chars: int) -> None:
 
 
 def send_to(found: dict, text: str, context: dict | None = None, who: str = "cli",
-            timeout: float = SEND_TIMEOUT, host=None) -> dict:
+            timeout: float = SEND_TIMEOUT, host=None, panel: bool = False) -> dict:
     """Post a message into the given session's inbox; returns {sent, at, after_line}."""
     context = context or {}
     if len(text) > MAX_CHARS:
@@ -314,14 +336,14 @@ def send_to(found: dict, text: str, context: dict | None = None, who: str = "cli
     context = clean_context(context)
     host = host or Host()
     after = len(host.read_lines(found["transcript"])) if found.get("transcript") else 0
-    connect_and_write(found["socket"], wire_line(text, context).encode("utf-8"), timeout)
+    connect_and_write(found["socket"], wire_line(text, context, who, panel).encode("utf-8"), timeout)
     _log_send(who, context, len(text))
     return {"sent": True, "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "after_line": after}
 
 
 def send(text: str, context: dict | None = None, who: str = "cli", timeout: float = SEND_TIMEOUT,
-         host=None) -> dict:
+         host=None, panel: bool = False) -> dict:
     """Post a message into the agent's inbox; returns {sent, at, after_line}."""
     host = host or Host()
     if len(text) > MAX_CHARS:
@@ -330,4 +352,4 @@ def send(text: str, context: dict | None = None, who: str = "cli", timeout: floa
     found = find(host=host)
     if found is None:
         raise SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
-    return send_to(found, text, context, who, timeout, host)
+    return send_to(found, text, context, who, timeout, host, panel)

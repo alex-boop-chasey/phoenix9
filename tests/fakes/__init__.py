@@ -20,6 +20,8 @@ class FakeHost:
         self.pids: set[int] = set()          # process ids that are alive
         self.stats: dict[str, dict] = {}     # {mode, uid} by path
         self.realpaths: dict[str, str] = {}  # symlinked path -> where it really points
+        self.peer_uid: int | None = 0        # who owns the far end of every API connection (root unless set)
+        self.socket_lookups: list = []       # (local, remote) of each socket_uid() call
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -75,6 +77,11 @@ class FakeHost:
     def pid_alive(self, pid):
         """True when the pid is in .pids."""
         return pid in self.pids
+
+    def socket_uid(self, local, remote, tables=None):
+        """The scripted .peer_uid for any socket (the lookup is recorded)."""
+        self.socket_lookups.append((tuple(local), tuple(remote)))
+        return self.peer_uid
 
     def realpath(self, path):
         """The path from .realpaths, else the path itself (no symlinks unless scripted)."""

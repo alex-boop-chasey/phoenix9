@@ -146,3 +146,18 @@ def global_view() -> dict:
     return {"values": values, "addresses": addresses.read(), "github": github.status(), "default_models": default_models(),
             "telegram": {"connected": (paths.secrets() / "telegram.env").is_file()},
             "supported": {"services": True, "update": _update_supported(), "secrets": False}}
+
+
+def write_peer_uid(client, local) -> int | None:
+    """The uid of the program at the far end of an API connection (None when it cannot be told), through the
+    host adapter."""
+    return common.make_adapters().host.socket_uid(client, local)
+
+
+def access_lock_problem(token) -> str | None:
+    """None when the optional Cloudflare Access lock is off or the token is valid; else why it was refused."""
+    from phoenix9 import access
+    cfg = access.settings()
+    if not cfg["on"]:
+        return None
+    return access.verify(token, common.make_adapters().http, cfg)

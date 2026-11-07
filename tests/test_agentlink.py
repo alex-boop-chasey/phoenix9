@@ -156,6 +156,9 @@ def inbox(tmp_path, monkeypatch):
     (home / "config").mkdir(parents=True)
     (home / "config" / "global.toml").write_text('[agent]\nfolder = "/srv/projects/homex"\n')
     monkeypatch.setenv("PHOENIX_HOME", str(home))
+    from phoenix9 import paths
+    (paths.projects() / "alpha").mkdir(parents=True)
+    (paths.projects() / "alpha" / "CLAUDE.md").write_text("# alpha\n")     # a listed project
     tr = tmp_path / "t.jsonl"
     tr.write_text('{"type":"user"}\n' * 3)
     path = str(tmp_path / "s.sock")

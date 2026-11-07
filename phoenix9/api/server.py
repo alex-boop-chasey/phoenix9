@@ -74,6 +74,34 @@ def refusal(headers) -> str:
             "settings > Dashboard addresses (or run `phoenix settings global set allowed_origins=...`).")
 
 
+NOT_ROOT = "Refused: this request came from a program on the server that isn't run by root."
+PEER_UNKNOWN = "Refused: Phoenix couldn't tell which program on the server sent this request."
+NO_ACCESS = "Refused: this change needs a Cloudflare Access sign-in. Open the dashboard through its Access address."
+WRITE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
+
+
+def peer_refusal(handler) -> str:
+    """'' when the far end of the connection is a root process (cloudflared and code-server run as root); else
+    the plain refusal. The owner is looked up through the host adapter (/proc/net/tcp on the real host)."""
+    try:
+        uid = app.write_peer_uid(handler.client_address, handler.connection.getsockname())
+    except Exception:
+        api_log(traceback.format_exc())
+        uid = None
+    if uid is None:
+        return PEER_UNKNOWN
+    return "" if uid == 0 else NOT_ROOT
+
+
+def access_refusal(headers) -> str:
+    """'' when the optional Cloudflare Access lock is off or the request carries a valid token; else the refusal."""
+    why = app.access_lock_problem(headers.get("Cf-Access-Jwt-Assertion"))
+    if why is None:
+        return ""
+    api_log(f"write refused by the Access lock: {why}")
+    return NO_ACCESS
+
+
 def api_log(text: str) -> None:
     """Append one scrubbed line to HOME/logs/api.log (never fails the request)."""
     try:
@@ -855,7 +883,7 @@ def find_route(method: str, path: str):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """One request: guard (POST), body (POST), route, reply, log."""
+    """One request: guard (writes: header, origin, root peer, optional Access token), body, route, reply, log."""
     server_version = "phoenix-api"
 
     # ported from reference/selector/selector/server.py:119 (send_json)
@@ -883,6 +911,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.handle_request("POST")
 
+    def do_PUT(self):
+        self.handle_request("PUT")
+
+    def do_DELETE(self):
+        self.handle_request("DELETE")
+
+    def do_PATCH(self):
+        self.handle_request("PATCH")
+
     def handle_request(self, method):
         started = time.monotonic()
         url = urlsplit(self.path)
@@ -906,9 +943,13 @@ class Handler(BaseHTTPRequestHandler):
         api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
 
     def dispatch(self, method):
-        if method == "POST":
+        if method in WRITE_METHODS:
             if not self.guard_ok():
                 return self.fail(403, refusal(self.headers))
+            why = peer_refusal(self) or access_refusal(self.headers)
+            if why:
+                self.close_connection = True  # don't read a body we refuse
+                return self.fail(403, why)
             if self.read_body() is None:
                 return
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":

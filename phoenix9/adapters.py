@@ -1,4 +1,5 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
+import ipaddress
 import os
 import subprocess
 import time
@@ -11,6 +12,26 @@ from typing import Any
 from phoenix9.docker import DockerRunner
 
 NOTIFY_MAX = 600
+TCP_TABLES = ("/proc/net/tcp", "/proc/net/tcp6")
+
+
+def _proc_addr(text: str):
+    """(ip address, port) of one /proc/net/tcp address ('0100007F:1F9F'); IPv4-mapped IPv6 reads as IPv4."""
+    hexip, hexport = text.split(":")
+    raw = bytes.fromhex(hexip)
+    raw = b"".join(raw[i:i + 4][::-1] for i in range(0, len(raw), 4))   # each 32-bit word is little-endian
+    ip = ipaddress.ip_address(raw)
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip, int(hexport, 16)
+
+
+def _norm(addr):
+    """(ip address, port) of a socket address tuple, with IPv4-mapped IPv6 as IPv4."""
+    ip = ipaddress.ip_address(addr[0].split("%")[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip, int(addr[1])
 DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 
 
@@ -72,6 +93,25 @@ class Host:
         except (ProcessLookupError, ValueError, OverflowError, TypeError):
             return False
         return True
+
+    def socket_uid(self, local, remote, tables=TCP_TABLES) -> int | None:
+        """The uid owning the TCP socket whose own end is `local` and far end is `remote` (address tuples),
+        read from /proc/net/tcp and tcp6; None when there is no such socket or more than one owner."""
+        want = (_norm(local), _norm(remote))
+        uids = set()
+        for table in tables:
+            try:
+                rows = open(table, encoding="ascii").read().splitlines()[1:]
+            except OSError:
+                continue
+            for row in rows:
+                parts = row.split()
+                try:
+                    if (_proc_addr(parts[1]), _proc_addr(parts[2])) == want:
+                        uids.add(int(parts[7]))
+                except (IndexError, ValueError):
+                    continue
+        return uids.pop() if len(uids) == 1 else None
 
     def realpath(self, path) -> str:
         """The path with every symlink resolved (the path itself when it cannot be resolved)."""

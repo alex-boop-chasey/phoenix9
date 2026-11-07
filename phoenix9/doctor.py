@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import access, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
 from phoenix9 import transcript
 from phoenix9.library import read_toml
 
@@ -28,7 +28,7 @@ CHECKS_BY_MODE = {
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files",
-             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder"),
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "access"),
 }
 
 
@@ -491,6 +491,18 @@ def check_agent_folder(ctx):
                    f"Set the agent folder up again (copy the agent files into {folder}).")
 
 
+def check_access(ctx):
+    """The optional Cloudflare Access lock on dashboard writes: off, on, or half set up (a problem)."""
+    cfg = access.settings()
+    if cfg["on"]:
+        return _result(True, f"writes need a Cloudflare Access token from {cfg['team_domain']}")
+    if cfg["team_domain"] or cfg["aud"]:
+        missing = "aud" if cfg["team_domain"] else "team_domain"
+        return _result(False, f"the Access lock is half set up: access.{missing} is missing, so it is off",
+                       f"Add access.{missing} to {paths.home()}/config/global.toml, or remove the [access] table.")
+    return _result(True, "the optional Cloudflare Access lock is off (writes still need a root process on this server)")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services,
           "service-home": check_service_home, "api": check_api,
           "origins": check_origins,
@@ -498,7 +510,7 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
           "project-links": check_project_links, "memory-files": check_memory_files,
           "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
-          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder}
+          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder, "access": check_access}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

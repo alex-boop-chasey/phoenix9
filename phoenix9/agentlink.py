@@ -124,9 +124,32 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+CONTEXT_RE = re.compile(r"^[A-Za-z0-9/_.-]{1,80}$")
+
+
+def clean_context(context) -> dict:
+    """Only the context values the agent may be told: newlines stripped from each; `project` kept only when it is
+    a listed project, `page` and `run` only when they match [A-Za-z0-9/_.-] (at most 80); anything else dropped."""
+    from phoenix9 import project as project_mod
+    context = context if isinstance(context, dict) else {}
+    out = {}
+    for key in ("page", "project", "run"):
+        value = context.get(key)
+        if not isinstance(value, str):
+            continue
+        value = value.replace("\r", "").replace("\n", "")
+        if not CONTEXT_RE.match(value):
+            continue
+        if key == "project" and value not in project_mod.project_names():
+            continue
+        out[key] = value
+    return out
+
+
 def envelope(context: dict | None) -> str:
-    """The first line telling the agent where in the panel the message came from ('' when empty)."""
-    context = context or {}
+    """The first line telling the agent where in the panel the message came from ('' when empty). The folder is
+    only ever /srv/projects/<listed project> or the agent folder."""
+    context = clean_context(context)
     project, page, run = context.get("project"), context.get("page"), context.get("run")
     parts = []
     if page:
@@ -204,6 +227,7 @@ def send(text: str, context: dict | None = None, who: str = "cli", timeout: floa
     if len(text) > MAX_CHARS:
         raise TooLong("That message is %d characters long; the limit is %d. Nothing was sent."
                         % (len(text), MAX_CHARS))
+    context = clean_context(context)
     host = host or Host()
     found = find(host=host)
     if found is None:

@@ -69,7 +69,7 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
     """Whether Phoenix may delete the project's GitHub repo: {repo, delete, why}.
 
     Only when every rule holds: Phoenix created the repo (project.json source empty/template with the repo
-    recorded), code/ is its own git repo (not a plain folder inside a parent repo), code/'s origin is that repo,
+    recorded, and `phoenix_made_repo`, written only when Phoenix creates a repo, naming exactly that repo), code/ is its own git repo (not a plain folder inside a parent repo), code/'s origin is that repo,
     and no other project, removed-projects row or the projects folder's own repo points at it."""
     shown = _repo(folder)
     if not shown:
@@ -79,7 +79,8 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
         return {"repo": shown, "delete": False, "why": f"GitHub repo {shown} not deleted: it {why}."}
     meta = project._meta(folder)
     key = _key(meta.get("repo"))
-    if meta.get("source") not in OWN_SOURCES or not key or key != _key(shown):
+    if (meta.get("source") not in OWN_SOURCES or not key or key != _key(shown)
+            or _key(meta.get("phoenix_made_repo")) != key):
         return keep("was not created by Phoenix")
     code = folder / "code"
     if code.is_symlink() or not code.is_dir():

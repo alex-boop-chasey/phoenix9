@@ -273,3 +273,12 @@ def test_import_cli_shows_chat_words(env, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(common, "make_adapters", lambda: fakes)
     code, out, _ = run_cmd(capsys, "project", "import", "loose")
     assert code == 0 and "chat not set up yet: press Chat to try again" in out
+
+
+def test_import_forgets_phoenix_made_repo(env):
+    folder = make(env, "alpha", meta={"repo": "me/alpha", "source": "empty", "phoenix_made_repo": "me/alpha",
+                                      "phoenix_made_repo_id": "R_1"})
+    projects.remove("alpha", "tester")
+    project_removal.import_("alpha", "tester", env["fakes"])
+    meta = json.loads((folder / ".phoenix" / "project.json").read_text())
+    assert meta["repo"] == "me/alpha" and "phoenix_made_repo" not in meta and "phoenix_made_repo_id" not in meta

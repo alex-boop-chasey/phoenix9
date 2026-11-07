@@ -167,6 +167,7 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
         raise OpsError(f"'{name}' is not a good project name: use lowercase letters, digits and dashes (up to 41).")
     repo = _folder_repo(folder)
     added = add_standard_files(folder, name, repo)
+    project.forget_made_repo(folder)   # an imported folder's repo is never treated as one Phoenix created
     _save_removed([r for r in removed_list() if r["name"] != name])
     project.trust(adapters.host, folder)
     project.mark_used(name)

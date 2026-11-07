@@ -213,9 +213,12 @@ def test_ops_delete_plan_uses_given_caller(env):
 from phoenix9.ops.common import OpsError  # noqa: E402
 
 
+OWN_META = {"repo": "me/alpha", "source": "empty", "phoenix_made_repo": "me/alpha", "phoenix_made_repo_id": "R_alpha"}
+
+
 def _project_with_stuff(env, name="alpha"):
     """A project with a real repo, an untracked file, caches, notes, a run and a work folder."""
-    folder = make(env, name, meta={"repo": "me/alpha", "source": "empty"})
+    folder = make(env, name, meta=OWN_META)
     git_repo(folder / "code", origin_url="https://github.com/me/alpha.git")
     host_git(env["host"], folder)
     code = folder / "code"
@@ -1009,7 +1012,7 @@ def test_fetch_before_bundle_failure_is_a_note(env):
 
 
 def test_repo_with_no_commits_is_tar_only_and_kept(env, unitdir):
-    folder = make(env, "alpha", meta={"repo": "me/alpha", "source": "empty"})
+    folder = make(env, "alpha", meta=OWN_META)
     git_repo(folder / "code", origin_url="https://github.com/me/alpha.git", commit=False)
     host_git(env["host"], folder)
     plan = project_delete.plan("alpha", "cli", env["fakes"])
@@ -1056,3 +1059,31 @@ def test_retry_event_says_kept_when_kept(env, unitdir):
     project_delete.delete_repo("alpha", "cli", env["fakes"])
     last = [e for e in events_mod.read(paths.events()) if e["type"] == "project.changed"][-1]
     assert last["data"]["what"] == "github repo kept"
+
+
+
+# ---- second review ----
+
+def _set_meta(folder, **fields):
+    meta = json.loads((folder / ".phoenix" / "project.json").read_text())
+    meta.update(fields)
+    meta = {k: v for k, v in meta.items() if v is not None}
+    (folder / ".phoenix" / "project.json").write_text(json.dumps(meta))
+
+
+@pytest.mark.parametrize("made", [None, "me/other"])
+def test_repo_needs_the_phoenix_made_record(env, unitdir, made):
+    """Old projects without the record, or a record for another repo (e.g. after edit --repo), keep the repo."""
+    folder = _stuff(env)
+    _set_meta(folder, phoenix_made_repo=made)
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and "was not created by Phoenix" in res["steps"][-1]["words"]
+
+
+def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
+    from phoenix9 import project
+    _stuff(env)
+    project.edit("alpha", env["fakes"], "alex", repo="someone/theirs")
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo"] == "someone/theirs" and plan["repo_delete"]["delete"] is False
+    assert "was not created by Phoenix" in plan["repo_delete"]["why"]

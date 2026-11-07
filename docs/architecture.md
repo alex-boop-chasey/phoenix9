@@ -1338,3 +1338,21 @@ a second dialog listing what would be lost, whose button "Discard anyway and los
 It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
 status stays as it was), writes a `run.discarded` event
 and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".
+
+## Reply blocks and dashboard control
+
+(Agent build 3. Each task appends its own notes here.)
+
+### Cards (`phoenix9/cards/`, `ops.cards`, `GET /api/cards`, `phoenix card`)
+- A card type is a module in `phoenix9/cards/` (`-` written `_` in the file name). It has `schema` (allowed
+  query key → type name), optional `inline = True`, and `build(query) -> {title, data, actions, watch}`.
+  `cards.load`, `cards.types` and `cards.check_query` (returns a plain reason or None) live in `__init__.py`.
+- `ops.cards.build(type, query, title)` returns `{type, title, data, actions, watch, inline}`; an unknown type or
+  bad query is an `OpsError` (API 400).
+- `projects` card: `names` keeps only those projects, in that order (the `top`/`rest` split is kept; `total` is the kept count).
+  Its title is "Projects that need you" when `attention` is true, which the CLI summary uses.
+- `run` card: `run_id` may be `latest` (the newest run of the project; none is a 404). Stop is offered while the run's
+  status is in `status.ACTIVE`, with body `{"confirm": true}` as the Build tab sends it.
+- `builds` card: `limit` 1-20, default 5 (outside that is a 400).
+- `phoenix card <type> [--query JSON] [--title T] [--json]` prints the summary line, the fenced `phoenix-card`
+  block (only `v`, `type`, `query`, `title`), then the summary again. `--json` gives `{summary, block, card}`.

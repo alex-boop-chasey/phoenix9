@@ -5,10 +5,10 @@ import sys
 
 from phoenix9 import __version__
 from phoenix9 import keys as keys_core
-from phoenix9.cli import agent, chatcmd, api, deploy, doctor, gate, images, keys, library, models, output, project, run, runner, service, services, settings, update
+from phoenix9.cli import agent, cards, chatcmd, api, deploy, doctor, gate, images, keys, library, models, output, project, run, runner, service, services, settings, update
 from phoenix9.ops.common import OpsError
 
-GROUPS = (run, gate, settings, library, project, doctor, api, service, services, keys, update, deploy, images, models, agent, chatcmd)
+GROUPS = (run, gate, settings, library, project, doctor, api, service, services, keys, update, deploy, images, models, agent, cards, chatcmd)
 
 
 def build_parser() -> argparse.ArgumentParser:

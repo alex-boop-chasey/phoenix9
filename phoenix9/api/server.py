@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
+from phoenix9.ops import agent as ops_agent, app, cards as ops_cards, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, update
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -241,6 +241,15 @@ def get_gates(req):
     """Reply with the open and answered gates."""
     name = req.query.get("project")
     return gates.list_(check_name(name) if name else None)
+
+
+def get_cards(req):
+    """Reply with a ready card built from live data (bad JSON or a bad query is a 400 with the reason)."""
+    try:
+        query = json.loads(req.query.get("query") or "{}")
+    except ValueError:
+        raise BadRequest("'query' should be a JSON object.")
+    return ops_cards.build(req.query.get("type", ""), query, req.query.get("title") or None)
 
 
 def get_events_recent(req):
@@ -891,6 +900,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
+    ("GET", r"/api/cards", get_cards),
     ("GET", r"/api/agent", get_agent),
     ("GET", r"/api/agent/messages", get_agent_messages),
     ("GET", r"/api/agent/sessions", get_agent_sessions),

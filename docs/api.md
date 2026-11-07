@@ -82,10 +82,11 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
 | GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
-| GET | `/api/agent/messages?after=&limit=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000) | 400 |
+| GET | `/api/agent/messages?after=&limit=&session=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000; `session` = an id from `/api/agent/sessions` reads that earlier conversation instead of the current one) | 400 |
 | GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |
 | POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` (context values that are not allowed are dropped: `project` must be a listed project, `page`/`run` must match `[A-Za-z0-9/_.-]{1,80}`; newlines are stripped) | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
 | GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
+| POST | `/api/agent/restart` | `ops.agent.restart` (restarts the `agent.unit` service and tells Alex) | `{confirm: true}` | `{restarted, unit}` | 403, 409 (no `confirm: true`; nothing restarted) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |

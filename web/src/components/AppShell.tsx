@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, matchPath, useLocation } from "react-router"
 
-import { AgentDrawer } from "@/components/AgentDrawer"
 import { Crumbs } from "@/components/Crumbs"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
+import { AgentPanel } from "@/features/agent/AgentPanel"
+import { useAgentAlerts } from "@/features/agent/alerts"
+import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { useInfo, useProjects } from "@/lib/queries"
 import { sortForSwitcher } from "@/lib/switcher"
@@ -15,9 +17,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: info } = useInfo()
   const { data: projects } = useProjects()
   const { pathname } = useLocation()
-  const [drawer, setDrawer] = useState(false)
+  const [drawer, setDrawer] = useState(readOpen)
+  const phone = usePhoneWidth()
   const [sheet, setSheet] = useState(false)
   const [wire, setWire] = useState(false)
+  const unread = useAgentAlerts(drawer, () => setDrawer(true))
   const agentBtn = useRef<HTMLButtonElement>(null)
   useLiveEvents()
 
@@ -47,10 +51,9 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKey)
   }, [])
 
-  const closeDrawer = () => {
-    setDrawer(false)
-    agentBtn.current?.focus()
-  }
+  useEffect(() => writeOpen(drawer), [drawer])
+
+  const closeDrawer = () => setDrawer(false)
 
   return (
     <div className="min-h-screen overflow-x-hidden">
@@ -85,9 +88,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name="bell-ringing" />
             {need > 0 && <span className="cnt" data-testid="bell-count">{need}</span>}
           </Link>
-          <button ref={agentBtn} className="hbtn" aria-label="Open Phoenix Agent" title="Phoenix Agent (Ctrl .)" onClick={() => setDrawer(true)}>
+          <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>
+            {unread > 0 && <span className="cnt" data-testid="agent-unread" aria-label={`${unread} unread`}>{unread}</span>}
           </button>
           <ThemeToggle />
           <Link className="hbtn" to="/settings" aria-label="Settings" title="Phoenix settings">
@@ -106,8 +110,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      <div className={drawer || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
-      <AgentDrawer open={drawer} onClose={closeDrawer} />
+      <div className={(drawer && phone) || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
+      <AgentPanel open={drawer} onClose={closeDrawer} opener={agentBtn} />
       <div className={sheet ? "sheet open" : "sheet"} role="dialog" aria-label="Choose a project" aria-hidden={!sheet}>
         <div className="grab" />
         <div className="sw-head">

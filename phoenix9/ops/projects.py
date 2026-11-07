@@ -106,12 +106,22 @@ def rows(only: str | None = None) -> list:
     from phoenix9 import status
     found = list_([only] if only else None)
     states = status.all_project_states([r["name"] for r in found], {r["name"]: r.get("last_used") or "" for r in found})
+    adapters = common.make_adapters()
     out = []
     for row in found:
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
-                    **states[row["name"]]})
+                    **states[row["name"]], "chat": chat_or_none(row["name"], adapters)})
     return out
+
+
+def chat_or_none(name: str, adapters) -> dict | None:
+    """The project's chat state for its row, or None when it cannot be read."""
+    from phoenix9 import projectchat
+    try:
+        return projectchat.state(name, adapters)
+    except Exception:
+        return None
 
 
 STATUSES = ("all", "run", "fail", "idle", "need")

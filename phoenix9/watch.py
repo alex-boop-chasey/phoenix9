@@ -10,6 +10,7 @@ from pathlib import Path
 
 from phoenix9 import agentwatch, atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
+from phoenix9 import projectchat, settings
 from phoenix9.stepctx import UsageLimit
 
 MAX_CRASHES = 3          # a run that crashes the loop this many times in a row is failed
@@ -23,6 +24,7 @@ class Memory:
 
     crashes: dict = field(default_factory=dict)
     agent_checked: float | None = None    # when the agent watchdog last ran
+    chats_checked: float | None = None    # when the chats were last checked for sleep/off
 
 
 def all_states() -> list[dict]:
@@ -215,6 +217,57 @@ def check_agent(adapters, memory: Memory) -> None:
         pass
 
 
+CHAT_CHECK_S = 600
+BUSY_RUN_STATUSES = ("queued", "running", "waiting", "paused-limit")
+
+
+def _chat_action(project: str, info: dict, now: float, cfg: dict) -> str | None:
+    """Which action ("sleep" or "off") an idle chat is due for, or None."""
+    last = info.get("last_active")
+    if last is None:
+        return None
+    idle = now - last
+    if info["state"] == "live" and idle >= cfg["sleep_after_minutes"] * 60:
+        return "sleep"
+    if info["state"] == "sleeping" and idle >= cfg["off_after_days"] * 86400:
+        return "off"
+    return None
+
+
+def _check_chat(project: str, adapters, now: float, cfg: dict) -> None:
+    """Put one project's chat to sleep or off if it is idle long enough, and record the command."""
+    from phoenix9.ops import common
+    action = _chat_action(project, projectchat.state(project, adapters), now, cfg)
+    if action == "sleep":
+        projectchat.sleep(project, adapters, who="runner")
+    elif action == "off":
+        projectchat.off(project, adapters, who="runner")
+    else:
+        return
+    common.record_command("runner", f"chat {action} {project}", project)
+
+
+def check_chats(adapters, memory: Memory) -> None:
+    """About every 10 minutes put idle live chats to sleep and old sleeping chats off; never raises."""
+    try:
+        now = adapters.clock.now()
+        if memory.chats_checked is not None and now - memory.chats_checked < CHAT_CHECK_S:
+            return
+        memory.chats_checked = now
+        from phoenix9 import project as project_mod
+        cfg = settings.chat_settings()
+        busy = {s["project"] for s in all_states() if s.get("status") in BUSY_RUN_STATUSES}
+        for name in project_mod.project_names():
+            if name == "home" or name in busy or projectchat.read_chat_doc(name)[0] is None:
+                continue
+            try:
+                _check_chat(name, adapters, now, cfg)
+            except Exception:  # noqa: BLE001 - one project must not stop the others
+                continue
+    except Exception:  # noqa: BLE001 - chat upkeep must not stop the loop
+        pass
+
+
 def catch_up() -> list[str]:
     """Close the open questions of runs that already ended (left by older code); one event each, who = phoenix."""
     closed = []
@@ -237,6 +290,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
         while True:
             watch_once(adapters, runner, memory)
             check_agent(adapters, memory)
+            check_chats(adapters, memory)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

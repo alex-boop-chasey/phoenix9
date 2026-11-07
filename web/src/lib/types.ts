@@ -41,6 +41,27 @@ export interface ActiveRun {
   worker?: "alive" | "not responding"
 }
 
+/** Where a project's chat is: off, starting, sleeping, live or working. */
+export type ChatState = "off" | "starting" | "sleeping" | "live" | "working"
+
+/** A project's chat as the backend reports it. */
+export interface ChatInfo {
+  state: ChatState
+  bridge_session_id: string | null
+  web_url: string | null
+  app_url: string | null
+  last_active: string | null
+}
+
+/** What pressing Chat returns: the state and the links to the conversation. */
+export interface ChatOpenResult {
+  state: ChatState
+  web_url: string | null
+  app_url: string | null
+  bridge_session_id: string | null
+  message: string
+}
+
 /** A project's state in one word, decided by the backend: needs you, running, failed or idle. */
 export type Activity = "need" | "run" | "fail" | "idle"
 
@@ -73,6 +94,8 @@ export interface ProjectRow {
   run_text: string
   /** The runner service: "not responding" when a run says running and the heartbeat is stale. */
   worker?: "alive" | "not responding"
+  /** The project's chat (null or missing when it has none). */
+  chat?: ChatInfo | null
 }
 
 export interface ChangelogLine {

@@ -31,6 +31,7 @@ export const keys = {
   specs: (name: string) => ["specs", name] as const,
   changelog: (name: string) => ["changelog", name] as const,
   logs: (project: string) => ["logs", project] as const,
+  chat: (name: string) => ["chat", name] as const,
   global: () => ["global"] as const,
   services: () => ["services"] as const,
   github: () => ["github"] as const,
@@ -260,6 +261,22 @@ export function useAnswerGate(project?: string) {
       void qc.invalidateQueries({ queryKey: keys.projects() })
       if (project) invalidateProject(qc, project)
       void qc.invalidateQueries({ queryKey: ["run"] })
+    },
+  })
+}
+
+/** The chat state of one project. */
+export const useChat = (name: string) =>
+  useQuery({ queryKey: keys.chat(name), queryFn: () => api.getChat(name), enabled: !!name })
+
+/** Open (start or wake) a project's chat, then refresh the projects list. */
+export function useOpenChat() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.openChat(name),
+    onSettled: (_data, _err, name) => {
+      void qc.invalidateQueries({ queryKey: keys.projects() })
+      void qc.invalidateQueries({ queryKey: keys.chat(name) })
     },
   })
 }

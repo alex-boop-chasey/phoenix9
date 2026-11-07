@@ -14,6 +14,11 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
   Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
+- Every write (POST, PUT, DELETE, PATCH) must also come from a process owned by root on this server (looked up in
+  `/proc/net/tcp`): any other user gets 403 "Refused: this request came from a program on the server that isn't run
+  by root.", and an owner that cannot be found gets 403 "Refused: Phoenix couldn't tell which program on the server
+  sent this request." When global.toml `[access] team_domain` and `aud` are both set, a write also needs a valid
+  Cloudflare Access token in `Cf-Access-Jwt-Assertion` (else 403 naming Cloudflare Access; architecture 8.5).
 - POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
@@ -71,8 +76,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
 | GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
 | GET | `/api/agent/messages?after=&limit=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000) | 400 |
-| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream: one `item` frame per new Agent item (`id` = transcript line), an `event: session` frame (`{session_id}`) when the session changes, then items from line 1 of the new transcript; starts after `after` / `Last-Event-ID`, else at the end; same tail and ping timing as `/api/events` | 503 (too many streams) |
-| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
+| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |
+| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` (context values that are not allowed are dropped: `project` must be a listed project, `page`/`run` must match `[A-Za-z0-9/_.-]{1,80}`; newlines are stripped) | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
 | GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
@@ -176,8 +181,28 @@ written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `spe
 Items come from the agent's transcript (`phoenix9/transcript.py`); each has `type` and `line` (its transcript line
 number). Types: `user` `{text, origin: panel|app|peer:<name>, at}`, `agent` `{markdown, at}`,
 `thinking` `{duration_s, at}`, `action` (a tool call: its title, `status`, and an excerpt of the result),
-`queued`, `session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines).
+`queued` `{text, pending, at}` (`pending` turns false when the queue-operation dequeue/remove for it arrives),
+`session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines;
+hook summaries and turn timings are left out). An `action` has `{id (the tool id), tool, title, input_summary,
+status: running|ok|error, excerpt?, done_line?}`; `done_line` is the transcript line of its result. A user line
+made of text blocks is a `user` item (an image shows as `[image]`).
 `/api/agent/messages` wraps them as `{items, unknown, last_line, session_id}`.
+
+## Agent stream frames
+
+`GET /api/agent/stream` sends server-sent events; every `id` is `<session id>:<transcript line>`.
+
+- `event: item`, data = one Agent item (above); id = `<session>:<item line>`.
+- `event: update`, data = `{type: "update", id, line, status, excerpt}`: an action already sent (usually while
+  `running`) has finished; `id` is the action's tool id (the same `id` as its item), `line` its item's line;
+  the SSE id = `<session>:<line of the result>`. A stream resumed from line N also gets updates for actions at or
+  before N that finished after N. (The web panel uses these from build 2.)
+- `event: session`, data = `{session_id}`: the agent's session changed; items from line 1 of the new transcript
+  follow. Also sent first when a `Last-Event-ID` names another session (or no session).
+- Where it starts: `?after=<n>` = after line n of the current session; else a `Last-Event-ID` of
+  `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
+  line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
+  ping timing as `/api/events`.
 
 ## Overrides shape (wizard and defaults)
 

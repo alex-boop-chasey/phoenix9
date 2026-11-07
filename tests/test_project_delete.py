@@ -889,3 +889,51 @@ def test_projects_root_may_itself_be_a_link(env, unitdir, tmp_path, monkeypatch)
     monkeypatch.setenv("PHOENIX_PROJECTS", str(link))
     assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
     assert folder.is_dir()
+
+
+# ---- the Delete repo retry (finding 8) ----
+
+from phoenix9.ops.common import Conflict  # noqa: E402
+
+
+def _deleted_with_repo_left(env):
+    _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    env["host"].calls.clear()
+
+
+def test_retry_refused_when_folder_is_back(env, unitdir):
+    _deleted_with_repo_left(env)
+    make(env, "alpha")
+    with pytest.raises(Conflict, match="exists again"):
+        project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == []
+
+
+def test_retry_refused_when_another_project_uses_the_repo(env, unitdir):
+    _deleted_with_repo_left(env)
+    make(env, "beta", meta={"repo": "me/alpha", "source": "repo"})
+    with pytest.raises(Conflict, match="beta"):
+        project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == []
+
+
+def test_retry_keeps_a_repo_the_copy_does_not_vouch_for(env, unitdir):
+    _deleted_with_repo_left(env)
+    copy = project_delete._newest_copy("alpha")
+    m = json.loads((copy / "manifest.json").read_text())
+    del m["repo_delete"]
+    (copy / "manifest.json").write_text(json.dumps(m))
+    res = project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][0]["kept"]
+
+
+def test_retry_keeps_a_repo_that_was_never_phoenixs(env, unitdir):
+    folder = _stuff(env)
+    meta = json.loads((folder / ".phoenix" / "project.json").read_text())
+    (folder / ".phoenix" / "project.json").write_text(json.dumps({**meta, "source": "repo"}))
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    res = project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][0]["kept"]

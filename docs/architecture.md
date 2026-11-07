@@ -871,7 +871,9 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
 5. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
    was NOT deleted, with the fix (`gh auth refresh -h github.com -s delete_repo`). `POST
    /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo
-   from the newest safety copy's manifest.
+   from the newest safety copy's manifest. The retry keeps the same rules (the manifest's `repo_delete` verdict and a
+   bundle of that repo in the copy) and is refused when the project folder exists again or any current project,
+   removed-projects row or the projects folder's own repo now uses that repo.
 6. **Live deployments are never touched**: they are listed (`still_live`) with links.
 7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30, clamped to 1..3650);
    the runner loop calls `prune_backups` on every pass, wrapped so a failure only logs a line.

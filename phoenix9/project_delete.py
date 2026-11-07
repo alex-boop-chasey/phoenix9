@@ -599,7 +599,11 @@ def _newest_copy(name: str) -> Path | None:
 
 
 def delete_repo(name: str, who: str, adapters) -> dict:
-    """Retry only the GitHub repo delete, reading the repo from the newest safety copy's manifest."""
+    """Retry only the GitHub repo delete, reading the repo from the newest safety copy's manifest.
+
+    The same rules as the delete apply (the manifest's verdict, a bundle of that repo in the copy); it is also
+    refused when the project folder exists again or any current project, removed row or the projects folder
+    now uses the repo."""
     if name in PROTECTED or who not in ALLOWED_CALLERS:
         raise common.Conflict(" ".join(_refusals(name, who, "off")))
     copy = _newest_copy(name)
@@ -607,6 +611,14 @@ def delete_repo(name: str, who: str, adapters) -> dict:
         raise common.NotFound(f"There is no safety copy for '{name}', so Phoenix does not know its GitHub repo.")
     manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
     verdict = _with_bundle(manifest, copy)
+    folder = paths.projects() / name
+    if folder.exists() or folder.is_symlink():
+        raise common.Conflict(f"The project folder {folder} exists again, so its GitHub repo is not deleted. "
+                              "Delete the project again from its Settings tab if that is what you want.")
+    key = _key(verdict.get("repo"))
+    users = _users_of(key, name, adapters.host) if key else []
+    if users:
+        raise common.Conflict(f"GitHub repo {verdict.get('repo')} is not deleted: it is in use by {', '.join(users)}.")
     steps, not_done = [], []
     _github_step(steps, not_done, who, name, verdict, adapters.host)
     events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] else "github repo kept")

@@ -666,3 +666,37 @@ def test_projects_folder_remote_is_never_deleted(env, unitdir):
     subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/alpha.git"], cwd=env["projects"], check=True)
     plan = project_delete.plan("alpha", "cli", env["fakes"])
     assert plan["repo_delete"]["delete"] is False and "shared" in plan["repo_delete"]["why"]
+
+
+# ---- GitHub only after a bundle of that repo and the folder is gone (finding 2) ----
+
+def test_no_github_delete_when_folder_stays(env, unitdir):
+    folder = _stuff(env)
+    real = env["host"].remove_tree
+    env["host"].remove_tree = lambda p: None if str(p) == str(folder) else real(p)
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert folder.is_dir() and _gh_deletes(env) == []
+    gh = res["steps"][-1]
+    assert gh["step"] == "GitHub repo" and not gh["ok"] and "folder" in gh["words"]
+    assert any("GitHub repo me/alpha" in n["what"] for n in res["not_done"])
+
+
+def test_no_github_delete_without_bundle(env, unitdir, monkeypatch):
+    _stuff(env)
+    monkeypatch.setattr(project_delete, "_bundle", lambda host, code, dest: "pretend there was no bundle")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][-1]["kept"] and "bundle" in res["steps"][-1]["words"]
+
+
+def test_no_github_delete_when_bundle_is_of_another_repo(env, unitdir):
+    folder = _stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    m = json.loads((dest / "manifest.json").read_text())
+    assert m["bundle_of"] == "me/alpha"
+    m["bundle_of"] = "me/other"
+    (dest / "manifest.json").write_text(json.dumps(m))
+    import shutil
+    shutil.rmtree(folder)
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    res = project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and "bundle" in res["steps"][-1]["words"]

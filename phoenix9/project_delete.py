@@ -317,12 +317,13 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
     run_count = _write_runs_tar(dest / "runs.tar.gz", name)
     repo = plan_["repo"]
     has_bundle = (dest / "repo.bundle").is_file()
+    bundle_of = _key(_git_out(host, folder / "code", "remote", "get-url", "origin")) if has_bundle else None
     manifest = {"name": name, "folder": str(folder), "repo": repo,
                 "repo_url": project.repo_of(folder) or (f"https://github.com/{repo}" if repo else ""),
                 "who": who, "when": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "files": sorted(p.name for p in dest.iterdir()) + ["manifest.json", "RESTORE.md"],
                 "files_stored": stored, "run_files": run_count, "notes": [note] if note else [],
-                "repo_delete": plan_["repo_delete"], "plan": plan_}
+                "repo_delete": plan_["repo_delete"], "bundle_of": bundle_of, "plan": plan_}
     manifest["files"] = sorted(set(manifest["files"]))
     (dest / "RESTORE.md").write_text(_restore_text(name, str(folder), repo, has_bundle), encoding="utf-8")
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -455,7 +456,8 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
         raise common.OpsError(f"Type the project's name ({name}) to confirm. Nothing was deleted.")
     live = _deployments(name, folder)
     dest = backup(name, who, adapters)
-    verdict = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))["repo_delete"]
+    manifest = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
+    verdict = _with_bundle(manifest, dest)
     repo = verdict["repo"]
     host = adapters.host
     steps, not_done = [], []
@@ -486,7 +488,10 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
     _step(steps, who, name, "saved keys", remove_keys)
     _step(steps, who, name, "folder trust", trust)
     _step(steps, who, name, "removed list and INDEX.md", lambda: _forget(name))
-    _github_step(steps, not_done, who, name, verdict, host)
+    folder_gone = any(s["step"] == "project folder" and s["ok"] for s in steps) and not folder.exists()
+    blocker = None if folder_gone else (f"GitHub repo {repo} not deleted: the project folder could not be removed, "
+                                        "so its repo is kept. Remove the folder, then press Delete repo again.")
+    _github_step(steps, not_done, who, name, verdict, host, blocker)
     events.emit("project.deleted", project=name, who=who, backup=str(dest), repo=repo)
     for s in steps:
         if not s["ok"] and s["step"] != "GitHub repo":
@@ -494,12 +499,29 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
     return {"name": name, "backup": str(dest), "steps": steps, "not_done": not_done, "still_live": live}
 
 
-def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host) -> None:
+def _with_bundle(manifest: dict, copy: Path) -> dict:
+    """The manifest's repo verdict, turned to keep unless the safety copy holds a verified bundle of that repo."""
+    verdict = dict(manifest.get("repo_delete") or {"repo": manifest.get("repo"), "delete": False,
+                                                   "why": "This safety copy does not say the repo was Phoenix's own."})
+    bundle = copy / "repo.bundle"
+    if verdict.get("delete") and not (bundle.is_file() and bundle.stat().st_size > 0
+                                      and manifest.get("bundle_of") == _key(verdict.get("repo"))):
+        verdict.update(delete=False, why=f"GitHub repo {verdict.get('repo')} not deleted: the safety copy has no "
+                                         "bundle of it, so its history would be lost.")
+    return verdict
+
+
+def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host, blocker=None) -> None:
     """Run the GitHub repo delete as a step; a refusal for lack of scope goes into not_done.
 
     A repo the verdict keeps (not this project's own, shared, not made by Phoenix) is never touched: the step
     is recorded as kept, with the reason."""
     repo = verdict.get("repo")
+    if verdict.get("delete") and blocker:
+        steps.append({"step": "GitHub repo", "ok": False, "words": blocker})
+        not_done.append({"what": f"GitHub repo {repo}", "how": blocker})
+        common.record_command(who, f"project delete {name}: GitHub repo (not tried)", name)
+        return
     if not verdict.get("delete"):
         steps.append({"step": "GitHub repo", "ok": True, "kept": True, "words": verdict.get("why") or "Kept."})
         common.record_command(who, f"project delete {name}: GitHub repo (kept)", name)
@@ -541,8 +563,7 @@ def delete_repo(name: str, who: str, adapters) -> dict:
     if copy is None:
         raise common.NotFound(f"There is no safety copy for '{name}', so Phoenix does not know its GitHub repo.")
     manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
-    verdict = manifest.get("repo_delete") or {"repo": manifest.get("repo"), "delete": False,
-                                               "why": "This safety copy does not say the repo was Phoenix's own."}
+    verdict = _with_bundle(manifest, copy)
     steps, not_done = [], []
     _github_step(steps, not_done, who, name, verdict, adapters.host)
     events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] else "github repo kept")

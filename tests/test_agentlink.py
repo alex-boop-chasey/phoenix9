@@ -211,24 +211,35 @@ def inbox(tmp_path, monkeypatch):
     srv = socket.socket(socket.AF_UNIX)
     srv.bind(path)
     srv.listen(5)
+    srv.settimeout(0.05)
     got = []
+    stop = threading.Event()
 
     def serve():
-        while True:
+        # The thread must be stopped and joined before srv is closed: a thread still looping on accept() after the
+        # close can pick up the reused file descriptor of another test's server and swallow its connection.
+        while not stop.is_set():
             try:
                 c, _ = srv.accept()
+            except socket.timeout:
+                continue
             except OSError:
                 return
+            c.settimeout(2)
             buf = b""
-            while True:
-                d = c.recv(65536)
-                if not d:
-                    break
-                buf += d
+            try:
+                while True:
+                    d = c.recv(65536)
+                    if not d:
+                        break
+                    buf += d
+            except OSError:
+                pass
             got.append(buf)
             c.close()
 
-    threading.Thread(target=serve, daemon=True).start()
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
     found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": path,
              "transcript": str(tr), "status": "idle"}
     monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
@@ -246,6 +257,8 @@ def inbox(tmp_path, monkeypatch):
         return None
     box.take = take
     yield box
+    stop.set()
+    thread.join(5)
     srv.close()
 
 

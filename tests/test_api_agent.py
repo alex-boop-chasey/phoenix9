@@ -199,3 +199,50 @@ def test_stream_pings(live, tmp_session):
     conn, resp = open_stream(live[1])
     assert ": ping" in read_until(resp, ": ping")
     conn.close()
+
+
+def tool_use(tid, cmd, sid="a"):
+    return json.dumps({"type": "assistant", "sessionId": sid, "message": {"content": [
+        {"type": "tool_use", "id": tid, "name": "Bash", "input": {"command": cmd}}]}})
+
+
+def tool_result(tid, text, sid="a", error=False):
+    return json.dumps({"type": "user", "sessionId": sid, "message": {"content": [
+        {"type": "tool_result", "tool_use_id": tid, "content": text, "is_error": error}]}})
+
+
+def frames(text, kind):
+    """The data of every frame of one event kind."""
+    out = []
+    for block in text.split("\n\n"):
+        lines = block.split("\n")
+        if "event: %s" % kind in lines:
+            out.append(json.loads(next(x for x in lines if x.startswith("data: "))[6:]))
+    return out
+
+
+def test_stream_sends_an_update_when_an_action_finishes(live, tmp_session):
+    """An action sent while running gets an `update` frame (same action id) with its status and excerpt."""
+    path = tmp_session["path"]("a")
+    add(path, say("user", "go", 0, "a"))
+    conn, resp = open_stream(live[1])
+    read_until(resp, ": connected")
+    add(path, tool_use("t1", "make build"))
+    got = read_until(resp, "make build")
+    assert frames(got, "item")[0]["status"] == "running"
+    add(path, tool_result("t1", "line1\nall built"))
+    got = read_until(resp, "all built")
+    [update] = frames(got, "update")
+    assert update == {"type": "update", "id": "t1", "line": 2, "status": "ok", "excerpt": "line1\nall built"}
+    assert "event: item" not in got        # the action is not sent again as a new item
+    conn.close()
+
+
+def test_stream_resume_sends_updates_for_actions_finished_after_that_point(live, tmp_session):
+    path = tmp_session["path"]("a")
+    add(path, tool_use("t1", "slow job"), say("assistant", "waiting", 1, "a"), tool_result("t1", "finished", error=True))
+    conn, resp = open_stream(live[1], "/api/agent/stream?after=2")
+    got = read_until(resp, "finished")
+    [update] = frames(got, "update")
+    assert update["id"] == "t1" and update["status"] == "error" and update["excerpt"] == "finished"
+    conn.close()

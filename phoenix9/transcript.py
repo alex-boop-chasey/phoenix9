@@ -108,7 +108,7 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
         for block in content:
             kind = block.get("type") if isinstance(block, dict) else None
             if kind == "tool_result":
-                _tool_result(state, block)
+                _tool_result(state, block, number)
             elif kind == "text":
                 parts.append(str(block.get("text", "")))
             elif kind == "image":
@@ -199,13 +199,15 @@ def _result_text(content) -> str:
     return "" if content is None else str(content)
 
 
-def _tool_result(state: dict, block: dict) -> None:
-    """Mark the matching action ok or error and attach a scrubbed last-6-lines excerpt."""
+def _tool_result(state: dict, block: dict, number: int) -> None:
+    """Mark the matching action ok or error, note the line that finished it (done_line) and attach a scrubbed
+    last-6-lines excerpt."""
     item = state["actions"].get(block.get("tool_use_id"))
     if item is None:
         state["unknown"] += 1
         return
     item["status"] = "error" if block.get("is_error") else "ok"
+    item["done_line"] = number
     tail = scrub.scrub(_result_text(block.get("content"))).splitlines()[-EXCERPT_LINES:]
     item["excerpt"] = "\n".join(tail)
 

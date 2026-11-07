@@ -163,7 +163,10 @@ def recent(project, after, limit: int) -> dict:
 
 
 def _tail_items(path, offset: int, count: int, sent: int):
-    """(new panel items, offset, count, sent) for the complete lines added to the transcript since last time."""
+    """(new frames, offset, count, sent) for the complete lines added to the transcript since last time.
+
+    A frame is ("item", item) for an item after line `sent`, or ("update", item) for an action at or before `sent`
+    that one of the new lines finished; frames come in line order."""
     lines, new_offset, new_count = new_lines(path, offset, count)
     if new_count < count:  # the file shrank and started again
         sent = 0
@@ -171,12 +174,24 @@ def _tail_items(path, offset: int, count: int, sent: int):
         return [], new_offset, new_count, sent
     raw = _read_from(path, 0)[:new_offset].split(b"\n")[:new_count]
     items = transcript.parse([r.decode("utf-8", errors="replace") for r in raw])[0]
-    return [i for i in items if i["line"] > sent], new_offset, new_count, new_count
+    found = [(i["line"], "item", i) for i in items if i["line"] > sent]
+    found += [(i["done_line"], "update", i) for i in items
+              if i["type"] == "action" and i["line"] <= sent and i.get("done_line", 0) > sent]
+    found.sort(key=lambda f: f[0])
+    return [(kind, item) for _, kind, item in found], new_offset, new_count, new_count
 
 
 def item_frame(item: dict) -> bytes:
     """One server-sent event for a panel item: id = transcript line, name = item."""
     return b"id: %d\nevent: item\ndata: %s\n\n" % (item["line"], json.dumps(item).encode())
+
+
+def update_frame(item: dict) -> bytes:
+    """The server-sent event for an action, already sent, that has now finished: id = the line that finished
+    it, name = update, data = {type: update, id: the action's tool id, line, status, excerpt}."""
+    data = {"type": "update", "id": item["id"], "line": item["line"], "status": item["status"],
+            "excerpt": item.get("excerpt", "")}
+    return b"id: %d\nevent: update\ndata: %s\n\n" % (item["done_line"], json.dumps(data).encode())
 
 
 def session_frame(session_id) -> bytes:
@@ -206,9 +221,9 @@ def agent_stream(handler) -> None:
             out.write(session_frame(session))
             last_write = time.monotonic()
         if path:
-            items, offset, count, sent = _tail_items(path, offset, count, sent)
-            for item in items:
-                out.write(item_frame(item))
+            found, offset, count, sent = _tail_items(path, offset, count, sent)
+            for kind, item in found:
+                out.write(item_frame(item) if kind == "item" else update_frame(item))
                 last_write = time.monotonic()
         if time.monotonic() - last_write >= ping:
             out.write(b": ping\n\n")

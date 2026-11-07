@@ -881,6 +881,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
      "parameter not set" / "command not found". Kept narrow on purpose: a missing project module, a
      missing project file or a KeyError in data the code returned are real reds (the task is not built
      yet). A broken red fails the attempt, so Check-writer writes the checks again (once-steps above).
+   - Check files are run with `checklock.check_commands`: a shell `check_command` (`sh {files}`, `bash ...`)
+     runs only its first script, so it becomes one command (and one check container) per file in Red
+     check, Acceptance and Verify, and Red check judges each file (each must fail, none may crash); a test
+     runner (pytest, vitest) still gets every file in one command.
 5. Every git command on an untrusted checkout uses `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
 6. Default diff denylist: `.git`, `.github/workflows`, `.env*`, symlinks, submodules, `CLAUDE.md`,
    `.claude/`, `.mcp.json`, locked check files. Everything else is allowed unless the project denies it.

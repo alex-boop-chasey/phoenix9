@@ -320,7 +320,7 @@ def test_checkwriter_refuses_check_reading_unset_env(tmp_path, runner, project):
 def test_checkwriter_accepts_same_check_with_export(tmp_path, runner, project):
     platform(project)
     runner.adapters.claude.sessions += [session(sh_checks(EXPORTED))]
-    runner.adapters.docker.exit_codes += [1]
+    runner.adapters.docker.exit_codes += [1, 1]                      # each .sh check runs on its own
     run_dir = start(tmp_path)
     runner.drive(run_dir)
     steps = state.load(run_dir)["steps"]
@@ -331,7 +331,7 @@ def test_checkwriter_accepts_same_check_with_export(tmp_path, runner, project):
 def test_checkwriter_retry_is_told_why(tmp_path, runner, project):
     platform(project)
     runner.adapters.claude.sessions += [session(sh_checks()), session(sh_checks(EXPORTED))]
-    runner.adapters.docker.exit_codes += [1]
+    runner.adapters.docker.exit_codes += [1, 1]
     run_dir = start(tmp_path, max_tries=2)
     runner.drive(run_dir)
     assert len(runner.adapters.claude.calls) == 2
@@ -370,8 +370,8 @@ def test_red_check_accepts_assertion_about_the_code(tmp_path, adapters, project,
 def test_broken_red_check_makes_checkwriter_write_again(tmp_path, runner, project):
     platform(project)
     runner.adapters.claude.sessions += [session(sh_checks(EXPORTED)), session(sh_checks(EXPORTED))]
-    runner.adapters.docker.exit_codes += [1, 1]
-    runner.adapters.docker.outputs += [REAL_RED, "FAIL: alpha"]
+    runner.adapters.docker.exit_codes += [1, 1, 1, 1]
+    runner.adapters.docker.outputs += [REAL_RED, "FAIL: doc", "FAIL: alpha", "FAIL: doc"]
     run_dir = start(tmp_path, max_tries=2)
     runner.drive(run_dir)
     steps = state.load(run_dir)["steps"]
@@ -380,3 +380,22 @@ def test_broken_red_check_makes_checkwriter_write_again(tmp_path, runner, projec
     assert "KeyError" in (run_dir / "tasks/1/attempt-2/check-writer-prompt.md").read_text()
     work = worktree(run_dir)
     assert git(work, "log", "--format=%s").count("Checks for task 1") == 1    # attempt 1's checks were thrown away
+
+
+def test_red_check_runs_each_sh_check_and_judges_each(tmp_path, adapters, project, work):
+    """Only the second check fails before the build: the first proves nothing, and that is caught."""
+    mod = load("red-check")
+    sh = ["tests/phoenix/r/task-1/1-a.sh", "tests/phoenix/r/task-1/2-b.sh"]
+    ctx = red_ctx(tmp_path, project, adapters, work)
+    ctx.project.profile = settings.load_profile(REPO, "platform")
+    ctx.things = {"checks": sh}
+    adapters.docker.exit_codes += [0, 1]
+    adapters.docker.outputs += ["ok", "FAIL: b"]
+    res = mod.run(ctx)
+    assert len(adapters.docker.argvs) == 2
+    assert res.status == "fail" and sh[0] in res.reasons[0] and sh[1] not in res.reasons[0]
+    text = (ctx.run.folder / "tasks/1/attempt-1/red-check.txt").read_text()
+    assert f"$ sh {sh[0]}" in text and "FAIL: b" in text
+    adapters.docker.exit_codes += [1, 1]
+    adapters.docker.outputs += ["FAIL: a", "FAIL: b"]
+    assert mod.run(ctx).status == "pass"

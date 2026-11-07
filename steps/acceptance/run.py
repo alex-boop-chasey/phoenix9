@@ -12,8 +12,7 @@ def _commands(ctx, test):
     """Return (commands to run, bullets shown but not run)."""
     files = ctx.things.get("checks")
     if isinstance(files, (list, tuple)) and files:
-        template = test.get("check_command") or test.get("cmd") or ""
-        return [template.replace("{files}", " ".join(str(f) for f in files))], []
+        return checklock.check_commands(test, [str(f) for f in files]), []
     done = (ctx.task or {}).get("done_when", [])
     return [c["command"] for c in done if c.get("command")], [c.get("text", "") for c in done if not c.get("command")]
 

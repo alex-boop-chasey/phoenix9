@@ -30,9 +30,13 @@ def _jobs(ctx, test, readers, scope) -> list:
         jobs.append(("suite", f"{test['cmd']} {args}".strip(), readers, []))
     files = ctx.things.get("checks")
     if isinstance(files, (list, tuple)) and files:
-        template = test.get("check_command") or test.get("cmd") or ""
-        command = template.replace("{files}", " ".join(str(f) for f in files))
-        jobs.append(("checks", f"{command} {args}".strip(), readers, [str(f) for f in files]))
+        names = [str(f) for f in files]
+        commands = checklock.check_commands(test, names)
+        if len(commands) == 1:
+            jobs.append(("checks", f"{commands[0]} {args}".strip(), readers, names))
+        else:                                       # one shell check per run (`sh a.sh b.sh` runs a.sh only)
+            jobs += [(f"checks-{i}", f"{c} {args}".strip(), readers, [f])
+                     for i, (c, f) in enumerate(zip(commands, names), 1)]
     else:
         done = (ctx.task or {}).get("done_when", [])
         jobs += [(f"check-{i}", c["command"], ["exit-code"], []) for i, c in enumerate(done, 1) if c.get("command")]

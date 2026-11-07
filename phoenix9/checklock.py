@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
 from pathlib import Path
 
 from phoenix9 import atomic
@@ -22,6 +23,21 @@ def run_checks_dir(profile_test: dict, run_id: str) -> str:
 def task_checks_dir(profile_test: dict, run_id: str, task_no: int) -> str:
     """The repo folder holding this task's checks: <checks_dir>/<run-id>/task-<n>."""
     return f"{run_checks_dir(profile_test, run_id)}/task-{task_no}"
+
+
+SHELLS = ("sh", "bash", "dash", "zsh")
+
+
+def check_commands(profile_test: dict, files: list[str]) -> list[str]:
+    """The commands that run these check files: the profile's check_command with {files} filled in.
+
+    A shell (`sh {files}`) runs only its first script and takes the other names as arguments, so a shell
+    command gets one command per file; a test runner (pytest, vitest) gets all files in one command."""
+    template = profile_test.get("check_command") or profile_test.get("cmd") or ""
+    words = template.split()
+    if words and words[0].rsplit("/", 1)[-1] in SHELLS and "{files}" in template:
+        return [template.replace("{files}", shlex.quote(str(f))) for f in files]
+    return [template.replace("{files}", " ".join(str(f) for f in files))]
 
 
 def _manifest(run_dir: Path, task_no: int) -> Path:

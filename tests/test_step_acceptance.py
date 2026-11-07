@@ -84,3 +84,27 @@ def test_checks_txt_is_scrubbed(tmp_path, adapters, work):
     text = (ctx.run.folder / "tasks/1/attempt-1/checks.txt").read_text()
     assert "[secret]" in text and "super-secret-value-123" not in text
     assert "super-secret-value-123" not in str(res.produces)
+
+
+SH = ["tests/phoenix/r/task-1/1-a.sh", "tests/phoenix/r/task-1/2-b.sh"]
+
+
+def test_each_sh_check_runs_on_its_own(tmp_path, adapters, work):
+    """`sh a.sh b.sh` only runs a.sh: each shell check gets its own run, and the second failing counts."""
+    write(work, {SH[0]: "exit 0\n", SH[1]: "exit 1\n"})
+    ctx = make_ctx(tmp_path, adapters, work, "acceptance", profile="platform")
+    ctx.things = {"checks": SH}
+    checklock.lock(ctx.run.folder, 1, work, SH)
+    adapters.docker.exit_codes += [0, 1]
+    res = mod.run(ctx)
+    assert len(adapters.docker.argvs) == 2
+    assert [c["command"] for c in res.produces["exit-codes"]] == [f"sh {SH[0]}", f"sh {SH[1]}"]
+    assert res.status == "fail" and len(res.reasons) == 1 and SH[1] in res.reasons[0]
+
+
+def test_checklock_check_commands():
+    assert checklock.check_commands({"check_command": "sh {files}"}, SH) == [f"sh {f}" for f in SH]
+    assert checklock.check_commands({"check_command": "bash -e {files}"}, SH) == [f"bash -e {f}" for f in SH]
+    assert checklock.check_commands({"check_command": "python3 -m pytest -q {files}"}, SH) == \
+        ["python3 -m pytest -q " + " ".join(SH)]
+    assert checklock.check_commands({"check_command": "sh {files}"}, ["a b.sh"]) == ["sh 'a b.sh'"]

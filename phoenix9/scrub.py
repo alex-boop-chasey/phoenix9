@@ -3,7 +3,10 @@
 Besides the values it was told about, the scrubber masks the shapes of common secrets nobody registered:
 Anthropic keys (sk-ant-...), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_..., github_pat_...), PEM private key
 blocks (also a block's tail without its BEGIN line), and NAME=value where a part of the name (split on _ - .
-and case changes) is KEY, TOKEN, SECRET or PASSWORD: API_KEY and apiKey are masked, monkey and keyboard are not."""
+and case changes) is KEY, TOKEN, SECRET or PASSWORD: API_KEY and apiKey are masked, monkey and keyboard are not.
+Python exception names (KeyError: 'X', TokenError, PasswordWarning) and traceback lines (`  File "...", line N`
+and the source line under it) are never read as NAME: value settings; known values and token shapes still are."""
+import bisect
 import json
 import re
 from pathlib import Path
@@ -25,6 +28,10 @@ ASSIGN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]{0,80})([ \t]*[
 # The name's parts: split on _ - . and at case changes (apiKey, APIKey) and digits. Each piece is a plain run, so
 # this stays linear; names are at most 81 characters anyway.
 NAME_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+# KeyError, TokenError, PasswordWarning, json.decoder.SomeException: exception names, never secret names
+EXCEPTION_NAME = re.compile(r"(?:Error|Exception|Warning)\Z")
+# a traceback frame line and the source line printed under it (one pass over the text, no backtracking)
+TRACEBACK_FRAME = re.compile(r'^[ \t]*File "[^"\n]*", line \d+[^\n]*(?:\n(?![ \t]*File ")[ \t]+[^\n]*)?', re.M)
 SECRET_WORDS = frozenset({"key", "keys", "token", "tokens", "secret", "secrets", "password", "passwords",
                           "passwd", "pwd"})
 # names written as one lower-case word that still say "secret" (apikey, accesstoken, ...)
@@ -45,9 +52,24 @@ def secret_name(name: str) -> bool:
 
 def _assign(m) -> str:
     name, sep, quote, value = m.groups()
-    if not secret_name(name) or value.startswith(MASK):
+    if not secret_name(name) or EXCEPTION_NAME.search(name) or value.startswith(MASK):
         return m.group(0)
     return name + sep + quote + MASK
+
+
+def _mask_assignments(s: str) -> str:
+    """NAME=value / NAME: value masking, skipping traceback frame lines and their source lines."""
+    spans = [(m.start(), m.end()) for m in TRACEBACK_FRAME.finditer(s)] if 'File "' in s else []
+    if not spans:
+        return ASSIGN.sub(_assign, s)
+    starts = [a for a, _ in spans]
+
+    def outside(m) -> str:
+        i = bisect.bisect_right(starts, m.start()) - 1
+        if i >= 0 and m.start() < spans[i][1]:
+            return m.group(0)
+        return _assign(m)
+    return ASSIGN.sub(outside, s)
 
 
 def _pem_tails(s: str) -> str:
@@ -76,7 +98,7 @@ def mask_patterns(s: str) -> str:
     for rx, repl in PATTERNS:
         s = rx.sub(repl, s)
     s = _pem_tails(s)
-    return ASSIGN.sub(_assign, s)
+    return _mask_assignments(s)
 
 
 class Scrubber:

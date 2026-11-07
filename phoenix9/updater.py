@@ -283,7 +283,8 @@ class _Update:
         a rollback, failed health check or recovery puts the previous copy's units back."""
         source, target = folders()["install"] / "deploy", systemd_dir()
         changed = []
-        for name in UNIT_FILES:
+        names = sorted(set(UNIT_FILES) | {f.name for f in source.glob("*.service")}) if source.is_dir() else UNIT_FILES
+        for name in names:            # every unit Phoenix ships (e.g. claude-rc-chat@.service), not a fixed list
             try:
                 text = (source / name).read_text(encoding="utf-8")
             except OSError:

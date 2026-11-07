@@ -959,3 +959,20 @@ def test_crash_after_swap_recovery_restores_the_old_unit_files(unit_layout, adap
     monkeypatch.setattr(updater._Update, "phase", real)
     assert updater.recover(adapters)["result"] == "recovered"
     assert installed_units(unit_layout) == UNITS_V0
+
+
+def test_install_also_installs_new_unit_files_the_release_ships(tmp_path, monkeypatch, adapters):
+    """A unit file new in the release (e.g. claude-rc-chat@.service) is installed too, not only the fixed list."""
+    chat = "[Service]\nExecStart=chat %i\n"
+    origin = make_origin(tmp_path, units={0: UNITS_V0, 1: {**UNITS_V0, "claude-rc-chat@.service": chat}})
+    inst = tmp_path / "opt" / "phoenix9"
+    inst.parent.mkdir()
+    git(tmp_path, "clone", "-q", str(origin), str(inst))
+    git(inst, "checkout", "-q", "--detach", "v9.0")
+    monkeypatch.setenv("PHOENIX_INSTALL", str(inst))
+    units = updater.systemd_dir()
+    units.mkdir()
+    for name, text in UNITS_V0.items():
+        (units / name).write_text(text)
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert (units / "claude-rc-chat@.service").read_text() == chat

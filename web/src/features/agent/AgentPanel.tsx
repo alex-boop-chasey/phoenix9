@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type RefObject } from "react"
 
 import { Icon } from "@/components/Icon"
 import { useAgentMessages, useAgentStatus, type AgentState } from "@/features/agent/useAgent"
+import { Composer } from "@/features/agent/Composer"
+import { ContextChip } from "@/features/agent/ContextChip"
 import { MessageList } from "@/features/agent/messages"
 import { readWide, writeWide } from "@/features/agent/panelState"
 
@@ -29,6 +31,7 @@ export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: 
   const { data: status } = useAgentStatus()
   const thread = useAgentMessages().data
   const [wide, setWide] = useState(readWide)
+  const [contextOn, setContextOn] = useState(true)
   const composer = useRef<HTMLTextAreaElement>(null)
   const wasOpen = useRef(open)
 
@@ -71,12 +74,12 @@ export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: 
           </button>
         </div>
       </div>
+      <ContextChip on={contextOn} onChange={setContextOn} />
       <div className="dr-b">
         <MessageList items={thread?.items ?? []} state={status?.state} />
       </div>
       <div className="dr-f">
-        <label className="sr" htmlFor="agentIn">Message</label>
-        <textarea ref={composer} className="input" id="agentIn" rows={2} placeholder="Message the Phoenix agent" />
+        <Composer contextOn={contextOn} inputRef={composer} />
       </div>
     </aside>
   )

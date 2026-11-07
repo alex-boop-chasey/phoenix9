@@ -130,3 +130,19 @@
 .ag-group-h{display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none; border:1px dashed var(--line-strong); border-radius:var(--r-md); padding:6px 8px; color:var(--text-2); font-size:13px; cursor:pointer}
 .ag-group-h:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
 @media (prefers-reduced-motion:reduce){.ag-dot-running{animation:none}.ag-chev .i{transition:none}}
+
+/* Phoenix agent panel: context chip and composer */
+.ag-ctx{display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 20px; border-bottom:1px solid var(--line); font-size:12.5px; color:var(--text-2)}
+.ag-ctx .mono{font-family:var(--f-mono)}
+.ag-ctx label{margin-left:auto; display:inline-flex; gap:6px; align-items:center; cursor:pointer}
+.ag-ctx.off .ag-ctx-text{text-decoration:line-through; opacity:.6}
+.dr-f:has(.ag-comp){display:block; padding:0}
+.ag-comp{position:relative; padding:12px 20px 16px; display:flex; flex-direction:column; gap:8px}
+.ag-row{display:flex; gap:8px; align-items:flex-end}
+.ag-row .input{flex:1; resize:none; line-height:20px; overflow-y:auto}
+.ag-hint,.ag-reason{font-size:12.5px; color:var(--text-2); margin:0}
+.ag-queued{display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:13px}
+.ag-prog{position:absolute; left:0; right:0; top:0; height:2px; overflow:hidden; background:var(--line)}
+.ag-prog::after{content:""; display:block; height:100%; width:40%; background:var(--accent); animation:ag-prog 1s linear infinite}
+@keyframes ag-prog{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+@media (prefers-reduced-motion:reduce){.ag-prog::after{animation:none; width:100%; opacity:.6}}

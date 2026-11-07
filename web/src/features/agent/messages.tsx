@@ -1,8 +1,9 @@
 // Message components of the Phoenix agent panel: bubbles, agent text, dividers, notices, working dots, the list.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
+import { ActionCard, ActionGroup } from "@/features/agent/ActionCard"
 import { Markdown } from "@/features/agent/markdown"
-import type { AgentItem, AgentState, NoticeItem, UserItem } from "@/features/agent/useAgent"
+import type { ActionItem, AgentItem, AgentState, NoticeItem, UserItem } from "@/features/agent/useAgent"
 
 function clock(at: string): string {
   const d = new Date(at)
@@ -138,9 +139,20 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
 
   const rows: React.ReactNode[] = []
   let day = ""
-  items.forEach((it, idx) => {
+  for (let idx = 0; idx < items.length; idx++) {
+    const it = items[idx] as AgentItem
     const key = `${it.type}-${it.line}-${idx}`
-    if (it.type === "thinking") return
+    if (it.type === "thinking") continue
+    if (it.type === "action") {
+      const run: ActionItem[] = [it]
+      while (items[idx + 1]?.type === "action" || items[idx + 1]?.type === "thinking") {
+        const nx = items[idx + 1] as AgentItem
+        if (nx.type === "action") run.push(nx)
+        idx++
+      }
+      rows.push(run.length >= 3 ? <ActionGroup key={key} items={run} /> : run.map((a, n) => <ActionCard key={`${key}-${n}`} item={a} />))
+      continue
+    }
     if ("at" in it) {
       const k = dayKey(it.at)
       if (k && day && k !== day) rows.push(<Divider key={`d-${key}`} label={dateLabel(it.at)} />)
@@ -151,7 +163,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
     else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} />)
     else if (it.type === "notice") rows.push(<Notice key={key} item={it} />)
     else if (it.type === "session") rows.push(<Divider key={key} label={sessionLabel(items[idx + 1])} />)
-  })
+  }
 
   return (
     <div className="ag-wrap">

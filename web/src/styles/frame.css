@@ -115,3 +115,18 @@
 @keyframes ag-blink{0%,80%,100%{opacity:.3}40%{opacity:1}}
 @media (prefers-reduced-motion:reduce){.ag-dots i{animation:none; opacity:.7}}
 .ag-new{position:absolute; left:50%; bottom:12px; transform:translateX(-50%)}
+.ag-action{border:1px solid var(--line); border-radius:var(--r-md); background:var(--surface); font-size:13px; min-width:0}
+.ag-action-h{display:flex; align-items:center; gap:8px; padding:6px 8px; color:var(--text-2)}
+.ag-action-title{flex:1; min-width:0; font-family:var(--f-mono); font-size:12px; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.ag-chev{display:inline-flex; align-items:center; background:none; border:0; padding:2px; color:var(--text-3); cursor:pointer; border-radius:var(--r-sm)}
+.ag-chev:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.ag-chev[aria-expanded="true"] .i{transform:rotate(180deg)}
+.ag-dot{width:8px; height:8px; border-radius:50%; flex:none; background:var(--text-3)}
+.ag-dot-running{background:var(--accent); animation:pulse 1.6s ease-in-out infinite}
+.ag-dot-ok{background:var(--ok)}
+.ag-dot-error{background:var(--bad)}
+.ag-excerpt{margin:0; padding:6px 10px; border-top:1px solid var(--line); font-family:var(--f-mono); font-size:12px; color:var(--text-2); white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.4; max-height:calc(1.4em * 6 + 12px); overflow:hidden}
+.ag-group{display:flex; flex-direction:column; gap:4px}
+.ag-group-h{display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none; border:1px dashed var(--line-strong); border-radius:var(--r-md); padding:6px 8px; color:var(--text-2); font-size:13px; cursor:pointer}
+.ag-group-h:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+@media (prefers-reduced-motion:reduce){.ag-dot-running{animation:none}.ag-chev .i{transition:none}}

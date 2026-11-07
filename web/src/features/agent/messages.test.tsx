@@ -52,7 +52,7 @@ describe("messages", () => {
     render(<MessageList items={items} state="working" />)
     expect(screen.getByText("New conversation · 14:02")).toBeTruthy()
     expect(screen.getAllByRole("separator")).toHaveLength(2)
-    expect(screen.getByText("Running tests")).toBeTruthy()
+    expect(screen.getAllByText("Running tests").length).toBeGreaterThan(0)
   })
   it("thinking alone shows the indicator", () => {
     render(<MessageList items={[{ type: "thinking", line: 1, duration_s: 1, at: "2026-11-07T14:00:00" }]} state="working" />)

@@ -336,3 +336,156 @@ def test_prune_uses_keep_days_setting(env):
 
 def test_prune_without_folder(env):
     assert project_delete.prune_backups(env["fakes"], 1e9) == []
+
+
+# ---- delete ----
+
+from phoenix9 import events as events_mod  # noqa: E402
+from phoenix9.project_removal import _save_removed  # noqa: E402
+
+SCOPE = "The GitHub repo me/alpha was NOT deleted: Phoenix's GitHub login isn't allowed to delete repos."
+
+
+@pytest.fixture
+def unitdir(tmp_path, monkeypatch):
+    """A fake systemd folder inside the temp area, with alpha's chat drop-in in it."""
+    d = paths.home() / "systemd"
+    (d / "claude-rc-chat@alpha.service.d").mkdir(parents=True)
+    (d / "claude-rc-chat@alpha.service.d" / "x.conf").write_text("x")
+    monkeypatch.setattr(project_delete, "SYSTEMD_DIR", d)
+    return d
+
+
+def _stuff(env):
+    """A project with a repo, keys, a run, an INDEX line and a removed row."""
+    folder = _project_with_stuff(env)
+    keys.set_key("alpha", "API_TOKEN", "sekret-value-123")
+    (env["projects"] / "INDEX.md").write_text("| alpha | me/alpha | (new) |\n| beta | - | (new) |\n")
+    _save_removed([{"name": "alpha", "path": str(folder), "repo": "me/alpha", "removed_on": "2026-01-01"}])
+    return folder
+
+
+def _all_there(folder):
+    assert folder.is_dir() and (paths.runs("alpha") / "r1").is_dir() and (paths.keys() / "alpha.toml").is_file()
+
+
+def test_delete_order_and_everything_gone(env, unitdir):
+    folder = _stuff(env)
+    res = project_delete.delete("alpha", "alpha", "dashboard", env["fakes"])
+    assert [s["step"] for s in res["steps"]] == ["records and runs", "chat unit", "project folder", "saved keys",
+                                                 "folder trust", "removed list and INDEX.md", "GitHub repo"]
+    assert all(s["ok"] for s in res["steps"]) and res["not_done"] == []
+    assert not folder.exists() and not paths.runs("alpha").exists() and not (paths.keys() / "alpha.toml").exists()
+    assert not (unitdir / "claude-rc-chat@alpha.service.d").exists()
+    assert (env["projects"] / "INDEX.md").read_text() == "| beta | - | (new) |\n"
+    from phoenix9 import project_removal
+    assert project_removal.removed_list() == []
+    calls = env["host"].calls
+    sysc = [c[1:3] for c in calls if c[0] == "systemctl"]
+    assert sysc == [["stop", "claude-rc-chat@alpha"], ["disable", "claude-rc-chat@alpha"], ["daemon-reload"]] or \
+        [c[1] for c in calls if c[0] == "systemctl"][-3:] == ["stop", "disable", "daemon-reload"]
+    assert ["gh", "repo", "delete", "me/alpha", "--yes"] in calls
+    assert calls.index(["gh", "repo", "delete", "me/alpha", "--yes"]) > calls.index(["remove_tree", str(folder)])
+    assert (project_delete.Path(res["backup"]) / "repo.bundle").is_file()
+
+
+def test_delete_wrong_confirm(env, unitdir):
+    folder = _stuff(env)
+    with pytest.raises(OpsError, match="Type the project's name"):
+        project_delete.delete("alpha", "alph", "dashboard", env["fakes"])
+    _all_there(folder)
+    assert not paths.deleted_projects().exists() or list(paths.deleted_projects().iterdir()) == []
+
+
+@pytest.mark.parametrize("who", ["agent", "chat:delegate", "chat:alpha"])
+def test_delete_refuses_callers(env, unitdir, who):
+    folder = _stuff(env)
+    with pytest.raises(OpsError, match="Only Alex"):
+        project_delete.delete("alpha", "alpha", who, env["fakes"])
+    _all_there(folder)
+
+
+def test_delete_refuses_protected(env, unitdir):
+    for name in ("phoenix9", "home"):
+        folder = make(env, name)
+        with pytest.raises(OpsError, match=name):
+            project_delete.delete(name, name, "cli", env["fakes"])
+        assert folder.is_dir()
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "waiting", "paused-limit"])
+def test_delete_refuses_active_build(env, unitdir, status):
+    folder = _stuff(env)
+    make_run("alpha", "r2", status)
+    with pytest.raises(OpsError, match=status):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_delete_refuses_working_chat(env, unitdir, monkeypatch):
+    folder = _stuff(env)
+    monkeypatch.setattr(project_delete.projectchat, "state", lambda n, a: {"state": "working"})
+    with pytest.raises(OpsError, match="chat is working"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_delete_backup_failure_leaves_everything(env, unitdir):
+    folder = _stuff(env)
+    real = env["host"].run
+    env["host"].run = lambda argv, timeout=60, cwd=None: (1, "", "bad") if "verify" in argv else real(argv, timeout, cwd)
+    with pytest.raises(OpsError, match="bundle"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+    assert (unitdir / "claude-rc-chat@alpha.service.d").exists()
+    assert not [c for c in env["host"].calls if c[:2] == ["gh", "repo"] or c[:1] == ["systemctl"]]
+
+
+def test_delete_scope_message_other_steps_done(env, unitdir):
+    folder = _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="HTTP 403: Must have admin rights; needs the delete_repo scope")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert not folder.exists()
+    assert [s["ok"] for s in res["steps"]] == [True] * 6 + [False]
+    assert res["steps"][-1]["words"].startswith(SCOPE) and "gh auth refresh -h github.com -s delete_repo" in res["steps"][-1]["words"]
+    assert len(res["not_done"]) == 1 and "delete_repo" in res["not_done"][0]["how"]
+
+
+def test_delete_repo_retry_uses_manifest(env, unitdir):
+    _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
+    first = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    res = project_delete.delete_repo("alpha", "dashboard", env["fakes"])
+    assert res["steps"][0]["ok"] and res["not_done"] == [] and res["backup"] == first["backup"]
+    assert env["host"].calls[-1] == ["gh", "repo", "delete", "me/alpha", "--yes"]
+    with pytest.raises(OpsError, match="Only Alex"):
+        project_delete.delete_repo("alpha", "agent", env["fakes"])
+    with pytest.raises(NotFound):
+        project_delete.delete_repo("ghost", "cli", env["fakes"])
+
+
+def test_delete_chat_unit_failure_recorded(env, unitdir):
+    folder = _stuff(env)
+    env["host"].script(["systemctl", "disable"], rc=1, err="Access denied")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    chat = res["steps"][1]
+    assert chat["step"] == "chat unit" and not chat["ok"] and "Access denied" in chat["words"]
+    assert not folder.exists() and any(n["what"] == "chat unit" for n in res["not_done"])
+
+
+def test_delete_chat_unit_not_loaded_is_fine(env, unitdir):
+    _stuff(env)
+    env["host"].script(["systemctl", "stop"], rc=5, err="Unit claude-rc-chat@alpha.service not loaded.")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert res["steps"][1]["ok"]
+
+
+def test_delete_event_and_commands_log(env, unitdir):
+    _stuff(env)
+    project_delete.delete("alpha", "alpha", "dashboard", env["fakes"])
+    found = [e for e in events_mod.read(paths.events()) if e["type"] == "project.deleted"]
+    assert len(found) == 1 and found[0]["project"] == "alpha" and found[0]["data"]["who"] == "dashboard"
+    lines = [json.loads(ln) for ln in (paths.logs() / "commands.jsonl").read_text().splitlines()]
+    mine = [ln for ln in lines if ln["command"].startswith("project delete alpha")]
+    assert len(mine) >= 7 and all(ln["who"] == "dashboard" and ln["project"] == "alpha" for ln in mine)

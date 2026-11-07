@@ -6,9 +6,9 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from phoenix9 import deploy, git, keys, paths, project, projectchat, runs, settings, status
+from phoenix9 import deploy, events, git, keys, paths, project, projectchat, runs, settings, status
 from phoenix9.ops import common
-from phoenix9.project_removal import PROTECTED
+from phoenix9.project_removal import PROTECTED, _save_removed, removed_list, untrust
 
 ALLOWED_CALLERS = ("dashboard", "cli")
 STILL_LIVE = "still live, take it down yourself"
@@ -19,6 +19,9 @@ CACHE_DIRS = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", "
               ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".gradle", "target", ".parcel-cache",
               ".turbo", ".svelte-kit", ".eggs"}
 URL_RE = re.compile(r"^https?://\S+$")
+SYSTEMD_DIR = Path("/etc/systemd/system")
+UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
+SCOPE_WORDS = ("delete_repo", "403")
 
 
 def _repo(folder) -> str | None:
@@ -309,3 +312,162 @@ def prune_backups(adapters, now: float) -> list:
             adapters.host.remove_tree(entry)
             removed.append(entry.name)
     return removed
+
+
+def _unit_ok(rc: int, out: str, err: str) -> bool:
+    """True when a systemctl call worked or only said the unit is not there."""
+    return rc == 0 or any(w in f"{out} {err}".lower() for w in UNIT_GONE)
+
+
+def _stop_chat(name: str, host) -> str:
+    """Stop and disable the chat unit, remove its drop-ins, reload systemd; raises OpsError if systemctl refuses."""
+    unit = f"claude-rc-chat@{name}"
+    for args in (("stop", unit), ("disable", unit)):
+        rc, out, err = host.systemctl(*args)
+        if not _unit_ok(rc, out, err):
+            raise common.OpsError(f"systemctl {args[0]} {unit} failed: {(err or out).strip()[:200]}")
+    host.remove_tree(SYSTEMD_DIR / f"{unit}.service.d")
+    rc, out, err = host.systemctl("daemon-reload")
+    if rc != 0:
+        raise common.OpsError(f"systemctl daemon-reload failed: {(err or out).strip()[:200]}")
+    return f"Stopped and removed the chat unit {unit}."
+
+
+def _forget(name: str) -> str:
+    """Drop the removed_projects row and the INDEX.md line for the project."""
+    rows = removed_list()
+    if any(r["name"] == name for r in rows):
+        _save_removed([r for r in rows if r["name"] != name])
+    index = paths.projects() / "INDEX.md"
+    if index.is_file():
+        keep = [ln for ln in index.read_text(encoding="utf-8").splitlines() if not ln.startswith(f"| {name} |")]
+        index.write_text("".join(ln + "\n" for ln in keep), encoding="utf-8")
+    return "Removed it from the removed list and INDEX.md."
+
+
+def scope_words(repo: str) -> str:
+    """The plain sentence for a GitHub login that may not delete repos."""
+    return (f"The GitHub repo {repo} was NOT deleted: Phoenix's GitHub login isn't allowed to delete repos. "
+            "Delete it on GitHub, or run `gh auth refresh -h github.com -s delete_repo` once in your own "
+            "terminal and press Delete repo again.")
+
+
+def _gh_delete(repo: str | None, host) -> tuple[bool, str, bool]:
+    """Delete the GitHub repo; returns (ok, words, refused_for_scope)."""
+    if not repo:
+        return True, "There is no GitHub repo.", False
+    rc, out, err = host.gh("repo", "delete", repo, "--yes")
+    if rc == 0:
+        return True, f"Deleted the GitHub repo {repo}.", False
+    text = (err or out).strip()
+    if any(w in text.lower() for w in SCOPE_WORDS):
+        return False, scope_words(repo), True
+    return False, f"GitHub would not delete {repo}: {text[:200]}", False
+
+
+def _step(steps: list, who: str, name: str, step: str, fn) -> None:
+    """Run one delete step, record it in the steps and the commands log; a failure is recorded, not raised."""
+    try:
+        ok, words = True, fn()
+    except Exception as e:
+        ok, words = False, f"{e}"
+    steps.append({"step": step, "ok": ok, "words": words})
+    common.record_command(who, f"project delete {name}: {step} ({'ok' if ok else 'failed'})", name)
+
+
+def _refuse(name: str, who: str, adapters) -> None:
+    """Raise OpsError with the plain reasons when this project may not be deleted."""
+    reasons = _refusals(name, who, _chat(name, adapters)["state"])
+    if reasons:
+        raise common.OpsError(" ".join(reasons))
+
+
+def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
+    """Delete a project entirely after a safety copy; returns {name, backup, steps, not_done, still_live}."""
+    folder = common.project_dir(name)
+    _refuse(name, who, adapters)
+    if confirm_name != name:
+        raise common.OpsError(f"Type the project's name ({name}) to confirm. Nothing was deleted.")
+    live = _deployments(name, folder)
+    dest = backup(name, who, adapters)
+    repo = _repo(folder)
+    host = adapters.host
+    steps, not_done = [], []
+    common.record_command(who, f"project delete {name}: safety copy written to {dest}", name)
+
+    def records() -> str:
+        host.remove_tree(paths.runs(name))
+        host.remove_tree(paths.home() / "work" / name)
+        return "Removed Phoenix's records and runs for the project."
+
+    def remove_folder() -> str:
+        host.remove_tree(folder)
+        if folder.exists():
+            raise common.OpsError(f"Could not remove {folder}.")
+        return f"Removed the folder {folder}."
+
+    def remove_keys() -> str:
+        host.remove_file(paths.keys() / f"{name}.toml")
+        return "Removed the project's saved keys."
+
+    def trust() -> str:
+        untrust(host, folder)
+        return "Removed Claude Code's folder trust entry."
+
+    _step(steps, who, name, "records and runs", records)
+    _step(steps, who, name, "chat unit", lambda: _stop_chat(name, host))
+    _step(steps, who, name, "project folder", remove_folder)
+    _step(steps, who, name, "saved keys", remove_keys)
+    _step(steps, who, name, "folder trust", trust)
+    _step(steps, who, name, "removed list and INDEX.md", lambda: _forget(name))
+    _github_step(steps, not_done, who, name, repo, host)
+    events.emit("project.deleted", project=name, who=who, backup=str(dest), repo=repo)
+    for s in steps:
+        if not s["ok"] and s["step"] != "GitHub repo":
+            not_done.append({"what": s["step"], "how": s["words"]})
+    return {"name": name, "backup": str(dest), "steps": steps, "not_done": not_done, "still_live": live}
+
+
+def _github_step(steps: list, not_done: list, who: str, name: str, repo: str | None, host) -> None:
+    """Run the GitHub repo delete as a step; a refusal for lack of scope goes into not_done."""
+    state = {}
+
+    def run() -> str:
+        ok, words, scope = _gh_delete(repo, host)
+        state.update(ok=ok, scope=scope)
+        if not ok:
+            raise common.OpsError(words)
+        return words
+    _step(steps, who, name, "GitHub repo", run)
+    if not steps[-1]["ok"]:
+        how = ("Delete it on GitHub, or run `gh auth refresh -h github.com -s delete_repo` once in your own "
+               "terminal and press Delete repo again." if state.get("scope") else steps[-1]["words"])
+        not_done.append({"what": steps[-1]["words"] if state.get("scope") else f"GitHub repo {repo}", "how": how})
+
+
+def _newest_copy(name: str) -> Path | None:
+    """The newest safety-copy folder for this project name, or None."""
+    found = []
+    try:
+        entries = list(paths.deleted_projects().iterdir())
+    except OSError:
+        return None
+    for entry in entries:
+        m = STAMP_RE.search(entry.name)
+        if m and entry.name[:m.start()] == name and (entry / "manifest.json").is_file():
+            found.append((m.group(1), entry))
+    return max(found)[1] if found else None
+
+
+def delete_repo(name: str, who: str, adapters) -> dict:
+    """Retry only the GitHub repo delete, reading the repo from the newest safety copy's manifest."""
+    if name in PROTECTED or who not in ALLOWED_CALLERS:
+        raise common.OpsError(" ".join(_refusals(name, who, "off")))
+    copy = _newest_copy(name)
+    if copy is None:
+        raise common.NotFound(f"There is no safety copy for '{name}', so Phoenix does not know its GitHub repo.")
+    repo = json.loads((copy / "manifest.json").read_text(encoding="utf-8")).get("repo")
+    steps, not_done = [], []
+    _github_step(steps, not_done, who, name, repo, adapters.host)
+    events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] else "github repo kept")
+    return {"name": name, "backup": str(copy), "steps": steps, "not_done": not_done}

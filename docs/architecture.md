@@ -1356,3 +1356,7 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
 - `builds` card: `limit` 1-20, default 5 (outside that is a 400).
 - `phoenix card <type> [--query JSON] [--title T] [--json]` prints the summary line, the fenced `phoenix-card`
   block (only `v`, `type`, `query`, `title`), then the summary again. `--json` gives `{summary, block, card}`.
+
+### Pull requests (`ops.github.prs`, `prs` card)
+- `ops.github.prs(project=None, state="open")` runs `gh pr list --repo <owner/name> --state <state> --json ...` through the Host adapter and returns rows `{project, number, title, state, draft, checks, url, updated_at}`. Answers are cached in memory for 60 s per (repo, state); a gh failure gives `{project, error}` for that project.
+- The `prs` card lists those rows with one link per pull request. Each `projects` card row also carries `needs_merge` and `pr: {number, title, url}` (true when the project has an open, non-draft pull request).

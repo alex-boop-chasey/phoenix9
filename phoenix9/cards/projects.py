@@ -1,5 +1,5 @@
 """Card: the projects list (same filters as the Projects page), with a link to each project."""
-from phoenix9.ops import projects as ops_projects
+from phoenix9.ops import github as ops_github, projects as ops_projects
 
 schema = {"q": "str", "status": "str", "owner": "str", "sort": "str", "attention": "bool", "names": "list[str]"}
 
@@ -11,6 +11,7 @@ def build(query: dict) -> dict:
     names = query.get("names")
     if names is not None:
         data = _only(data, names)
+    data = _with_prs(data)
     rows = data["top"] + data["rest"]
     actions = [{"label": r["name"], "kind": "route",
                 "route": {"to": f"p/{r['name']}/overview", "params": {}}} for r in rows]
@@ -26,3 +27,13 @@ def _only(data: dict, names: list[str]) -> dict:
     kept = [by_name[n] for n in dict.fromkeys(names) if n in by_name]
     top = [r for r in kept if r["name"] in top_names]
     return {**data, "top": top, "rest": [r for r in kept if r not in top], "total": len(kept)}
+
+
+def _with_prs(data: dict) -> dict:
+    """Add needs_merge and pr {number, title, url} to each row (an open, non-draft pull request)."""
+    def mark(row: dict) -> dict:
+        found = [] if not row.get("repo_owner") else [
+            p for p in ops_github.prs(row["name"]) if not p.get("error") and not p["draft"]]
+        pr = {k: found[0][k] for k in ("number", "title", "url")} if found else None
+        return {**row, "needs_merge": bool(found), "pr": pr}
+    return {**data, "top": [mark(r) for r in data["top"]], "rest": [mark(r) for r in data["rest"]]}

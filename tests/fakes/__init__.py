@@ -7,6 +7,13 @@ from pathlib import Path
 from phoenix9.adapters import Adapters, Git
 
 
+CANNED_PRS = [
+    {"number": 7, "title": "Add search", "state": "OPEN", "isDraft": False, "url": "https://github.com/o/r/pull/7",
+     "updatedAt": "2026-11-07T10:00:00Z", "statusCheckRollup": [{"conclusion": "SUCCESS", "status": "COMPLETED"}]},
+    {"number": 8, "title": "WIP", "state": "OPEN", "isDraft": True, "url": "https://github.com/o/r/pull/8",
+     "updatedAt": "2026-11-06T10:00:00Z", "statusCheckRollup": []}]
+
+
 class FakeHost:
     """Scripted host: responses chosen by argv prefix; every call is recorded."""
 
@@ -51,6 +58,11 @@ class FakeHost:
     def systemctl(self, *args):
         """Same as run(['systemctl', ...])."""
         return self.run(["systemctl", *args])
+
+    def script_prs(self, items: list | None = None, rc: int = 0) -> None:
+        """Answer `gh pr list` with these pull requests (gh's JSON shape), or fail with rc."""
+        import json
+        self.script(["gh", "pr", "list"], rc, json.dumps(items if items is not None else CANNED_PRS))
 
     def gh(self, *args):
         """Same as run(['gh', ...])."""

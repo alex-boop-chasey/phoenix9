@@ -29,7 +29,7 @@ def make_run(project, status="running", run_id=RUN):
 
 
 def test_types_and_loading():
-    assert cards.types() == ["builds", "gates", "projects", "run"]
+    assert cards.types() == ["builds", "gates", "projects", "prs", "run"]
     assert cards.load("nope") is None and cards.load("../x") is None
     assert cards.load("projects").schema["names"] == "list[str]"
 

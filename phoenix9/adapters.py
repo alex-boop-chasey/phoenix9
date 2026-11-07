@@ -113,6 +113,14 @@ class Host:
                     continue
         return uids.pop() if len(uids) == 1 else None
 
+    def parent_pid(self, pid) -> int | None:
+        """The parent process id of a process (None when it is gone or cannot be read)."""
+        try:
+            stat = Path(f"/proc/{int(pid)}/stat").read_text()
+            return int(stat.rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+
     def realpath(self, path) -> str:
         """The path with every symlink resolved (the path itself when it cannot be resolved)."""
         return os.path.realpath(path)

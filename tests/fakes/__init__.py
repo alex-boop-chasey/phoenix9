@@ -22,6 +22,7 @@ class FakeHost:
         self.realpaths: dict[str, str] = {}  # symlinked path -> where it really points
         self.peer_uid: int | None = 0        # who owns the far end of every API connection (root unless set)
         self.socket_lookups: list = []       # (local, remote) of each socket_uid() call
+        self.parents: dict[int, int] = {}    # pid -> parent pid
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -82,6 +83,10 @@ class FakeHost:
         """The scripted .peer_uid for any socket (the lookup is recorded)."""
         self.socket_lookups.append((tuple(local), tuple(remote)))
         return self.peer_uid
+
+    def parent_pid(self, pid):
+        """The parent from .parents (None when not set)."""
+        return self.parents.get(pid)
 
     def realpath(self, path):
         """The path from .realpaths, else the path itself (no symlinks unless scripted)."""

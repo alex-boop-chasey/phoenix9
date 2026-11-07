@@ -14,7 +14,13 @@ CLAUDE_HOME = "/root/.claude"
 AGENT_NAME = "Phoenix agent"
 SOCKET_FOLDER = "/tmp/cc-socks-0"          # where Claude Code (run as root) puts each session's inbox socket
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
-KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId")
+KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId", "startedAt")
+_chosen: dict = {}       # Claude home -> the pid find() picked last time (kept while it stays live)
+
+
+def forget() -> None:
+    """Drop the remembered choice (tests)."""
+    _chosen.clear()
 
 
 def encode_folder(real_cwd: str) -> str:
@@ -71,6 +77,38 @@ def _is_live(host, entry: dict, folder: str) -> bool:
     return host.pid_alive(pid) and host.exists(sock)
 
 
+def _main_pid(host) -> int | None:
+    """The agent unit's main process id (claude remote-control), or None when the unit is not running."""
+    rc, out, _ = host.systemctl("show", "-p", "MainPID", "--value", settings.agent_settings()["unit"])
+    try:
+        pid = int(out.strip()) if rc == 0 else 0
+    except ValueError:
+        pid = 0
+    return pid or None
+
+
+def _started(e: dict) -> tuple:
+    """Sort key: when the session started (registry startedAt), then its pid."""
+    at = e.get("startedAt")
+    return (at if isinstance(at, (int, float)) and not isinstance(at, bool) else float("inf"), e["pid"])
+
+
+def _choose(host, home: str, pool: list[dict]) -> dict:
+    """One session, chosen the same way every time: the agent unit's main process (or its direct child), else the
+    one picked last time while it is still live, else the oldest; it never flips between two live sessions."""
+    if len(pool) == 1:
+        _chosen[home] = pool[0]["pid"]
+        return pool[0]
+    main = _main_pid(host)
+    if main is not None:
+        mine = [e for e in pool if e["pid"] == main or host.parent_pid(e["pid"]) == main]
+        pool = mine or pool
+    kept = [e for e in pool if e["pid"] == _chosen.get(home)]
+    best = kept[0] if kept else min(pool, key=_started)
+    _chosen[home] = best["pid"]
+    return best
+
+
 def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
     """The live agent session as {pid, session_id, name, socket, transcript, status}, or None."""
     host = host or Host()
@@ -81,7 +119,7 @@ def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
     if not live:
         return None
     named = [e for e in live if e["name"] == AGENT_NAME]
-    best = max(named or live, key=lambda e: (e["mtime"], e["pid"]))
+    best = _choose(host, home, named or live)
     sid = best["sessionId"]
     path = transcript_path(home, best["cwd"], sid, host) if is_session_id(sid) else None
     return {"pid": best["pid"], "session_id": sid, "name": best["name"],

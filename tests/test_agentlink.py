@@ -88,11 +88,54 @@ def test_named_wins_over_newer():
     assert agentlink.find(HOME, h)["pid"] == 10
 
 
-def test_newest_when_unnamed():
+def test_oldest_when_unnamed():
+    """Without the unit's main process to go by, the session that started first wins (not the newest file)."""
     h = FakeHost()
-    session(h, 10, name="x", mtime=1)
-    session(h, 11, name="y", mtime=9, sock="/tmp/cc-socks-0/b.sock")
+    session(h, 10, name="x", mtime=9, startedAt=100)
+    session(h, 11, name="y", mtime=1, startedAt=200, sock="/tmp/cc-socks-0/b.sock")
+    assert agentlink.find(HOME, h)["pid"] == 10
+
+
+def two_agents(h):
+    session(h, 10, sid=SID_OLD, mtime=1, startedAt=100)
+    session(h, 11, sid=SID_NEW, mtime=9, startedAt=200, sock="/tmp/cc-socks-0/b.sock")
+
+
+def test_unit_main_pid_wins():
+    h = FakeHost()
+    two_agents(h)
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "11\n")
     assert agentlink.find(HOME, h)["pid"] == 11
+
+
+def test_child_of_the_unit_main_pid_wins():
+    """claude remote-control (the unit's main process) runs each session as its child."""
+    h = FakeHost()
+    two_agents(h)
+    h.parents[11] = 500
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "500\n")
+    assert agentlink.find(HOME, h)["pid"] == 11
+
+
+def test_choice_does_not_flip_while_both_live():
+    """Registry rewrites (mtime changes) and a lost MainPID never move the choice while it is alive."""
+    h = FakeHost()
+    two_agents(h)
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "11\n")
+    assert agentlink.find(HOME, h)["pid"] == 11
+    h.script(["systemctl", "show", "-p", "MainPID", "--value", "claude-rc@home"], 0, "0\n")
+    for mtime in (50, 1, 99):
+        h.stats["%s/sessions/10.json" % HOME] = {"mode": 0o600, "uid": 0, "mtime": mtime}
+        assert agentlink.find(HOME, h)["pid"] == 11
+    h.pids.discard(11)
+    assert agentlink.find(HOME, h)["pid"] == 10
+
+
+def test_single_session_needs_no_systemctl():
+    h = FakeHost()
+    session(h, 10)
+    agentlink.find(HOME, h)
+    assert not h.calls
 
 
 def test_missing_keys():

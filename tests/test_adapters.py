@@ -71,3 +71,13 @@ def test_fake_host_reads(adapters):
     assert h.exists("/d") and h.exists("/x/a.txt") and not h.exists("/no")
     assert h.pid_alive(7) and not h.pid_alive(8)
     assert h.stat("/x/a.txt") == {"mode": 0o600, "uid": 0} and h.stat("/no") is None
+
+
+def test_host_parent_pid_and_realpath(tmp_path):
+    import os
+    from phoenix9.adapters import Host
+    assert Host().parent_pid(os.getpid()) == os.getppid()
+    assert Host().parent_pid(2 ** 22 + 12345) is None
+    (tmp_path / "real").mkdir()
+    (tmp_path / "link").symlink_to(tmp_path / "real")
+    assert Host().realpath(str(tmp_path / "link")) == str((tmp_path / "real").resolve())

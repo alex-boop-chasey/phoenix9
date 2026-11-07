@@ -1,0 +1,127 @@
+"""Tests for the `phoenix agent` commands: brief, status, send and read, on a fake host."""
+import json
+import types
+
+import pytest
+
+from phoenix9 import agentlink, events, paths
+from phoenix9.__main__ import main
+from phoenix9.ops import agent, common, projects
+
+CH = "/root/.claude"
+TDIR = CH + "/projects/-srv-projects-home"
+
+
+def run(capsys, *argv):
+    """Run one command and return (code, stdout, stderr)."""
+    code = main(list(argv))
+    out = capsys.readouterr()
+    return code, out.out, out.err
+
+
+def fake_rows(n, **extra):
+    """n fake project rows."""
+    return [{"name": "project-%02d" % i, "repo": "alex/project-%02d" % i, "profile": "quick",
+             "needs_you": 0, "run": None, **extra} for i in range(n)]
+
+
+@pytest.fixture
+def host(monkeypatch):
+    """A fake host with a live agent session."""
+    from tests.fakes import FakeHost
+    h = FakeHost()
+    monkeypatch.setattr(common, "make_adapters", lambda: types.SimpleNamespace(host=h))
+    monkeypatch.setattr(agent.update, "status", lambda *a, **k: {"update_available": False})
+    h.files[CH + "/sessions/100.json"] = json.dumps({
+        "pid": 100, "cwd": "/srv/projects/home", "name": "Phoenix agent", "status": "idle",
+        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": "s1"})
+    h.files["/tmp/cc-socks-0/x.sock"] = ""
+    h.pids.add(100)
+    h.files[TDIR + "/s1.jsonl"] = "\n".join(json.dumps(o) for o in [
+        {"type": "user", "message": {"role": "user", "content": "hi"}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": "hello there"}]}}]) + "\n"
+    return h
+
+
+def test_brief_lines(host, monkeypatch, capsys):
+    """One line per project in the agreed words, plus NOW.md and the version."""
+    rows = fake_rows(4)
+    rows[1].update(needs_you=2)
+    rows[2].update(run={"status": "running", "task": 3, "tasks": 7})
+    rows[3].update(run={"status": "paused-limit", "task": 3, "tasks": 7}, repo=None)
+    monkeypatch.setattr(projects, "rows", lambda only=None: rows)
+    host.files["/srv/projects/home/notes/NOW.md"] = "\n".join("note %d" % i for i in range(30))
+    code, out, _ = run(capsys, "agent", "brief")
+    assert code == 0
+    assert "project-00 · idle · alex/project-00" in out
+    assert "project-01 · waiting for you (2) · " in out
+    assert "project-02 · build running (task 3/7, Quick) · " in out
+    assert "project-03 · paused · no repo" in out
+    assert "note 19" in out and "note 20" not in out
+    assert "Phoenix 9." in out and "update available" not in out
+
+
+def test_brief_update_available(host, monkeypatch):
+    """The brief says when an update is available."""
+    monkeypatch.setattr(projects, "rows", lambda only=None: [])
+    monkeypatch.setattr(agent.update, "status", lambda *a, **k: {"update_available": True})
+    assert "update available" in agent.brief()["version"]
+
+
+def test_brief_small_for_30_projects(host, monkeypatch, capsys):
+    """30 projects stay under 2,000 tokens (4 characters a token)."""
+    rows = fake_rows(30, repo="alex/" + "x" * 200)
+    monkeypatch.setattr(projects, "rows", lambda only=None: rows)
+    host.files["/srv/projects/home/notes/NOW.md"] = "\n".join("n" * 100 for _ in range(40))
+    data = agent.brief()
+    assert all(len(line) <= 120 for line in data["projects"]) and len(data["projects"]) == 30
+    assert len(data["text"]) / 4 < 2000
+    code, out, _ = run(capsys, "agent", "brief", "--json")
+    assert json.loads(out)["projects"] == data["projects"]
+
+
+def test_status(host, capsys):
+    """Status in words and JSON, and asleep once the session is gone."""
+    code, out, _ = run(capsys, "agent", "status")
+    assert code == 0 and "idle" in out
+    assert json.loads(run(capsys, "agent", "status", "--json")[1])["state"] == "idle"
+    host.pids.clear()
+    assert "asleep" in run(capsys, "agent", "status")[1]
+
+
+def test_send_passes_context_and_records_event(host, monkeypatch, capsys):
+    """Send hands the text and context to the link and records a command event."""
+    seen = {}
+
+    def fake_send(text, context=None, who="cli", **kw):
+        seen.update(text=text, context=context, who=who)
+        return {"sent": True, "at": "now", "after_line": 2}
+    monkeypatch.setattr(agentlink, "send", fake_send)
+    code, out, _ = run(capsys, "agent", "send", "hello", "--page", "projects", "--project", "p1", "--run", "r1")
+    assert code == 0 and "Sent" in out
+    assert seen == {"text": "hello", "context": {"page": "projects", "project": "p1", "run": "r1"}, "who": "cli"}
+    code, out, _ = run(capsys, "agent", "send", "x", "--json")
+    assert json.loads(out)["sent"] is True
+
+
+def test_send_when_asleep(host, capsys):
+    """Sending to a sleeping agent is refused in plain words."""
+    host.pids.clear()
+    code, _, err = run(capsys, "agent", "send", "hi")
+    assert code == 1 and "asleep" in err
+
+
+def test_read_items(host, capsys):
+    """Read prints plain lines, honours --after and --tail, and has JSON."""
+    code, out, _ = run(capsys, "agent", "read")
+    assert code == 0 and "hi" in out and "hello there" in out
+    assert "hi" not in run(capsys, "agent", "read", "--after", "1")[1]
+    tail = run(capsys, "agent", "read", "--tail", "1")[1]
+    assert "hello there" in tail and "hi" not in tail
+    assert len(json.loads(run(capsys, "agent", "read", "--json")[1])["items"]) == 2
+
+
+def test_help_lists_agent(capsys):
+    """phoenix --help lists the agent group."""
+    code, out, _ = run(capsys, "--help")
+    assert "agent" in out

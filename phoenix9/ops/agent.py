@@ -2,8 +2,8 @@
 import json
 from datetime import datetime, timezone
 
-from phoenix9 import agentlink, scrub, settings, transcript
-from phoenix9.ops import common
+from phoenix9 import __version__, agentlink, scrub, settings, transcript
+from phoenix9.ops import common, projects, update
 
 
 MAX_CHARS = agentlink.MAX_CHARS
@@ -75,3 +75,55 @@ def sessions() -> list[dict]:
     found = [_session(host, folder, n) for n in names]
     found.sort(key=lambda s: (s["started"], s["_m"]), reverse=True)
     return [{k: v for k, v in s.items() if k != "_m"} for s in found]
+
+
+LINE_MAX = 120
+NOW_LINES = 20
+
+
+def _state_words(row: dict) -> str:
+    """A project's state in the brief's words."""
+    run = row.get("run")
+    if row.get("needs_you"):
+        return "waiting for you (%d)" % row["needs_you"]
+    if run and run.get("status") == "paused-limit":
+        return "paused"
+    if run and run.get("task") is not None:
+        profile = (row.get("profile") or "").strip()
+        tail = ", %s" % profile.capitalize() if profile else ""
+        return "build running (task %s/%s%s)" % (run["task"], run.get("tasks"), tail)
+    if run:
+        return "build running"
+    return "idle"
+
+
+def _project_line(row: dict) -> str:
+    """One project as '<name> · <state> · <repo or no repo>', cut to 120 characters."""
+    line = "%s · %s · %s" % (row["name"], _state_words(row), row.get("repo") or "no repo")
+    return scrub.scrub(line.replace("\n", " "))[:LINE_MAX]
+
+
+def _now_notes(host) -> list[str]:
+    """Up to 20 lines of the agent folder's notes/NOW.md (none when it is missing)."""
+    path = "%s/notes/NOW.md" % settings.agent_settings()["folder"].rstrip("/")
+    lines = [scrub.scrub(raw.rstrip("\n")) for raw in host.read_lines(path)]
+    return [x for x in lines if x.strip()][:NOW_LINES]
+
+
+def _update_line() -> str:
+    """The Phoenix version, with 'update available' when the updater knows of one."""
+    try:
+        newer = bool(update.status().get("update_available"))
+    except Exception:
+        newer = False
+    return "Phoenix %s%s" % (__version__, " · update available" if newer else "")
+
+
+def brief() -> dict:
+    """The agent's start-up brief: {projects: [lines], now: [lines], version, text}."""
+    host = _host()
+    lines = [_project_line(r) for r in projects.rows()]
+    notes = _now_notes(host)
+    version = _update_line()
+    parts = lines + (["", "NOW.md:"] + notes if notes else []) + ["", version]
+    return {"projects": lines, "now": notes, "version": version, "text": "\n".join(parts)}

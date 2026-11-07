@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type RefObject } from "react"
 
 import { Icon } from "@/components/Icon"
 import { useAgentMessages, useAgentStatus, type AgentState } from "@/features/agent/useAgent"
+import { MessageList } from "@/features/agent/messages"
 import { readWide, writeWide } from "@/features/agent/panelState"
 
 const LOOK: Record<AgentState, { cls: string; word: string }> = {
@@ -26,6 +27,7 @@ function StatusPill() {
 /** The slide-in Phoenix agent panel; focus goes to the message box on open and back to `opener` on close. */
 export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null> }) {
   const { data: status } = useAgentStatus()
+  const thread = useAgentMessages().data
   const [wide, setWide] = useState(readWide)
   const composer = useRef<HTMLTextAreaElement>(null)
   const wasOpen = useRef(open)
@@ -69,7 +71,9 @@ export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: 
           </button>
         </div>
       </div>
-      <div className="dr-b" />
+      <div className="dr-b">
+        <MessageList items={thread?.items ?? []} state={status?.state} />
+      </div>
       <div className="dr-f">
         <label className="sr" htmlFor="agentIn">Message</label>
         <textarea ref={composer} className="input" id="agentIn" rows={2} placeholder="Message the Phoenix agent" />

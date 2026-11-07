@@ -22,6 +22,8 @@ def add(sub, common_parser) -> None:
     r.add_argument("--after", type=int, default=0, help="only items after this line number")
     r.add_argument("--tail", type=int, help="only the last N items")
     r.set_defaults(func=run_read)
+    w = cmds.add_parser("watch", parents=[common_parser], help="check once that the agent is running; restart it if not")
+    w.set_defaults(func=run_watch)
     p.set_defaults(func=lambda args: (p.print_help(), 0)[1])
 
 
@@ -65,3 +67,11 @@ def run_read(args) -> int:
     if args.tail is not None:
         data["items"] = data["items"][-args.tail:] if args.tail > 0 else []
     return show(args, data, "\n".join(_item_line(i) for i in data["items"]) or "Nothing to read.")
+
+
+def run_watch(args) -> int:
+    """Run one watchdog check on the agent."""
+    from phoenix9 import adapters, agentwatch
+    common.record_command(args.who, "agent watch")
+    result = agentwatch.check_once(adapters.real())
+    return show(args, {"result": result}, "Agent watchdog: %s." % result)

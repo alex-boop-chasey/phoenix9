@@ -752,7 +752,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
    exception: the `delegate` failure mode starts a headless Claude session in the project folder with
    full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
    It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
-   is the only place in phoenix9 that starts Claude on the host.
+   is the only place in phoenix9 that starts Claude on the host, and the only place that restarts the
+   Phoenix agent's service (`agent_restart`, a `systemctl restart` of the `agent.unit` setting, used by the
+   watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
+   memory in `logs/agent-watch.json`).
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).

@@ -67,3 +67,11 @@ def status(handle: str) -> str:
     except (OSError, ValueError):
         return "exited"
     return "exited" if stat.rsplit(")", 1)[-1].split()[0] == "Z" else "running"
+
+
+def agent_restart(adapters, why: str) -> None:
+    """Restart the Phoenix agent's systemd service (the `agent.unit` setting) and tell Alex why, once."""
+    from phoenix9 import scrub, settings
+    unit = settings.agent_settings()["unit"]
+    adapters.host.systemctl("restart", unit)
+    adapters.notify.send(scrub.scrub(f"Phoenix agent restarted: {why}"))

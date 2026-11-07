@@ -12,6 +12,8 @@ from phoenix9.adapters import Host
 
 CLAUDE_HOME = "/root/.claude"
 AGENT_NAME = "Phoenix agent"
+SOCKET_FOLDER = "/tmp/cc-socks-0"          # where Claude Code (run as root) puts each session's inbox socket
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId")
 
 
@@ -29,6 +31,18 @@ def transcript_dir(home_dir, cwd: str, host=None) -> str:
 def transcript_path(home_dir, cwd: str, session_id: str, host=None) -> str:
     """Where Claude writes a session's transcript: projects/<encoded real cwd>/<session>.jsonl."""
     return "%s/%s.jsonl" % (transcript_dir(home_dir, cwd, host), session_id)
+
+
+def is_session_id(value) -> bool:
+    """True for a Claude Code session id (a lowercase UUID), the only kind used in a path."""
+    return isinstance(value, str) and bool(UUID_RE.fullmatch(value))
+
+
+def socket_ok(path) -> bool:
+    """True when the socket sits directly in the messaging socket folder (no '..', no sub-folder)."""
+    if not isinstance(path, str) or not path.startswith("/") or "\0" in path:
+        return False
+    return path.rsplit("/", 1)[0] == SOCKET_FOLDER and ".." not in path.split("/") and path.endswith(".sock")
 
 
 def _entry(host, home: str, name: str) -> dict | None:
@@ -50,7 +64,7 @@ def _entry(host, home: str, name: str) -> dict | None:
 def _is_live(host, entry: dict, folder: str) -> bool:
     """True when the entry is in the agent folder, its process is alive and its socket exists."""
     pid, cwd, sock = entry["pid"], entry["cwd"], entry["messagingSocketPath"]
-    if not isinstance(pid, int) or not isinstance(cwd, str) or not isinstance(sock, str) or not sock:
+    if not isinstance(pid, int) or not isinstance(cwd, str) or not socket_ok(sock):
         return False
     if host.realpath(cwd) != host.realpath(folder):
         return False
@@ -69,7 +83,7 @@ def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
     named = [e for e in live if e["name"] == AGENT_NAME]
     best = max(named or live, key=lambda e: (e["mtime"], e["pid"]))
     sid = best["sessionId"]
-    path = transcript_path(home, best["cwd"], sid, host) if isinstance(sid, str) and sid else None
+    path = transcript_path(home, best["cwd"], sid, host) if is_session_id(sid) else None
     return {"pid": best["pid"], "session_id": sid, "name": best["name"],
             "socket": best["messagingSocketPath"], "transcript": path, "status": best["status"]}
 
@@ -138,7 +152,7 @@ def clean_context(context) -> dict:
         if not isinstance(value, str):
             continue
         value = value.replace("\r", "").replace("\n", "")
-        if not CONTEXT_RE.match(value):
+        if not CONTEXT_RE.fullmatch(value):
             continue
         if key == "project" and value not in project_mod.project_names():
             continue

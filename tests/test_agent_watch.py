@@ -21,8 +21,8 @@ def ad(tmp_path, monkeypatch):
 
 def healthy(host):
     host.files[CH + "/sessions/1.json"] = json.dumps({"pid": 1, "cwd": FOLDER, "name": "Phoenix agent",
-        "status": "idle", "messagingSocketPath": "/tmp/s.sock", "sessionId": "s"})
-    host.files["/tmp/s.sock"] = ""
+        "status": "idle", "messagingSocketPath": "/tmp/cc-socks-0/s.sock", "sessionId": "s"})
+    host.files["/tmp/cc-socks-0/s.sock"] = ""
     host.pids.add(1)
     host.script(["systemctl", "is-active"], 0, "active\n")
 

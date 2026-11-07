@@ -36,7 +36,8 @@ def tag_install(adapters, tag="v9.1"):
 
 AGENT_SOCK = "/tmp/cc-socks-0/x.sock"
 AGENT_FOLDER = "/srv/projects/home"
-AGENT_TRANSCRIPT = "/root/.claude/projects/-srv-projects-home/s1.jsonl"
+AGENT_SID = "aaaaaaaa-1111-4111-8111-111111111111"
+AGENT_TRANSCRIPT = "/root/.claude/projects/-srv-projects-home/%s.jsonl" % AGENT_SID
 
 
 def healthy_agent(h):
@@ -44,7 +45,7 @@ def healthy_agent(h):
     h.pids.add(77)
     h.files["/root/.claude/sessions/77.json"] = json.dumps({
         "pid": 77, "cwd": AGENT_FOLDER, "name": "Phoenix agent", "status": "idle",
-        "messagingSocketPath": AGENT_SOCK, "kind": "interactive", "sessionId": "s1"})
+        "messagingSocketPath": AGENT_SOCK, "kind": "interactive", "sessionId": AGENT_SID})
     h.files[AGENT_SOCK] = ""
     h.stats["/tmp/cc-socks-0"] = {"mode": 0o700, "uid": 0}
     h.stats[AGENT_SOCK] = {"mode": 0o600, "uid": 0}

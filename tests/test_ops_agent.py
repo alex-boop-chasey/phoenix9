@@ -10,6 +10,8 @@ from tests.fakes import FakeHost
 
 CH = "/root/.claude"
 TDIR = CH + "/projects/-srv-projects-home"
+S1 = "aaaaaaaa-1111-4111-8111-111111111111"
+S0 = "bbbbbbbb-0000-4000-8000-000000000000"
 
 
 def line(o):
@@ -17,7 +19,7 @@ def line(o):
     return json.dumps(o)
 
 
-def say(role, text, n, sid="s1"):
+def say(role, text, n, sid=S1):
     """A simple transcript line."""
     if role == "user":
         msg = {"role": "user", "content": text}
@@ -35,14 +37,14 @@ def host(monkeypatch, tmp_path):
     monkeypatch.setattr(common, "make_adapters", lambda: types.SimpleNamespace(host=h))
     h.files[CH + "/sessions/100.json"] = json.dumps({
         "pid": 100, "cwd": "/srv/projects/home", "name": "Phoenix agent", "status": "idle",
-        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": "s1"})
+        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": S1})
     h.files["/tmp/cc-socks-0/x.sock"] = ""
     h.pids.add(100)
-    h.files[TDIR + "/s1.jsonl"] = "\n".join([say("user", "hi", 0), say("assistant", "yo", 1), "{bad",
+    h.files[TDIR + "/" + S1 + ".jsonl"] = "\n".join([say("user", "hi", 0), say("assistant", "yo", 1), "{bad",
                                              say("user", "q", 2), say("assistant", "a", 3)]) + "\n"
-    h.files[TDIR + "/s0.jsonl"] = say("user", "old", 0, "s0") + "\n"
-    h.stats[TDIR + "/s1.jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 2000}
-    h.stats[TDIR + "/s0.jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 1000}
+    h.files[TDIR + "/" + S0 + ".jsonl"] = say("user", "old", 0, S0) + "\n"
+    h.stats[TDIR + "/" + S1 + ".jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 2000}
+    h.stats[TDIR + "/" + S0 + ".jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 1000}
     return h
 
 
@@ -56,7 +58,7 @@ def test_status_awake_and_asleep(host):
 def test_messages_after_and_limit(host):
     """Messages honour after and limit and report unknown and last_line."""
     r = agent.messages(0, 100)
-    assert r["last_line"] == 5 and r["unknown"] == 1 and r["session_id"] == "s1"
+    assert r["last_line"] == 5 and r["unknown"] == 1 and r["session_id"] == S1
     nums = [i["line"] for i in r["items"]]
     assert nums == sorted(nums) and len(nums) == 4
     assert [i["line"] for i in agent.messages(2, 100)["items"]] == [l for l in nums if l > 2]
@@ -72,7 +74,7 @@ def test_messages_asleep(host):
 def test_sessions_newest_first(host):
     """Earlier conversations list newest first with line counts."""
     got = agent.sessions()
-    assert [s["session_id"] for s in got] == ["s1", "s0"]
+    assert [s["session_id"] for s in got] == [S1, S0]
     assert [s["lines"] for s in got] == [5, 1]
     assert all(s["started"] for s in got)
 

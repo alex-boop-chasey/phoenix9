@@ -7,10 +7,13 @@ from tests.fakes import FakeHost
 HOME = "/root/.claude"
 FOLDER = "/srv/projects/home"
 SOCK = "/tmp/cc-socks-0/a.sock"
+SID = "0feb0729-478d-4dc7-879a-b3fe804f3466"
+SID_OLD = "11111111-2222-4333-8444-555555555555"
+SID_NEW = "99999999-8888-4777-8666-555555555555"
 
 
 def session(host, pid, alive=True, cwd=FOLDER, name="Phoenix agent", status="idle", sock=SOCK,
-            sid="sess-1", mtime=None, **extra):
+            sid=SID, mtime=None, **extra):
     """Register a session file (and a live pid and socket) in the fake host."""
     data = {"pid": pid, "cwd": cwd, "name": name, "status": status, "messagingSocketPath": sock,
             "kind": "interactive", "sessionId": sid, **extra}
@@ -25,7 +28,7 @@ def session(host, pid, alive=True, cwd=FOLDER, name="Phoenix agent", status="idl
         host.files[sock] = ""
 
 
-def put_transcript(host, lines, sid="sess-1"):
+def put_transcript(host, lines, sid=SID):
     """Write transcript lines where find() will look for them."""
     host.files[agentlink.transcript_path(HOME, FOLDER, sid, host)] = "\n".join(json.dumps(x) for x in lines) + "\n"
 
@@ -58,8 +61,8 @@ def test_found_fields():
     h = FakeHost()
     session(h, 10, status="busy")
     assert agentlink.find(HOME, h) == {
-        "pid": 10, "session_id": "sess-1", "name": "Phoenix agent", "socket": SOCK,
-        "transcript": "/root/.claude/projects/-srv-projects-home/sess-1.jsonl", "status": "busy"}
+        "pid": 10, "session_id": SID, "name": "Phoenix agent", "socket": SOCK,
+        "transcript": "/root/.claude/projects/-srv-projects-home/%s.jsonl" % SID, "status": "busy"}
 
 
 def test_transcript_encoding():
@@ -75,13 +78,13 @@ def test_transcript_uses_the_real_path_of_the_folder():
     h.realpaths[FOLDER] = "/var/lib/docker/volumes/phoenix-cache/_data/projects/home"
     session(h, 10)
     assert agentlink.find(HOME, h)["transcript"] == \
-        "/root/.claude/projects/-var-lib-docker-volumes-phoenix-cache--data-projects-home/sess-1.jsonl"
+        "/root/.claude/projects/-var-lib-docker-volumes-phoenix-cache--data-projects-home/%s.jsonl" % SID
 
 
 def test_named_wins_over_newer():
     h = FakeHost()
-    session(h, 10, name="Phoenix agent", sid="old", mtime=1)
-    session(h, 11, name="other", sid="new", mtime=9, sock="/tmp/cc-socks-0/b.sock")
+    session(h, 10, name="Phoenix agent", sid=SID_OLD, mtime=1)
+    session(h, 11, name="other", sid=SID_NEW, mtime=9, sock="/tmp/cc-socks-0/b.sock")
     assert agentlink.find(HOME, h)["pid"] == 10
 
 
@@ -105,7 +108,7 @@ def test_status_busy_and_idle():
     session(h, 10, status="busy")
     assert agentlink.status(HOME, h)["state"] == "working"
     session(h, 10, status="idle")
-    assert agentlink.status(HOME, h) == {"state": "idle", "pid": 10, "session_id": "sess-1",
+    assert agentlink.status(HOME, h) == {"state": "idle", "pid": 10, "session_id": SID,
                                          "name": "Phoenix agent"}
 
 
@@ -324,3 +327,29 @@ def test_status_not_queued_once_the_queue_drained():
         {"type": "queue-operation", "operation": "enqueue", "content": "second"},
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "working on first"}]}}])
     assert agentlink.status(HOME, h)["state"] == "queued"
+
+
+# ---- ids and sockets are checked before they go into paths ----
+
+@pytest.mark.parametrize("sid", ["../../etc/passwd", "sess-1", "", "0feb0729-478d-4dc7-879a-b3fe804f346", 7,
+                                 "0feb0729-478d-4dc7-879a-b3fe804f3466\n",
+                                 "0FEB0729-478D-4DC7-879A-B3FE804F3466/../x"])
+def test_session_id_must_be_a_uuid_to_name_a_transcript(sid):
+    h = FakeHost()
+    session(h, 10, sid=sid)
+    found = agentlink.find(HOME, h)
+    assert found is not None and found["transcript"] is None
+
+
+def test_uuid_session_id_names_the_transcript():
+    h = FakeHost()
+    session(h, 10, sid=SID)
+    assert agentlink.find(HOME, h)["transcript"].endswith("/-srv-projects-home/%s.jsonl" % SID)
+
+
+@pytest.mark.parametrize("sock", ["/tmp/evil.sock", "/tmp/cc-socks-0/../evil.sock", "/tmp/cc-socks-00/a.sock",
+                                  "/tmp/cc-socks-0/sub/a.sock", "relative.sock"])
+def test_socket_must_be_in_the_messaging_socket_folder(sock):
+    h = FakeHost()
+    session(h, 10, sock=sock)
+    assert agentlink.find(HOME, h) is None

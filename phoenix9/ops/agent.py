@@ -71,7 +71,7 @@ def sessions() -> list[dict]:
     host = _host()
     cwd = settings.agent_settings()["folder"]
     folder = agentlink.transcript_dir(agentlink.CLAUDE_HOME, cwd, host)
-    names = [n for n in host.list_dir(folder) if n.endswith(".jsonl")]
+    names = [n for n in host.list_dir(folder) if n.endswith(".jsonl") and agentlink.is_session_id(n[:-6])]
     found = [_session(host, folder, n) for n in names]
     found.sort(key=lambda s: (s["started"], s["_m"]), reverse=True)
     return [{k: v for k, v in s.items() if k != "_m"} for s in found]

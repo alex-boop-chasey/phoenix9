@@ -10,6 +10,8 @@ from phoenix9.ops import agent, common, projects
 
 CH = "/root/.claude"
 TDIR = CH + "/projects/-srv-projects-home"
+S1 = "aaaaaaaa-1111-4111-8111-111111111111"
+S0 = "bbbbbbbb-0000-4000-8000-000000000000"
 
 
 def run(capsys, *argv):
@@ -34,10 +36,10 @@ def host(monkeypatch):
     monkeypatch.setattr(agent.update, "status", lambda *a, **k: {"update_available": False})
     h.files[CH + "/sessions/100.json"] = json.dumps({
         "pid": 100, "cwd": "/srv/projects/home", "name": "Phoenix agent", "status": "idle",
-        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": "s1"})
+        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": S1})
     h.files["/tmp/cc-socks-0/x.sock"] = ""
     h.pids.add(100)
-    h.files[TDIR + "/s1.jsonl"] = "\n".join(json.dumps(o) for o in [
+    h.files[TDIR + "/" + S1 + ".jsonl"] = "\n".join(json.dumps(o) for o in [
         {"type": "user", "message": {"role": "user", "content": "hi"}},
         {"type": "assistant", "message": {"content": [{"type": "text", "text": "hello there"}]}}]) + "\n"
     return h

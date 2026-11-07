@@ -15,9 +15,11 @@ from test_api_server import POST_HEADERS, api, dist  # noqa: F401  (fixtures)
 
 CH = "/root/.claude"
 TDIR = CH + "/projects/-srv-projects-home"
+S1 = "aaaaaaaa-1111-4111-8111-111111111111"
+S0 = "bbbbbbbb-0000-4000-8000-000000000000"
 
 
-def say(role, text, n, sid="s1"):
+def say(role, text, n, sid=S1):
     """One simple transcript line."""
     msg = {"role": "user", "content": text} if role == "user" else {"content": [{"type": "text", "text": text}]}
     return json.dumps({"type": role, "message": msg, "timestamp": "2026-11-06T10:00:0%dZ" % n, "sessionId": sid})
@@ -31,13 +33,13 @@ def host(api, monkeypatch):
     monkeypatch.setattr(agentlink, "Host", lambda: h)
     h.files[CH + "/sessions/100.json"] = json.dumps({
         "pid": 100, "cwd": "/srv/projects/home", "name": "Phoenix agent", "status": "idle",
-        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": "s1"})
+        "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": S1})
     h.files["/tmp/cc-socks-0/x.sock"] = ""
     h.pids.add(100)
-    h.files[TDIR + "/s1.jsonl"] = "\n".join([say("user", "hi", 0), say("assistant", "yo", 1)]) + "\n"
-    h.files[TDIR + "/s0.jsonl"] = say("user", "old", 0, "s0") + "\n"
-    h.stats[TDIR + "/s1.jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 2000}
-    h.stats[TDIR + "/s0.jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 1000}
+    h.files[TDIR + "/" + S1 + ".jsonl"] = "\n".join([say("user", "hi", 0), say("assistant", "yo", 1)]) + "\n"
+    h.files[TDIR + "/" + S0 + ".jsonl"] = say("user", "old", 0, S0) + "\n"
+    h.stats[TDIR + "/" + S1 + ".jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 2000}
+    h.stats[TDIR + "/" + S0 + ".jsonl"] = {"mode": 0o600, "uid": 0, "mtime": 1000}
     return h
 
 
@@ -52,7 +54,7 @@ def sent(monkeypatch):
 def test_agent_state(api, host):
     """GET /api/agent shows the state, and asleep once the process is gone."""
     status, body = api("/api/agent")
-    assert status == 200 and body["data"]["state"] == "idle" and body["data"]["session_id"] == "s1"
+    assert status == 200 and body["data"]["state"] == "idle" and body["data"]["session_id"] == S1
     host.pids.clear()
     assert api("/api/agent")[1]["data"]["state"] == "asleep"
 
@@ -70,7 +72,7 @@ def test_messages_after_and_limit(api, host):
 def test_sessions_newest_first(api, host):
     """GET /api/agent/sessions lists earlier conversations."""
     data = api("/api/agent/sessions")[1]["data"]
-    assert [s["session_id"] for s in data] == ["s1", "s0"]
+    assert [s["session_id"] for s in data] == [S1, S0]
 
 
 def test_send_posts_to_the_inbox(api, host, sent):

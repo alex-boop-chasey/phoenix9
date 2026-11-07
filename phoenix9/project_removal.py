@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, events, git, paths, project, settings, tomlw
+from phoenix9 import atomic, events, git, paths, project, projectchat, settings, tomlw
 from phoenix9.ops import common
 from phoenix9.ops.common import Conflict, NotFound, OpsError
 
@@ -173,8 +173,9 @@ def import_(name_or_path: str, who: str, adapters) -> dict:
     events.emit("project.changed", project=name, who=who, what="imported")
     common.record_command(who, f"project import {name}", name,
                           change="imported into Phoenix")
+    chat_result = projectchat.set_up(name, adapters, who)
     return {"name": name, "path": str(folder), "repo": repo or None, "was_removed": was_removed,
-            "added": added}
+            "added": added, **chat_result}
 
 
 def check_files(name: str, who: str) -> dict:

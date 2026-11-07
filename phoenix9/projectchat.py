@@ -3,7 +3,7 @@ import calendar
 import re
 import time
 
-from phoenix9 import agentlink, atomic, chat, paths
+from phoenix9 import agentlink, atomic, chat, paths, settings
 
 KEYS = ("Project", "Desktop app link", "Web link", "Conversation id", "Local session id",
         "Created", "Last active")
@@ -161,3 +161,131 @@ def state(project: str, adapters) -> dict:
             "web_url": WEB_PREFIX + bridge if bridge else None,
             "app_url": DESKTOP_PREFIX + bridge if bridge else None,
             "last_active": _newest(host, found, fields)}
+
+
+SLEEPING_WORDS = "sleeping: it wakes when you write to it"
+PRIME_FAILED = "started, but the notes message could not be sent"
+PRIME_TEXT = ("This is a fresh conversation for this project. Before anything else, read notes/NOW.md "
+              "and the files in notes/sessions/ so you know where things stand.")
+
+
+class NotReady(Exception):
+    """The chat did not come up within the start wait; the message says what to do."""
+
+
+def _wait_ready(project: str, adapters, seconds: int) -> dict:
+    """Poll until the chat has a live registry entry, up to `seconds` on the adapter clock; NotReady if not."""
+    clock = adapters.clock
+    deadline = clock.now() + seconds
+    while True:
+        current = state(project, adapters)
+        if current["state"] in ("live", "working"):
+            return current
+        if clock.now() >= deadline:
+            raise NotReady("Starting chat… not ready after %d s: press Chat again in a minute" % seconds)
+        clock.sleep(1)
+
+
+def _prime(project: str, adapters, who: str) -> str | None:
+    """Send the notes message to a fresh conversation when the project has notes/; a note when it failed."""
+    if not (paths.projects() / project / "notes").is_dir():
+        return None
+    found = _session_process(adapters.host, project)
+    try:
+        if found is None:
+            raise agentlink.SendError("no conversation to write to")
+        agentlink.send_to(found, PRIME_TEXT, {"project": project}, who, host=adapters.host)
+    except agentlink.SendError:
+        return PRIME_FAILED
+    return None
+
+
+def _answer(current: dict, message: str) -> dict:
+    """The open answer: {state, web_url, app_url, bridge_session_id, message}."""
+    return {"state": current["state"], "web_url": current["web_url"], "app_url": current["app_url"],
+            "bridge_session_id": current["bridge_session_id"], "message": message}
+
+
+def open_(project: str, adapters, who: str = "cli") -> dict:
+    """Open a project's chat: start it when off, wait while starting, and return its links and a message."""
+    wait = settings.chat_settings()["start_wait_seconds"]
+    current = state(project, adapters)
+    if current["state"] == "sleeping":
+        return _answer(current, SLEEPING_WORDS)
+    note = None
+    if current["state"] in ("off", "starting"):
+        fresh = current["state"] == "off"
+        if fresh:
+            chat.start_unit(adapters.host, project)
+        current = _wait_ready(project, adapters, wait)
+        note = _prime(project, adapters, who) if fresh else None
+    return _answer(current, note or "The chat is %s." % current["state"])
+
+
+WRAP_UP_TEXT = "Wrap up: write a short summary of this conversation into notes/NOW.md and notes/sessions/"
+WRAP_UP_STEP = 2
+
+
+def _wait_not_busy(project: str, adapters, seconds: float) -> None:
+    """Wait on the adapter clock until the conversation is not busy (or is gone), up to `seconds`."""
+    clock = adapters.clock
+    deadline = clock.now() + seconds
+    clock.sleep(WRAP_UP_STEP)
+    while clock.now() < deadline:
+        found = _session_process(adapters.host, project)
+        if found is None or found.get("status") != "busy":
+            return
+        clock.sleep(WRAP_UP_STEP)
+
+
+def _touch_doc(project: str, now: float) -> None:
+    """Set the document's Last active to now, keeping the conversation id."""
+    fields, _ = read_chat_doc(project)
+    if fields:
+        write_chat_doc(project, dict(fields, **{"Last active": format_time(now)}))
+
+
+def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dict:
+    """Put a live chat to sleep: ask for a wrap-up, wait, stop the conversation only; {state, message}."""
+    current = state(project, adapters)
+    if current["state"] not in ("live", "working"):
+        word = current["state"]
+        return {"state": word, "changed": False, "message": "The chat is already %s." % word}
+    host = adapters.host
+    found = _session_process(host, project)
+    if found is not None and wrap_up:
+        try:
+            agentlink.send_to(found, WRAP_UP_TEXT, {"project": project}, who, host=host)
+            _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
+        except agentlink.SendError:
+            pass
+        found = _session_process(host, project)
+    if found is not None:
+        chat.stop_conversation(host, project, found["pid"])
+    _touch_doc(project, time.time())
+    return {"state": "sleeping", "changed": True, "message": "The chat is asleep. " + SLEEPING_WORDS + "."}
+
+
+def off(project: str, adapters, who: str = "cli") -> dict:
+    """Turn a project's chat off: stop and disable its unit; {state, message}."""
+    chat.stop_unit(adapters.host, project)
+    return {"state": "off", "changed": True, "message": "The chat is off."}
+
+
+NOT_SET_UP_WORDS = "chat not set up yet: press Chat to try again"
+
+
+def set_up(project: str, adapters, who: str, say=None) -> dict:
+    """Open then sleep a new project's chat; never raises: {chat: 'sleeping'} or {chat: 'not set up yet', chat_message}."""
+    try:
+        if say:
+            say("Setting up the chat")
+        open_(project, adapters, who)
+        sleep(project, adapters, who, wrap_up=False)
+        if state(project, adapters)["state"] != "sleeping":
+            raise NotReady("the chat did not go to sleep")
+    except Exception:  # any failure here must never fail project creation
+        if say:
+            say(NOT_SET_UP_WORDS)
+        return {"chat": "not set up yet", "chat_message": NOT_SET_UP_WORDS}
+    return {"chat": "sleeping"}

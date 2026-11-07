@@ -79,10 +79,10 @@ def test_import_removed_project_restores_it(env):
     projects.remove("alpha", "tester")
     env["host"].calls.clear()
     r = projects.import_("alpha", "tester")
-    assert r["was_removed"] and "chat" not in r
+    assert r["was_removed"] and r["chat"] == "not set up yet"
     assert [x["name"] for x in projects.list_()] == ["alpha"]
     assert "removed_projects" not in settings.read_global()
-    assert not calls(env["host"], "systemctl", "enable") and not calls(env["host"], "systemctl", "start")
+    assert not calls(env["host"], "systemctl", "start")
     assert not (folder / ".vscode" / "tasks.json").exists()
     assert trusted(env, folder)
     assert "imported into Phoenix" in (folder / "notes" / "changelog.md").read_text()
@@ -119,10 +119,10 @@ def test_import_refuses_listed_missing_and_outside(env, tmp_path):
         projects.import_(str(tmp_path / "elsewhere"), "tester")
 
 
-def test_create_does_not_start_a_service(env):
+def test_create_starts_only_the_chat_unit(env):
     projects.new({"name": "fresh", "description": "x", "source": {"kind": "empty"}, "profile": "python-script",
                   "template": None, "services": [], "new_repo": None, "no_new_repo": True}, "tester")
-    assert not calls(env["host"], "systemctl")
+    assert all("claude-rc-chat@fresh" in c[-1] for c in calls(env["host"], "systemctl"))
     assert trusted(env, env["projects"] / "fresh")
 
 
@@ -238,3 +238,38 @@ def test_check_files_needs_a_name_or_all_and_a_real_project(env, capsys):
     assert code == 1 and "--all" in err
     with pytest.raises(common.NotFound):
         projects.check_files("ghost", "tester")
+
+
+def chat_import(env, tmp_path, monkeypatch, mode):
+    """Import an unlisted folder with a host whose chat unit comes up (or fails)."""
+    from fakes.chathost import chat_adapters
+    from phoenix9 import agentlink
+    monkeypatch.setattr(agentlink, "send_to", lambda found, text, *a, **k: {"sent": True})
+    agentlink.forget()
+    folder = env["projects"] / "loose"
+    (folder / "notes").mkdir(parents=True)
+    fakes = chat_adapters(tmp_path, mode, folder, tmp_path / "claude.json")
+    return folder, fakes
+
+
+def test_import_chat_asleep_after_import(env, tmp_path, monkeypatch):
+    folder, fakes = chat_import(env, tmp_path, monkeypatch, "ok")
+    r = project_removal.import_("loose", "tester", fakes)
+    assert r["chat"] == "sleeping" and "chat_message" not in r
+    assert (folder / ".phoenix" / "chat.md").is_file()
+    assert fakes.host.stopped == [10]
+
+
+def test_import_chat_not_set_up_still_imports(env, tmp_path, monkeypatch, capsys):
+    folder, fakes = chat_import(env, tmp_path, monkeypatch, "fail")
+    r = project_removal.import_("loose", "tester", fakes)
+    assert (folder / "CLAUDE.md").is_file()
+    assert r["chat"] == "not set up yet"
+    assert "chat not set up yet: press Chat to try again" in r["chat_message"]
+
+
+def test_import_cli_shows_chat_words(env, tmp_path, monkeypatch, capsys):
+    folder, fakes = chat_import(env, tmp_path, monkeypatch, "fail")
+    monkeypatch.setattr(common, "make_adapters", lambda: fakes)
+    code, out, _ = run_cmd(capsys, "project", "import", "loose")
+    assert code == 0 and "chat not set up yet: press Chat to try again" in out

@@ -52,6 +52,42 @@ class Host:
             return 0
         return int(out.split()[0])
 
+    def list_dir(self, path) -> list[str]:
+        """List the names in a folder ([] when it is missing or unreadable)."""
+        try:
+            return os.listdir(path)
+        except OSError:
+            return []
+
+    def exists(self, path) -> bool:
+        """Say whether a path exists."""
+        return os.path.exists(path)
+
+    def pid_alive(self, pid) -> bool:
+        """Say whether a process with this id is running."""
+        try:
+            os.kill(int(pid), 0)
+        except PermissionError:
+            return True      # it is there, just not ours to signal
+        except (ProcessLookupError, ValueError, OverflowError, TypeError):
+            return False
+        return True
+
+    def stat(self, path) -> dict | None:
+        """Return {mode, uid} of a path, or None when it is missing."""
+        try:
+            st = os.stat(path)
+        except OSError:
+            return None
+        return {"mode": st.st_mode & 0o7777, "uid": st.st_uid}
+
+    def read_lines(self, path) -> list[str]:
+        """Read a text file as lines ([] when it is missing)."""
+        try:
+            return Path(path).read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        except OSError:
+            return []
+
 
 class Clock:
     """The real clock."""

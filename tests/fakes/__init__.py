@@ -16,6 +16,9 @@ class FakeHost:
         self.sizes: dict[str, int] = {}
         self.files: dict[str, str] = {}      # host files (read_text / write_text), by path
         self.cwds: list = []                 # the cwd of each run() call, in step with .calls
+        self.dirs: dict[str, list[str]] = {}  # folder listings, by path
+        self.pids: set[int] = set()          # process ids that are alive
+        self.stats: dict[str, dict] = {}     # {mode, uid} by path
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -54,6 +57,31 @@ class FakeHost:
     def write_text(self, path, text, mode=0o600):
         """Keep the text in .files."""
         self.files[str(path)] = text
+
+    def list_dir(self, path):
+        """Names in .dirs[path], else the direct children of path seen in .files ([] when none)."""
+        p = str(path).rstrip("/")
+        if p in self.dirs:
+            return list(self.dirs[p])
+        names = {f[len(p) + 1:].split("/")[0] for f in self.files if f.startswith(p + "/")}
+        return sorted(names)
+
+    def exists(self, path):
+        """True for a file in .files, a folder in .dirs or a path in .stats."""
+        p = str(path)
+        return p in self.files or p in self.dirs or p in self.stats or bool(self.list_dir(p))
+
+    def pid_alive(self, pid):
+        """True when the pid is in .pids."""
+        return pid in self.pids
+
+    def stat(self, path):
+        """Return the {mode, uid} set in .stats (None when absent)."""
+        return self.stats.get(str(path))
+
+    def read_lines(self, path):
+        """Lines of a file in .files ([] when absent)."""
+        return self.files.get(str(path), "").splitlines(keepends=True)
 
     def du_bytes(self, path):
         """Return the size set in .sizes (default 0)."""

@@ -74,12 +74,12 @@ class Host:
         return True
 
     def stat(self, path) -> dict | None:
-        """Return {mode, uid} of a path, or None when it is missing."""
+        """Return {mode, uid, mtime} of a path, or None when it is missing."""
         try:
             st = os.stat(path)
         except OSError:
             return None
-        return {"mode": st.st_mode & 0o7777, "uid": st.st_uid}
+        return {"mode": st.st_mode & 0o7777, "uid": st.st_uid, "mtime": st.st_mtime}
 
     def read_lines(self, path) -> list[str]:
         """Read a text file as lines ([] when it is missing)."""

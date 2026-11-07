@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 
-from phoenix9 import scrub, transcript
+from phoenix9 import agentlink, scrub, transcript
 
 FIXTURE = Path(__file__).parent / "fixtures" / "agent-transcript.jsonl"
 SECRET = "sk-test-Zq8vN3pL7xR2mK9d"
@@ -182,3 +182,36 @@ def test_odd_lines_count_as_unknown_and_never_raise():
     assert not [i for i in items if i["type"] == "action"]   # the half-made action was rolled back
     thinking = [i for i in items if i["type"] == "thinking"]
     assert thinking == [] or thinking[0]["duration_s"] is None or thinking[0]["duration_s"] >= 0
+
+
+def delivered_line(text, panel=False):
+    """A user line shaped exactly like a message sent through the agent's inbox."""
+    context = {"project": "demo"}
+    wire = json.loads(agentlink.wire_line(text, context, "cli", panel))
+    return j(type="user", message=wire["message"])
+
+
+def test_delivered_message_clears_its_queued_item():
+    for panel in (False, True):
+        lines = [j(type="queue-operation", operation="enqueue", content="hello <there> & you"),
+                 delivered_line("hello <there> & you", panel)]
+        items, unknown = transcript.parse(lines)
+        assert unknown == 0 and of(items, "queued")[0]["pending"] is False
+        found = {"status": "idle"}
+        assert agentlink._state(found, items) == "idle"
+
+
+def test_plain_equal_user_line_clears_only_the_oldest_match():
+    lines = [j(type="queue-operation", operation="enqueue", content="same"),
+             j(type="queue-operation", operation="enqueue", content="same"),
+             j(type="user", message={"role": "user", "content": "same"})]
+    items, _ = transcript.parse(lines)
+    assert [i["pending"] for i in of(items, "queued")] == [False, True]
+
+
+def test_unrelated_user_line_leaves_the_item_pending():
+    lines = [j(type="queue-operation", operation="enqueue", content="hello there"),
+             delivered_line("something else")]
+    items, _ = transcript.parse(lines)
+    assert of(items, "queued")[0]["pending"] is True
+    assert agentlink._state({"status": "idle"}, items[:1]) == "queued"

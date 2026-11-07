@@ -125,3 +125,24 @@ def test_help_lists_agent(capsys):
     """phoenix --help lists the agent group."""
     code, out, _ = run(capsys, "--help")
     assert "agent" in out
+
+
+def test_brief_budget_with_long_lines(host, monkeypatch):
+    """NOW.md lines are cut to 120 characters and the whole brief stays within 7,900 characters."""
+    rows = fake_rows(150, repo="alex/" + "x" * 300)
+    monkeypatch.setattr(projects, "rows", lambda only=None: rows)
+    host.files["/srv/projects/home/notes/NOW.md"] = "\n".join("note-%d " % i + "n" * 5000 for i in range(20))
+    data = agent.brief()
+    assert all(len(line) <= 120 for line in data["now"]) and data["now"]
+    assert len(data["text"]) <= 7900
+    assert data["text"].endswith(data["version"])
+    assert "more projects" in data["text"] and "note-19 " in data["text"]
+    assert data["text"].splitlines()[0].startswith("project-00 · ")
+
+
+def test_brief_fits_without_cutting_when_small(host, monkeypatch):
+    rows = fake_rows(3)
+    monkeypatch.setattr(projects, "rows", lambda only=None: rows)
+    host.files["/srv/projects/home/notes/NOW.md"] = "short note"
+    data = agent.brief()
+    assert "more projects" not in data["text"] and "short note" in data["text"]

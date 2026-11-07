@@ -79,6 +79,7 @@ def sessions() -> list[dict]:
 
 LINE_MAX = 120
 NOW_LINES = 20
+BRIEF_MAX = 7900          # the whole brief, in characters (about 2,000 tokens)
 
 
 def _state_words(row: dict) -> str:
@@ -107,7 +108,7 @@ def _now_notes(host) -> list[str]:
     """Up to 20 lines of the agent folder's notes/NOW.md (none when it is missing)."""
     path = "%s/notes/NOW.md" % settings.agent_settings()["folder"].rstrip("/")
     lines = [scrub.scrub(raw.rstrip("\n")) for raw in host.read_lines(path)]
-    return [x for x in lines if x.strip()][:NOW_LINES]
+    return [x[:LINE_MAX] for x in lines if x.strip()][:NOW_LINES]
 
 
 def _update_line() -> str:
@@ -125,5 +126,25 @@ def brief() -> dict:
     lines = [_project_line(r) for r in projects.rows()]
     notes = _now_notes(host)
     version = _update_line()
-    parts = lines + (["", "NOW.md:"] + notes if notes else []) + ["", version]
-    return {"projects": lines, "now": notes, "version": version, "text": "\n".join(parts)}
+    text = _fit(lines, notes, version)
+    return {"projects": lines, "now": notes, "version": version, "text": text}
+
+
+def _join(lines, more: int, notes, version) -> str:
+    tail = ["%d more projects (run `phoenix project list`)" % more] if more else []
+    return "\n".join(lines + tail + (["", "NOW.md:"] + notes if notes else []) + ["", version])
+
+
+def _fit(lines, notes, version) -> str:
+    """The brief text within BRIEF_MAX characters: projects go first (from the end, replaced by a 'N more
+    projects' line, since the agent can list them), then NOW.md lines (from the end); the version line stays."""
+    notes = list(notes)
+    keep = len(lines)
+    text = _join(lines, 0, notes, version)
+    while len(text) > BRIEF_MAX and keep > 0:
+        keep -= 1
+        text = _join(lines[:keep], len(lines) - keep, notes, version)
+    while len(text) > BRIEF_MAX and notes:
+        notes.pop()
+        text = _join(lines[:keep], len(lines) - keep, notes, version)
+    return text[:BRIEF_MAX]

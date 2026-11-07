@@ -148,7 +148,9 @@ def state(project: str, adapters) -> dict:
     if found:
         sync_chat_doc(project, found, time.time())
     fields, _ = read_chat_doc(project)
-    bridge = (found or {}).get("bridge_session_id") or (fields or {}).get("Conversation id")
+    # A live conversation's own id only: the document may still hold an older conversation's id (found live:
+    # the first press returned before Claude Code had written the new id). Sleeping/off use the document.
+    bridge = found.get("bridge_session_id") if found else (fields or {}).get("Conversation id")
     if unit in ("inactive", "failed"):
         word = "off"
     elif unit == "activating":
@@ -174,12 +176,13 @@ class NotReady(Exception):
 
 
 def _wait_ready(project: str, adapters, seconds: int) -> dict:
-    """Poll until the chat has a live registry entry, up to `seconds` on the adapter clock; NotReady if not."""
+    """Poll until the chat has a live registry entry WITH its claude.ai conversation id (Claude Code writes the
+    id a few seconds after the session appears), up to `seconds` on the adapter clock; NotReady if not."""
     clock = adapters.clock
     deadline = clock.now() + seconds
     while True:
         current = state(project, adapters)
-        if current["state"] in ("live", "working"):
+        if current["state"] in ("live", "working") and current.get("bridge_session_id"):
             return current
         if clock.now() >= deadline:
             raise NotReady("Starting chat… not ready after %d s: press Chat again in a minute" % seconds)

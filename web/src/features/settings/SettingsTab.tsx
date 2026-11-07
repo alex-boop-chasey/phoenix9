@@ -3,6 +3,7 @@ import { useState } from "react"
 
 import { Icon } from "@/components/Icon"
 import { BuildSection } from "@/features/settings/BuildSection"
+import { DangerZone } from "@/features/settings/DangerZone"
 import { ProjectSection } from "@/features/settings/ProjectSection"
 
 const SECTIONS: { id: string; label: string; icon: "sliders-horizontal" | "hammer"; links: [string, string][] }[] = [
@@ -39,6 +40,7 @@ export function SettingsTab({ name }: { name: string }) {
       <div className="stackg" style={{ gap: 32 }}>
         <ProjectSection name={name} />
         <BuildSection name={name} />
+        <DangerZone name={name} />
       </div>
     </section>
   )

@@ -2,6 +2,7 @@
 import { memo, type MouseEvent } from "react"
 import { Link, useNavigate } from "react-router"
 
+import { ChatButton } from "@/components/ChatButton"
 import { Icon } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
 import type { ProjectRow } from "@/lib/types"
@@ -59,6 +60,7 @@ export const ProjectRowCard = memo(function ProjectRowCard({ row, gone, onRemove
       </div>
       <div className="p-meta"><span className="p-status"><StateBadge row={row} /></span><RepoPart row={row} /></div>
       <div className="p-acts">
+        <ChatButton project={row.name} chat={row.chat ?? null} />
         <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>
         <CodeButton row={row} />
       </div>

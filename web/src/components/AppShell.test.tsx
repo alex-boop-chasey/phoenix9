@@ -128,3 +128,12 @@ test("crumbs per route", () => {
   expect(labels("/import")).toEqual(["Projects", "Import"])
   expect(crumbsFor("/p/demo-site/logs")[1]?.to).toBe("/p/demo-site/overview")
 })
+
+test("the sidebar's current project line has a Chat button with its dot", async () => {
+  const rows = projects.map((p) => (p.name === "tiny-tool"
+    ? { ...p, chat: { state: "sleeping", bridge_session_id: null, web_url: null, app_url: null, last_active: null } } : p))
+  setup({ route: "/p/tiny-tool/overview", projects: rows })
+  await within(switcher()).findByText("tiny-tool")
+  expect(within(switcher()).getByRole("button", { name: /Chat/ })).toBeInTheDocument()
+  expect(switcher().querySelector(".chatdot")).toHaveClass("chatdot-sleeping")
+})

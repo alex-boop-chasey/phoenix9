@@ -2,6 +2,7 @@
 import { useEffect, useRef } from "react"
 import { Link, NavLink, useLocation } from "react-router"
 
+import { ChatButton } from "@/components/ChatButton"
 import { Icon, type IconName } from "@/components/Icon"
 import { StateBadge } from "@/features/projects/ProjectRowCard"
 import { formatBytes } from "@/lib/format"
@@ -47,6 +48,7 @@ export function ProjectHeader({ row }: { row: ProjectRow }) {
         <h1 className="h1">{row.name}</h1>
         <StateBadge row={row} />
         <div className="ph-r">
+          <ChatButton project={row.name} chat={row.chat ?? null} />
           <Dock row={row} />
           <Link className="btn btn-primary" to={`${base}/build?new=1`}><Icon name="hammer" />Start new build</Link>
         </div>

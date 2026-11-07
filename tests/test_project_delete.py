@@ -489,3 +489,97 @@ def test_delete_event_and_commands_log(env, unitdir):
     lines = [json.loads(ln) for ln in (paths.logs() / "commands.jsonl").read_text().splitlines()]
     mine = [ln for ln in lines if ln["command"].startswith("project delete alpha")]
     assert len(mine) >= 7 and all(ln["who"] == "dashboard" and ln["project"] == "alpha" for ln in mine)
+
+
+# ---- CLI and API ----
+
+from test_api_server import POST_HEADERS, api, dist  # noqa: E402,F401  (fixtures)
+
+
+def test_cli_delete_needs_matching_confirm(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    assert run_cmd(capsys, "project", "delete", "alpha")[0] == 1
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alph")
+    assert code == 1 and "--confirm alpha" in err
+    _all_there(folder)
+    assert not [c for c in env["host"].calls if c[0] in ("remove_tree", "gh")]
+
+
+def test_cli_delete_text_and_json(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")
+    assert code == 0 and "Safety copy:" in out and "Done: chat unit" in out and "alpha is deleted." in out
+    assert not folder.exists()
+
+
+def test_cli_delete_json(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    _stuff(env)
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--json")
+    assert code == 0 and [s["step"] for s in json.loads(out)["steps"]][-1] == "GitHub repo"
+
+
+def test_cli_delete_scope_then_delete_repo(env, capsys, unitdir):
+    from test_project_cmds import run_cmd
+    _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")
+    assert code == 0 and "Not done:" in out and "NOT deleted" in out
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    code, out, _ = run_cmd(capsys, "project", "delete-repo", "alpha")
+    assert code == 0 and "alpha is deleted." in out
+    assert run_cmd(capsys, "project", "delete-repo", "ghost")[0] == 1
+
+
+@pytest.mark.parametrize("who", ["chat:alpha", "chat:delegate", "agent"])
+def test_cli_refuses_chat_callers(env, capsys, unitdir, monkeypatch, who):
+    from test_project_cmds import run_cmd
+    folder = _stuff(env)
+    code, _, err = run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha", "--who", who)
+    assert code == 1 and "Only Alex" in err
+    monkeypatch.setenv("PHOENIX_WHO", who)
+    assert run_cmd(capsys, "project", "delete", "alpha", "--confirm", "alpha")[0] == 1
+    assert run_cmd(capsys, "project", "delete-repo", "alpha")[0] == 1
+    _all_there(folder)
+
+
+def test_api_delete_guard_rejections(api):
+    from test_api_server import make_project
+    make_project("alpha")
+    for path in ("/api/projects/alpha/delete", "/api/projects/alpha/delete-repo"):
+        assert api(path, "POST", {k: v for k, v in POST_HEADERS.items() if k != "X-Phoenix"}, {"confirm": "alpha"})[0] == 403
+        assert api(path, "POST", {**POST_HEADERS, "Origin": "http://evil.example"}, {"confirm": "alpha"})[0] == 403
+    assert (paths.projects() / "alpha").is_dir()
+
+
+def test_api_delete_wrong_confirm_400(api):
+    from test_api_server import make_project
+    make_project("alpha")
+    for body in ({}, {"confirm": "alph"}, {"confirm": True}):
+        status, resp = api("/api/projects/alpha/delete", "POST", POST_HEADERS, body)
+        assert status == 400 and resp["ok"] is False
+    assert (paths.projects() / "alpha").is_dir()
+
+
+def test_api_delete_refused_409(api):
+    from test_api_server import make_project
+    make_project("alpha")
+    make_project("phoenix9")
+    status, resp = api("/api/projects/phoenix9/delete", "POST", POST_HEADERS, {"confirm": "phoenix9"})
+    assert status == 409 and "deleted" in resp["message"]
+    make_run("alpha", "r1", "running")
+    status, resp = api("/api/projects/alpha/delete", "POST", POST_HEADERS, {"confirm": "alpha"})
+    assert status == 409 and "build is running" in resp["message"]
+    assert (paths.projects() / "alpha").is_dir()
+
+
+def test_api_delete_works_and_repo_retry(api):
+    from test_api_server import make_project
+    folder = make_project("alpha")
+    status, resp = api("/api/projects/alpha/delete", "POST", POST_HEADERS, {"confirm": "alpha"})
+    assert status == 200 and resp["data"]["steps"][-1]["step"] == "GitHub repo" and not folder.exists()
+    status, resp = api("/api/projects/alpha/delete-repo", "POST", POST_HEADERS, {})
+    assert status == 200 and resp["data"]["name"] == "alpha"
+    assert api("/api/projects/ghost/delete-repo", "POST", POST_HEADERS, {})[0] == 404

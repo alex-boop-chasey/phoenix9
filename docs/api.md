@@ -99,6 +99,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/chat/<name>/sleep` | `ops.chat.sleep_chat` | | `{state, changed, message}` | 404 |
 | POST | `/api/chat/<name>/off` | `ops.chat.off_chat` | `{confirm: true}` | `{state, changed, message}` | 400, 404 |
 | POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
+| POST | `/api/projects/<name>/delete` | `ops.projects.delete` | `{confirm: "<name>"}` | `{name, backup, steps: [{step, ok, words}], not_done: [{what, how}], still_live}`; writes the safety copy first, then deletes everything; only as `dashboard`; refuses `phoenix9`, `home`, active builds and a working chat | 400 (wrong confirm), 404, 409 (refused) |
+| POST | `/api/projects/<name>/delete-repo` | `ops.projects.delete_repo` | `{}` | same shape; retries only the GitHub repo delete, reading the repo from the newest safety copy's manifest | 404, 409 |
 | POST | `/api/projects/<name>/edit` | `ops.projects.edit`; services: `ops.projects.set_services` (added in step 03) | `{description?, repo?, profile?, services?, confirm?}` | fresh `GET /api/projects/<name>` data | 400, 404, 409 |
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |

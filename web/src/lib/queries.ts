@@ -125,6 +125,20 @@ export function useRemoveProject() {
   return useMutation({ mutationFn: (name: string) => api.removeProject(name) })
 }
 
+/** The dry run for deleting a project entirely (only fetched while `enabled`). */
+export const useDeletePlan = (name: string, enabled = true) =>
+  useQuery({ queryKey: ["delete-plan", name], queryFn: () => api.deletePlan(name), enabled, gcTime: 0 })
+
+/** Delete a project entirely; `confirm` is the project's name typed again. */
+export function useDeleteProject() {
+  return useMutation({ mutationFn: (v: { name: string; confirm: string }) => api.deleteProject(v.name, v.confirm) })
+}
+
+/** Retry only the GitHub repo delete of a deleted project. */
+export function useDeleteRepo() {
+  return useMutation({ mutationFn: (name: string) => api.deleteRepo(name) })
+}
+
 /** A function (stable between renders) that refreshes the project lists and the import lists. */
 export function useRefreshProjects() {
   const qc = useQueryClient()

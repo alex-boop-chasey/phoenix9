@@ -379,7 +379,7 @@ def _refuse(name: str, who: str, adapters) -> None:
     """Raise OpsError with the plain reasons when this project may not be deleted."""
     reasons = _refusals(name, who, _chat(name, adapters)["state"])
     if reasons:
-        raise common.OpsError(" ".join(reasons))
+        raise common.Conflict(" ".join(reasons))
 
 
 def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
@@ -462,7 +462,7 @@ def _newest_copy(name: str) -> Path | None:
 def delete_repo(name: str, who: str, adapters) -> dict:
     """Retry only the GitHub repo delete, reading the repo from the newest safety copy's manifest."""
     if name in PROTECTED or who not in ALLOWED_CALLERS:
-        raise common.OpsError(" ".join(_refusals(name, who, "off")))
+        raise common.Conflict(" ".join(_refusals(name, who, "off")))
     copy = _newest_copy(name)
     if copy is None:
         raise common.NotFound(f"There is no safety copy for '{name}', so Phoenix does not know its GitHub repo.")

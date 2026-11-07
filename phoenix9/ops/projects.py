@@ -48,6 +48,19 @@ def delete_plan(name: str, who: str) -> dict:
     return plan
 
 
+def delete(name: str, confirm_name: str, who: str) -> dict:
+    """Delete a project entirely after a safety copy; returns the steps and what was not done."""
+    from phoenix9 import project_delete
+    return project_delete.delete(name, confirm_name, who, common.make_adapters())
+
+
+def delete_repo(name: str, who: str) -> dict:
+    """Retry only the GitHub repo delete of an already deleted project."""
+    from phoenix9 import project_delete
+    common.record_command(who, f"project delete-repo {name}", name)
+    return project_delete.delete_repo(name, who, common.make_adapters())
+
+
 def remove(name: str, who: str) -> dict:
     """Remove a project from Phoenix's list; every file is kept."""
     from phoenix9 import project_removal

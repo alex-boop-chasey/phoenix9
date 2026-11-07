@@ -33,7 +33,11 @@ def add(sub, common) -> None:
     p = group.add_parser("delete", parents=[common], help="delete a project entirely (--dry-run shows what would go)")
     p.add_argument("name")
     p.add_argument("--dry-run", action="store_true", help="show what would be deleted; change nothing")
+    p.add_argument("--confirm", metavar="NAME", help="the project's name, typed again, to really delete it")
     p.set_defaults(func=delete_)
+    p = group.add_parser("delete-repo", parents=[common], help="retry deleting the GitHub repo of a deleted project")
+    p.add_argument("name")
+    p.set_defaults(func=delete_repo_)
     p = group.add_parser("import", parents=[common], help="bring a removed project or an existing folder into Phoenix")
     p.add_argument("target", nargs="?", metavar="NAME|PATH")
     p.add_argument("--list", action="store_true", help="list what can be imported")
@@ -147,14 +151,45 @@ def plan_text(p: dict) -> str:
 
 
 def delete_(args) -> int:
-    """Show the delete plan (--dry-run); the real delete is not available yet."""
-    if not args.dry_run:
-        return problem(args, f"Run it with --dry-run first to see what deleting {args.name} would remove.")
+    """Show the delete plan (--dry-run), or delete the project entirely (--confirm <name>)."""
     try:
-        r = projects.delete_plan(args.name, args.who)
+        if args.dry_run:
+            r = projects.delete_plan(args.name, args.who)
+            return show(args, r, plan_text(r))
+        if args.confirm != args.name:
+            return problem(args, f"This deletes {args.name} for good. Run it with --dry-run to see what goes, "
+                                 f"then again with --confirm {args.name} to do it.")
+        r = projects.delete(args.name, args.confirm, args.who)
     except OpsError as e:
         return problem(args, str(e))
-    return show(args, r, plan_text(r))
+    return show(args, r, result_text(r))
+
+
+def result_text(r: dict) -> str:
+    """A delete result in plain English: each step, what was not done, what is still live."""
+    lines = [f"Safety copy: {r['backup']}"]
+    lines += [f"{'Done' if s['ok'] else 'FAILED'}: {s['step']}. {s['words']}" for s in r["steps"]]
+    if r["not_done"]:
+        lines.append("Not done:")
+        lines += [f"  {n['what']} {n['how']}" if n["how"] != n["what"] else f"  {n['what']}" for n in r["not_done"]]
+    else:
+        lines.append(f"{r['name']} is deleted.")
+    live = r.get("still_live") or []
+    if live:
+        lines.append("Still live, take it down yourself:")
+        for d in live:
+            lines.append(f"  {d['target']}: {d['note']}")
+            lines += [f"    {u}" for u in d["links"]]
+    return "\n".join(lines)
+
+
+def delete_repo_(args) -> int:
+    """Retry only the GitHub repo delete of a project that is already deleted."""
+    try:
+        r = projects.delete_repo(args.name, args.who)
+    except OpsError as e:
+        return problem(args, str(e))
+    return show(args, r, result_text(r))
 
 
 def import_(args) -> int:

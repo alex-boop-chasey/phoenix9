@@ -840,7 +840,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 | `docker` | V8 docker.py port: run a step container with limits, firewall, mounts | records calls, returns scripted exit codes and files |
 | `claude` | V8 claude.py port: `claude -p` stream-json in the container, usage-limit and model-unavailable detection | scripted sessions: writes given files into the worktree, returns given result/usage |
 | `git` | V8 git.py port: clones, worktrees, safe flags, diffs | real git on temp repos (git is always available) |
-| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `now`, `sleep`; deletes: `remove_tree(path)`, `remove_file(path)` (both quiet when the path is gone; used only by `project_delete.py`) | records calls, returns canned output |
+| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `process_cwds` ({pid, name, cwd} of every process, from /proc), `now`, `sleep`; deletes: `remove_tree(path)`, `remove_file(path)` (both quiet when the path is gone; used only by `project_delete.py`) | records calls, returns canned output |
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
@@ -876,21 +876,30 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    its GitHub repo is never deleted.
 4. **Lock and last check**: the delete holds the per-project lock `paths.project_lock(name)`
    (`HOME/locks/project-<name>.lock`) from the first check to the last step; `phoenix run start` takes the same lock
-   (waiting up to 10 s) to queue a run, and re-checks that the project still exists. Right after the safety copy and
+   (waiting up to 10 s) to queue a run, and re-checks that the project still exists; project new, edit, remove and
+   import take it too (`common.project_lock`). Right after the safety copy and
    before the first delete, the refusals are checked again; if anything is busy now, the copy is removed and nothing
    is deleted.
 5. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat
    unit `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed), the project folder, `HOME/keys/<name>.toml`,
    Claude Code's folder trust entry (`project_removal.untrust`), the `removed_projects` row and INDEX.md line, and
    last the GitHub repo (`gh repo delete <owner/name> --yes`).
-   **Which GitHub repo** (`repo_verdict`): only one that is the project's own. All must hold: `.phoenix/project.json`
-   says Phoenix made it (`source` `empty` or `template`, with the repo recorded; never `repo`, `import` or `code`);
-   `git -C <folder>/code rev-parse --show-toplevel` is code/ itself (a plain code/ folder would otherwise find the
-   parent repo, e.g. `/srv/projects`, the notes repo of every project); code/'s origin is the recorded repo; code/
-   has commits; and no other listed project, removed-projects row or the projects folder's own repo points at the
-   same owner/name (compared ignoring case). The GitHub step also needs a verified bundle of that repo in the copy
-   and the folder really gone. Otherwise the step is `kept` (`ok`, with "GitHub repo <x> not deleted: it ..."),
-   or, when only the folder removal failed, not done, for the retry.
+   **Which GitHub repo** (`repo_verdict`): only one that is the project's own. Checked first: the repo is not the
+   projects folder's own repo and code/ does not sit inside a parent repo (reason "it is the projects folder's
+   shared repo"). Then all must hold: `.phoenix/project.json` says Phoenix made it (`source` `empty` or `template`,
+   the repo recorded, and `phoenix_made_repo` naming exactly that repo; that field and `phoenix_made_repo_id`, GitHub's
+   id, are written only when Phoenix itself creates a repo, and `project edit --repo` and Import clear them, so
+   projects made before this keep their repos); `git -C <folder>/code rev-parse --show-toplevel` is code/ itself;
+   code/'s origin is the recorded repo; code/ has commits; and no other folder in the projects folder (listed or
+   not; its recorded repo and the real origin of its code/ and of itself), removed-projects row or the projects
+   folder's own repo points at the same owner/name (compared ignoring case). The GitHub step also needs a verified
+   bundle of that repo in the copy and the folder really gone. **Right before every `gh repo delete`** (the delete
+   and the retry): `gh repo view <repo> --json id,nameWithOwner` must give the recorded id, and every branch and tag
+   on GitHub (`git ls-remote`, with its commit) must be in the bundle (`git bundle list-heads`; `origin/<b>` counts
+   for `<b>`); any mismatch or failure keeps the repo. Otherwise the step is `kept` (`ok`, with "GitHub repo <x> not
+   deleted: it ..."), or, when only the folder removal failed, not done, for the retry. The dry run (CLI and Danger
+   zone) shows "(will be deleted)" or "(kept: <reason>)" on the GitHub repo line. Without a bundle (no commits),
+   code/.git itself goes in files.tar.gz.
 6. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
    was NOT deleted, with the fix (`gh auth refresh -h github.com -s delete_repo`). `POST
    /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo
@@ -905,7 +914,9 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
 too, so a link called something else cannot delete them); a project folder that is a link, or whose real parent is
 not the real projects folder; a project with a build queued, running,
 waiting or paused; a project whose chat state is `working`; a project with a delegate chat session (escalation
-hand-over) still running; any caller other than `dashboard` or `cli` (the Phoenix
+hand-over) still running; any program whose working folder is inside the project's real folder (`/proc/*/cwd`
+through the host adapter's `process_cwds()`: a grunt job, a desktop or terminal session; this process and its
+parent shell excepted); any caller other than `dashboard` or `cli` (the Phoenix
 agent and every `chat:*` caller, whatever the project's permissions).
 
 **Host adapter** (section 9): systemctl, `gh` and the filesystem deletes `remove_tree(path)` and `remove_file(path)`

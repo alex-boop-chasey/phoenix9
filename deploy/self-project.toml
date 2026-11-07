@@ -39,6 +39,8 @@ safety_files = [
   "phoenix9/agentlink.py",  # the only code that writes to the agent's socket
   "phoenix9/transcript.py",  # reads the agent's untrusted output
   "deploy/agent/agent-rules.md",  # the agent's own rulebook
+  # Deleting a project
+  "phoenix9/project_delete.py",  # the delete-project plan and safety copy
   # The checks themselves
   "check.sh",  # the check command
   "check-browser.sh",  # the browser check command

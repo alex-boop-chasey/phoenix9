@@ -76,6 +76,7 @@ phoenix9/                      the Python package
   claude.py docker.py git.py watch.py   ports of V8, adapters (section 9)
   scrub.py                     secret redaction for every log line written
   project.py                   phoenix project (proj folded in) (phase 2)
+  project_delete.py            delete a project entirely: dry-run plan (safety file)
   keys.py                      per-project keys (phase 2; global secrets store phase 4)
   services.py                  services library loader (phase 2); project_services.py: a project's set
   proxy.py                     key proxy (phase 4)
@@ -814,6 +815,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
   message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
   `deploy/agent/agent-rules.md` (the agent's own rules) are in `safety_files` in `deploy/self-project.toml`.
+- **Delete project** (`phoenix9/project_delete.py`, a safety file): `plan(name, who, adapters)` is the dry run for
+  "Delete project entirely": folder and size, GitHub repo, open merge requests, unpushed commits, runs, key names
+  (never values), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home, an active
+  build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
+  (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 

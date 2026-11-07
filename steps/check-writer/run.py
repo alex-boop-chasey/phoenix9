@@ -52,7 +52,7 @@ def existing_checks(ctx, own_dir: str) -> str:
 def before(ctx) -> dict:
     """Fill the check-writer prompt's placeholders."""
     test = profile_test(ctx)
-    folder = checklock.task_checks_dir(test, ctx.task["number"])
+    folder = checklock.task_checks_dir(test, ctx.run.id, ctx.task["number"])
     return {
         "spec_title": ctx.run.spec.get("title", ""),
         "task": task_text(ctx.task),
@@ -84,7 +84,7 @@ def after(ctx, session) -> StepResult:
         return StepResult("fail", [line])
     git, n = ctx.adapters.git, ctx.task["number"]
     test = profile_test(ctx)
-    folder = checklock.task_checks_dir(test, n)
+    folder = checklock.task_checks_dir(test, ctx.run.id, n)
     patterns = (test.get("check_files") or "*").split()
     base = state.load(ctx.run.folder)["tasks"][str(n)].get("attempt_base") or git.head(ctx.worktree)
     changes = git.diff_changes(ctx.worktree, base)

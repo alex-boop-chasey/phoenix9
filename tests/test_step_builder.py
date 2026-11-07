@@ -128,6 +128,15 @@ def test_checks_come_from_locked_files(tmp_path, setup):
     assert "- `tests/phoenix/test_a.py`" in text and "python3 -m pytest -q tests/phoenix/test_a.py" in text
 
 
+def test_builder_read_only_hint_names_this_runs_checks_folder(tmp_path, setup):
+    runner = setup()
+    runner.adapters.claude.sessions += [{"files": {"a.py": "x\n"}, "text": "STEP DONE"}]
+    run_dir = start(tmp_path)
+    runner.drive(run_dir)
+    run_id = state.load(run_dir)["run_id"]
+    assert f"`tests/phoenix/{run_id}/` is read-only for you" in prompt_of(run_dir)
+
+
 def test_builder_produces_diff_patch(tmp_path, setup):
     runner = setup()
     runner.adapters.claude.sessions += [{"files": {"src/a.py": "print('hi')\n"}, "text": "STEP DONE"}]

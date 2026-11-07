@@ -182,7 +182,7 @@ def script_full(env, reviewer_fails=True):
     env.claude.script("planner", files={"/out/spec.md": quick_spec_as_plan()}, text="PLAN DONE", cost_usd=0.2)
     for n in (1, 2, 3):
         name, text = TESTS[n]
-        env.claude.script("check-writer", n, files={f"tests/phoenix/task-{n}/{name}": text}, text="CHECKS DONE",
+        env.claude.script("check-writer", n, files={f"tests/phoenix/{{run_id}}/task-{n}/{name}": text}, text="CHECKS DONE",
                           cost_usd=0.3)
         env.claude.script("builder", n, files=SOURCES[n], text=DONE, cost_usd=0.5)
         env.claude.script("reviewer", n, files={"/out/verdict.json": PASS}, text="REVIEWED", cost_usd=0.1)

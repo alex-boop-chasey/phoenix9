@@ -399,7 +399,8 @@ class FakeClaude:
         """Script the session for a role (builder, reviewer...), optionally for one task and attempt.
 
         The session is {files, kind, text, cost_usd}; file names starting with / go through a mount
-        (e.g. /out/verdict.json). Several scripts for one key are used one per launch (the last repeats).
+        (e.g. /out/verdict.json); `{run_id}` in a file name becomes the launch's run id.
+        Several scripts for one key are used one per launch (the last repeats).
         """
         self.scripts.setdefault((role, task, attempt), []).append(session)
 
@@ -418,6 +419,7 @@ class FakeClaude:
         self.calls.append(("launch", (), kwargs))
         session = self._next_session(kwargs)
         for name, text in (session.get("files") or {}).items():
+            name = name.replace("{run_id}", str(kwargs.get("run_id", "")))
             if name.startswith("/"):       # an absolute name is written through the mount that has this dst
                 mount = [m for m in kwargs.get("extra_mounts", ()) if m.dst == str(Path(name).parent)][0]
                 path = Path(mount.src) / Path(name).name

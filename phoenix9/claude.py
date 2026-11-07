@@ -194,10 +194,14 @@ MAX_LINE = 5_000_000
 def _read_result(out_file: Path) -> dict:
     """Return the session's final result object, or {} if it cannot be trusted.
 
-    The LAST non-empty line must be valid JSON with type "result", and it must be the ONLY line that
-    looks like a result line. Anything else (none, cut off, garbled, or a forged extra one) gives {}.
+    The LAST non-empty line must be valid JSON with type "result". Normally it is the only result line.
+    Claude Code also writes one result line per turn when a session takes more than one turn (e.g. a
+    background command finishes after the first answer); then EVERY result line must carry an integer
+    `result_index`, the indexes must be 0, 1, 2... in file order, all with the same session_id, and the
+    last line must be the last of them. Anything else (none, cut off, garbled, out of order, or an extra
+    result line without an index) gives {}.
     """
-    count, last = 0, b""
+    results, last = [], b""
     try:
         with open(out_file, "rb") as f:
             for line in f:
@@ -208,7 +212,7 @@ def _read_result(out_file: Path) -> dict:
                     try:
                         o = json.loads(line)
                         if isinstance(o, dict) and o.get("type") == "result":
-                            count += 1
+                            results.append(o)
                     except (json.JSONDecodeError, UnicodeError):
                         pass
                 last = line if len(line) <= MAX_LINE else b"<too long>"
@@ -220,7 +224,14 @@ def _read_result(out_file: Path) -> dict:
         obj = json.loads(last)
     except (json.JSONDecodeError, UnicodeError):
         return {}
-    if isinstance(obj, dict) and obj.get("type") == "result" and count == 1:
+    if not (isinstance(obj, dict) and obj.get("type") == "result") or not results:
+        return {}
+    if len(results) == 1:
+        return obj
+    indexes = [r.get("result_index") for r in results]
+    sessions = {r.get("session_id") for r in results}
+    if (all(type(i) is int for i in indexes) and indexes == list(range(len(results)))
+            and len(sessions) == 1 and obj.get("result_index") == len(results) - 1):
         return obj
     return {}
 

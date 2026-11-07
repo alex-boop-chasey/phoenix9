@@ -481,3 +481,15 @@ def test_supported_tools_are_unique_plain_names_with_text():
     cmd = claude.build_command(dict(AI, tools=names[:2], tools_denied=[names[-1]]), "/p.md", "/r")
     assert cmd[cmd.index("--allowedTools") + 1] == ",".join(names[:2])
     assert cmd[cmd.index("--disallowedTools") + 1] == names[-1]
+
+
+def test_parse_two_turn_session_with_numbered_results_is_ok():
+    """Claude Code writes one result line per turn (result_index 0, 1, ...); the last one is the answer."""
+    r = claude.parse(DATA / "two-turns-result.jsonl", 0)
+    assert r.kind != "crashed"
+    assert "STEP DONE" in r.text
+
+
+@pytest.mark.parametrize("name", ["two-turns-bad-order.jsonl", "two-turns-other-session.jsonl"])
+def test_parse_numbered_results_out_of_order_or_mixed_sessions_is_crashed(name):
+    assert claude.parse(DATA / name, 0).kind == "crashed"

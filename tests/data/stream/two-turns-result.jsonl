@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"sess-1","tools":["Bash"],"model":"claude-sonnet-5-5"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Started the checks in the background."}]},"session_id":"sess-1"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"Waiting for checks.","session_id":"sess-1","total_cost_usd":0.05,"result_index":0}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Checks passed. STEP DONE"}]},"session_id":"sess-1"}
+{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"Checks passed. STEP DONE","session_id":"sess-1","total_cost_usd":0.12,"result_index":1}

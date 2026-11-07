@@ -15,3 +15,24 @@ def open_chat(project: str, who: str = "cli") -> dict:
         raise common.Unavailable(str(err))
     common.record_command(who, "chat open %s" % project, project)
     return data
+
+
+def _run(project: str, who: str, word: str, action) -> dict:
+    """Run a chat action on a known project and record the command event."""
+    common.project_dir(project)
+    try:
+        data = action(project, common.make_adapters())
+    except ValueError:
+        raise common.NotFound("There is no project called '%s'." % project)
+    common.record_command(who, "chat %s %s" % (word, project), project)
+    return data
+
+
+def sleep_chat(project: str, who: str = "cli") -> dict:
+    """Put the project's chat to sleep; returns {state, changed, message}."""
+    return _run(project, who, "sleep", lambda p, a: projectchat.sleep(p, a, who))
+
+
+def off_chat(project: str, who: str = "cli") -> dict:
+    """Turn the project's chat off; returns {state, changed, message}."""
+    return _run(project, who, "off", lambda p, a: projectchat.off(p, a, who))

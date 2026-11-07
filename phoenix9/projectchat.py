@@ -220,3 +220,53 @@ def open_(project: str, adapters, who: str = "cli") -> dict:
         current = _wait_ready(project, adapters, wait)
         note = _prime(project, adapters, who) if fresh else None
     return _answer(current, note or "The chat is %s." % current["state"])
+
+
+WRAP_UP_TEXT = "Wrap up: write a short summary of this conversation into notes/NOW.md and notes/sessions/"
+WRAP_UP_STEP = 2
+
+
+def _wait_not_busy(project: str, adapters, seconds: float) -> None:
+    """Wait on the adapter clock until the conversation is not busy (or is gone), up to `seconds`."""
+    clock = adapters.clock
+    deadline = clock.now() + seconds
+    clock.sleep(WRAP_UP_STEP)
+    while clock.now() < deadline:
+        found = _session_process(adapters.host, project)
+        if found is None or found.get("status") != "busy":
+            return
+        clock.sleep(WRAP_UP_STEP)
+
+
+def _touch_doc(project: str, now: float) -> None:
+    """Set the document's Last active to now, keeping the conversation id."""
+    fields, _ = read_chat_doc(project)
+    if fields:
+        write_chat_doc(project, dict(fields, **{"Last active": format_time(now)}))
+
+
+def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dict:
+    """Put a live chat to sleep: ask for a wrap-up, wait, stop the conversation only; {state, message}."""
+    current = state(project, adapters)
+    if current["state"] not in ("live", "working"):
+        word = current["state"]
+        return {"state": word, "changed": False, "message": "The chat is already %s." % word}
+    host = adapters.host
+    found = _session_process(host, project)
+    if found is not None and wrap_up:
+        try:
+            agentlink.send_to(found, WRAP_UP_TEXT, {"project": project}, who, host=host)
+            _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
+        except agentlink.SendError:
+            pass
+        found = _session_process(host, project)
+    if found is not None:
+        chat.stop_conversation(host, project, found["pid"])
+    _touch_doc(project, time.time())
+    return {"state": "sleeping", "changed": True, "message": "The chat is asleep. " + SLEEPING_WORDS + "."}
+
+
+def off(project: str, adapters, who: str = "cli") -> dict:
+    """Turn a project's chat off: stop and disable its unit; {state, message}."""
+    chat.stop_unit(adapters.host, project)
+    return {"state": "off", "changed": True, "message": "The chat is off."}

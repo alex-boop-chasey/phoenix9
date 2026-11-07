@@ -181,3 +181,84 @@ def test_command_event(setup, sent):
     code, _, _ = run("chat", "open", "alpha", "--who", "tester")
     lines = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
     assert code == 0 and any(l["who"] == "tester" and l["command"] == "chat open alpha" for l in lines)
+
+
+class SleepClock(Clock):
+    """A clock whose sleeps turn a busy conversation idle after n of them."""
+
+    def __init__(self, host, idle_after):
+        super().__init__(host, None)
+        self.idle_after = idle_after
+
+    def sleep(self, s):
+        super().sleep(s)
+        if self.idle_after is not None and self.n >= self.idle_after and self.host.status == "busy":
+            self.host.status = "idle"
+            self.host.add_session()
+
+
+def live(setup, status="idle", idle_after=None, **kw):
+    a = setup("active", session_now=True, status=status, doc=B2, **kw)
+    a.clock = SleepClock(a.host, idle_after)
+    return a
+
+
+def changes(a):
+    return [c for c in a.host.calls if c[:2] in (["systemctl", "disable"], ["systemctl", "stop"])]
+
+
+def test_sleep_sends_wrap_up_then_stops_conversation(setup, sent):
+    a = live(setup)
+    code, out, _ = run("chat", "sleep", "alpha")
+    assert code == 0 and len(sent) == 1 and "notes/sessions/" in sent[0]["text"]
+    assert a.host.stopped == [10] and changes(a) == []
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+
+
+def test_sleep_waits_for_busy_to_end(setup, sent):
+    a = live(setup, status="busy", idle_after=3)
+    assert run("chat", "sleep", "alpha")[0] == 0
+    assert a.host.stopped == [10] and a.clock.n >= 3
+
+
+def test_sleep_timeout_still_stops(setup, sent):
+    a = live(setup, status="busy")
+    assert run("chat", "sleep", "alpha")[0] == 0
+    assert 180 <= a.clock.t - 1000.0 <= 200 and a.host.stopped == [10]
+
+
+def test_sleep_without_wrap_up(setup, sent):
+    a = live(setup)
+    pc.sleep("alpha", a, "t", wrap_up=False)
+    assert sent == [] and a.host.stopped == [10]
+
+
+@pytest.mark.parametrize("unit,doc,word", [("active", B1, "sleeping"), ("inactive", None, "off")])
+def test_sleep_when_not_live_says_so(setup, sent, unit, doc, word):
+    a = setup(unit, doc=doc)
+    code, out, _ = run("chat", "sleep", "alpha", "--json")
+    data = json.loads(out)
+    assert code == 0 and data["state"] == word and word in data["message"]
+    assert sent == [] and a.host.stopped == []
+
+
+def test_off_needs_yes(setup):
+    a = setup("active", session_now=True)
+    assert run("chat", "off", "alpha")[0] != 0
+    assert changes(a) == []
+
+
+def test_off_stops_and_disables(setup):
+    a = setup("active", session_now=True)
+    code, out, _ = run("chat", "off", "alpha", "--yes", "--json")
+    assert code == 0 and json.loads(out)["state"] == "off"
+    assert ["systemctl", "disable", "--now", "claude-rc-chat@alpha"] in a.host.calls
+
+
+def test_sleep_and_off_events(setup, sent):
+    live(setup)
+    run("chat", "sleep", "alpha", "--who", "t1")
+    run("chat", "off", "alpha", "--yes", "--who", "t2")
+    cmds = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
+    assert any(c["who"] == "t1" and c["command"] == "chat sleep alpha" for c in cmds)
+    assert any(c["who"] == "t2" and c["command"] == "chat off alpha" for c in cmds)

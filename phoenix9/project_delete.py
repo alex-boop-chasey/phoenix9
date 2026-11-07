@@ -600,7 +600,7 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
     folder_gone = any(s["step"] == "project folder" and s["ok"] for s in steps) and not folder.exists()
     blocker = None if folder_gone else (f"GitHub repo {repo} not deleted: the project folder could not be removed, "
                                         "so its repo is kept. Remove the folder, then press Delete repo again.")
-    _github_step(steps, not_done, who, name, verdict, host, blocker)
+    _github_step(steps, not_done, who, name, verdict, host, dest, blocker)
     events.emit("project.deleted", project=name, who=who, backup=str(dest), repo=repo)
     for s in steps:
         if not s["ok"] and s["step"] != "GitHub repo":
@@ -620,19 +620,61 @@ def _with_bundle(manifest: dict, copy: Path) -> dict:
     return verdict
 
 
-def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host, blocker=None) -> None:
+def _ref_lines(text: str, sep: str | None) -> set:
+    """{(ref, sha)} from `sha<sep>ref` lines (peeled tag lines `^{}` and HEAD left out)."""
+    found = set()
+    for line in text.splitlines():
+        parts = line.strip().split(sep, 1)
+        if len(parts) == 2 and parts[1].strip().startswith("refs/") and not parts[1].strip().endswith("^{}"):
+            found.add((parts[1].strip(), parts[0].strip()))
+    return found
+
+
+def _github_matches_bundle(repo: str, copy: Path, host) -> str | None:
+    """Why GitHub's repo must be kept because it holds something the bundle lacks (None when the bundle has it all).
+
+    Every branch and tag on GitHub (`git ls-remote`), with its commit, must be in the verified bundle
+    (`git bundle list-heads`); a failing ls-remote or list-heads keeps the repo."""
+    rc, out, err = host.run(git.git_argv("ls-remote", "--heads", "--tags", f"https://github.com/{repo}.git"),
+                            timeout=120)
+    if rc != 0:
+        return (f"GitHub repo {repo} not deleted: Phoenix could not list its branches to check them against the "
+                f"safety copy ({(err or out).strip()[:150]}).")
+    remote = _ref_lines(out, "\t")
+    rc, out, err = host.run(git.git_argv("bundle", "list-heads", str(copy / "repo.bundle")), timeout=120)
+    if rc != 0:
+        return f"GitHub repo {repo} not deleted: Phoenix could not read the safety copy's bundle to compare."
+    have = _ref_lines(out, None)
+    have |= {("refs/heads/" + ref[len("refs/remotes/origin/"):], sha) for ref, sha in have
+             if ref.startswith("refs/remotes/origin/")}     # a branch fetched from GitHub but never checked out
+    missing = sorted(ref for ref, sha in remote - have)
+    if missing:
+        shown = ", ".join(r.split("/", 2)[-1] for r in missing[:5]) + (" and more" if len(missing) > 5 else "")
+        return (f"GitHub repo {repo} not deleted: it has branches or tags that are not in the safety copy "
+                f"({shown}). Fetch them into a copy first if you want them, then delete it on GitHub.")
+    return None
+
+
+def _last_checks(verdict: dict, copy: Path, host) -> str | None:
+    """Checks made right before `gh repo delete`; the reason to keep the repo, or None."""
+    return _github_matches_bundle(verdict["repo"], copy, host)
+
+
+def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host, copy: Path,
+                 blocker=None) -> None:
     """Run the GitHub repo delete as a step; a refusal for lack of scope goes into not_done.
 
     A repo the verdict keeps (not this project's own, shared, not made by Phoenix) is never touched: the step
-    is recorded as kept, with the reason."""
+    is recorded as kept, with the reason. So is one the last checks right before the delete keep."""
     repo = verdict.get("repo")
     if verdict.get("delete") and blocker:
         steps.append({"step": "GitHub repo", "ok": False, "words": blocker})
         not_done.append({"what": f"GitHub repo {repo}", "how": blocker})
         common.record_command(who, f"project delete {name}: GitHub repo (not tried)", name)
         return
-    if not verdict.get("delete"):
-        steps.append({"step": "GitHub repo", "ok": True, "kept": True, "words": verdict.get("why") or "Kept."})
+    why = verdict.get("why") if not verdict.get("delete") else _last_checks(verdict, copy, host)
+    if not verdict.get("delete") or why:
+        steps.append({"step": "GitHub repo", "ok": True, "kept": True, "words": why or "Kept."})
         common.record_command(who, f"project delete {name}: GitHub repo (kept)", name)
         return
     outcome = {}
@@ -686,6 +728,6 @@ def delete_repo(name: str, who: str, adapters) -> dict:
     if users:
         raise common.Conflict(f"GitHub repo {verdict.get('repo')} is not deleted: it is in use by {', '.join(users)}.")
     steps, not_done = [], []
-    _github_step(steps, not_done, who, name, verdict, adapters.host)
+    _github_step(steps, not_done, who, name, verdict, adapters.host, copy)
     events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] and not steps[0].get("kept") else "github repo kept")
     return {"name": name, "backup": str(copy), "steps": steps, "not_done": not_done}

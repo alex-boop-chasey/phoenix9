@@ -35,7 +35,14 @@ def host_git(host, folder):
         host.calls.append(list(argv))
         if "fetch" in argv:                     # never reach the network from a test
             return 1, "", "fetch is off in tests"
+        if "ls-remote" in argv:                 # GitHub's branches: a test's own answer, else what was bundled
+            return getattr(host, "ls_remote", None) or (0, getattr(host, "remote_refs", ""), "")
         p = subprocess.run(argv, capture_output=True, text=True, cwd=cwd)
+        if "bundle" in argv and "create" in argv and p.returncode == 0:
+            code = argv[argv.index("-C") + 1]   # pretend GitHub holds exactly what was bundled
+            refs = subprocess.run(["git", "-C", code, "for-each-ref", "--format=%(objectname)\t%(refname)",
+                                   "refs/heads", "refs/tags"], capture_output=True, text=True).stdout
+            host.remote_refs = refs
         return p.returncode, p.stdout, p.stderr
     real = host.run
     host.run = lambda argv, timeout=60, cwd=None: run(argv, timeout, cwd) if argv[0] == "git" else real(argv, timeout, cwd)
@@ -1087,3 +1094,63 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     plan = project_delete.plan("alpha", "cli", env["fakes"])
     assert plan["repo"] == "someone/theirs" and plan["repo_delete"]["delete"] is False
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
+
+
+# GitHub must hold nothing the bundle lacks (second review 2)
+
+def _ls_remote_calls(env):
+    return [c for c in env["host"].calls if c[0] == "git" and "ls-remote" in c]
+
+
+def test_github_checked_against_bundle_right_before(env, unitdir):
+    _stuff(env)
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    calls = env["host"].calls
+    ls = calls.index(_ls_remote_calls(env)[0])
+    assert "https://github.com/me/alpha.git" in calls[ls]
+    assert ls < calls.index(["gh", "repo", "delete", "me/alpha", "--yes"])
+
+
+def test_branch_only_on_github_keeps_the_repo(env, unitdir):
+    _stuff(env)
+    env["host"].ls_remote = (0, "1111111111111111111111111111111111111111\trefs/heads/only-on-github\n", "")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    gh = res["steps"][-1]
+    assert _gh_deletes(env) == [] and gh["kept"] and "only-on-github" in gh["words"]
+
+
+def test_moved_branch_on_github_keeps_the_repo(env, unitdir):
+    folder = _stuff(env)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=folder / "code", capture_output=True, text=True).stdout.strip()
+    assert head
+    env["host"].ls_remote = (0, "2222222222222222222222222222222222222222\trefs/heads/main\n", "")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][-1]["kept"] and "main" in res["steps"][-1]["words"]
+
+
+def test_branch_fetched_from_github_counts_as_in_the_bundle(env, unitdir):
+    folder = _stuff(env)
+    code = folder / "code"
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=code, capture_output=True, text=True).stdout.strip()
+    subprocess.run(["git", "update-ref", "refs/remotes/origin/feature", head], cwd=code, check=True)
+    env["host"].ls_remote = (0, f"{head}\trefs/heads/main\n{head}\trefs/heads/feature\n", "")
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [["gh", "repo", "delete", "me/alpha", "--yes"]]
+
+
+def test_ls_remote_failing_keeps_the_repo(env, unitdir):
+    _stuff(env)
+    env["host"].ls_remote = (128, "", "Could not resolve host")
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][-1]["kept"] and "could not" in res["steps"][-1]["words"].lower()
+
+
+def test_retry_checks_github_against_bundle_too(env, unitdir):
+    _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    env["host"].calls.clear()
+    env["host"].ls_remote = (0, "3333333333333333333333333333333333333333\trefs/heads/new-work\n", "")
+    res = project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][0]["kept"] and "new-work" in res["steps"][0]["words"]

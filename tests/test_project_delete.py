@@ -221,6 +221,7 @@ from phoenix9.ops.common import OpsError  # noqa: E402
 
 
 OWN_META = {"repo": "me/alpha", "source": "empty", "phoenix_made_repo": "me/alpha", "phoenix_made_repo_id": "R_alpha"}
+GH_VIEW = ["gh", "repo", "view", "me/alpha", "--json", "id,nameWithOwner"]
 
 
 def _project_with_stuff(env, name="alpha"):
@@ -228,6 +229,7 @@ def _project_with_stuff(env, name="alpha"):
     folder = make(env, name, meta=OWN_META)
     git_repo(folder / "code", origin_url="https://github.com/me/alpha.git")
     host_git(env["host"], folder)
+    env["host"].script(GH_VIEW, out='{"id": "R_alpha", "nameWithOwner": "me/alpha"}')   # GitHub knows it by its id
     code = folder / "code"
     (code / "local.txt").write_text("untracked")
     (code / "node_modules" / "x").mkdir(parents=True)
@@ -1094,6 +1096,43 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     plan = project_delete.plan("alpha", "cli", env["fakes"])
     assert plan["repo"] == "someone/theirs" and plan["repo_delete"]["delete"] is False
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
+
+
+# GitHub's id must be the one recorded at creation (second review 6)
+
+def test_repo_id_checked_right_before(env, unitdir):
+    _stuff(env)
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    calls = env["host"].calls
+    assert calls.index(GH_VIEW) < calls.index(["gh", "repo", "delete", "me/alpha", "--yes"])
+
+
+@pytest.mark.parametrize("answer", [(0, '{"id": "R_new", "nameWithOwner": "me/alpha"}', ""),
+                                    (0, '{"id": "R_alpha", "nameWithOwner": "me/other"}', ""),
+                                    (1, "", "HTTP 404"), (0, "not json", "")])
+def test_different_or_unknown_repo_id_keeps_it(env, unitdir, answer):
+    _stuff(env)
+    env["host"].script(GH_VIEW, rc=answer[0], out=answer[1], err=answer[2])
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][-1]["kept"] and "id" in res["steps"][-1]["words"]
+
+
+def test_no_recorded_id_keeps_it(env, unitdir):
+    folder = _stuff(env)
+    _set_meta(folder, phoenix_made_repo_id=None)
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "id" in plan["repo_delete"]["why"]
+
+
+def test_retry_checks_the_id_too(env, unitdir):
+    _stuff(env)
+    env["host"].script(["gh", "repo", "delete"], rc=1, err="needs delete_repo scope")
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    env["host"].script(["gh", "repo", "delete"], rc=0)
+    env["host"].script(GH_VIEW, out='{"id": "R_someone_else", "nameWithOwner": "me/alpha"}')
+    env["host"].calls.clear()
+    res = project_delete.delete_repo("alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and res["steps"][0]["kept"]
 
 
 # programs working inside the folder (second review 5)

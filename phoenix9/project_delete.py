@@ -87,6 +87,8 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
     if (meta.get("source") not in OWN_SOURCES or not key or key != _key(shown)
             or _key(meta.get("phoenix_made_repo")) != key):
         return keep("was not created by Phoenix")
+    if not meta.get("phoenix_made_repo_id"):
+        return keep("has no GitHub id recorded from when Phoenix created it, so Phoenix cannot be sure it is the same repo")
     code = folder / "code"
     if code.is_symlink() or not code.is_dir():
         return keep("is not this project's own repo")
@@ -100,7 +102,8 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
     users = _users_of(key, name, host)
     if users:
         return keep(f"is shared (also used by {', '.join(users)})")
-    return {"repo": shown, "delete": True, "why": f"GitHub repo {shown} will be deleted."}
+    return {"repo": shown, "delete": True, "repo_id": str(meta["phoenix_made_repo_id"]),
+            "why": f"GitHub repo {shown} will be deleted."}
 
 
 def _open_prs(host, repo: str | None) -> tuple[list, str]:
@@ -679,9 +682,25 @@ def _github_matches_bundle(repo: str, copy: Path, host) -> str | None:
     return None
 
 
+def _same_repo_on_github(verdict: dict, host) -> str | None:
+    """Why the repo must be kept because GitHub's repo by that name is not the one Phoenix created (by GitHub id)."""
+    repo = verdict["repo"]
+    rc, out, _ = host.gh("repo", "view", repo, "--json", "id,nameWithOwner")
+    try:
+        data = json.loads(out) if rc == 0 else None
+    except ValueError:
+        data = None
+    if not isinstance(data, dict) or not data.get("id"):
+        return f"GitHub repo {repo} not deleted: Phoenix could not read its GitHub id to check it is the same repo."
+    if str(data["id"]) != str(verdict.get("repo_id")) or _key(data.get("nameWithOwner")) != _key(repo):
+        return (f"GitHub repo {repo} not deleted: its GitHub id is not the one recorded when Phoenix created it, "
+                "so it is a different repo now.")
+    return None
+
+
 def _last_checks(verdict: dict, copy: Path, host) -> str | None:
     """Checks made right before `gh repo delete`; the reason to keep the repo, or None."""
-    return _github_matches_bundle(verdict["repo"], copy, host)
+    return _same_repo_on_github(verdict, host) or _github_matches_bundle(verdict["repo"], copy, host)
 
 
 def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host, copy: Path,

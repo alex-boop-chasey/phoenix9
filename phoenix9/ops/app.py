@@ -148,6 +148,17 @@ def global_view() -> dict:
             "supported": {"services": True, "update": _update_supported(), "secrets": False}}
 
 
+def origins_digest(origins) -> str:
+    """The short digest of a list of page origins that /api/health reports."""
+    return addresses.origins_digest(origins)
+
+
+def allowed_peer_uids() -> list[int]:
+    """The uids the API answers (access.peer_uids, default [0])."""
+    from phoenix9 import access
+    return access.peer_uids()
+
+
 def write_peer_uid(client, local) -> int | None:
     """The uid of the program at the far end of an API connection (None when it cannot be told), through the
     host adapter."""

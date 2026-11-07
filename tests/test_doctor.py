@@ -6,7 +6,7 @@ from collections import namedtuple
 
 import pytest
 
-from phoenix9 import claude, doctor, paths
+from phoenix9 import addresses, claude, doctor, paths
 from phoenix9.__main__ import main
 
 PROBE_OK = ("blocked ip-blocked anthropic=200 cannot-flush no-sudo v6-blocked dns-allowed-ok dns-random-blocked "
@@ -76,7 +76,8 @@ def healthy(adapters, phoenix_env, monkeypatch):
         host.files[f"/proc/{pid}/environ"] = "PATH=/usr/bin\0HOME=/root\0PHOENIX_HOME=/var/lib/phoenix9\0"
     host.script(["df"], 0, "    Avail\n 90000000000\n")
     adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,
-                         body=b'{"ok": true, "tag": "v9.1", "origins": ["https://phoenix.rebirthwebdesign.com.au"]}')
+                         body=json.dumps({"ok": True, "tag": "v9.1", "origins_digest": addresses.origins_digest(
+                             ["https://phoenix.rebirthwebdesign.com.au"])}).encode())
     adapters.docker.images[IMAGE] = {}
     adapters.docker.outputs[:] = [PROBE_OK, session_log()]
     Usage = namedtuple("Usage", "total used free")
@@ -202,7 +203,7 @@ def test_for_update_mode_runs_no_claude_session_and_checks_version(healthy):
 
 def test_quick_mode_subset(healthy):
     data = doctor.run_checks(healthy, "quick")
-    assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "home",
+    assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "upstream", "home",
                                                      "secrets", "disk"]
     assert healthy.docker.argvs == [] and healthy.proxy.started == []
 
@@ -476,3 +477,55 @@ def test_agent_transcript_missing_or_empty_is_not_a_pass(healthy, content):
         healthy.host.files[AGENT_TRANSCRIPT] = content
     c = agent_check(healthy, "agent-transcript")
     assert not c["ok"] and AGENT_TRANSCRIPT in c["detail"] and c["fix"]
+
+
+# ---- the program in front of the dashboard runs as an allowed uid ----
+
+def test_upstream_check_passes_when_cloudflared_runs_as_root(healthy):
+    healthy.host.programs = {"cloudflared": [0], "code-server": [0]}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "cloudflared runs as uid 0" in c["detail"] and "code-server runs as uid 0" in c["detail"]
+    assert "upstream" in doctor.CHECKS_BY_MODE["quick"] and "upstream" in doctor.CHECKS_BY_MODE["full"]
+
+
+def test_upstream_check_fails_when_cloudflared_runs_as_another_user(healthy):
+    healthy.host.programs = {"cloudflared": [997]}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert not c["ok"] and "cloudflared runs as uid 997" in c["detail"] and "not allowed" in c["detail"]
+    assert "access.peer_uids" in c["fix"]
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "config" / "global.toml").write_text("[access]\npeer_uids = [0, 997]\n")
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "997" in c["detail"]
+
+
+def test_upstream_check_with_nothing_running_says_so(healthy):
+    healthy.host.programs = {}
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert c["ok"] and "cloudflared is not running" in c["detail"]
+
+
+def test_upstream_check_reports_a_wrong_peer_uids_setting(healthy):
+    healthy.host.programs = {"cloudflared": [0]}
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "config" / "global.toml").write_text('[access]\npeer_uids = "root"\n')
+    c = by_name(doctor.run_checks(healthy, "full"))["upstream"]
+    assert not c["ok"] and "peer_uids" in c["detail"] and c["fix"]
+
+
+def test_host_program_uids_reads_proc(tmp_path):
+    """The real host finds processes by program name (argv[0], or argv[1] for an interpreter) and their uid."""
+    from phoenix9 import adapters as real
+    for pid, argv, uid in ((10, ["/usr/bin/cloudflared", "tunnel"], 0),
+                           (11, ["/usr/lib/code-server/lib/node", "/usr/lib/code-server"], 0),
+                           (12, ["/usr/bin/cloudflared"], 997),
+                           (13, ["/bin/bash", "-c", "cloudflared"], 1000)):
+        d = tmp_path / str(pid)
+        d.mkdir()
+        (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
+        (d / "status").write_text(f"Name:\tx\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
+    (tmp_path / "self").mkdir()
+    host = real.Host()
+    assert host.program_uids("cloudflared", proc=str(tmp_path)) == [0, 997]
+    assert host.program_uids("code-server", proc=str(tmp_path)) == [0]
+    assert host.program_uids("nginx", proc=str(tmp_path)) == []

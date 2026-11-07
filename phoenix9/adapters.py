@@ -13,6 +13,7 @@ from phoenix9.docker import DockerRunner
 
 NOTIFY_MAX = 600
 TCP_TABLES = ("/proc/net/tcp", "/proc/net/tcp6")
+INTERPRETERS = ("node", "python3", "python")   # program_uids looks past these to the script they run
 
 
 def _proc_addr(text: str):
@@ -112,6 +113,32 @@ class Host:
                 except (IndexError, ValueError):
                     continue
         return uids.pop() if len(uids) == 1 else None
+
+    def program_uids(self, name: str, proc: str = "/proc") -> list[int]:
+        """The effective uids of running processes of a program (sorted, no repeats): those whose argv[0], or
+        argv[1] when argv[0] is an interpreter such as node, has the base name `name`."""
+        uids = set()
+        try:
+            pids = [p for p in os.listdir(proc) if p.isdigit()]
+        except OSError:
+            return []
+        for pid in pids:
+            try:
+                argv = Path(proc, pid, "cmdline").read_bytes().split(b"\0")
+                status = Path(proc, pid, "status").read_text(errors="replace")
+            except OSError:
+                continue
+            names = [os.path.basename(a.decode(errors="replace")) for a in argv[:2] if a]
+            if name not in names[:1] and not (len(names) == 2 and names[0] in INTERPRETERS and names[1] == name):
+                continue
+            for line in status.splitlines():
+                if line.startswith("Uid:"):
+                    try:
+                        uids.add(int(line.split()[2]))
+                    except (IndexError, ValueError):
+                        pass
+                    break
+        return sorted(uids)
 
     def parent_pid(self, pid) -> int | None:
         """The parent process id of a process (None when it is gone or cannot be read)."""

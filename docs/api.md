@@ -14,11 +14,16 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `allowed_origins` global setting, default the dashboard address's origin; architecture 5.5), otherwise 403 with
   "Refused: this page was opened from <origin>, which Phoenix doesn't allow yet. Add it in Global settings >
   Dashboard addresses (or run `phoenix settings global set allowed_origins=...`)."
-- Every write (POST, PUT, DELETE, PATCH) must also come from a process owned by root on this server (looked up in
-  `/proc/net/tcp`): any other user gets 403 "Refused: this request came from a program on the server that isn't run
-  by root.", and an owner that cannot be found gets 403 "Refused: Phoenix couldn't tell which program on the server
-  sent this request." When global.toml `[access] team_domain` and `aud` are both set, a write also needs a valid
-  Cloudflare Access token in `Cf-Access-Jwt-Assertion` (else 403 naming Cloudflare Access; architecture 8.5).
+- Every request, any method and any route (reads, the live streams and the web app's files too), must come from
+  a process owned by an allowed uid on this server (looked up in `/proc/net/tcp`; global.toml `[access] peer_uids`,
+  default `[0]` = root only; the older name `write_peer_uids` also works): any other user gets 403 "Refused: this
+  request came from a program on the server that isn't run by root (or another user Phoenix allows).", and an owner
+  that cannot be found gets 403 "Refused: Phoenix couldn't tell which program on the server sent this request."
+  When global.toml `[access] team_domain` and `aud` are both set, every request also needs a valid Cloudflare Access
+  token in `Cf-Access-Jwt-Assertion` (else 403 "Refused: Phoenix needs a Cloudflare Access sign-in. ..."; architecture
+  8.5). The one exception to both is `GET /api/health`, open to any local program (doctor, the updater and
+  `phoenix service restart` call it); it shows only the version, release tag and a digest of the allowed origins.
+  The CLI never goes through the API (it calls ops directly).
 - POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
@@ -61,7 +66,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/doctor?mode=quick\|full` | `ops.doctor.run` | | `{ok, checks: [{name, ok, detail, fix}], checked_at}` | 400 |
 | GET | `/api/services` | `ops.services.list_` | | `{supported: true, services: [row + endpoints {connect, disconnect}]}`; row = `{name, title, description, support, connected, note, account_keys, checked, checked_at, project_keys, hosts, used_by}` | |
 | GET | `/api/keys/audit` | `ops.keys.audit` | | `{global: [{file, names, used_by, modified, mode, mode_ok}], projects: [{project, name, secret, set, used, last_touched, service}], problems: [text]}` (never a value) | |
-| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins}`; `tag` is the running copy's release tag, `""` when unknown; `origins` = the page origins this running API allows | |
+| GET | `/api/health` | none (`ops.app.release_tag` read once at start) | | `{ok: true, version, tag, origins_digest}`; `tag` is the running copy's release tag, `""` when unknown; `origins_digest` = 16 hex characters of the SHA-256 of the sorted allowed page origins (one per line), so the doctor can compare them with the setting without the reply showing them. Open to any local program, no Access token needed (the only such route) | |
 | GET | `/api/update?refresh=1` | `ops.update.status(refresh)` | | updater status: `{supported, installed {tag, commit} \| null, previous, newest, update_available, can_rollback, busy, busy_reason, running, waiting, phase, interrupted, last {action, tag, result, reason, at}, log_tail: [line], off_release, off_release_note}` (`off_release_note` says how to get back to a release when the installed copy is on a commit with no release tag, else `""`); `refresh=1` asks GitHub for the newest tag | |
 | GET | `/api/update/log?lines=200` | `ops.update.log` | | `{lines, checks_file}` | |
 | GET | `/api/update/history` | `ops.update.history` | | `{history: [{at, action, tag, result, reason, who}]}` newest first (from `HOME/update/history.jsonl`) | |
@@ -221,7 +226,7 @@ run_overrides=)` validates, for example:
 One event line is `{ts, type, project, run, task, step, data}` (architecture section 8). Server-sent
 event ids are line numbers in `HOME/events.jsonl` (architecture 8.5).
 
-`GET /api/events?project=` is a server-sent stream (no write guard): it starts after the `Last-Event-ID` line,
+`GET /api/events?project=` is a server-sent stream (the peer and Access checks as every route; no header/origin check): it starts after the `Last-Event-ID` line,
 else at the end of the file; polls every `PHOENIX_API_TAIL_SECONDS` (0.5); sends `: ping` every
 `PHOENIX_API_PING_SECONDS` (15); at most 20 open streams (the 21st gets 503). Frames are
 `id: <line>\nevent: <type>\ndata: <line>`. If the file shrinks the stream restarts at line 0.

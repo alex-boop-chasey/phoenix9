@@ -74,15 +74,21 @@ def refusal(headers) -> str:
             "settings > Dashboard addresses (or run `phoenix settings global set allowed_origins=...`).")
 
 
-NOT_ROOT = "Refused: this request came from a program on the server that isn't run by root."
+NOT_ROOT = ("Refused: this request came from a program on the server that isn't run by root (or another user "
+            "Phoenix allows).")
 PEER_UNKNOWN = "Refused: Phoenix couldn't tell which program on the server sent this request."
-NO_ACCESS = "Refused: this change needs a Cloudflare Access sign-in. Open the dashboard through its Access address."
+NO_ACCESS = "Refused: Phoenix needs a Cloudflare Access sign-in. Open the dashboard through its Access address."
 WRITE_METHODS = ("POST", "PUT", "DELETE", "PATCH")
 
 
+OPEN_PATHS = ("/api/health",)   # answered for any local program, with no Access token: the doctor, the updater and
+                                # `phoenix service restart` call it; it shows only the version, tag and an origins digest
+
+
 def peer_refusal(handler) -> str:
-    """'' when the far end of the connection is a root process (cloudflared and code-server run as root); else
-    the plain refusal. The owner is looked up through the host adapter (/proc/net/tcp on the real host)."""
+    """'' when the far end of the connection is a process run by an allowed uid (access.peer_uids, default root:
+    cloudflared and code-server run as root); else the plain refusal. The owner is looked up through the host
+    adapter (/proc/net/tcp on the real host)."""
     try:
         uid = app.write_peer_uid(handler.client_address, handler.connection.getsockname())
     except Exception:
@@ -90,7 +96,12 @@ def peer_refusal(handler) -> str:
         uid = None
     if uid is None:
         return PEER_UNKNOWN
-    return "" if uid == 0 else NOT_ROOT
+    try:
+        allowed = app.allowed_peer_uids()
+    except Exception:
+        api_log(traceback.format_exc())
+        allowed = [0]
+    return "" if uid in allowed else NOT_ROOT
 
 
 def access_refusal(headers) -> str:
@@ -98,7 +109,7 @@ def access_refusal(headers) -> str:
     why = app.access_lock_problem(headers.get("Cf-Access-Jwt-Assertion"))
     if why is None:
         return ""
-    api_log(f"write refused by the Access lock: {why}")
+    api_log(f"request refused by the Access lock: {why}")
     return NO_ACCESS
 
 
@@ -145,9 +156,11 @@ def get_info(req):
 
 
 def get_health(req):
-    """Reply that the server is up (version and tag only; no ops call that can fail)."""
+    """Reply that the server is up: version, tag and a digest of the allowed origins only (any local program may
+    ask, so nothing else; no ops call that can fail)."""
     import phoenix9
-    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag, "origins": allowed_origins()}
+    return {"ok": True, "version": phoenix9.__version__, "tag": req.server.tag,
+            "origins_digest": app.origins_digest(allowed_origins())}
 
 
 def get_update(req):
@@ -883,7 +896,8 @@ def find_route(method: str, path: str):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """One request: guard (writes: header, origin, root peer, optional Access token), body, route, reply, log."""
+    """One request: guard (every route but GET /api/health: allowed peer uid, optional Access token; writes also
+    the header and origin), body, route, reply, log."""
     server_version = "phoenix-api"
 
     # ported from reference/selector/selector/server.py:119 (send_json)
@@ -943,13 +957,15 @@ class Handler(BaseHTTPRequestHandler):
         api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
 
     def dispatch(self, method):
-        if method in WRITE_METHODS:
-            if not self.guard_ok():
-                return self.fail(403, refusal(self.headers))
+        if not (method == "GET" and self.path_only.rstrip("/") in OPEN_PATHS):
             why = peer_refusal(self) or access_refusal(self.headers)
             if why:
                 self.close_connection = True  # don't read a body we refuse
                 return self.fail(403, why)
+        if method in WRITE_METHODS:
+            if not self.guard_ok():
+                self.close_connection = True
+                return self.fail(403, refusal(self.headers))
             if self.read_body() is None:
                 return
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":

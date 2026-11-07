@@ -24,9 +24,9 @@ PROBE_PROFILE = "python-script"
 CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
-    "quick": ("services", "service-home", "api", "origins", "home", "secrets", "disk"),
+    "quick": ("services", "service-home", "api", "origins", "upstream", "home", "secrets", "disk"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
-    "full": ("python", "library", "services", "service-home", "api", "origins", "home", "secrets", "images", "proxy-rule", "firewall",
+    "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files",
              "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "access"),
 }
@@ -180,22 +180,55 @@ def check_api(ctx):
 
 
 def check_origins(ctx):
-    """The page origins the running API allows (from /api/health) match the allowed_origins setting."""
+    """The page origins the running API allows (a digest in /api/health) match the allowed_origins setting."""
     from phoenix9 import addresses
     url = f"http://127.0.0.1:{api_port()}/api/health"
     want = addresses.read()["allowed_origins"]
     fix = "Restart the API with `phoenix service restart api --yes` so it picks up the setting."
     try:
         status, _, body = ctx.ad.http.request("GET", url, timeout=10)
-        served = health_fields(body).get("origins") if status == 200 else None
+        fields = health_fields(body) if status == 200 else {}
     except Exception:  # noqa: BLE001 - the api check reports why the API did not answer
-        served = None
-    if not isinstance(served, list):
+        fields = {}
+    digest, served = fields.get("origins_digest"), fields.get("origins")
+    if isinstance(digest, str) and digest:
+        ok = digest == addresses.origins_digest(want)
+        return _result(ok, f"the running API allows {', '.join(want)}" if ok else
+                       f"the running API allows different origins; the setting says {', '.join(want)}", fix)
+    if not isinstance(served, list):     # an API from before the digest sent the list itself
         return _result(False, "the running API did not say which origins it allows (old version or not answering)", fix)
     ok = sorted(served) == sorted(want)
     detail = (f"the running API allows {', '.join(served)}" if ok else
               f"the running API allows {', '.join(served) or 'nothing'}; the setting says {', '.join(want)}")
     return _result(ok, detail, fix)
+
+
+UPSTREAM_PROGRAMS = ("cloudflared", "code-server")   # what sits in front of the dashboard and connects to the API
+
+
+def check_upstream(ctx):
+    """The programs in front of the dashboard (cloudflared, code-server) run as a uid the API answers."""
+    allowed = access.peer_uids()
+    problem = access.peer_uids_problem()
+    found = {name: ctx.ad.host.program_uids(name) for name in UPSTREAM_PROGRAMS}
+    parts, bad = [], []
+    for name, uids in found.items():
+        for uid in uids:
+            parts.append(f"{name} runs as uid {uid}")
+            if uid not in allowed:
+                bad.append(f"{name} (uid {uid})")
+    allowed_text = ", ".join(str(u) for u in allowed)
+    setting = f"{paths.home()}/config/global.toml"
+    if problem:
+        return _result(False, problem, f"Fix access.peer_uids in {setting}, e.g. peer_uids = [0].")
+    if bad:
+        return _result(False, f"{'; '.join(parts)}: {', '.join(bad)} not allowed, so the dashboard is refused "
+                       f"(the API allows uid {allowed_text})",
+                       f"Run it as root, or add its uid to access.peer_uids in {setting}.")
+    if not parts:
+        return _result(True, f"cloudflared is not running (nothing in front of the dashboard to check; "
+                       f"the API allows uid {allowed_text})")
+    return _result(True, f"{'; '.join(parts)}; the API allows uid {allowed_text}")
 
 
 def _mode(path: Path) -> int:
@@ -497,20 +530,20 @@ def check_agent_folder(ctx):
 
 
 def check_access(ctx):
-    """The optional Cloudflare Access lock on dashboard writes: off, on, or half set up (a problem)."""
+    """The optional Cloudflare Access lock on the API (every route but /api/health): off, on, or half set up."""
     cfg = access.settings()
     if cfg["on"]:
-        return _result(True, f"writes need a Cloudflare Access token from {cfg['team_domain']}")
+        return _result(True, f"the dashboard needs a Cloudflare Access token from {cfg['team_domain']}")
     if cfg["team_domain"] or cfg["aud"]:
         missing = "aud" if cfg["team_domain"] else "team_domain"
         return _result(False, f"the Access lock is half set up: access.{missing} is missing, so it is off",
                        f"Add access.{missing} to {paths.home()}/config/global.toml, or remove the [access] table.")
-    return _result(True, "the optional Cloudflare Access lock is off (writes still need a root process on this server)")
+    return _result(True, "the optional Cloudflare Access lock is off (the API still answers only allowed uids on this server)")
 
 
 CHECKS = {"python": check_python, "library": check_library, "services": check_services,
           "service-home": check_service_home, "api": check_api,
-          "origins": check_origins,
+          "origins": check_origins, "upstream": check_upstream,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
           "project-links": check_project_links, "memory-files": check_memory_files,

@@ -8,7 +8,8 @@ import types
 import pytest
 
 from helpers import rsatest
-from phoenix9 import access, adapters, agentlink, paths
+from phoenix9 import access, adapters, addresses, agentlink, paths
+from phoenix9.api import server
 from phoenix9.ops import common
 from test_api_server import POST_HEADERS, api, dist, make_project  # noqa: F401  (fixtures)
 
@@ -37,9 +38,79 @@ def test_write_from_a_non_root_process_is_refused(api, fakes, monkeypatch):
     assert api("/api/projects", "POST", POST_HEADERS, {})[0] == 403
 
 
-def test_reads_do_not_need_a_root_peer(api, fakes):
+@pytest.mark.parametrize("path", ["/api/agent/messages", "/api/global", "/api/keys/audit", "/api/logs/read",
+                                  "/api/projects", "/api/nothing-here", "/", "/index.html"])
+def test_read_from_a_non_root_process_is_refused(api, fakes, path):
+    """Reads need a root peer too: another user's program gets 403 with the plain message (any route)."""
     fakes.host.peer_uid = 1000
+    status, body = api(path)
+    assert status == 403 and body == {"ok": False, "message": server.NOT_ROOT}
+
+
+@pytest.mark.parametrize("path", ["/api/events", "/api/agent/stream"])
+def test_live_streams_from_a_non_root_process_are_refused(api, fakes, path):
+    fakes.host.peer_uid = 1000
+    status, resp, content = api(path, raw=True)
+    assert status == 403 and json.loads(content)["message"] == server.NOT_ROOT
+    assert "text/event-stream" not in resp.headers.get("Content-Type", "")
+
+
+def test_read_from_an_unknown_peer_is_refused(api, fakes):
+    fakes.host.peer_uid = None
+    status, body = api("/api/global")
+    assert status == 403 and "couldn't tell" in body["message"]
+
+
+def test_read_from_a_root_peer_is_answered(api, fakes):
+    fakes.host.peer_uid = 0
+    assert api("/api/global")[0] == 200
+    assert api("/api/projects")[0] == 200
+
+
+@pytest.mark.parametrize("uid", [1000, 65534, None])
+def test_health_is_open_to_any_local_program(api, fakes, uid):
+    fakes.host.peer_uid = uid
     assert api("/api/health")[0] == 200
+    assert api("/api/health/")[0] == 200
+
+
+def test_health_reveals_only_version_tag_and_an_origins_digest(api, fakes):
+    """No settings values (not even the page origins): the doctor compares a digest of them."""
+    data = api("/api/health")[1]["data"]
+    assert set(data) == {"ok", "version", "tag", "origins_digest"}
+    assert data["origins_digest"] == addresses.origins_digest(server.allowed_origins())
+    assert len(data["origins_digest"]) == 16
+
+
+def test_health_does_not_open_other_methods_or_lookalike_paths(api, fakes):
+    fakes.host.peer_uid = 1000
+    assert api("/api/health", "POST", POST_HEADERS, {})[0] == 403
+    assert api("/api/healthz")[0] == 403
+    assert api("/api/health/../global")[0] == 403
+
+
+def test_peer_uids_setting_allows_other_uids(api, fakes):
+    """access.peer_uids (default [0]) lists the uids allowed at the far end; the older name write_peer_uids also works."""
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    gt = paths.home() / "config" / "global.toml"
+    fakes.host.peer_uid = 1000
+    assert access.peer_uids() == [0]
+    gt.write_text("[access]\npeer_uids = [0, 1000]\n")
+    assert access.peer_uids() == [0, 1000]
+    assert api("/api/global")[0] == 200
+    assert api("/api/anything", "POST", POST_HEADERS, {})[0] == 404
+    fakes.host.peer_uid = 0
+    gt.write_text("[access]\nwrite_peer_uids = [1000]\n")
+    assert access.peer_uids() == [1000]
+    assert api("/api/global")[0] == 403
+
+
+@pytest.mark.parametrize("bad", ['"0"', "[]", '["root"]', "[true]", "[-1]", "[0, 1.5]", "7"])
+def test_peer_uids_setting_that_is_wrong_falls_back_to_root_only(fakes, bad):
+    (paths.home() / "config").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "config" / "global.toml").write_text(f"[access]\npeer_uids = {bad}\n")
+    assert access.peer_uids() == [0]
+    assert access.peer_uids_problem()
 
 
 def test_unknown_peer_is_refused(api, fakes):
@@ -229,6 +300,16 @@ def test_lock_certs_refetched_after_an_hour(locked, key, monkeypatch):
     now[0] += 2
     assert access.verify(token, locked.http) is None
     assert [c["url"] for c in locked.http.calls].count(CERTS) == 2
+
+
+def test_lock_on_covers_reads_but_not_health(api, locked, key):
+    """With the lock on, every route but /api/health needs a valid token, reads and the web app included."""
+    for path in ("/api/global", "/api/agent/messages", "/", "/api/events"):
+        status, _resp, content = api(path, raw=True)
+        assert status == 403 and "Cloudflare Access" in json.loads(content)["message"]
+    assert api("/api/health")[0] == 200
+    headers = {"Cf-Access-Jwt-Assertion": rsatest.sign(key, "k1", claims())}
+    assert api("/api/global", headers=headers)[0] == 200
 
 
 def test_lock_certs_unreachable_refuses(api, locked, key):

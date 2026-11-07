@@ -1,4 +1,5 @@
-"""The optional Cloudflare Access lock on dashboard writes: a signed Cf-Access-Jwt-Assertion token (RS256).
+"""Who may use the API: the uids allowed at the far end (access.peer_uids, default root only), and the
+optional Cloudflare Access lock on every route but /api/health: a signed Cf-Access-Jwt-Assertion token (RS256).
 
 It is on only when global.toml has both [access] team_domain and aud. The team's public keys come from
 https://<team_domain>/cdn-cgi/access/certs and are kept for an hour. RS256 is checked with the standard
@@ -32,6 +33,39 @@ def settings() -> dict:
     aud = table.get("aud") if isinstance(table.get("aud"), str) else ""
     team, aud = team.strip().lower().removeprefix("https://").rstrip("/"), aud.strip()
     return {"team_domain": team, "aud": aud, "on": bool(team and aud)}
+
+
+DEFAULT_PEER_UIDS = [0]
+
+
+def _peer_uids_raw():
+    table = settings_mod.read_global().get("access")
+    table = table if isinstance(table, dict) else {}
+    for key in ("peer_uids", "write_peer_uids"):    # write_peer_uids: the first name for the same setting
+        if key in table:
+            return key, table[key]
+    return None, None
+
+
+def _peer_uids_ok(value) -> bool:
+    return (isinstance(value, list) and bool(value)
+            and all(type(u) is int and 0 <= u < 2 ** 32 for u in value))
+
+
+def peer_uids() -> list[int]:
+    """The uids allowed at the far end of an API connection: access.peer_uids in global.toml (the older name
+    access.write_peer_uids also works), default [0]. A setting that is not a non-empty list of uids is ignored
+    (root only), and the doctor says so."""
+    _key, value = _peer_uids_raw()
+    return sorted(set(value)) if _peer_uids_ok(value) else list(DEFAULT_PEER_UIDS)
+
+
+def peer_uids_problem() -> str:
+    """'' when access.peer_uids is unset or valid; else what is wrong with it (for the doctor)."""
+    key, value = _peer_uids_raw()
+    if key is None or _peer_uids_ok(value):
+        return ""
+    return f"access.{key} is not a list of uids (whole numbers such as [0]), so only root (uid 0) is allowed"
 
 
 def clear_cache() -> None:

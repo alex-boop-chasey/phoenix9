@@ -35,6 +35,10 @@ safety_files = [
   "deploy/install.sh",  # first install
   "deploy/phoenix-api.service",  # dashboard service unit
   "deploy/phoenix-runner.service",  # runner service unit
+  # Agent link
+  "phoenix9/agentlink.py",  # the only code that writes to the agent's socket
+  "phoenix9/transcript.py",  # reads the agent's untrusted output
+  "deploy/agent/agent-rules.md",  # the agent's own rulebook
   # The checks themselves
   "check.sh",  # the check command
   "check-browser.sh",  # the browser check command

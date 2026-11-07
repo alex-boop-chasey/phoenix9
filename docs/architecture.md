@@ -1365,3 +1365,11 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
 - `log` card (`project`, `id`, `tail` or `lines`): the last lines of `ops.logs.read` (already scrubbed). Count is clamped to 1-200 (default 50); `truncated` is true when lines were cut. Action: route `p/<name>/logs` with param `log`.
 - `diff` card (`project`, `id`): refuses logs whose kind is not `diff`. Data is `files: [{name, added, removed, lines}]` from at most 2000 lines.
 - `update` card (no query): data is `ops.update.status()`; actions are a route to `settings` (param `section: updates`) and, when an update is available, Install = `POST /api/update/install` body `{yes: true, tag: <newest>}` (as the Install button sends it), `confirm`, `danger`. Watches event types `["update"]`.
+
+### Inline cards: settings-preview, table, chart
+- Inline cards (`inline = True`) carry the agent's proposed content in `query`; their data has `footer: "proposed by the agent"`.
+- `settings-preview` (`project`, `set` with 1-20 dotted keys): rows `{key, before, after, ok, reason}`; `before` comes from
+  `ops.settings.show`, `ok`/`reason` from `ops.settings.dry_check` (the same validation as `set_many`, writes nothing).
+  Apply = `POST /api/projects/<name>/settings` body `{set: {...}}` with `confirm` listing the changes; absent when any row is not ok.
+- `table` (`columns` 1-8, `rows` at most 50 lists, one cell per column, text cut to 200 characters) and `chart`
+  (`kind` bars|spark, default bars; `series` of `{label, value}`, at most 20 for bars, 60 for spark) refuse bad shapes with a plain reason.

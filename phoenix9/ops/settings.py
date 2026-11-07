@@ -106,3 +106,15 @@ def check(project: str) -> dict:
     folder = common.project_dir(project)
     problems = core.check(folder, common.library())
     return {"project": project, "ok": not problems, "problems": problems}
+
+
+def dry_check(project: str, values: dict) -> list[dict]:
+    """Check a proposed change key by key as set_many would, writing nothing: [{key, ok, reason}]."""
+    common.project_dir(project)
+    lib = common.library()
+    rows = []
+    for key, value in values.items():
+        problems = core.flat_problems({key: value}, lib)
+        reason = "; ".join(p.removeprefix("phoenix.toml: ") for p in problems)
+        rows.append({"key": key, "ok": not problems, "reason": reason})
+    return rows

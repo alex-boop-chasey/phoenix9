@@ -181,17 +181,23 @@ def _tail_items(path, offset: int, count: int, sent: int):
     return [(kind, item) for _, kind, item in found], new_offset, new_count, new_count
 
 
-def item_frame(item: dict) -> bytes:
-    """One server-sent event for a panel item: id = transcript line, name = item."""
-    return b"id: %d\nevent: item\ndata: %s\n\n" % (item["line"], json.dumps(item).encode())
+def event_id(session, line: int) -> bytes:
+    """The SSE id of a panel frame: <session id>:<transcript line>."""
+    sid = str(session or "").replace("\n", "").replace("\r", "").replace(":", "")
+    return ("%s:%d" % (sid, line)).encode()
 
 
-def update_frame(item: dict) -> bytes:
-    """The server-sent event for an action, already sent, that has now finished: id = the line that finished
-    it, name = update, data = {type: update, id: the action's tool id, line, status, excerpt}."""
+def item_frame(item: dict, session=None) -> bytes:
+    """One server-sent event for a panel item: id = <session>:<transcript line>, name = item."""
+    return b"id: %s\nevent: item\ndata: %s\n\n" % (event_id(session, item["line"]), json.dumps(item).encode())
+
+
+def update_frame(item: dict, session=None) -> bytes:
+    """The server-sent event for an action, already sent, that has now finished: id = <session>:<the line that
+    finished it>, name = update, data = {type: update, id: the action's tool id, line, status, excerpt}."""
     data = {"type": "update", "id": item["id"], "line": item["line"], "status": item["status"],
             "excerpt": item.get("excerpt", "")}
-    return b"id: %d\nevent: update\ndata: %s\n\n" % (item["done_line"], json.dumps(data).encode())
+    return b"id: %s\nevent: update\ndata: %s\n\n" % (event_id(session, item["done_line"]), json.dumps(data).encode())
 
 
 def session_frame(session_id) -> bytes:
@@ -199,18 +205,37 @@ def session_frame(session_id) -> bytes:
     return b"event: session\ndata: %s\n\n" % json.dumps({"session_id": session_id}).encode()
 
 
+def resume_line(handler, session) -> int | None:
+    """The transcript line to resume after: ?after=<n> (this session), or a Last-Event-ID of <session>:<n> whose
+    session is the current one; None means start at the end (no resume asked); -1 means the asked-for session is
+    not this one, so start at line 0 with a session frame."""
+    after = (handler.query.get("after") or "").strip()
+    if after:
+        return int(after) if after.isdigit() else None
+    last = handler.headers.get("Last-Event-ID", "").strip()
+    if not last:
+        return None
+    sid, _, line = last.rpartition(":")
+    if sid and session and sid == str(session) and line.isdigit():
+        return int(line)
+    return -1
+
+
 def agent_stream(handler) -> None:
-    """The body of GET /api/agent/stream: panel items as the agent's transcript grows, a frame when the session changes."""
-    after = handler.query.get("after") or handler.headers.get("Last-Event-ID", "").strip()
+    """The body of GET /api/agent/stream: panel items (and action updates) as the agent's transcript grows, a frame
+    when the session changes."""
     found = agentlink.find()
     session = found["session_id"] if found else None
     path = found["transcript"] if found else None
+    resume = resume_line(handler, session)
     offset = count = 0
     if path:
-        offset, count = position_after(path, int(after) if after.isdigit() else 1 << 62)
+        offset, count = position_after(path, 1 << 62 if resume is None else max(resume, 0))
     sent = count
     tail, ping = _tail_seconds(), _ping_seconds()
     out = start(handler)
+    if resume == -1 and session is not None:
+        out.write(session_frame(session))
     last_write = time.monotonic()
     stopping = handler.server.stopping
     while not stopping.is_set():
@@ -223,7 +248,7 @@ def agent_stream(handler) -> None:
         if path:
             found, offset, count, sent = _tail_items(path, offset, count, sent)
             for kind, item in found:
-                out.write(item_frame(item) if kind == "item" else update_frame(item))
+                out.write(item_frame(item, session) if kind == "item" else update_frame(item, session))
                 last_write = time.monotonic()
         if time.monotonic() - last_write >= ping:
             out.write(b": ping\n\n")

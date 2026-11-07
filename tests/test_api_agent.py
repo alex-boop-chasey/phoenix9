@@ -167,7 +167,7 @@ def test_stream_sends_only_new_items(live, tmp_session):
     read_until(resp, ": connected")
     add(tmp_session["path"]("a"), say("assistant", "fresh answer", 1))
     got = read_until(resp, "fresh answer")
-    assert "id: 2\nevent: item" in got and "old" not in got
+    assert "id: a:2\nevent: item" in got and "old" not in got
     conn.close()
 
 
@@ -176,7 +176,7 @@ def test_stream_resumes_after_a_line(live, tmp_session):
     add(tmp_session["path"]("a"), say("user", "one", 0), say("assistant", "two", 1))
     conn, resp = open_stream(live[1], "/api/agent/stream?after=1")
     got = read_until(resp, "two")
-    assert "id: 2" in got and "one" not in got
+    assert "id: a:2" in got and "one" not in got
     conn.close()
 
 
@@ -189,7 +189,7 @@ def test_stream_session_change(live, tmp_session):
     tmp_session["id"] = "b"
     got = read_until(resp, "new session")
     assert "event: session\ndata: {\"session_id\": \"b\"}" in got
-    assert "id: 1\nevent: item" in got
+    assert "id: b:1\nevent: item" in got
     conn.close()
 
 
@@ -245,4 +245,23 @@ def test_stream_resume_sends_updates_for_actions_finished_after_that_point(live,
     got = read_until(resp, "finished")
     [update] = frames(got, "update")
     assert update["id"] == "t1" and update["status"] == "error" and update["excerpt"] == "finished"
+    conn.close()
+
+
+def test_stream_last_event_id_resumes_in_the_same_session(live, tmp_session):
+    add(tmp_session["path"]("a"), say("user", "one", 0, "a"), say("assistant", "two", 1, "a"))
+    conn, resp = open_stream(live[1], headers={"Last-Event-ID": "a:1"})
+    got = read_until(resp, "two")
+    assert "id: a:2" in got and "one" not in got and "event: session" not in got
+    conn.close()
+
+
+@pytest.mark.parametrize("last", ["old:3", "3", "a:x", ":3"])
+def test_stream_last_event_id_from_another_session_starts_at_the_beginning(live, tmp_session, last):
+    """A Last-Event-ID from an earlier session (or with no session) is not applied to this transcript."""
+    add(tmp_session["path"]("a"), *[say("user", "b%d" % i, i, "a") for i in range(5)])
+    conn, resp = open_stream(live[1], headers={"Last-Event-ID": last})
+    got = read_until(resp, "b4")
+    assert got.index("event: session") < got.index("id: a:1")
+    assert all("id: a:%d" % n in got for n in range(1, 6))
     conn.close()

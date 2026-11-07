@@ -1,5 +1,6 @@
 """Fake adapters for tests: nothing here touches the real server."""
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -110,6 +111,25 @@ class FakeHost:
     def read_lines(self, path):
         """Lines of a file in .files ([] when absent)."""
         return self.files.get(str(path), "").splitlines(keepends=True)
+
+    def _guard(self, path):
+        """Refuse to delete anything outside the test's own Phoenix folders."""
+        roots = [os.environ.get(k) for k in ("PHOENIX_HOME", "PHOENIX_PROJECTS", "PHOENIX_DELETED")]
+        real = os.path.realpath(path)
+        if not any(r and real.startswith(os.path.realpath(r) + os.sep) for r in roots):
+            raise AssertionError(f"test tried to delete outside its temp folders: {path}")
+
+    def remove_tree(self, path):
+        """Really delete a folder, but only inside the test's temp Phoenix folders."""
+        self._guard(path)
+        self.calls.append(["remove_tree", str(path)])
+        shutil.rmtree(path, ignore_errors=True)
+
+    def remove_file(self, path):
+        """Really delete a file, but only inside the test's temp Phoenix folders."""
+        self._guard(path)
+        self.calls.append(["remove_file", str(path)])
+        Path(path).unlink(missing_ok=True)
 
     def du_bytes(self, path):
         """Return the size set in .sizes (default 0)."""

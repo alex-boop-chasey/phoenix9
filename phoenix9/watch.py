@@ -10,7 +10,7 @@ from pathlib import Path
 
 from phoenix9 import agentwatch, atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import projectchat, settings
+from phoenix9 import project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
 
 MAX_CRASHES = 3          # a run that crashes the loop this many times in a row is failed
@@ -291,6 +291,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             watch_once(adapters, runner, memory)
             check_agent(adapters, memory)
             check_chats(adapters, memory)
+            project_delete.prune_backups(adapters, adapters.clock.now())
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

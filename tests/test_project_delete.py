@@ -1,4 +1,5 @@
 """Delete project, dry run: the plan lists everything that would go and the refusals; nothing is touched."""
+import datetime
 import json
 import subprocess
 
@@ -200,3 +201,138 @@ def test_ops_delete_plan_uses_given_caller(env):
     make(env, "alpha")
     assert projects.delete_plan("alpha", "agent")["refusals"]
     assert projects.delete_plan("alpha", "dashboard")["refusals"] == []
+
+
+# ---- safety copy ----
+
+from phoenix9.ops.common import OpsError  # noqa: E402
+
+
+def _project_with_stuff(env, name="alpha"):
+    """A project with a real repo, an untracked file, caches, notes, a run and a work folder."""
+    folder = make(env, name, meta={"repo": "me/alpha"})
+    git_repo(folder / "code")
+    host_git(env["host"], folder)
+    code = folder / "code"
+    (code / "local.txt").write_text("untracked")
+    (code / "node_modules" / "x").mkdir(parents=True)
+    (code / "node_modules" / "x" / "i.js").write_text("x")
+    (code / "src" / "__pycache__").mkdir(parents=True)
+    (code / "src" / "__pycache__" / "m.pyc").write_text("x")
+    (code / "dist").mkdir()
+    (code / "dist" / "o.js").write_text("x")
+    (folder / "notes" / "n.md").write_text("note")
+    make_run(name, "r1", "passed")
+    (paths.home() / "work" / name / "r1").mkdir(parents=True)
+    (paths.home() / "work" / name / "r1" / "w.txt").write_text("w")
+    return folder
+
+
+def _names(tar_path):
+    import tarfile
+    with tarfile.open(tar_path) as t:
+        return t.getnames()
+
+
+def test_backup_makes_all_files(env, tmp_path):
+    folder = _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    assert dest.parent == paths.deleted_projects() and dest.name.startswith("alpha-1970")
+    assert (dest.stat().st_mode & 0o777) == 0o700
+    assert sorted(p.name for p in dest.iterdir()) == ["RESTORE.md", "files.tar.gz", "manifest.json", "repo.bundle", "runs.tar.gz"]
+    ok = subprocess.run(["git", "bundle", "verify", str(dest / "repo.bundle")], cwd=folder / "code",
+                        capture_output=True)
+    assert ok.returncode == 0
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(dest / "repo.bundle"), str(clone)], check=True, capture_output=True)
+    assert (clone / "a.txt").read_text() == "a"
+    assert "git" in (dest / "RESTORE.md").read_text()
+    for call in env["host"].calls:
+        if call[0] == "git":
+            assert call[1:5] == ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+
+
+def test_backup_files_untracked_in_caches_out(env):
+    _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    names = _names(dest / "files.tar.gz")
+    assert "notes/n.md" in names and "code/local.txt" in names and "CLAUDE.md" in names
+    assert "code/a.txt" not in names                       # tracked: it is in the bundle
+    assert not [n for n in names if "node_modules" in n or "__pycache__" in n or "dist" in n or ".git/" in n]
+
+
+def test_backup_runs_tar(env):
+    _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    names = _names(dest / "runs.tar.gz")
+    assert "runs/alpha/r1/state.json" in names and "work/alpha/r1/w.txt" in names
+
+
+def test_backup_manifest(env):
+    folder = _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "dashboard", env["fakes"])
+    m = json.loads((dest / "manifest.json").read_text())
+    assert m["name"] == "alpha" and m["folder"] == str(folder) and m["who"] == "dashboard"
+    assert m["repo"] == "me/alpha" and m["repo_url"] == "me/alpha"
+    assert m["when"] == "1970-01-01T00:16:40Z"
+    assert "repo.bundle" in m["files"] and "manifest.json" in m["files"]
+    assert m["plan"]["name"] == "alpha" and m["plan"]["runs"]["count"] == 1
+
+
+def test_backup_without_git_skips_bundle(env):
+    folder = make(env, "plain")
+    (folder / "code").mkdir()
+    (folder / "code" / "f.txt").write_text("f")
+    dest = project_delete.backup("plain", "cli", env["fakes"])
+    assert not (dest / "repo.bundle").exists()
+    assert "code/f.txt" in _names(dest / "files.tar.gz")
+    assert json.loads((dest / "manifest.json").read_text())["notes"]
+
+
+def test_backup_failure_leaves_nothing(env):
+    _project_with_stuff(env)
+    real = env["host"].run
+
+    def fail_verify(argv, timeout=60, cwd=None):
+        if "verify" in argv:
+            return 1, "", "bad bundle"
+        return real(argv, timeout, cwd)
+    env["host"].run = fail_verify
+    with pytest.raises(OpsError, match="bundle"):
+        project_delete.backup("alpha", "cli", env["fakes"])
+    assert list(paths.deleted_projects().iterdir()) == []
+
+
+def test_backup_unknown_project_leaves_nothing(env):
+    with pytest.raises(NotFound):
+        project_delete.backup("nope", "cli", env["fakes"])
+    assert not paths.deleted_projects().exists() or list(paths.deleted_projects().iterdir()) == []
+
+
+def _fake_copy(name, stamp):
+    d = paths.deleted_projects() / f"{name}-{stamp}"
+    d.mkdir(parents=True)
+    (d / "manifest.json").write_text("{}")
+    return d
+
+
+def test_prune_keeps_new_removes_old(env, monkeypatch):
+    old, new = _fake_copy("a", "20260901-1000"), _fake_copy("b", "20261105-1000")
+    other = paths.deleted_projects() / "not-a-copy"
+    other.mkdir()
+    now = datetime.datetime(2026, 11, 7, tzinfo=datetime.timezone.utc).timestamp()
+    assert project_delete.prune_backups(env["fakes"], now) == ["a-20260901-1000"]
+    assert not old.exists() and new.exists() and other.exists()
+
+
+def test_prune_uses_keep_days_setting(env):
+    (env["home"] / "config").mkdir()
+    (env["home"] / "config" / "global.toml").write_text("[delete]\nkeep_days = 1\n")
+    new = _fake_copy("b", "20261105-1000")
+    now = datetime.datetime(2026, 11, 7, tzinfo=datetime.timezone.utc).timestamp()
+    project_delete.prune_backups(env["fakes"], now)
+    assert not new.exists()
+
+
+def test_prune_without_folder(env):
+    assert project_delete.prune_backups(env["fakes"], 1e9) == []

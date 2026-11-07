@@ -1,6 +1,10 @@
-"""Delete a project entirely: the dry-run plan that shows exactly what would go (nothing is touched)."""
+"""Delete a project entirely: the dry-run plan, and the safety copy written before anything goes."""
 import json
+import os
 import re
+import tarfile
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from phoenix9 import deploy, git, keys, paths, project, projectchat, runs, settings, status
 from phoenix9.ops import common
@@ -9,6 +13,11 @@ from phoenix9.project_removal import PROTECTED
 ALLOWED_CALLERS = ("dashboard", "cli")
 STILL_LIVE = "still live, take it down yourself"
 NEWEST_RUNS = 5
+STAMP_FORMAT = "%Y%m%d-%H%M"
+STAMP_RE = re.compile(r"-(\d{8}-\d{4})$")
+CACHE_DIRS = {"node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", ".nuxt", ".cache",
+              ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", ".gradle", "target", ".parcel-cache",
+              ".turbo", ".svelte-kit", ".eggs"}
 URL_RE = re.compile(r"^https?://\S+$")
 
 
@@ -116,3 +125,187 @@ def plan(name: str, who: str, adapters) -> dict:
     if note:
         result["open_prs_note"] = note
     return result
+
+
+def _stamp(now: float) -> str:
+    """The date and time (UTC) as YYYYMMDD-HHMM."""
+    return datetime.fromtimestamp(now, timezone.utc).strftime(STAMP_FORMAT)
+
+
+def _skip(rel_parts) -> bool:
+    """True when any folder on this path is a cache or build folder."""
+    return any(part in CACHE_DIRS or part.endswith(".egg-info") for part in rel_parts[:-1]) or rel_parts[-1] in CACHE_DIRS
+
+
+def _untracked(host, code: Path) -> list:
+    """Paths (relative to code/) that git does not track, ignored ones too; raises OpsError if git fails."""
+    rc, out, err = host.run(git.git_argv("-C", str(code), "ls-files", "-z", "--others"))
+    if rc != 0:
+        raise common.OpsError(f"git could not list the untracked files: {(err or out).strip()[:200]}")
+    return [p for p in out.split("\0") if p]
+
+
+def _walk(base: Path):
+    """Every file and symlink under base (as paths), not following links and skipping cache folders."""
+    for root, dirs, files in os.walk(base):
+        rel = Path(root).relative_to(base).parts
+        dirs[:] = [d for d in dirs if not _skip((*rel, d))]
+        for f in files:
+            yield Path(root) / f
+        for d in list(dirs):
+            if (Path(root) / d).is_symlink():
+                dirs.remove(d)
+                yield Path(root) / d
+
+
+def _project_files(host, folder: Path) -> list:
+    """Paths (relative to the project folder) for files.tar.gz: everything but code/'s tracked files and caches."""
+    out = []
+    for entry in sorted(folder.iterdir()):
+        if entry.name == "code" and entry.is_dir() and not entry.is_symlink():
+            if (entry / ".git").exists():
+                found = [entry / p for p in _untracked(host, entry)]
+            else:
+                found = list(_walk(entry))
+        elif entry.is_dir() and not entry.is_symlink():
+            found = list(_walk(entry)) if entry.name not in CACHE_DIRS else []
+        else:
+            found = [entry]
+        out += [p.relative_to(folder) for p in found if not _skip(p.relative_to(folder).parts) and (p.exists() or p.is_symlink())]
+    return out
+
+
+def _write_tar(dest: Path, base: Path, rels: list) -> list:
+    """Write a .tar.gz of these paths (relative to base); returns the names stored."""
+    names = []
+    with tarfile.open(dest, "w:gz") as tar:
+        for rel in rels:
+            tar.add(base / rel, arcname=str(rel), recursive=False)
+            names.append(str(rel))
+    return names
+
+
+def _run_files(name: str) -> list:
+    """(arcname, path) for each folder that goes in runs.tar.gz: Phoenix's run folders and any work folders."""
+    return [(Path(kind) / name, base) for kind, base in (("runs", paths.runs(name)), ("work", paths.home() / "work" / name))
+            if base.is_dir()]
+
+
+def _write_runs_tar(dest: Path, name: str) -> int:
+    """Write runs.tar.gz (HOME/runs/<name> and HOME/work/<name>); returns how many files it holds."""
+    count = 0
+    with tarfile.open(dest, "w:gz") as tar:
+        for arc, base in _run_files(name):
+            for f in _walk(base):
+                tar.add(f, arcname=str(arc / f.relative_to(base)), recursive=False)
+                count += 1
+    return count
+
+
+def _bundle(host, code: Path, dest: Path) -> str:
+    """Write repo.bundle for code/ and verify it; returns a note ('' when it worked, why it was skipped otherwise)."""
+    if not (code / ".git").exists():
+        return "There is no git repo, so repo.bundle was skipped."
+    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "create", str(dest), "--all"), timeout=600)
+    if rc != 0:
+        raise common.OpsError(f"git could not bundle the code: {(err or out).strip()[:200]}")
+    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "verify", str(dest)), timeout=600)
+    if rc != 0 or not dest.is_file():
+        raise common.OpsError(f"the code bundle did not check out: {(err or out).strip()[:200]}")
+    return ""
+
+
+def _restore_text(name: str, folder: str, repo: str | None, bundle: bool) -> str:
+    """The plain steps for RESTORE.md."""
+    steps = [f"# Restore {name}", "",
+             f"This is a safety copy of the project {name}, made before it was deleted from {folder}.", ""]
+    n = 1
+    if bundle:
+        steps += [f"{n}. Make the folder and clone the code from the bundle:",
+                  f"   `mkdir -p {folder} && git clone repo.bundle {folder}/code`"]
+    else:
+        steps += [f"{n}. Make the folder: `mkdir -p {folder}`"]
+    n += 1
+    steps += [f"{n}. Unpack the notes and untracked files into it: `tar -xzf files.tar.gz -C {folder}`"]
+    n += 1
+    steps += [f"{n}. Optional: put the build history back: `tar -xzf runs.tar.gz -C <Phoenix home>` "
+              "(run folders go to runs/, work folders to work/)."]
+    n += 1
+    where = repo or "<owner>/<name>"
+    steps += [f"{n}. Recreate the GitHub repo and push: `gh repo create {where} --private --source {folder}/code --push`"
+              if bundle else f"{n}. Create the GitHub repo again if you want one: `gh repo create {where} --private`"]
+    n += 1
+    steps += [f"{n}. In Phoenix, use Import and pick {folder}.", ""]
+    return "\n".join(steps)
+
+
+def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
+    """Fill the safety-copy folder; raises on any problem (the caller cleans up)."""
+    folder = common.project_dir(name)
+    host = adapters.host
+    plan_ = plan(name, who, adapters)
+    note = _bundle(host, folder / "code", dest / "repo.bundle")
+    rels = _project_files(host, folder)
+    stored = _write_tar(dest / "files.tar.gz", folder, rels)
+    run_count = _write_runs_tar(dest / "runs.tar.gz", name)
+    repo = plan_["repo"]
+    has_bundle = (dest / "repo.bundle").is_file()
+    manifest = {"name": name, "folder": str(folder), "repo": repo,
+                "repo_url": project.repo_of(folder) or (f"https://github.com/{repo}" if repo else ""),
+                "who": who, "when": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "files": sorted(p.name for p in dest.iterdir()) + ["manifest.json", "RESTORE.md"],
+                "files_stored": stored, "run_files": run_count, "notes": [note] if note else [], "plan": plan_}
+    manifest["files"] = sorted(set(manifest["files"]))
+    (dest / "RESTORE.md").write_text(_restore_text(name, str(folder), repo, has_bundle), encoding="utf-8")
+    (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+
+def backup(name: str, who: str, adapters) -> Path:
+    """Write the safety copy of a project under paths.deleted_projects(); on any error remove it and raise OpsError."""
+    now = adapters.clock.now()
+    root = paths.deleted_projects()
+    dest = root / f"{name}-{_stamp(now)}"
+    try:
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        dest.mkdir(mode=0o700)
+        os.chmod(dest, 0o700)
+    except FileExistsError:
+        raise common.OpsError(f"A safety copy named {dest.name} already exists. Wait a minute and try again.")
+    except OSError as e:
+        raise common.OpsError(f"Could not make the safety-copy folder {dest}: {e}")
+    try:
+        _make_copy(name, who, adapters, dest, now)
+    except Exception as e:
+        adapters.host.remove_tree(dest)
+        if isinstance(e, common.OpsError):
+            raise
+        raise common.OpsError(f"The safety copy failed, so nothing was deleted: {e}") from e
+    return dest
+
+
+def _copy_time(entry: Path) -> float | None:
+    """When a safety copy was made (from its folder name, UTC seconds), or None if it is not one of ours."""
+    m = STAMP_RE.search(entry.name)
+    if not m or not (entry / "manifest.json").is_file():
+        return None
+    try:
+        return datetime.strptime(m.group(1), STAMP_FORMAT).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        return None
+
+
+def prune_backups(adapters, now: float) -> list:
+    """Remove safety copies older than delete.keep_days; returns the names removed."""
+    root = paths.deleted_projects()
+    cutoff = now - timedelta(days=settings.delete_settings()["keep_days"]).total_seconds()
+    removed = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        made = _copy_time(entry) if entry.is_dir() and not entry.is_symlink() else None
+        if made is not None and made < cutoff:
+            adapters.host.remove_tree(entry)
+            removed.append(entry.name)
+    return removed

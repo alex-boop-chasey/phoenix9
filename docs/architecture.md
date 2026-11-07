@@ -820,6 +820,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   (never values), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home, an active
   build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
   (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
+  `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
+  with a note when there is no git repo), `files.tar.gz` (notes and untracked files, no caches), `runs.tar.gz`
+  (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
+  copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
+  (default 30); the runner loop calls it once per pass.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 

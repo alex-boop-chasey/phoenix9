@@ -531,9 +531,17 @@ def agent_transcript_lines() -> list:
 
 def _seed_agent(home: Path) -> None:
     """A fake live Phoenix agent: a registry entry, its transcript, and one earlier conversation."""
-    from phoenix9 import agentlink, settings
+    from phoenix9 import agentlink, paths, settings, tomlw
     base = claude_home(home)
-    folder = settings.agent_settings()["folder"]
+    # The demo agent lives in the demo projects folder, never /srv/projects/home: on the server /srv/projects
+    # is a symlink, so a path under it resolves differently from the demo host's view (found when the
+    # updater's test copy ran this on the server).
+    folder = str(paths.projects() / "home")
+    Path(folder).mkdir(parents=True, exist_ok=True)
+    data = dict(settings.read_global())
+    data["agent"] = {**(data.get("agent") if isinstance(data.get("agent"), dict) else {}), "folder": folder}
+    (paths.config()).mkdir(parents=True, exist_ok=True)
+    tomlw.dump(paths.config() / "global.toml", data)
     entry = {"pid": AGENT_PID, "cwd": folder, "name": agentlink.AGENT_NAME, "status": "idle",
              "messagingSocketPath": AGENT_SOCKET, "kind": "interactive", "sessionId": AGENT_SESSION,
              "startedAt": 1793959200000}

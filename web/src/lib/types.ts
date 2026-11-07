@@ -147,12 +147,13 @@ export interface ImportResult { name: string; path: string; repo: string | null;
 export interface DeleteLink { target: string; note: string; links: string[] }
 export interface DeletePlan {
   name: string; folder: string; size: number; repo: string | null
+  repo_delete?: { repo: string | null; delete: boolean; why: string }
   open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
   unpushed: number; runs: { count: number }; keys: string[]
   chat: { unit: string; state: string }; deployments: DeleteLink[]
   refusals: string[]; safety_copy: string
 }
-export interface DeleteStep { step: string; ok: boolean; words: string }
+export interface DeleteStep { step: string; ok: boolean; words: string; kept?: boolean }
 export interface DeleteResult {
   name: string; backup: string; steps: DeleteStep[]
   not_done: { what: string; how: string }[]; still_live?: DeleteLink[]

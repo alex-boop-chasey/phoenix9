@@ -40,7 +40,10 @@ function PlanView({ plan }: { plan: DeletePlan }) {
       <p>This cannot be undone. A safety copy is written to <code>{plan.safety_copy}</code> first, and kept for 30 days.</p>
       <ul>
         <li>Folder <code>{plan.folder}</code> ({formatBytes(plan.size)})</li>
-        <li>{plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}</li>
+        <li>
+          {plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}
+          {plan.repo && plan.repo_delete ? <span className="help" data-testid="repo-verdict"> ({plan.repo_delete.why})</span> : null}
+        </li>
         <li>
           {plan.open_prs.length ? plural(plan.open_prs.length, "open merge request", "open merge requests") : "No open merge requests"}
           {plan.open_prs.map((p) => <span key={p.number}> · <a href={p.url} target="_blank" rel="noreferrer">#{p.number} {p.title}</a></span>)}
@@ -63,7 +66,7 @@ function ResultView({ result, onRepo, retrying }: { result: DeleteResult; onRepo
     <div className="stackg" aria-label="Result">
       <p>Safety copy: <code>{result.backup}</code></p>
       <ul>
-        {result.steps.map((s) => <li key={s.step}>{s.ok ? "Done" : "Not done"}: {s.step}. {s.words}</li>)}
+        {result.steps.map((s) => <li key={s.step}>{s.kept ? "Kept" : s.ok ? "Done" : "Not done"}: {s.step}. {s.words}</li>)}
       </ul>
       {result.not_done.length > 0 && (
         <div role="alert">

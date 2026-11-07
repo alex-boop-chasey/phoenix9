@@ -131,3 +131,17 @@ test("an error from the server is shown and nothing is claimed deleted", async (
   expect(await screen.findByText("The safety copy failed. Nothing was deleted.")).toBeInTheDocument()
   expect(screen.queryByText(/Safety copy:/)).toBeNull()
 })
+
+test("a GitHub repo that is not the project's own is shown as kept", async () => {
+  const why = "GitHub repo me/demo not deleted: it is not this project's own repo."
+  const kept: DeleteResult = { ...done, steps: [done.steps[0]!, { step: "GitHub repo", ok: true, kept: true, words: why }] }
+  await open({
+    "GET /api/projects/demo/delete-plan": { ...plan, repo_delete: { repo: "me/demo", delete: false, why } },
+    "POST /api/projects/demo/delete": kept,
+  })
+  expect(await screen.findByTestId("repo-verdict")).toHaveTextContent(why)
+  await userEvent.type(await screen.findByLabelText("Type demo to confirm"), "demo")
+  await userEvent.click(deleteButton())
+  expect(await screen.findByText(/Kept: GitHub repo/)).toBeInTheDocument()
+  expect(screen.queryByRole("button", { name: "Delete repo" })).toBeNull()
+})

@@ -24,10 +24,74 @@ UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
 SCOPE_WORDS = ("delete_repo", "403")
 
 
+OWN_SOURCES = ("empty", "template")   # project.json sources where Phoenix itself made the GitHub repo
+
+
 def _repo(folder) -> str | None:
-    """The project's GitHub repo as owner/name, or None."""
+    """The project's GitHub repo as owner/name, or None (shown in the plan; NOT proof the project owns it)."""
     parts = project.split_repo(project.repo_of(folder))
     return f"{parts['owner']}/{parts['name']}" if parts["owner"] else None
+
+
+def _key(repo) -> str | None:
+    """owner/name in lower case for comparing repos (GitHub names ignore case), or None."""
+    parts = project.split_repo(str(repo or ""))
+    return f"{parts['owner']}/{parts['name']}".lower() if parts["owner"] else None
+
+
+def _git_out(host, where, *args) -> str | None:
+    """The trimmed output of one git command in `where` (through the host adapter), or None when it fails."""
+    rc, out, _ = host.run(git.git_argv("-C", str(where), *args))
+    return out.strip() if rc == 0 else None
+
+
+def _users_of(key: str, name: str, host) -> list:
+    """Who else points at this repo: other listed projects, removed-projects rows, the projects folder's own repo."""
+    users = []
+    for other in project.project_names():
+        if other == name:
+            continue
+        try:
+            theirs = project.repo_of(paths.projects() / other)
+        except Exception:       # an unreadable project might use it: count it, to be safe
+            theirs = key
+        if _key(theirs) == key:
+            users.append(f"project {other}")
+    users += [f"removed project {r['name']}" for r in removed_list()
+              if r["name"] != name and _key(r.get("repo")) == key]
+    if _key(_git_out(host, paths.projects(), "remote", "get-url", "origin")) == key:
+        users.append(f"the projects folder {paths.projects()}")
+    return users
+
+
+def repo_verdict(name: str, folder: Path, host) -> dict:
+    """Whether Phoenix may delete the project's GitHub repo: {repo, delete, why}.
+
+    Only when every rule holds: Phoenix created the repo (project.json source empty/template with the repo
+    recorded), code/ is its own git repo (not a plain folder inside a parent repo), code/'s origin is that repo,
+    and no other project, removed-projects row or the projects folder's own repo points at it."""
+    shown = _repo(folder)
+    if not shown:
+        return {"repo": None, "delete": False, "why": "There is no GitHub repo."}
+
+    def keep(why: str) -> dict:
+        return {"repo": shown, "delete": False, "why": f"GitHub repo {shown} not deleted: it {why}."}
+    meta = project._meta(folder)
+    key = _key(meta.get("repo"))
+    if meta.get("source") not in OWN_SOURCES or not key or key != _key(shown):
+        return keep("was not created by Phoenix")
+    code = folder / "code"
+    if code.is_symlink() or not code.is_dir():
+        return keep("is not this project's own repo")
+    top = _git_out(host, code, "rev-parse", "--show-toplevel")
+    if not top or os.path.realpath(top) != os.path.realpath(code):
+        return keep("is not this project's own repo")
+    if _key(_git_out(host, code, "remote", "get-url", "origin")) != key:
+        return keep("is not this project's own repo")
+    users = _users_of(key, name, host)
+    if users:
+        return keep(f"is shared (also used by {', '.join(users)})")
+    return {"repo": shown, "delete": True, "why": f"GitHub repo {shown} will be deleted."}
 
 
 def _open_prs(host, repo: str | None) -> tuple[list, str]:
@@ -120,7 +184,7 @@ def plan(name: str, who: str, adapters) -> dict:
     prs, note = _open_prs(host, repo)
     chat = _chat(name, adapters)
     result = {"name": name, "folder": str(folder), "size": host.du_bytes(folder), "repo": repo,
-              "open_prs": prs, "unpushed": _unpushed(host, folder), "runs": _runs(name),
+              "repo_delete": repo_verdict(name, folder, host), "open_prs": prs, "unpushed": _unpushed(host, folder), "runs": _runs(name),
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
               "refusals": _refusals(name, who, chat["state"]),
@@ -257,7 +321,8 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
                 "repo_url": project.repo_of(folder) or (f"https://github.com/{repo}" if repo else ""),
                 "who": who, "when": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "files": sorted(p.name for p in dest.iterdir()) + ["manifest.json", "RESTORE.md"],
-                "files_stored": stored, "run_files": run_count, "notes": [note] if note else [], "plan": plan_}
+                "files_stored": stored, "run_files": run_count, "notes": [note] if note else [],
+                "repo_delete": plan_["repo_delete"], "plan": plan_}
     manifest["files"] = sorted(set(manifest["files"]))
     (dest / "RESTORE.md").write_text(_restore_text(name, str(folder), repo, has_bundle), encoding="utf-8")
     (dest / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
@@ -390,7 +455,8 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
         raise common.OpsError(f"Type the project's name ({name}) to confirm. Nothing was deleted.")
     live = _deployments(name, folder)
     dest = backup(name, who, adapters)
-    repo = _repo(folder)
+    verdict = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))["repo_delete"]
+    repo = verdict["repo"]
     host = adapters.host
     steps, not_done = [], []
     common.record_command(who, f"project delete {name}: safety copy written to {dest}", name)
@@ -420,7 +486,7 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
     _step(steps, who, name, "saved keys", remove_keys)
     _step(steps, who, name, "folder trust", trust)
     _step(steps, who, name, "removed list and INDEX.md", lambda: _forget(name))
-    _github_step(steps, not_done, who, name, repo, host)
+    _github_step(steps, not_done, who, name, verdict, host)
     events.emit("project.deleted", project=name, who=who, backup=str(dest), repo=repo)
     for s in steps:
         if not s["ok"] and s["step"] != "GitHub repo":
@@ -428,8 +494,16 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
     return {"name": name, "backup": str(dest), "steps": steps, "not_done": not_done, "still_live": live}
 
 
-def _github_step(steps: list, not_done: list, who: str, name: str, repo: str | None, host) -> None:
-    """Run the GitHub repo delete as a step; a refusal for lack of scope goes into not_done."""
+def _github_step(steps: list, not_done: list, who: str, name: str, verdict: dict, host) -> None:
+    """Run the GitHub repo delete as a step; a refusal for lack of scope goes into not_done.
+
+    A repo the verdict keeps (not this project's own, shared, not made by Phoenix) is never touched: the step
+    is recorded as kept, with the reason."""
+    repo = verdict.get("repo")
+    if not verdict.get("delete"):
+        steps.append({"step": "GitHub repo", "ok": True, "kept": True, "words": verdict.get("why") or "Kept."})
+        common.record_command(who, f"project delete {name}: GitHub repo (kept)", name)
+        return
     state = {}
 
     def run() -> str:
@@ -466,8 +540,10 @@ def delete_repo(name: str, who: str, adapters) -> dict:
     copy = _newest_copy(name)
     if copy is None:
         raise common.NotFound(f"There is no safety copy for '{name}', so Phoenix does not know its GitHub repo.")
-    repo = json.loads((copy / "manifest.json").read_text(encoding="utf-8")).get("repo")
+    manifest = json.loads((copy / "manifest.json").read_text(encoding="utf-8"))
+    verdict = manifest.get("repo_delete") or {"repo": manifest.get("repo"), "delete": False,
+                                               "why": "This safety copy does not say the repo was Phoenix's own."}
     steps, not_done = [], []
-    _github_step(steps, not_done, who, name, repo, adapters.host)
+    _github_step(steps, not_done, who, name, verdict, adapters.host)
     events.emit("project.changed", project=name, who=who, what="github repo deleted" if steps[0]["ok"] else "github repo kept")
     return {"name": name, "backup": str(copy), "steps": steps, "not_done": not_done}

@@ -132,6 +132,8 @@ def plan_text(p: dict) -> str:
     lines = [f"Deleting {p['name']} would remove:",
              f"  Folder: {p['folder']} ({_size(p['size'])})",
              f"  GitHub repo: {p['repo'] or '(none)'}"]
+    if p["repo"] and p.get("repo_delete"):
+        lines.append(f"    {p['repo_delete']['why']}")
     if p.get("open_prs_note"):
         lines.append(f"    {p['open_prs_note']}")
     lines.append(f"  Open merge requests: {len(p['open_prs'])}")
@@ -168,7 +170,8 @@ def delete_(args) -> int:
 def result_text(r: dict) -> str:
     """A delete result in plain English: each step, what was not done, what is still live."""
     lines = [f"Safety copy: {r['backup']}"]
-    lines += [f"{'Done' if s['ok'] else 'FAILED'}: {s['step']}. {s['words']}" for s in r["steps"]]
+    lines += [f"{'Kept' if s.get('kept') else 'Done' if s['ok'] else 'FAILED'}: {s['step']}. {s['words']}"
+              for s in r["steps"]]
     if r["not_done"]:
         lines.append("Not done:")
         lines += [f"  {n['what']} {n['how']}" if n["how"] != n["what"] else f"  {n['what']}" for n in r["not_done"]]

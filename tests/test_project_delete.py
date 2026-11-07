@@ -12,24 +12,29 @@ from test_project_cmds import env, make  # noqa: F401  (fixtures)
 PR_JSON = json.dumps([{"number": 7, "title": "Add x", "url": "https://github.com/me/alpha/pull/7"}])
 
 
-def git_repo(code, remote=None):
-    """A real tiny repo in `code` with one commit (and an optional origin that has it)."""
-    code.mkdir(parents=True)
+def git_repo(code, remote=None, origin_url=None, commit=True):
+    """A real tiny repo in `code` with one commit (and an optional origin that has it, or just an origin URL)."""
+    code.mkdir(parents=True, exist_ok=True)
     run = lambda *a, cwd=code: subprocess.run(["git", *a], cwd=cwd, check=True, capture_output=True)
     run("init", "-q", "-b", "main")
     (code / "a.txt").write_text("a")
-    run("add", ".")
-    run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
+    if commit:
+        run("add", ".")
+        run("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "one")
     if remote:
         run("clone", "-q", "--bare", str(code), str(remote), cwd=code.parent)
         run("remote", "add", "origin", str(remote))
         run("fetch", "-q", "origin")
+    if origin_url:
+        run("remote", "add", "origin", origin_url)
 
 
 def host_git(host, folder):
     """Make the fake host really run git commands."""
     def run(argv, timeout=60, cwd=None):
         host.calls.append(list(argv))
+        if "fetch" in argv:                     # never reach the network from a test
+            return 1, "", "fetch is off in tests"
         p = subprocess.run(argv, capture_output=True, text=True, cwd=cwd)
         return p.returncode, p.stdout, p.stderr
     real = host.run
@@ -210,8 +215,8 @@ from phoenix9.ops.common import OpsError  # noqa: E402
 
 def _project_with_stuff(env, name="alpha"):
     """A project with a real repo, an untracked file, caches, notes, a run and a work folder."""
-    folder = make(env, name, meta={"repo": "me/alpha"})
-    git_repo(folder / "code")
+    folder = make(env, name, meta={"repo": "me/alpha", "source": "empty"})
+    git_repo(folder / "code", origin_url="https://github.com/me/alpha.git")
     host_git(env["host"], folder)
     code = folder / "code"
     (code / "local.txt").write_text("untracked")
@@ -583,3 +588,81 @@ def test_api_delete_works_and_repo_retry(api):
     status, resp = api("/api/projects/alpha/delete-repo", "POST", POST_HEADERS, {})
     assert status == 200 and resp["data"]["name"] == "alpha"
     assert api("/api/projects/ghost/delete-repo", "POST", POST_HEADERS, {})[0] == 404
+
+
+# ---- whose GitHub repo it is (finding 1) ----
+
+def _gh_deletes(env):
+    return [c for c in env["host"].calls if c[:3] == ["gh", "repo", "delete"]]
+
+
+def _shared_parent(env):
+    """The projects folder is itself a git repo (like /srv/projects, the notes repo of every project)."""
+    git_repo(env["projects"], origin_url="https://github.com/me/projects.git", commit=False)
+
+
+@pytest.mark.parametrize("meta", [None, {"source": "empty", "repo": "me/projects"}])
+def test_plain_code_folder_never_deletes_parent_repo(env, unitdir, meta):
+    _shared_parent(env)
+    folder = make(env, "plain", meta=meta)
+    (folder / "code").mkdir()
+    (folder / "code" / "f.txt").write_text("f")
+    host_git(env["host"], folder)
+    plan = project_delete.plan("plain", "cli", env["fakes"])
+    assert plan["repo"] == "me/projects" and plan["repo_delete"]["delete"] is False
+    assert plan["repo_delete"]["why"].startswith("GitHub repo me/projects not deleted: it ")
+    res = project_delete.delete("plain", "plain", "cli", env["fakes"])
+    assert not folder.exists() and _gh_deletes(env) == []
+    gh = res["steps"][-1]
+    assert gh["step"] == "GitHub repo" and gh["ok"] and gh.get("kept") and "not deleted" in gh["words"]
+    assert res["not_done"] == []
+
+
+def test_own_repo_is_deleted(env, unitdir):
+    _stuff(env)
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is True
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [["gh", "repo", "delete", "me/alpha", "--yes"]]
+
+
+@pytest.mark.parametrize("source", ["repo", "import", "code", None])
+def test_repo_not_made_by_phoenix_is_kept(env, unitdir, source):
+    folder = _stuff(env)
+    meta = json.loads((folder / ".phoenix" / "project.json").read_text())
+    meta["source"] = source
+    (folder / ".phoenix" / "project.json").write_text(json.dumps(meta))
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and "was not created by Phoenix" in res["steps"][-1]["words"]
+
+
+def test_origin_must_match_recorded_repo(env, unitdir):
+    folder = _stuff(env)
+    subprocess.run(["git", "remote", "set-url", "origin", "https://github.com/me/other.git"], cwd=folder / "code", check=True)
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == [] and "not this project's own repo" in res["steps"][-1]["words"]
+
+
+def test_two_projects_sharing_a_repo(env, unitdir):
+    _stuff(env)
+    make(env, "beta", meta={"repo": "https://github.com/Me/Alpha.git", "source": "repo"})
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "shared" in plan["repo_delete"]["why"]
+    assert "beta" in plan["repo_delete"]["why"]
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert _gh_deletes(env) == []
+
+
+def test_removed_row_sharing_the_repo(env, unitdir):
+    folder = _stuff(env)
+    _save_removed([{"name": "gamma", "path": "/x/gamma", "repo": "me/alpha", "removed_on": "2026-01-01"}])
+    assert project_delete.plan("alpha", "cli", env["fakes"])["repo_delete"]["delete"] is False
+    assert folder.is_dir()
+
+
+def test_projects_folder_remote_is_never_deleted(env, unitdir):
+    _stuff(env)
+    subprocess.run(["git", "init", "-q"], cwd=env["projects"], check=True)
+    subprocess.run(["git", "remote", "add", "origin", "git@github.com:me/alpha.git"], cwd=env["projects"], check=True)
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "shared" in plan["repo_delete"]["why"]

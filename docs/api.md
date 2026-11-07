@@ -48,7 +48,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
 | GET | `/api/projects/<name>/explain` | `ops.settings.explain` | | `{project, text}` | 400, 404 |
-| GET | `/api/chat/<name>` | `ops.chat.chat_state` | | `{state, bridge_session_id, web_url, app_url, last_active}` | 404 |
+| GET | `/api/chat/<name>` | `ops.chat.chat_state` | | `{state, bridge_session_id, web_url, app_url, last_active}` (state: off, starting, sleeping, live, working) | 404 |
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |

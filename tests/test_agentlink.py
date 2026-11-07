@@ -27,7 +27,7 @@ def session(host, pid, alive=True, cwd=FOLDER, name="Phoenix agent", status="idl
 
 def put_transcript(host, lines, sid="sess-1"):
     """Write transcript lines where find() will look for them."""
-    host.files[agentlink.transcript_path(HOME, FOLDER, sid)] = "\n".join(json.dumps(x) for x in lines) + "\n"
+    host.files[agentlink.transcript_path(HOME, FOLDER, sid, host)] = "\n".join(json.dumps(x) for x in lines) + "\n"
 
 
 def test_none():
@@ -63,7 +63,19 @@ def test_found_fields():
 
 
 def test_transcript_encoding():
-    assert agentlink.transcript_path(HOME, "/a/b.c/d", "s") == "/root/.claude/projects/-a-b-c-d/s.jsonl"
+    """Claude Code's rule: every character that is not a letter or digit becomes '-'."""
+    assert agentlink.transcript_path(HOME, "/a/b.c/d_e f", "s") == "/root/.claude/projects/-a-b-c-d-e-f/s.jsonl"
+    assert agentlink.encode_folder("/var/lib/docker/volumes/phoenix-cache/_data/projects/home") == \
+        "-var-lib-docker-volumes-phoenix-cache--data-projects-home"
+
+
+def test_transcript_uses_the_real_path_of_the_folder():
+    """/srv/projects is a symlink on the server: the transcript folder is named after where it really points."""
+    h = FakeHost()
+    h.realpaths[FOLDER] = "/var/lib/docker/volumes/phoenix-cache/_data/projects/home"
+    session(h, 10)
+    assert agentlink.find(HOME, h)["transcript"] == \
+        "/root/.claude/projects/-var-lib-docker-volumes-phoenix-cache--data-projects-home/sess-1.jsonl"
 
 
 def test_named_wins_over_newer():

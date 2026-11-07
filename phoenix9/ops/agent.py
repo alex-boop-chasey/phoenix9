@@ -70,7 +70,7 @@ def sessions() -> list[dict]:
     """Earlier conversations in the agent folder's transcript directory, newest first."""
     host = _host()
     cwd = settings.agent_settings()["folder"]
-    folder = agentlink.transcript_path(agentlink.CLAUDE_HOME, cwd, "x").rsplit("/", 1)[0]
+    folder = agentlink.transcript_dir(agentlink.CLAUDE_HOME, cwd, host)
     names = [n for n in host.list_dir(folder) if n.endswith(".jsonl")]
     found = [_session(host, folder, n) for n in names]
     found.sort(key=lambda s: (s["started"], s["_m"]), reverse=True)

@@ -464,3 +464,14 @@ def test_service_home_unreadable_environment_is_a_problem(healthy):
     del healthy.host.files["/proc/101/environ"]
     check = by_name(doctor.run_checks(healthy, "quick"))["service-home"]
     assert not check["ok"] and "could not read phoenix-api's environment" in check["detail"]
+
+
+@pytest.mark.parametrize("content", [None, "", "\n\n"])
+def test_agent_transcript_missing_or_empty_is_not_a_pass(healthy, content):
+    """A transcript that is not there (wrong folder rule) or has nothing in it must not read as healthy."""
+    if content is None:
+        del healthy.host.files[AGENT_TRANSCRIPT]
+    else:
+        healthy.host.files[AGENT_TRANSCRIPT] = content
+    c = agent_check(healthy, "agent-transcript")
+    assert not c["ok"] and AGENT_TRANSCRIPT in c["detail"] and c["fix"]

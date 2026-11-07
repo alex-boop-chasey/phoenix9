@@ -468,9 +468,13 @@ def check_agent_transcript(ctx):
     found = agentlink.find(host=ctx.ad.host)
     if not found or not found["transcript"]:
         return _result(False, "no agent transcript to read", "Start the agent first (see the agent-session line).")
-    lines = [ln for ln in ctx.ad.host.read_lines(found["transcript"]) if ln.strip()]
+    path = found["transcript"]
+    lines = [ln for ln in ctx.ad.host.read_lines(path) if ln.strip()]
     if not lines:
-        return _result(True, "the transcript is empty so far")
+        what = "is empty" if ctx.ad.host.exists(path) else "was not found"
+        return _result(False, f"the agent transcript {path} {what}",
+                       "If the agent has only just started, send it a message and check again; otherwise Claude "
+                       "Code may name its transcript folders differently now: update phoenix9/agentlink.py.")
     unknown = transcript.parse(lines)[1]
     rate = unknown / len(lines)
     text = f"{unknown} of {len(lines)} transcript lines are unknown ({rate:.0%})"

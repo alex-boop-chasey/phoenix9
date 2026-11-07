@@ -19,6 +19,7 @@ class FakeHost:
         self.dirs: dict[str, list[str]] = {}  # folder listings, by path
         self.pids: set[int] = set()          # process ids that are alive
         self.stats: dict[str, dict] = {}     # {mode, uid} by path
+        self.realpaths: dict[str, str] = {}  # symlinked path -> where it really points
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -74,6 +75,10 @@ class FakeHost:
     def pid_alive(self, pid):
         """True when the pid is in .pids."""
         return pid in self.pids
+
+    def realpath(self, path):
+        """The path from .realpaths, else the path itself (no symlinks unless scripted)."""
+        return self.realpaths.get(str(path), str(path))
 
     def stat(self, path):
         """Return the {mode, uid} set in .stats (None when absent)."""

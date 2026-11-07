@@ -1,7 +1,7 @@
 """Find the running Phoenix agent chat session and report what state it is in."""
 import errno
 import json
-import os
+import re
 import socket
 import time
 import uuid
@@ -15,10 +15,20 @@ AGENT_NAME = "Phoenix agent"
 KEYS = ("pid", "cwd", "name", "status", "messagingSocketPath", "kind", "sessionId")
 
 
-def transcript_path(home_dir, cwd: str, session_id: str) -> str:
-    """Where Claude writes the transcript: projects/<cwd with / and . as ->/<session>.jsonl."""
-    folder = cwd.replace("/", "-").replace(".", "-")
-    return "%s/projects/%s/%s.jsonl" % (str(home_dir).rstrip("/"), folder, session_id)
+def encode_folder(real_cwd: str) -> str:
+    """Claude Code's folder name for a working folder: every character that is not a letter or digit becomes '-'."""
+    return re.sub(r"[^A-Za-z0-9]", "-", real_cwd)
+
+
+def transcript_dir(home_dir, cwd: str, host=None) -> str:
+    """The folder holding the transcripts of sessions started in cwd (named after cwd's real path)."""
+    real = (host or Host()).realpath(cwd)
+    return "%s/projects/%s" % (str(home_dir).rstrip("/"), encode_folder(real))
+
+
+def transcript_path(home_dir, cwd: str, session_id: str, host=None) -> str:
+    """Where Claude writes a session's transcript: projects/<encoded real cwd>/<session>.jsonl."""
+    return "%s/%s.jsonl" % (transcript_dir(home_dir, cwd, host), session_id)
 
 
 def _entry(host, home: str, name: str) -> dict | None:
@@ -42,7 +52,7 @@ def _is_live(host, entry: dict, folder: str) -> bool:
     pid, cwd, sock = entry["pid"], entry["cwd"], entry["messagingSocketPath"]
     if not isinstance(pid, int) or not isinstance(cwd, str) or not isinstance(sock, str) or not sock:
         return False
-    if os.path.realpath(cwd) != os.path.realpath(folder):
+    if host.realpath(cwd) != host.realpath(folder):
         return False
     return host.pid_alive(pid) and host.exists(sock)
 
@@ -59,7 +69,7 @@ def find(home_dir=CLAUDE_HOME, host=None) -> dict | None:
     named = [e for e in live if e["name"] == AGENT_NAME]
     best = max(named or live, key=lambda e: (e["mtime"], e["pid"]))
     sid = best["sessionId"]
-    path = transcript_path(home, best["cwd"], sid) if isinstance(sid, str) and sid else None
+    path = transcript_path(home, best["cwd"], sid, host) if isinstance(sid, str) and sid else None
     return {"pid": best["pid"], "session_id": sid, "name": best["name"],
             "socket": best["messagingSocketPath"], "transcript": path, "status": best["status"]}
 

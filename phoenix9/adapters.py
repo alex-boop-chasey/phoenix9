@@ -73,6 +73,10 @@ class Host:
             return False
         return True
 
+    def realpath(self, path) -> str:
+        """The path with every symlink resolved (the path itself when it cannot be resolved)."""
+        return os.path.realpath(path)
+
     def stat(self, path) -> dict | None:
         """Return {mode, uid, mtime} of a path, or None when it is missing."""
         try:

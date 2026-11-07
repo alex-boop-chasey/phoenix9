@@ -6,7 +6,7 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from phoenix9 import deploy, events, git, keys, paths, project, projectchat, runs, settings, status
+from phoenix9 import atomic, deploy, events, git, keys, paths, project, projectchat, runs, settings, state, status
 from phoenix9.ops import common
 from phoenix9.project_removal import PROTECTED, _save_removed, removed_list, untrust
 
@@ -22,6 +22,7 @@ URL_RE = re.compile(r"^https?://\S+$")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
 SCOPE_WORDS = ("delete_repo", "403")
+LOCK_WAIT = 5.0            # seconds a delete waits for the project lock (a run start holds it briefly)
 
 
 OWN_SOURCES = ("empty", "template")   # project.json sources where Phoenix itself made the GitHub repo
@@ -88,6 +89,8 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
         return keep("is not this project's own repo")
     if _key(_git_out(host, code, "remote", "get-url", "origin")) != key:
         return keep("is not this project's own repo")
+    if not _git_out(host, code, "rev-list", "-n", "1", "--all"):
+        return keep("has no commits here, so no bundle of it can be kept")
     users = _users_of(key, name, host)
     if users:
         return keep(f"is shared (also used by {', '.join(users)})")
@@ -185,7 +188,26 @@ def _folder_refusals(name: str, folder: Path | None) -> list:
     return out
 
 
-def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None) -> list:
+def _delegates_running(name: str, adapters) -> list:
+    """Run ids whose delegate session (a headless project chat answering an escalation) is still running."""
+    if adapters is None:
+        return []
+    found = []
+    for r in runs.list_runs(name):
+        st = atomic.read_json(paths.runs(name) / r["run_id"] / "state.json") or {}
+        for task in (st.get("tasks") or {}).values():
+            handle = ((task or {}).get("delegate") or {}).get("handle") if isinstance(task, dict) else None
+            try:
+                if handle and adapters.chat.status(handle) == "running":
+                    found.append(r["run_id"])
+                    break
+            except Exception:     # cannot tell: count it as busy, to be safe
+                found.append(r["run_id"])
+                break
+    return found
+
+
+def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, adapters=None) -> list:
     """Plain sentences for everything that stops a delete (empty when it can run)."""
     out = []
     if name in PROTECTED:
@@ -198,6 +220,9 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None) 
         out.append(f"A build is {busy[0]['status']} ({busy[0]['run_id']}). Stop it or let it finish first.")
     if chat_state == "working":
         out.append("The project's chat is working right now. Wait until it is done.")
+    delegates = _delegates_running(name, adapters)
+    if delegates:
+        out.append(f"A delegate chat session for build {delegates[0]} is still working. Wait until it is done.")
     return out
 
 
@@ -213,7 +238,7 @@ def plan(name: str, who: str, adapters) -> dict:
               "unsaved_edits": _unsaved(host, folder), "runs": _runs(name),
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
-              "refusals": _refusals(name, who, chat["state"], folder),
+              "refusals": _refusals(name, who, chat["state"], folder, adapters),
               "safety_copy": str(paths.deleted_projects())}
     if note:
         result["open_prs_note"] = note
@@ -311,10 +336,24 @@ def _write_runs_tar(dest: Path, name: str) -> int:
     return count
 
 
+def _fetch(host, code: Path) -> str:
+    """git fetch --all before bundling, so branches only on GitHub are in the bundle too; returns a note
+    ('' when it worked or there is no repo). A failed fetch does not stop the copy."""
+    if not (code / ".git").exists():
+        return ""
+    rc, out, err = host.run(git.git_argv("-C", str(code), "fetch", "--all", "--quiet"), timeout=300)
+    if rc != 0:
+        return (f"git fetch --all failed ({(err or out).strip()[:150]}), so the bundle holds what was on this server "
+                "only.")
+    return ""
+
+
 def _bundle(host, code: Path, dest: Path) -> str:
     """Write repo.bundle for code/ and verify it; returns a note ('' when it worked, why it was skipped otherwise)."""
     if not (code / ".git").exists():
         return "There is no git repo, so repo.bundle was skipped."
+    if not _git_out(host, code, "rev-list", "-n", "1", "--all"):
+        return "The git repo has no commits yet, so repo.bundle was skipped (its files are in files.tar.gz)."
     rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "create", str(dest), "--all"), timeout=600)
     if rc != 0:
         raise common.OpsError(f"git could not bundle the code: {(err or out).strip()[:200]}")
@@ -354,7 +393,9 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
     folder = common.project_dir(name)
     host = adapters.host
     plan_ = plan(name, who, adapters)
-    note = _bundle(host, folder / "code", dest / "repo.bundle")
+    notes = [_fetch(host, folder / "code")]
+    notes.append(_bundle(host, folder / "code", dest / "repo.bundle"))
+    notes = [n for n in notes if n]
     rels = _project_files(host, folder)
     stored = _write_tar(dest / "files.tar.gz", folder, rels)
     run_count = _write_runs_tar(dest / "runs.tar.gz", name)
@@ -365,7 +406,7 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
                 "repo_url": project.repo_of(folder) or (f"https://github.com/{repo}" if repo else ""),
                 "who": who, "when": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "files": sorted(p.name for p in dest.iterdir()) + ["manifest.json", "RESTORE.md"],
-                "files_stored": stored, "run_files": run_count, "notes": [note] if note else [],
+                "files_stored": stored, "run_files": run_count, "notes": notes,
                 "repo_delete": plan_["repo_delete"], "bundle_of": bundle_of, "plan": plan_}
     manifest["files"] = sorted(set(manifest["files"]))
     (dest / "RESTORE.md").write_text(_restore_text(name, str(folder), repo, has_bundle), encoding="utf-8")
@@ -486,7 +527,7 @@ def _step(steps: list, who: str, name: str, step: str, fn) -> None:
 
 def _refuse(name: str, who: str, adapters) -> None:
     """Raise Conflict with the plain reasons when this project may not be deleted."""
-    reasons = _refusals(name, who, _chat(name, adapters)["state"], common.project_dir(name))
+    reasons = _refusals(name, who, _chat(name, adapters)["state"], common.project_dir(name), adapters)
     if reasons:
         raise common.Conflict(" ".join(reasons))
 
@@ -497,8 +538,28 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
     _refuse(name, who, adapters)
     if confirm_name != name:
         raise common.OpsError(f"Type the project's name ({name}) to confirm. Nothing was deleted.")
+    lock = state.Lock(paths.project_lock(name), wait=LOCK_WAIT)
+    try:
+        lock.__enter__()
+    except TimeoutError:
+        raise common.Conflict(f"Something else is changing {name} right now (a build starting, or another delete). "
+                              "Try again in a minute. Nothing was deleted.") from None
+    try:
+        return _delete_locked(name, who, adapters, folder)
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
+    """The delete itself, run while holding the project lock (so no run of it can be queued meanwhile)."""
+    _refuse(name, who, adapters)
     live = _deployments(name, folder)
     dest = backup(name, who, adapters)
+    try:
+        _refuse(name, who, adapters)        # the copy can take minutes: check again right before deleting
+    except common.OpsError as e:
+        adapters.host.remove_tree(dest)
+        raise common.Conflict(f"{e} Nothing was deleted.") from None
     manifest = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
     verdict = _with_bundle(manifest, dest)
     repo = verdict["repo"]

@@ -864,24 +864,33 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    .pytest_cache, .mypy_cache, .ruff_cache, .next/cache, .turbo), `runs.tar.gz` (HOME/runs/<name>
    and HOME/work/<name>), `manifest.json` (name, folder, repo, who, when, plan) and `RESTORE.md`. If any part fails,
    the half-made copy is removed, nothing is deleted and the error is shown.
-4. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat
+   Before bundling, `git fetch --all` (through the host adapter) brings in branches that are only on GitHub; a failed
+   fetch is a note in the manifest, not a stop. A repo with no commits gets no bundle (its files are in the tar) and
+   its GitHub repo is never deleted.
+4. **Lock and last check**: the delete holds the per-project lock `paths.project_lock(name)`
+   (`HOME/locks/project-<name>.lock`) from the first check to the last step; `phoenix run start` takes the same lock
+   (waiting up to 10 s) to queue a run, and re-checks that the project still exists. Right after the safety copy and
+   before the first delete, the refusals are checked again; if anything is busy now, the copy is removed and nothing
+   is deleted.
+5. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat
    unit `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed), the project folder, `HOME/keys/<name>.toml`,
    Claude Code's folder trust entry (`project_removal.untrust`), the `removed_projects` row and INDEX.md line, and
    last the GitHub repo (`gh repo delete <owner/name> --yes`).
-5. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
+6. **GitHub scope**: without the `delete_repo` scope everything else still completes and the result says the repo
    was NOT deleted, with the fix (`gh auth refresh -h github.com -s delete_repo`). `POST
    /api/projects/<name>/delete-repo` / `phoenix project delete-repo <name>` retries only that step, reading the repo
    from the newest safety copy's manifest. The retry keeps the same rules (the manifest's `repo_delete` verdict and a
    bundle of that repo in the copy) and is refused when the project folder exists again or any current project,
    removed-projects row or the projects folder's own repo now uses that repo.
-6. **Live deployments are never touched**: they are listed (`still_live`) with links.
-7. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30, clamped to 1..3650);
+7. **Live deployments are never touched**: they are listed (`still_live`) with links.
+8. **Keep time**: copies stay `delete.keep_days` days (global `[delete] keep_days`, default 30, clamped to 1..3650);
    the runner loop calls `prune_backups` on every pass, wrapped so a failure only logs a line.
 
 **Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`, checked against the folder's real name
 too, so a link called something else cannot delete them); a project folder that is a link, or whose real parent is
 not the real projects folder; a project with a build queued, running,
-waiting or paused; a project whose chat state is `working`; any caller other than `dashboard` or `cli` (the Phoenix
+waiting or paused; a project whose chat state is `working`; a project with a delegate chat session (escalation
+hand-over) still running; any caller other than `dashboard` or `cli` (the Phoenix
 agent and every `chat:*` caller, whatever the project's permissions).
 
 **Host adapter** (section 9): systemctl, `gh` and the filesystem deletes `remove_tree(path)` and `remove_file(path)`

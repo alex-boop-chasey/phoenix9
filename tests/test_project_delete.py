@@ -937,3 +937,84 @@ def test_retry_keeps_a_repo_that_was_never_phoenixs(env, unitdir):
     project_delete.delete("alpha", "alpha", "cli", env["fakes"])
     res = project_delete.delete_repo("alpha", "cli", env["fakes"])
     assert _gh_deletes(env) == [] and res["steps"][0]["kept"]
+
+
+# ---- last-moment checks, lock, fetch, empty repos, delegate sessions (finding 9) ----
+
+def test_delegate_session_still_running_refuses(env, unitdir):
+    folder = _stuff(env)
+    d = paths.runs("alpha") / "r9"
+    atomic.write_json(d / "state.json", {"run_id": "r9", "project": "alpha", "status": "failed",
+                                         "created": "2026-11-07T10:00:00Z", "updated": "2026-11-07T10:00:00Z",
+                                         "tasks": {"1": {"status": "failed", "delegate": {"handle": "h1"}}}})
+    env["fakes"].chat.running["h1"] = True
+    assert any("delegate" in r for r in project_delete.plan("alpha", "cli", env["fakes"])["refusals"])
+    with pytest.raises(OpsError, match="delegate"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+    env["fakes"].chat.running["h1"] = False
+    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
+
+
+def test_busy_again_after_the_copy_stops_everything(env, unitdir, monkeypatch):
+    folder = _stuff(env)
+    real = project_delete.backup
+
+    def copy_then_build_starts(name, who, adapters):
+        dest = real(name, who, adapters)
+        make_run("alpha", "r2", "queued")
+        return dest
+    monkeypatch.setattr(project_delete, "backup", copy_then_build_starts)
+    with pytest.raises(OpsError, match="queued"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+    assert list(paths.deleted_projects().iterdir()) == []         # the unused copy is not left to confuse a retry
+    assert not [c for c in env["host"].calls if c[:2] == ["gh", "repo"] or c[:1] == ["systemctl"]]
+
+
+def test_run_start_waits_for_the_project_lock(env, monkeypatch):
+    from phoenix9 import state
+    from phoenix9.ops import runs as ops_runs
+    folder = make(env, "alpha")
+    (folder / "phoenix.toml").write_text('preset = "quick"\nprofile = "python-script"\n')
+    monkeypatch.setattr(ops_runs, "PROJECT_LOCK_WAIT", 0.05)
+    spec = env["home"] / "spec.md"
+    spec.write_text("# Hello\nProject: alpha\n\n## Task 1: Hello\nMake hello.py.\nDone when:\n- `python3 hello.py`\n")
+    with state.Lock(paths.project_lock("alpha")):
+        with pytest.raises(OpsError, match="being changed"):
+            ops_runs.start("alpha", spec)
+    assert paths.runs("alpha").is_dir() is False or not list(paths.runs("alpha").iterdir())
+    assert ops_runs.start("alpha", spec)["status"] == "queued"     # free again: it starts
+
+
+def test_delete_refused_while_the_project_lock_is_held(env, unitdir, monkeypatch):
+    from phoenix9 import state
+    folder = _stuff(env)
+    monkeypatch.setattr(project_delete, "LOCK_WAIT", 0.05)
+    with state.Lock(paths.project_lock("alpha")):
+        with pytest.raises(OpsError, match="Try again"):
+            project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_fetch_before_bundle_failure_is_a_note(env):
+    _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    calls = env["host"].calls
+    fetch = next(i for i, c in enumerate(calls) if c[0] == "git" and "fetch" in c)
+    bundle = next(i for i, c in enumerate(calls) if c[0] == "git" and "bundle" in c)
+    assert fetch < bundle and "--all" in calls[fetch]
+    notes = json.loads((dest / "manifest.json").read_text())["notes"]
+    assert any("fetch" in n for n in notes)
+
+
+def test_repo_with_no_commits_is_tar_only_and_kept(env, unitdir):
+    folder = make(env, "alpha", meta={"repo": "me/alpha", "source": "empty"})
+    git_repo(folder / "code", origin_url="https://github.com/me/alpha.git", commit=False)
+    host_git(env["host"], folder)
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo_delete"]["delete"] is False and "no commits" in plan["repo_delete"]["why"]
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    copy = project_delete.Path(res["backup"])
+    assert not (copy / "repo.bundle").exists() and "code/a.txt" in _names(copy / "files.tar.gz")
+    assert _gh_deletes(env) == [] and res["steps"][-1]["kept"]

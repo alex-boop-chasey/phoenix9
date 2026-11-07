@@ -8,6 +8,7 @@ from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
+PROJECT_LOCK_WAIT = 10.0   # seconds a run start waits for the project lock (a delete holds it)
 
 
 def _run_folder(run_id: str) -> Path:
@@ -46,10 +47,20 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         raise OpsError(f"The project's settings have problems: {err}") from None
     if not profile:
         raise OpsError(settings.no_profile_message(project))
+    lock = state.Lock(paths.project_lock(project), wait=PROJECT_LOCK_WAIT)
     try:
+        lock.__enter__()
+    except TimeoutError:
+        raise OpsError(f"{project} is being changed right now (it may be being deleted). Try again in a minute.") from None
+    try:
+        common.project_dir(project)        # a delete may have finished while this waited
         run_dir = core.create_run(project, Path(spec_path), overrides)
     except (ValueError, OSError) as err:
+        if isinstance(err, OpsError):
+            raise
         raise OpsError(f"I could not start the run: {err}") from None
+    finally:
+        lock.__exit__(None, None, None)
     run_id = run_dir.name
     from phoenix9 import project as project_core
     project_core.mark_used(project)

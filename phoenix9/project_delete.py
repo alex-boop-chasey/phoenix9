@@ -290,15 +290,16 @@ def _pure_cache(rel_parts) -> bool:
     return any(p in PURE_CACHES for p in parts) or any(parts[i:i + 2] in PURE_CACHE_PAIRS for i in range(len(parts) - 1))
 
 
-def _walk_code(code: Path):
+def _walk_code(code: Path, with_git: bool = False):
     """Every file and symlink in code/ for the copy: the whole working copy (uncommitted and staged edits,
     untracked files, nested repos with their own .git, build output), skipping only code/.git (that is the
-    bundle) and pure caches. Links are stored as links, never followed."""
+    bundle) and pure caches. With with_git (no bundle was written) code/.git goes in too. Links are stored as
+    links, never followed."""
     for root, dirs, files in os.walk(code):
         rel = Path(root).relative_to(code).parts
         keep = []
         for d in dirs:
-            if (not rel and d == ".git") or _pure_cache((*rel, d)):
+            if (not rel and d == ".git" and not with_git) or _pure_cache((*rel, d)):
                 continue
             if (Path(root) / d).is_symlink():
                 yield Path(root) / d
@@ -306,7 +307,7 @@ def _walk_code(code: Path):
             keep.append(d)
         dirs[:] = keep
         for f in files:
-            if not rel and f == ".git":
+            if not rel and f == ".git" and not with_git:
                 continue
             yield Path(root) / f
 
@@ -326,12 +327,13 @@ def _walk(base: Path, rel_base: tuple = ()):
                 yield Path(root) / d
 
 
-def _project_files(host, folder: Path) -> list:
-    """Paths (relative to the project folder) for files.tar.gz: everything but code/'s tracked files and caches."""
+def _project_files(host, folder: Path, with_git: bool = False) -> list:
+    """Paths (relative to the project folder) for files.tar.gz: everything but pure caches and (unless with_git)
+    code/.git."""
     out = []
     for entry in sorted(folder.iterdir()):
         if entry.name == "code" and entry.is_dir() and not entry.is_symlink():
-            out += [p.relative_to(folder) for p in _walk_code(entry)]
+            out += [p.relative_to(folder) for p in _walk_code(entry, with_git)]
             continue
         elif entry.is_dir() and not entry.is_symlink():
             found = [] if _pure_cache((entry.name,)) else list(_walk(entry, (entry.name,)))
@@ -428,7 +430,7 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
     notes = [_fetch(host, folder / "code")]
     notes.append(_bundle(host, folder / "code", dest / "repo.bundle"))
     notes = [n for n in notes if n]
-    rels = _project_files(host, folder)
+    rels = _project_files(host, folder, with_git=not (dest / "repo.bundle").is_file())
     stored = _write_tar(dest / "files.tar.gz", folder, rels)
     run_count = _write_runs_tar(dest / "runs.tar.gz", name)
     repo = plan_["repo"]

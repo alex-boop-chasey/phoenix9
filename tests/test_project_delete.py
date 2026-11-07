@@ -1098,6 +1098,25 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
 
 
+# no bundle: code/.git goes in the tar (second review 8)
+
+def test_no_bundle_keeps_code_git_in_the_tar(env, unitdir):
+    folder = make(env, "alpha", meta=OWN_META)
+    git_repo(folder / "code", origin_url="https://github.com/me/alpha.git", commit=False)
+    subprocess.run(["git", "add", "a.txt"], cwd=folder / "code", check=True)    # staged, never committed
+    host_git(env["host"], folder)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    names = _names(dest / "files.tar.gz")
+    assert not (dest / "repo.bundle").exists()
+    assert "code/.git/HEAD" in names and "code/.git/index" in names and "code/.git/config" in names
+
+
+def test_with_a_bundle_code_git_stays_out(env):
+    _project_with_stuff(env)
+    dest = project_delete.backup("alpha", "cli", env["fakes"])
+    assert not [n for n in _names(dest / "files.tar.gz") if n.startswith("code/.git")]
+
+
 # the project lock also covers new, edit, remove and import (second review 7)
 
 def _locked_calls(env):

@@ -1096,6 +1096,34 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
     assert "was not created by Phoenix" in plan["repo_delete"]["why"]
 
 
+# programs working inside the folder (second review 5)
+
+def test_process_inside_the_folder_refuses(env, unitdir):
+    folder = _stuff(env)
+    env["host"].proc_cwds = [{"pid": 4242, "name": "claude", "cwd": str(folder / "code" / "src")},
+                             {"pid": 4343, "name": "bash", "cwd": str(env["projects"])}]
+    refusals = project_delete.plan("alpha", "cli", env["fakes"])["refusals"]
+    assert len(refusals) == 1 and "claude (process 4242)" in refusals[0] and "bash" not in refusals[0]
+    with pytest.raises(OpsError, match="inside the project folder"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_process_next_door_or_self_does_not_refuse(env, unitdir):
+    import os
+    folder = _stuff(env)
+    env["host"].proc_cwds = [{"pid": 1, "name": "x", "cwd": str(folder) + "-other"},
+                             {"pid": os.getpid(), "name": "me", "cwd": str(folder)}]
+    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
+
+
+def test_real_host_lists_process_cwds():
+    import os
+    from phoenix9.adapters import Host
+    mine = [p for p in Host().process_cwds() if p["pid"] == os.getpid()]
+    assert mine and mine[0]["cwd"] == os.getcwd()
+
+
 # every folder, recorded repo and real origin (second review 3)
 
 def test_unlisted_folder_using_the_repo_keeps_it(env, unitdir):

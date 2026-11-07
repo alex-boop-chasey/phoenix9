@@ -229,7 +229,26 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
     delegates = _delegates_running(name, adapters)
     if delegates:
         out.append(f"A delegate chat session for build {delegates[0]} is still working. Wait until it is done.")
+    inside = _working_inside(folder, adapters)
+    if inside:
+        shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")
+        out.append(f"Programs are working inside the project folder: {shown}. Close them first "
+                   "(a grunt job, a desktop or terminal session...).")
     return out
+
+
+def _working_inside(folder: Path | None, adapters) -> list:
+    """Processes whose working folder is inside the project's real folder (not this process or its parent shell)."""
+    if folder is None or adapters is None:
+        return []
+    real = os.path.realpath(folder)
+    me = {os.getpid(), os.getppid()}
+    try:
+        procs = adapters.host.process_cwds()
+    except Exception:          # cannot tell: say nothing rather than block every delete
+        return []
+    return [p for p in procs if p.get("pid") not in me and
+            (os.path.realpath(p.get("cwd") or "/") == real or os.path.realpath(p.get("cwd") or "/").startswith(real + os.sep))]
 
 
 def plan(name: str, who: str, adapters) -> dict:

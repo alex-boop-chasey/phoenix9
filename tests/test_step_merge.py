@@ -86,7 +86,7 @@ def test_auto_merge_deletes_the_branch_here_and_on_origin(world):
     result = load("merge").run(ctx)
     assert result.status == "pass" and result.reasons == []
     assert "phoenix/r" not in branches(code) and "phoenix/r" not in branches(origin)
-    assert (ctx.worktree / "b.txt").exists()
+    assert not ctx.worktree.exists()
 
 
 def test_auto_merge_reports_a_failed_remote_delete(world):
@@ -229,8 +229,8 @@ def test_local_only_project_merges_into_code(world):
     assert load("merge").run(ctx).status == "pass"
     assert (code / "b.txt").exists()
     ctx2 = ctx
-    git(code, "branch", "phoenix/r", git(ctx.worktree, "rev-parse", "HEAD").strip())   # the first merge deleted it
-    git(ctx.worktree, "checkout", "-q", "phoenix/r")
+    git(code, "branch", "phoenix/r", "HEAD^2")   # the first merge deleted it and its worktree
+    git(code, "worktree", "add", "-q", str(ctx.worktree), "phoenix/r")
     git(code, "reset", "-q", "--hard", "HEAD~1")
     ctx2.project.settings["merge"] = "ask"
     mod = load("merge")
@@ -253,3 +253,83 @@ def test_push_without_a_github_login_says_run_doctor(world):
     result = load("merge").run(ctx)
     assert result.status == "fail"
     assert result.reasons == ["Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"]
+
+
+def spy_git(ctx, fail_on=None):
+    """Wrap the git adapter so tests can see each call (and make `worktree remove` fail on request)."""
+    real, seen = ctx.adapters.git, []
+
+    class Spy:
+        def git(self, cwd, *args, **kw):
+            seen.append(list(args))
+            if fail_on and list(args[:2]) == fail_on:
+                raise RuntimeError("worktree is locked\nmore")
+            return real.git(cwd, *args, **kw)
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+    ctx.adapters.git = Spy()
+    return seen
+
+
+def test_auto_merge_removes_the_worktree(world):
+    ctx, code, _ = world
+    seen = spy_git(ctx)
+    assert load("merge").run(ctx).status == "pass"
+    assert ["worktree", "remove", "--force", str(ctx.worktree)] in seen
+    assert not ctx.worktree.exists() and str(ctx.worktree) not in git(code, "worktree", "list")
+
+
+def test_worktree_removal_uses_the_safety_flags(world, monkeypatch):
+    from phoenix9 import git as gitmod
+    ctx, code, _ = world
+    argvs = []
+    real = gitmod.subprocess.run
+    monkeypatch.setattr(gitmod.subprocess, "run", lambda argv, **kw: (argvs.append(argv), real(argv, **kw))[1])
+    load("merge").run(ctx)
+    remove = next(a for a in argvs if "remove" in a)
+    assert remove[:5] == ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
+
+
+def test_local_only_approve_removes_the_worktree(world):
+    ctx, code, _ = world
+    git(code, "remote", "remove", "origin")
+    ctx.project.settings["merge"] = "ask"
+    mod = load("merge")
+    assert mod.run(ctx).status == "gate"
+    seen = spy_git(ctx)
+    mod.on_approved(ctx, {})
+    assert ["worktree", "remove", "--force", str(ctx.worktree)] in seen
+    assert not ctx.worktree.exists() and (code / "b.txt").exists()
+
+
+def test_failed_worktree_removal_is_a_note_not_a_failure(world):
+    ctx, code, _ = world
+    spy_git(ctx, fail_on=["worktree", "remove"])
+    result = load("merge").run(ctx)
+    assert result.status == "pass"
+    assert any("worktree was not removed: worktree is locked" in r for r in result.reasons)
+    assert "phoenix/r" not in branches(code)
+
+
+def test_merge_left_to_github_keeps_the_worktree(world):
+    ctx, code, _ = world
+    ctx.project.settings["merge"] = "ask"
+    gh(ctx, ["pr", "create"], out=URL + "\n")
+    seen = spy_git(ctx)
+    assert load("merge").run(ctx).status == "gate"
+    gh(ctx, ["pr", "merge"])
+    load("merge").on_approved(ctx, {})
+    assert ctx.worktree.exists() and ["worktree", "remove", "--force", str(ctx.worktree)] not in seen
+
+
+def test_failed_merge_keeps_the_worktree(world):
+    ctx, code, _ = world
+    (code / "a.txt").write_text("conflict\n")
+    git(code, "commit", "-qam", "main moves")
+    (ctx.worktree / "a.txt").write_text("other\n")
+    git(ctx.worktree, "commit", "-qam", "branch moves")
+    spy_git(ctx)
+    with pytest.raises(Exception):
+        load("merge").run(ctx)
+    assert ctx.worktree.exists()

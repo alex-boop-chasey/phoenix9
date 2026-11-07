@@ -68,6 +68,7 @@ phoenix9/                      the Python package
   failmodes.py                 retry / escalation / on_failure handling (section 7)
   aistep.py                    prompt rendering and helpers shared by the ai steps
   checklock.py reports.py      locked task checks (fingerprints); test report readers + verdict fallback
+  checklint.py                 self-contained checks: env read but never set; red run that is a setup crash
   summary.py                   run summary facts -> summary.md / summary.html (assets/summary.html)
   chat.py                      the `chat` adapter: delegate mode (section 9)
   templates.py images.py       templates menu loader; profile Dockerfile checks
@@ -196,8 +197,9 @@ model = "claude-sonnet-5-5"
   session's outcome by looking at files only, never by trusting what the session said).
 - `kind = "gate"`: no code needed; the runner opens a gate (section 8) and waits.
 - Two `[settings]` keys the runner itself reads (any step may set them; the runner knows no step by
-  name): `once = true` (task step) runs on every attempt until it has passed once, then never again
-  for that task; after the once-steps the worktree's commit is the task's `attempt_base`.
+  name): `once = true` (task step) runs on every attempt until all the task's once-steps have passed
+  (in earlier attempts), then never again for that task; a failed once-step makes every once-step run
+  again (Red check refusing the checks makes Check-writer write them again); after the once-steps the worktree's commit is the task's `attempt_base`.
   `after_stop = true` (finish step) still runs when Alex answers `stop` (Notify sets it); every other
   finish step is left out of a stopped run.
 - Optional step hook `on_approved(ctx, produces) -> dict | None`: when Alex answers `approve` on a gate
@@ -576,8 +578,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
     (`runner._hold_point`, section 15); set false when the hold is released, and gone again when the
     next step starts (each step start rewrites `current`). Read with `.get`; a `held = true` left
     by a restart is set false at the next task boundary when no hold is asked for.
-  - `once` steps (e.g. Checks) are skipped once they passed in an earlier attempt; a failed once-step
-    runs again. attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
+  - `once` steps (e.g. Check-writer, Red check) are skipped once all of them passed in earlier
+    attempts; while any of them has not, they all run again (the failed attempt's checks commit is
+    reset away, and the Check-writer prompt lists the earlier failures). attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
 - The attempt loop (`phoenix9/runner.py` + `phoenix9/failmodes.py`, harness spec 13): a task runs
   attempts of its task steps. A failed attempt (a step `fail`, or a crash: "step <name> crashed: ...")
   adds its reasons to `failures` and is retried until `max_tries`, unless it was already escalated,
@@ -862,6 +865,30 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 4. The spec is mounted read-only; locked checks are fingerprinted (when Check-writer is on). The lock
    covers the files the check writer wrote plus no-added-files in their folder, which is per run
    (`<checks_dir>/<run-id>/task-<n>/`); older runs' check folders are ordinary repo files.
+   **Locked checks are self-contained** (`phoenix9/checklint.py`), because a locked check the builder
+   cannot fix skips the task (agent build 1b, task 6: a check read `PHOENIX_PROJECTS` it never set).
+   - Before locking, Check-writer lists the environment variables each check file reads (shell `$X` /
+     `${X}` outside single quotes, comments and quoted heredocs, where `${X:-..}`-style fallbacks do not
+     count; python `os.environ["X"]`, `os.environ.get("X")` and `os.getenv("X")` with no default, also
+     inside heredocs) and refuses any the file never sets (shell `X=`, `export`/`local`/`declare`/
+     `readonly`, `for X in`, `read X`; python `os.environ["X"] =`, `setdefault`, `putenv`,
+     `monkeypatch.setenv`). Assignments count anywhere in the file (no order check). Allowed without
+     setting: PATH, HOME, TMPDIR, PWD, the shell's own variables, the check container's env
+     (`docker.check_run`: `session_env()` minus `CLAUDE_*`, plus `GIT_ENV`), the project's key names
+     (the env file) and `PHOENIX_PROXY_*`. The step fails naming the variable; the retry rewrites.
+   - Red check counts a non-zero exit as red only when the output is not a crash in the check's own
+     setup. A crash is: a Python error whose innermost frame outside Python's own library is in the
+     check's own code (a check file, or a program it wrote outside /workspace: heredoc temp file,
+     `<stdin>`, `<string>`) and is NameError, SyntaxError/IndentationError, KeyError on a line reading
+     `environ`, ImportError/ModuleNotFoundError of a standard-library module, or FileNotFoundError of an
+     absolute path outside /workspace; or the shell running a check file saying "unbound variable" /
+     "parameter not set" / "command not found". Kept narrow on purpose: a missing project module, a
+     missing project file or a KeyError in data the code returned are real reds (the task is not built
+     yet). A broken red fails the attempt, so Check-writer writes the checks again (once-steps above).
+   - Check files are run with `checklock.check_commands`: a shell `check_command` (`sh {files}`, `bash ...`)
+     runs only its first script, so it becomes one command (and one check container) per file in Red
+     check, Acceptance and Verify, and Red check judges each file (each must fail, none may crash); a test
+     runner (pytest, vitest) still gets every file in one command.
 5. Every git command on an untrusted checkout uses `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
 6. Default diff denylist: `.git`, `.github/workflows`, `.env*`, symlinks, submodules, `CLAUDE.md`,
    `.claude/`, `.mcp.json`, locked check files. Everything else is allowed unless the project denies it.

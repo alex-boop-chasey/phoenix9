@@ -1,8 +1,9 @@
-"""Check-writer: Claude writes the task's checks; Phoenix accepts only files in the task's checks folder, then locks them."""
+"""Check-writer: Claude writes the task's checks; Phoenix accepts only self-contained files in the task's checks
+folder, then locks them."""
 import fnmatch
 from pathlib import Path
 
-from phoenix9 import checklock, state
+from phoenix9 import checklint, checklock, keys, state
 from phoenix9.aistep import last_line, profile_test, task_text
 from phoenix9.stepctx import StepResult
 
@@ -49,6 +50,32 @@ def existing_checks(ctx, own_dir: str) -> str:
     return "\n".join(parts) or "(none yet)"
 
 
+def _failures(ctx) -> str:
+    """Why earlier tries of this task failed (a broken check is rewritten), as a numbered list."""
+    items = list(ctx.things.get("failures") or [])
+    return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
+
+
+def unset_env_problems(ctx, written: list[str]) -> list[str]:
+    """One plain message per check file that reads environment variables it never sets itself."""
+    allowed = checklint.container_env_names() | {k["name"] for k in keys.list_keys(ctx.project.name)}
+    problems = []
+    for rel in written:
+        try:
+            text = (Path(ctx.worktree) / rel).read_text(errors="replace")
+        except OSError:
+            continue
+        names = checklint.unset_env(rel, text, allowed)
+        if names:
+            problems.append(f"The check {rel} reads {', '.join(names)} but never sets "
+                            f"{'it' if len(names) == 1 else 'them'}. In the check container "
+                            f"{'it is' if len(names) == 1 else 'they are'} unset, so the check would crash "
+                            "whatever the code does. Make the check self-contained: create its own temp "
+                            "folders and export every variable it reads before using it (for example "
+                            'export NAME="$TMP/name" before running python).')
+    return problems
+
+
 def before(ctx) -> dict:
     """Fill the check-writer prompt's placeholders."""
     test = profile_test(ctx)
@@ -63,6 +90,7 @@ def before(ctx) -> dict:
         "check_command": test.get("check_command", "").replace("{files}", f"{folder}/"),
         "repo_tree": repo_tree(ctx),
         "existing_checks": existing_checks(ctx, folder),
+        "failures": _failures(ctx),
     }
 
 
@@ -75,7 +103,7 @@ def _wanted(path: str, folder: str, patterns: list[str]) -> bool:
 
 
 def after(ctx, session) -> StepResult:
-    """Accept only new check files in the task's folder, commit and lock them."""
+    """Accept only new, self-contained check files in the task's folder, commit and lock them."""
     if session.kind in EARLY_END:
         return StepResult("fail", [f"The check writer session ended before it finished ({session.kind}). "
                                    f"End of its output:\n{(session.text or '')[-1000:]}"])
@@ -96,6 +124,9 @@ def after(ctx, session) -> StepResult:
     if not written:
         why = "The check writer wrote no checks"
         return StepResult("fail", [f"{why}. It said: {line}" if line.startswith("CHECKS BLOCKED") else why])
+    problems = unset_env_problems(ctx, written)
+    if problems:
+        return StepResult("fail", problems)
     git.commit(ctx.worktree, f"Checks for task {n}", {"Phoenix-Run": ctx.run.id, "Phoenix-Task": str(n)})
     checklock.lock(ctx.run.folder, n, ctx.worktree, written)
     return StepResult("pass", produces={"checks": written})

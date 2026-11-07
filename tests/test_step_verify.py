@@ -217,3 +217,18 @@ def test_fallback_report_counts_exit_codes(tmp_path, adapters, work):
     assert data["ok"] is False and data["passed"] == 1 and data["failed"] == 1 and data["first_failed"] == "b"
     ctx.things = {"exit-codes": [{"command": "a", "exit_code": 0}]}
     assert reports.fallback_report(ctx)["ok"] is True
+
+
+def test_verify_runs_each_sh_check_on_its_own(tmp_path, adapters, work):
+    sh = ["tests/phoenix/r/task-1/1-a.sh", "tests/phoenix/r/task-1/2-b.sh"]
+    write(work, {sh[0]: "exit 0\n", sh[1]: "exit 1\n"})
+    ctx = make_ctx(tmp_path, adapters, work, "verify", profile="platform")
+    ctx.step.settings["scope"] = "task"
+    ctx.things = {"checks": sh}
+    checklock.lock(ctx.run.folder, 1, work, sh)
+    adapters.docker.exit_codes += [0, 1]
+    res = mod.run(ctx)
+    assert len(adapters.docker.argvs) == 2
+    assert sh[0] in " ".join(adapters.docker.argvs[0]) and sh[1] not in " ".join(adapters.docker.argvs[0])
+    assert sh[1] in " ".join(adapters.docker.argvs[1])
+    assert res.status == "fail"

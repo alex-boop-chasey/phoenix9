@@ -112,6 +112,37 @@ def test_ordinary_text_is_left_alone():
     assert scrub.scrub(text) == text
 
 
+@pytest.mark.parametrize("line", ["KeyError: 'PHOENIX_PROJECTS'", "TokenError: 'bad-token-format'",
+                                  "PasswordWarning: password_is_weak", "SecretException: 'missing-thing'",
+                                  "json.decoder.KeyError: 'PHOENIX_HOME'", "raise KeyError: 'API_KEY_NAME'"])
+def test_exception_names_are_not_secret_names(line):
+    assert scrub.scrub(line) == line
+
+
+def test_traceback_lines_are_not_secret_settings():
+    text = ('Traceback (most recent call last):\n'
+            '  File "/tmp/t/check.py", line 10, in <module>\n'
+            '    token = get_token_from(os.environ["PHOENIX_PROJECTS"])\n'
+            '  File "<frozen os>", line 717, in __getitem__\n'
+            '  File "/tmp/t/lib.py", line 5, in get\n'
+            '    password = lookup(name_of_thing)\n'
+            "KeyError: 'PHOENIX_PROJECTS'\n")
+    assert scrub.scrub(text) == text
+
+
+def test_settings_next_to_tracebacks_are_still_masked():
+    text = ('  File "/tmp/t/check.py", line 3, in <module>\n    x = 1\n'
+            "API_KEY=abc123def456\ntoken: tok-value-99\nsk-ant-abcdefghijkl\n")
+    out = scrub.scrub(text)
+    assert "abc123def456" not in out and "tok-value-99" not in out and "sk-ant-abcdefghijkl" not in out
+    assert "x = 1" in out
+    # a known secret value is masked even inside a traceback line
+    s = Scrubber(["registered-secret-99"])
+    assert "registered-secret-99" not in s.text('  File "/x.py", line 1, in f\n    k = "registered-secret-99"\n')
+    # exception-looking words that are really settings in CAPS stay masked
+    assert "abc123def456" not in scrub.scrub("SECRET_ERROR=abc123def456")
+
+
 def test_fresh_cli_process_loads_phoenix_secrets(tmp_path):
     """A brand-new phoenix process (nothing preloaded) scrubs saved global secrets and project keys."""
     from phoenix9 import keys, paths
@@ -152,6 +183,8 @@ def test_pattern_masks_stay_fast_on_big_text():
     import time
     cases = [".".join("abc-def" for _ in range(30000)), "KEY_" * 50000, "x" * 300000,
              "aB" * 150000 + "=value-12345", ("monkeyKEYmonkey=banana-split " * 10000),
+             ('  File "/x.py", line 1, in f\n    token = value-123456\n' * 20000),
+             "KeyError: " * 50000 + "x",
              "\n".join(base64.b64encode(os.urandom(57)).decode() for _ in range(5000)) + "\n-----END PRIVATE KEY-----"]
     for text in cases:
         t0 = time.monotonic()

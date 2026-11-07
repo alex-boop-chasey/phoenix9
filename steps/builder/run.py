@@ -31,7 +31,7 @@ def _check_command(ctx, test: dict) -> str:
     """The command that runs this task's checks."""
     checks = ctx.things.get("checks")
     if isinstance(checks, list) and checks and test.get("check_command"):
-        return test["check_command"].replace("{files}", " ".join(str(c) for c in checks))
+        return " && ".join(checklock.check_commands(test, [str(c) for c in checks]))
     commands = [c["command"] for c in (ctx.task or {}).get("done_when", []) if c.get("command")]
     return "\n".join(commands) or test.get("task_cmd") or test.get("cmd", "")
 

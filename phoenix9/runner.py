@@ -395,17 +395,20 @@ class Runner:
             # passed or failed: attempt k's result.json is written; the top of the loop decides.
 
     def _run_attempt(self, run_dir: Path, setup: dict, things: dict, task: dict, k: int) -> Outcome:
-        """Attempt k: the task steps in plan order. `once` steps run until they have passed once;
-        after them the worktree's commit is recorded as attempt_base. A failed step ends the
-        attempt and the worktree goes back to attempt_base."""
+        """Attempt k: the task steps in plan order. `once` steps run until they have all passed in an
+        earlier attempt (a failed one reruns every once-step); after them the worktree's commit is
+        recorded as attempt_base. A failed step ends the attempt and the worktree goes back to attempt_base."""
         n = task["number"]
         names = setup["plan"]["groups"]["task"]
         once = {x for x in names if self._step_settings(setup, x).get("once")}
         worktree = self._worktree(run_dir)
         start_head = self.adapters.git.head(worktree) if worktree else None
         based = False
+        # once-steps are skipped only when all of them passed before: a failed one (Red check refusing the
+        # checks) makes the ones before it run again too (Check-writer writes the checks again)
+        skip_once = all(self._passed_before(run_dir, n, x, k) for x in once)
         for name in names:
-            if name in once and self._passed_before(run_dir, n, name, k):
+            if name in once and skip_once:
                 continue
             if name not in once and not based:
                 based = True

@@ -26,6 +26,8 @@ Done when:
 - it is documented
 """
 GOOD = {"tests/phoenix/task-1/test_1.py": "assert False\n", "tests/phoenix/task-1/test_2.py": "assert False\n"}
+# what a scripted check writer writes in a real run: the fake claude fills in {run_id}
+RUN_GOOD = {k.replace("tests/phoenix/", "tests/phoenix/{run_id}/"): v for k, v in GOOD.items()}
 
 
 def git(cwd, *args):
@@ -126,6 +128,46 @@ def test_verify_reports_changed_deleted_added(tmp_path, work):
     assert "test_1.py was changed" in text and "test_2.py was deleted" in text and "test_3.py" in text
 
 
+def test_task_checks_dir_is_per_run():
+    assert checklock.task_checks_dir({"checks_dir": "tests/phoenix"}, "run-a", 1) == "tests/phoenix/run-a/task-1"
+    assert checklock.task_checks_dir({"checks_dir": "/checks/phoenix/"}, "run-a", 2) == "checks/phoenix/run-a/task-2"
+    assert checklock.task_checks_dir({}, "run-b", 3) == "tests/phoenix/run-b/task-3"
+    assert checklock.run_checks_dir({}, "run-b") == "tests/phoenix/run-b"
+    for bad in ("", ".", "..", "a/b", "a\\b"):
+        with pytest.raises(ValueError):
+            checklock.task_checks_dir({}, bad, 1)
+
+
+def test_two_runs_with_task_1_never_collide(tmp_path, work):
+    test = {"checks_dir": "tests/phoenix"}
+    first = {f"{checklock.task_checks_dir(test, 'run-a', 1)}/{n}": t for n, t in [("test_1.py", "a\n")]}
+    write(work, first)
+    checklock.lock(tmp_path / "a", 1, work, list(first))
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "run a merged")      # the first build is in main now
+    second = {f"{checklock.task_checks_dir(test, 'run-b', 1)}/{n}": t
+              for n, t in [("test_1.py", "b\n"), ("test_2.py", "b\n")]}
+    write(work, second)
+    checklock.lock(tmp_path / "b", 1, work, list(second))
+    assert checklock.verify(tmp_path / "b", 1, work) == []
+    assert checklock.verify(tmp_path / "a", 1, work) == []
+    assert not any("run-a" in p for p in checklock.locked_paths(tmp_path / "b"))
+
+
+def test_per_run_lock_still_catches_changes_in_its_own_folder(tmp_path, work):
+    test = {"checks_dir": "tests/phoenix"}
+    folder = checklock.task_checks_dir(test, "run-b", 1)
+    write(work, {"tests/phoenix/run-a/task-1/test_1.py": "a\n"})
+    write(work, {f"{folder}/test_1.py": "b\n", f"{folder}/test_2.py": "b\n"})
+    checklock.lock(tmp_path / "b", 1, work, [f"{folder}/test_1.py", f"{folder}/test_2.py"])
+    (work / folder / "test_1.py").write_text("changed\n")
+    write(work, {f"{folder}/test_3.py": "x\n", "tests/phoenix/run-a/task-1/test_9.py": "x\n"})
+    text = "\n".join(checklock.verify(tmp_path / "b", 1, work))
+    assert f"{folder}/test_1.py was changed" in text
+    assert f"A file was added to the locked checks: {folder}/test_3.py" in text
+    assert "run-a" not in text
+
+
 def test_manifest_lives_in_run_folder_not_worktree(tmp_path, work):
     write(work, GOOD)
     checklock.lock(tmp_path / "run", 1, work, list(GOOD))
@@ -143,7 +185,7 @@ def test_checkwriter_prompt_no_unfilled_placeholders(tmp_path, adapters, project
         ctx = run_ctx(tmp_path, project, adapters, work, tmp_path / "run")
         ctx.project.profile = profile
         text = aistep.render(template, mod.before(ctx))
-        assert "{{" not in text and profile["test"]["checks_dir"] + "/task-1" in text
+        assert "{{" not in text and profile["test"]["checks_dir"] + "/r/task-1/" in text
 
 
 # ---------------------------------------------------------------- check-writer in a run
@@ -157,7 +199,7 @@ def session(files, text="CHECKS DONE"):
 
 
 def test_checkwriter_accepts_only_checks_dir(tmp_path, runner):
-    runner.adapters.claude.sessions += [session({**GOOD, "src/x.py": "x = 1\n"})]
+    runner.adapters.claude.sessions += [session({**RUN_GOOD, "src/x.py": "x = 1\n"})]
     run_dir = start(tmp_path, max_tries=1)
     runner.drive(run_dir)
     line = next(s for s in state.load(run_dir)["steps"] if s["step"] == "check-writer")
@@ -167,7 +209,7 @@ def test_checkwriter_accepts_only_checks_dir(tmp_path, runner):
 
 
 def test_checkwriter_commits_and_locks(tmp_path, runner):
-    runner.adapters.claude.sessions += [session(GOOD)]
+    runner.adapters.claude.sessions += [session(RUN_GOOD)]
     runner.adapters.docker.exit_codes += [1]
     run_dir = start(tmp_path)
     runner.drive(run_dir)
@@ -175,8 +217,28 @@ def test_checkwriter_commits_and_locks(tmp_path, runner):
     body = git(work, "log", "-30", "--format=%B")
     assert "Checks for task 1" in body and "Phoenix-Task: 1" in body and "Phoenix-Run:" in body
     lock = json.loads((run_dir / "tasks/1/checks.lock.json").read_text())
-    assert sorted(lock["files"]) == sorted(GOOD)
+    run_id = state.load(run_dir)["run_id"]
+    assert sorted(lock["files"]) == sorted(k.format(run_id=run_id) for k in RUN_GOOD)
+    assert lock["dir"] == f"tests/phoenix/{run_id}/task-1"
     assert not list(work.rglob("checks.lock.json"))
+
+
+def test_second_build_ignores_checks_left_in_main_by_earlier_builds(tmp_path, runner, project):
+    """Agent build 1b: an earlier build's task-1 checks were merged into main and broke the next lock."""
+    code = project / "code"
+    write(code, {"tests/phoenix/task-1/1-transcript-tests-pass.sh": "old layout\n",
+                 "tests/phoenix/20261106-000000-earlier/task-1/test_1.py": "earlier run\n"})
+    git(code, "add", "-A")
+    git(code, "commit", "-q", "-m", "an earlier build, merged")
+    runner.adapters.claude.sessions += [session(RUN_GOOD)]
+    runner.adapters.docker.exit_codes += [1]
+    run_dir = start(tmp_path)
+    runner.drive(run_dir)
+    steps = state.load(run_dir)["steps"]
+    assert [s["status"] for s in steps if s["step"] == "check-writer"] == ["passed"]
+    assert "A file was added" not in json.dumps(state.load(run_dir))
+    run_id = state.load(run_dir)["run_id"]
+    assert json.loads((run_dir / "tasks/1/checks.lock.json").read_text())["dir"] == f"tests/phoenix/{run_id}/task-1"
 
 
 def test_checkwriter_no_checks_fails(tmp_path, runner):
@@ -207,7 +269,7 @@ def test_red_check_requires_failure(tmp_path, adapters, project, work):
 
 
 def test_once_steps_not_rerun_on_attempt_2(tmp_path, runner):
-    runner.adapters.claude.sessions += [session(GOOD)]
+    runner.adapters.claude.sessions += [session(RUN_GOOD)]
     runner.adapters.docker.exit_codes += [1]
     on("builder", 1, 1, fail("nope"))
     run_dir = start(tmp_path, max_tries=2)

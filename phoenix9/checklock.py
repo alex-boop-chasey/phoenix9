@@ -9,10 +9,19 @@ from pathlib import Path
 from phoenix9 import atomic
 
 
-def task_checks_dir(profile_test: dict, task_no: int) -> str:
-    """The repo folder holding this task's checks: <checks_dir>/task-<n>."""
+def run_checks_dir(profile_test: dict, run_id: str) -> str:
+    """The repo folder holding one run's checks: <checks_dir>/<run-id>.
+
+    Per run, so checks an earlier build merged into main never sit in a later run's task folder."""
+    if not run_id or run_id in (".", "..") or "/" in run_id or "\\" in run_id:
+        raise ValueError(f"Not a usable run id for a checks folder: {run_id!r}")
     base = (profile_test.get("checks_dir") or "tests/phoenix").strip("/")
-    return f"{base}/task-{task_no}"
+    return f"{base}/{run_id}"
+
+
+def task_checks_dir(profile_test: dict, run_id: str, task_no: int) -> str:
+    """The repo folder holding this task's checks: <checks_dir>/<run-id>/task-<n>."""
+    return f"{run_checks_dir(profile_test, run_id)}/task-{task_no}"
 
 
 def _manifest(run_dir: Path, task_no: int) -> Path:

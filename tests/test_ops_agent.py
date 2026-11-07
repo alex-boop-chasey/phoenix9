@@ -81,8 +81,14 @@ def test_sessions_newest_first(host):
 
 def test_send_records_and_wraps_errors(host, monkeypatch):
     """Send records a command event and turns SendError into OpsError."""
-    monkeypatch.setattr(agentlink, "send", lambda t, c=None, w="cli": {"sent": True})
+    seen = {}
+
+    def fake_send(t, c=None, w="cli", host=None):
+        seen["host"] = host
+        return {"sent": True}
+    monkeypatch.setattr(agentlink, "send", fake_send)
     assert agent.send("go", None, "alex") == {"sent": True}
+    assert seen["host"] is host          # the ops' host adapter, never a real Host() in tests
     assert "alex" in json.dumps([e for e in events.read(paths.events()) if e["type"] == "command"])
 
     def bad(*a, **k):

@@ -1,7 +1,7 @@
 """Builder: Claude writes the code for one task; Phoenix judges only the files it left behind."""
 from pathlib import Path
 
-from phoenix9 import atomic, state
+from phoenix9 import atomic, checklock, state
 from phoenix9.aistep import finish_line, profile_test, task_text
 from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
@@ -73,7 +73,7 @@ def before(ctx) -> dict:
         "about": ctx.run.spec.get("about", "").strip() or "(none)",
         "done_when": _done_when(ctx.task),
         "checks": _checks(ctx),
-        "checks_dir": test.get("checks_dir") or "tests/phoenix",
+        "checks_dir": checklock.run_checks_dir(test, ctx.run.id),
         "check_command": _check_command(ctx, test),
         "suite_command": test.get("cmd", ""),
         "git_log": _git_log(ctx),

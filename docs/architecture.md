@@ -296,7 +296,10 @@ committed lockfile),
 - `cmd` (full suite command, = `{{suite_command}}`), `task_cmd` (optional, a single task's checks);
 - `report`: one of `pytest-junit | vitest-json | playwright-json | exit-code`, or a list of them
   (e.g. `["vitest-json", "playwright-json"]`), and `report_path`;
-- `checks_dir` (where locked task checks live in the repo), `check_files` (glob(s), space-separated, the
+- `checks_dir` (where locked task checks live in the repo: each run writes into its own folder,
+  `<checks_dir>/<run-id>/task-<n>/` (`checklock.task_checks_dir`), so checks an earlier build merged
+  into main never land in a later run's task folder; the builder is told `<checks_dir>/<run-id>/` is
+  read-only), `check_files` (glob(s), space-separated, the
   check writer must use), `check_command` (runs given check files; `{files}` = space-joined paths) and
   `report_args` (appended so the report reader finds its file in `/out`).
 
@@ -852,7 +855,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
    `/etc/hands/allowed-proxy`; the proxy host is the Docker bridge gateway.
 3. Phoenix trusts only exit codes, files it wrote, reports it read itself and git objects in its own
    worktrees. Nothing a session *says* counts.
-4. The spec is mounted read-only; locked checks are fingerprinted (when Check-writer is on).
+4. The spec is mounted read-only; locked checks are fingerprinted (when Check-writer is on). The lock
+   covers the files the check writer wrote plus no-added-files in their folder, which is per run
+   (`<checks_dir>/<run-id>/task-<n>/`); older runs' check folders are ordinary repo files.
 5. Every git command on an untrusted checkout uses `-c core.fsmonitor=false -c core.hooksPath=/dev/null`.
 6. Default diff denylist: `.git`, `.github/workflows`, `.env*`, symlinks, submodules, `CLAUDE.md`,
    `.claude/`, `.mcp.json`, locked check files. Everything else is allowed unless the project denies it.

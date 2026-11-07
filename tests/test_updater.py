@@ -28,8 +28,9 @@ def git(cwd, *args) -> str:
                           check=True, capture_output=True, text=True).stdout.strip()
 
 
-def make_origin(tmp: Path, web: bool = False) -> Path:
-    """A bare repo with releases v9.0, v9.1 (web/ when asked) and v9.2 (touches image/)."""
+def make_origin(tmp: Path, web: bool = False, units: dict | None = None) -> Path:
+    """A bare repo with releases v9.0, v9.1 (web/ when asked) and v9.2 (touches image/);
+    `units` = {release number: {unit file name: text}} written to deploy/ in that release."""
     work = tmp / "src"
     work.mkdir()
     git(work, "init", "-q")
@@ -44,6 +45,9 @@ def make_origin(tmp: Path, web: bool = False) -> Path:
             (work / "web" / "package.json").write_text("{}\n")
         if n == 2:
             (work / "image" / "Dockerfile").write_text("FROM scratch\nRUN true\n")
+        for name, text in ((units or {}).get(n) or {}).items():
+            (work / "deploy").mkdir(exist_ok=True)
+            (work / "deploy" / name).write_text(text)
         git(work, "add", "-A")
         git(work, "commit", "-q", "-m", f"release {n}")
         git(work, "tag", f"v9.{n}")
@@ -865,3 +869,93 @@ def test_a_failing_migration_is_only_a_log_line(layout, adapters):
     adapters.host.script([str(layout["install"] / "bin" / "phoenix"), "settings"], rc=1, err="boom")
     assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
     assert "post-install migration failed" in (paths.logs() / "updater.log").read_text()
+
+
+# ------------------------------------------------------------------ unit files
+UNITS_V0 = {"phoenix-api.service": "[Service]\nExecStart=api\n",
+            "phoenix-runner.service": "[Service]\nExecStart=runner\n",
+            "phoenix9-update.service": "[Service]\nExecStart=update\n"}
+UNITS_V1 = {**UNITS_V0, "phoenix-api.service": "[Service]\nExecStart=api\nEnvironment=HOME=/root\n",
+            "phoenix-runner.service": "[Service]\nExecStart=runner\nEnvironment=HOME=/root\n"}
+
+
+@pytest.fixture
+def unit_layout(tmp_path, monkeypatch):
+    """Like `layout`, but v9.1 changes the api and runner units; the systemd folder holds v9.0's units."""
+    origin = make_origin(tmp_path, units={0: UNITS_V0, 1: UNITS_V1})
+    inst = tmp_path / "opt" / "phoenix9"
+    inst.parent.mkdir()
+    git(tmp_path, "clone", "-q", str(origin), str(inst))
+    git(inst, "checkout", "-q", "--detach", "v9.0")
+    monkeypatch.setenv("PHOENIX_INSTALL", str(inst))
+    units = updater.systemd_dir()
+    units.mkdir()
+    for name, text in UNITS_V0.items():
+        (units / name).write_text(text)
+    return {"origin": origin, "install": inst, "units": units,
+            **{k: v for k, v in updater.folders().items() if k != "install"}}
+
+
+def installed_units(layout) -> dict:
+    return {p.name: p.read_text() for p in layout["units"].iterdir()}
+
+
+def test_systemd_dir_follows_the_install_script_setting(monkeypatch):
+    monkeypatch.delenv("PHOENIX_SYSTEMD_DIR")
+    assert updater.systemd_dir() == Path("/etc/systemd/system")
+    monkeypatch.setenv("PHOENIX_SYSTEMD_DIR", "/tmp/x")
+    assert updater.systemd_dir() == Path("/tmp/x")
+
+
+def test_install_copies_changed_unit_files_then_reloads_before_restart(unit_layout, adapters):
+    out = updater.install("v9.1", adapters, who="alex")
+    assert out["result"] == "installed"
+    assert installed_units(unit_layout) == UNITS_V1
+    assert (unit_layout["units"] / "phoenix-api.service").stat().st_mode & 0o777 == 0o644
+    calls = systemctl_calls(adapters)
+    assert calls[:2] == [["systemctl", "daemon-reload"], ["systemctl", "restart", "phoenix-runner", "phoenix-api"]]
+    log = (paths.logs() / "updater.log").read_text()
+    assert "unit file phoenix-api.service updated" in log and "unit file phoenix-runner.service updated" in log
+    assert "phoenix9-update.service updated" not in log and "systemctl daemon-reload: exit 0" in log
+
+
+def test_unchanged_unit_files_are_left_alone(unit_layout, adapters):
+    for name, text in UNITS_V1.items():
+        (unit_layout["units"] / name).write_text(text)
+    before = {p.name: p.stat().st_mtime_ns for p in unit_layout["units"].iterdir()}
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert ["systemctl", "daemon-reload"] not in adapters.host.calls
+    assert {p.name: p.stat().st_mtime_ns for p in unit_layout["units"].iterdir()} == before
+
+
+def test_failed_health_puts_the_old_unit_files_back(unit_layout, adapters):
+    bad = (1, "FAIL runner: not running\n", "")
+    adapters.host.script_seq(doctor(), [bad, bad, bad, (0, "all good", "")])
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "rolled-back"
+    assert installed_units(unit_layout) == UNITS_V0
+    assert adapters.host.calls.count(["systemctl", "daemon-reload"]) == 2
+
+
+def test_manual_rollback_restores_the_previous_unit_files(unit_layout, adapters):
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert updater.rollback(adapters, who="alex")["result"] == "rolled-back-manual"
+    assert installed_units(unit_layout) == UNITS_V0
+    assert updater.rollback(adapters, who="alex")["result"] == "rolled-back-manual"
+    assert installed_units(unit_layout) == UNITS_V1
+
+
+def test_crash_after_swap_recovery_restores_the_old_unit_files(unit_layout, adapters, monkeypatch):
+    killed(monkeypatch)
+    real = updater._Update.phase
+
+    def phase(self, name, **extra):
+        real(self, name, **extra)
+        if name == "restarted":
+            raise SystemExit(143)
+    monkeypatch.setattr(updater._Update, "phase", phase)
+    with pytest.raises(SystemExit):
+        updater.install("v9.1", adapters, who="alex")
+    assert installed_units(unit_layout) == UNITS_V1
+    monkeypatch.setattr(updater._Update, "phase", real)
+    assert updater.recover(adapters)["result"] == "recovered"
+    assert installed_units(unit_layout) == UNITS_V0

@@ -13,6 +13,7 @@ def phoenix_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOENIX_PROJECTS", str(projects))
     monkeypatch.setenv("PHOENIX_INSTALL", str(tmp_path / "install"))
     monkeypatch.setenv("PHOENIX_NOTIFY_FILE", str(tmp_path / "notify.msg"))
+    monkeypatch.setenv("PHOENIX_SYSTEMD_DIR", str(tmp_path / "systemd"))
     return {"home": home, "projects": projects}
 
 

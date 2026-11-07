@@ -239,3 +239,17 @@ def test_local_only_project_merges_into_code(world):
     assert all(l["label"] != "Merge request" for l in result.gate["links"])
     mod.on_approved(ctx2, {})
     assert (code / "b.txt").exists()
+
+
+def test_push_without_a_github_login_says_run_doctor(world):
+    ctx, _, _ = world
+    real = ctx.adapters.host.run
+
+    def run(argv, timeout=60):
+        if "push" in argv:
+            return 128, "", "fatal: could not read Username for 'https://github.com': No such device or address\n"
+        return real(argv, timeout)
+    ctx.adapters.host.run = run
+    result = load("merge").run(ctx)
+    assert result.status == "fail"
+    assert result.reasons == ["Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"]

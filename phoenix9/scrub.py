@@ -2,8 +2,8 @@
 
 Besides the values it was told about, the scrubber masks the shapes of common secrets nobody registered:
 Anthropic keys (sk-ant-...), GitHub tokens (ghp_/gho_/ghu_/ghs_/ghr_..., github_pat_...), PEM private key
-blocks (also a block's tail without its BEGIN line), and NAME=value where the name says KEY, TOKEN, SECRET
-or PASSWORD."""
+blocks (also a block's tail without its BEGIN line), and NAME=value where a part of the name (split on _ - .
+and case changes) is KEY, TOKEN, SECRET or PASSWORD: API_KEY and apiKey are masked, monkey and keyboard are not."""
 import json
 import re
 from pathlib import Path
@@ -22,12 +22,30 @@ B64_LINE = re.compile(r"[ \t]*[A-Za-z0-9+/=]{16,}[ \t]*\r?")
 # so the pattern never backtracks over long runs of text.
 ASSIGN = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z_][A-Za-z0-9_.-]{0,80})([ \t]*[=:][ \t]*)([\"']?)"
                     r"([A-Za-z0-9_+/.~-][^\s\"';&|()]{5,})")
-SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD", re.I)
+# The name's parts: split on _ - . and at case changes (apiKey, APIKey) and digits. Each piece is a plain run, so
+# this stays linear; names are at most 81 characters anyway.
+NAME_PART = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+SECRET_WORDS = frozenset({"key", "keys", "token", "tokens", "secret", "secrets", "password", "passwords",
+                          "passwd", "pwd"})
+# names written as one lower-case word that still say "secret" (apikey, accesstoken, ...)
+SECRET_COMPOUNDS = frozenset({"apikey", "apikeys", "accesskey", "secretkey", "privatekey", "authtoken",
+                              "accesstoken", "refreshtoken", "apitoken", "apisecret", "clientsecret"})
+
+
+def name_parts(name: str) -> list[str]:
+    """The lower-case parts of a NAME: AWS_SECRET-access.Key -> aws, secret, access, key; myAPIKey2 -> my, api, key, 2."""
+    return [p.lower() for p in NAME_PART.findall(name)]
+
+
+def secret_name(name: str) -> bool:
+    """True when one part of the name is a secret word (API_KEY, apiKey, db-password; not monkey or keyboard)."""
+    parts = name_parts(name)
+    return any(p in SECRET_WORDS or p in SECRET_COMPOUNDS for p in parts)
 
 
 def _assign(m) -> str:
     name, sep, quote, value = m.groups()
-    if not SECRET_NAME.search(name) or value.startswith(MASK):
+    if not secret_name(name) or value.startswith(MASK):
         return m.group(0)
     return name + sep + quote + MASK
 

@@ -807,7 +807,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - The dashboard's Reveal button (behind the code-server login) is the only way to see a saved
   secret value; the CLI has no reveal.
 - Values are never printed by any command (`phoenix keys` shows `••••••`), never passed on a command
-  line (read from stdin or a file), never logged. `scrub.py` redacts every known secret value.
+  line (read from stdin or a file), never logged. `scrub.py` redacts every known secret value, plus the shapes of common unregistered secrets
+  (sk-ant-, GitHub token prefixes, PEM private keys) and `NAME=value` / `NAME: value` where one part of the name
+  (split on `_ - .`, case changes and digits) is key(s), token(s), secret(s), password(s), passwd or pwd, or the
+  name is one of a few joined forms such as `apikey` or `accesstoken`: `API_KEY`, `apiKey`, `GITHUB_TOKEN` and
+  `db-password` are masked, `monkey`, `turkey` and `keyboard` are not.
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 

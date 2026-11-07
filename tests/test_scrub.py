@@ -86,6 +86,27 @@ def test_assignments_of_secret_names_are_masked(line, keep):
     assert value not in out
 
 
+@pytest.mark.parametrize("name", ["API_KEY", "apiKey", "APIKey", "GITHUB_TOKEN", "db-password", "client.secret",
+                                  "AWS_SECRET_ACCESS_KEY", "X-Api-Key", "authToken", "apikey", "access_token",
+                                  "KEY", "key2", "MY_KEYS", "db_passwd", "privateKey", "SERVICE_ROLE_SECRET"])
+def test_secret_words_count_as_whole_parts_of_the_name(name):
+    out = scrub.scrub(f"{name}=value-1234567")
+    assert out.startswith(name) and "[secret]" in out and "value-1234567" not in out
+
+
+@pytest.mark.parametrize("name", ["monkey", "turkey", "keyboard", "donkey_kong", "Hockey", "tokenizer",
+                                  "secretary", "passwordless", "keynote", "whiskey.brand", "monkeyPatch"])
+def test_names_that_only_contain_a_secret_word_are_left_alone(name):
+    line = f"{name}=banana-split-42"
+    assert scrub.scrub(line) == line
+
+
+def test_name_parts_split_on_separators_and_case_changes():
+    assert scrub.name_parts("AWS_SECRET-access.Key") == ["aws", "secret", "access", "key"]
+    assert scrub.name_parts("myAPIKey2") == ["my", "api", "key", "2"]
+    assert scrub.name_parts("monkey") == ["monkey"]
+
+
 def test_ordinary_text_is_left_alone():
     text = "ran ls -la; KEY= (empty); token count 42; skip=ant; the secret garden"
     assert scrub.scrub(text) == text
@@ -130,6 +151,7 @@ def test_pattern_masks_stay_fast_on_big_text():
     import base64
     import time
     cases = [".".join("abc-def" for _ in range(30000)), "KEY_" * 50000, "x" * 300000,
+             "aB" * 150000 + "=value-12345", ("monkeyKEYmonkey=banana-split " * 10000),
              "\n".join(base64.b64encode(os.urandom(57)).decode() for _ in range(5000)) + "\n-----END PRIVATE KEY-----"]
     for text in cases:
         t0 = time.monotonic()

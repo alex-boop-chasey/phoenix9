@@ -40,6 +40,14 @@ def new(opts: dict, who: str, progress=None) -> dict:
     return project.create(opts, common.make_adapters(), who, progress)
 
 
+def delete_plan(name: str, who: str) -> dict:
+    """The dry run for deleting a project entirely: what would go and what refuses it; changes nothing."""
+    from phoenix9 import project_delete
+    plan = project_delete.plan(name, who, common.make_adapters())
+    common.record_command(who, f"project delete {name} --dry-run", name)
+    return plan
+
+
 def remove(name: str, who: str) -> dict:
     """Remove a project from Phoenix's list; every file is kept."""
     from phoenix9 import project_removal

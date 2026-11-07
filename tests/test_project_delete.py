@@ -178,3 +178,25 @@ def test_deleted_projects_path(monkeypatch, tmp_path):
     assert str(paths.deleted_projects()) == "/root/deleted-projects"
     monkeypatch.setenv("PHOENIX_DELETED", str(tmp_path / "d"))
     assert paths.deleted_projects() == tmp_path / "d"
+
+
+def test_cli_dry_run_text_and_json(env, capsys):
+    from test_project_cmds import run_cmd
+    make(env, "alpha", meta={"repo": "me/alpha"})
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--dry-run")
+    assert code == 0 and "Deleting alpha would remove" in out and "me/alpha" in out
+    code, out, _ = run_cmd(capsys, "project", "delete", "alpha", "--dry-run", "--json")
+    assert code == 0 and json.loads(out)["name"] == "alpha"
+
+
+def test_cli_delete_needs_dry_run(env, capsys):
+    from test_project_cmds import run_cmd
+    make(env, "alpha")
+    assert run_cmd(capsys, "project", "delete", "alpha")[0] == 1
+
+
+def test_ops_delete_plan_uses_given_caller(env):
+    from phoenix9.ops import projects
+    make(env, "alpha")
+    assert projects.delete_plan("alpha", "agent")["refusals"]
+    assert projects.delete_plan("alpha", "dashboard")["refusals"] == []

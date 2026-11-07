@@ -644,6 +644,11 @@ def post_remove(req, name):
         return projects.remove(check_name(name), WHO)
 
 
+def get_delete_plan(req, name):
+    """Reply with the dry run for deleting a project entirely (nothing is touched)."""
+    return projects.delete_plan(check_name(name), WHO)
+
+
 def get_chat(req, name):
     """Reply with the project's chat state."""
     return ops_chat.chat_state(check_name(name))
@@ -854,6 +859,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/projects/check-name", get_check_name),
     ("GET", rf"/api/projects/{NAME}", get_project),
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
+    ("GET", rf"/api/projects/{NAME}/delete-plan", get_delete_plan),
     ("GET", rf"/api/projects/{NAME}/keys", get_keys),
     ("GET", rf"/api/projects/{NAME}/settings", get_settings),
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),

@@ -23,7 +23,7 @@
 @container well (max-width:640px){ .ph-r{margin-left:0; width:100%} .ph-r .btn-primary{flex:1} .dock a,.dock button{height:44px} }
 
 .ov{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
-@container well (min-width:980px){ .ov{grid-template-columns:minmax(0,1fr) 300px; align-items:start} .about{position:sticky; top:84px} }
+@container well (min-width:980px){ .ov{grid-template-columns:minmax(0,1fr) 300px; align-items:start} .about{position:sticky; top:0} }
 .ov-main{display:flex; flex-direction:column; gap:20px; min-width:0}
 .need{position:relative; border-radius:var(--r-lg); border:1px solid var(--attn-edge); background:linear-gradient(var(--attn-soft),var(--attn-soft)),var(--surface); overflow:hidden; box-shadow:var(--shadow-2)}
 .need-bar{display:flex; align-items:center; gap:10px; padding:8px 16px; background:var(--attn); color:var(--attn-ink); font:700 14px/1.2 var(--f-body)}

@@ -8,6 +8,7 @@ from pathlib import Path
 from phoenix9 import atomic, events, git, heartbeat, paths, runend, scrub, state
 
 TOP_FILES = ("state.json", "settings.json", "plan.json", "things.json", "spec.json", "spec.md", "overrides.json")
+FROZEN = "repairs/frozen.json"
 NEVER_READ = ("secrets", "keys")
 
 
@@ -49,7 +50,7 @@ def _copyable(path: Path) -> bool:
 
 def _files_to_copy(run_dir: Path) -> list[Path]:
     """List the run files a snapshot keeps, as paths relative to the run folder."""
-    found = [Path(name) for name in TOP_FILES if _copyable(run_dir / name)]
+    found = [Path(name) for name in TOP_FILES + (FROZEN,) if _copyable(run_dir / name)]
     gates = run_dir / "gates"
     if gates.is_dir():
         found += sorted(p.relative_to(run_dir) for p in gates.rglob("*") if _copyable(p))
@@ -208,7 +209,7 @@ def _snapshot_before(run_dir: Path, n: int) -> Path:
 def _in_scope(rel: str) -> bool:
     """True for run files a snapshot owns: the top files, gates/ and attempt result.json files."""
     parts = rel.split("/")
-    return rel in TOP_FILES or parts[0] == "gates" or (
+    return rel in TOP_FILES or rel == FROZEN or parts[0] == "gates" or (
         len(parts) == 4 and parts[0] == "tasks" and parts[2].startswith("attempt-") and parts[3] == "result.json")
 
 
@@ -258,7 +259,7 @@ def _restore_files(run_dir: Path, before: Path) -> None:
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(before / rel, target)
-    now_there = [name for name in TOP_FILES if (run_dir / name).is_file()]
+    now_there = [name for name in TOP_FILES + (FROZEN,) if (run_dir / name).is_file()]
     now_there += [p.relative_to(run_dir).as_posix() for p in (run_dir / "gates").rglob("*") if p.is_file()] \
         if (run_dir / "gates").is_dir() else []
     now_there += [p.relative_to(run_dir).as_posix() for p in run_dir.glob("tasks/*/attempt-*/result.json")]

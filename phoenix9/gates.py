@@ -211,8 +211,8 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> di
     return result
 
 
-def close_questions(run_dir, reason: str, who: str = "phoenix") -> list[str]:
-    """Close every unanswered question of a run that ended: answer file {action: closed, reason, who, at}.
+def close_questions(run_dir, reason: str, who: str = "phoenix", only: str | None = None) -> list[str]:
+    """Close every unanswered question of a run that ended (or just `only` this one): answer file {action: closed, reason, who, at}.
 
     Called by every way a run ends (and by the runner's start-up catch-up); returns the ids it closed."""
     run_dir = Path(run_dir)
@@ -221,7 +221,7 @@ def close_questions(run_dir, reason: str, who: str = "phoenix") -> list[str]:
         if path.name.endswith(".answer.json") or _answer_path(path).exists():
             continue
         gate = atomic.read_json(path)
-        if not gate:
+        if not gate or (only is not None and gate["id"] != only):
             continue
         atomic.write_json(_answer_path(path), {"action": "closed", "reason": reason, "note": "", "who": who,
                                                "at": state.now()})

@@ -72,13 +72,13 @@ def _write_result(paths_to_write, info: dict) -> None:
             pass
 
 
-def _dry_run(run_dir: Path, path: Path, note, approve_unlock: bool) -> dict:
+def _dry_run(run_dir: Path, path: Path, note, approve_unlock: bool, who: str) -> dict:
     """Run the steps on a scratch copy of the run folder and report; the real run and worktree stay as they were."""
     with tempfile.TemporaryDirectory(prefix="phoenix-dry-") as tmp:
         scratch = Path(tmp) / run_dir.parent.name / run_dir.name
         shutil.copytree(run_dir, scratch, ignore=SKIP_COPY)
         before = _problems(check.run_checks(scratch, as_run=run_dir))
-        ctx = steps.Context(scratch, dry=True, approve_unlock=approve_unlock)
+        ctx = steps.Context(scratch, dry=True, approve_unlock=approve_unlock, who=who)
         done, refused = _do_steps(ctx, note)
         after = None if refused else _problems(check.run_checks(scratch, as_run=run_dir))
     new = [p for p in after or [] if p not in before]
@@ -113,10 +113,10 @@ def _record(run_dir: Path, who: str, copy: Path, note, info: dict) -> None:
                           f"repair on run {run}: {scrub.scrub(note.why)} ({outcome}, snapshot {info['snapshot']})")
 
 
-def _apply_locked(run_dir: Path, note, approve_unlock: bool) -> dict:
+def _apply_locked(run_dir: Path, note, approve_unlock: bool, who: str) -> dict:
     """Under the run lock: apply the steps and check the result."""
     snapshot.refuse_if_walking(run_dir, lock_ok=True)
-    ctx = steps.Context(run_dir, approve_unlock=approve_unlock)
+    ctx = steps.Context(run_dir, approve_unlock=approve_unlock, who=who)
     done, refused = _do_steps(ctx, note)
     after = None if refused else _problems(check.run_checks(run_dir))
     return {"steps": done, "refused": refused, "check_after": after}
@@ -130,7 +130,7 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
         raise RepairRefused(f"There is no run called '{note.run}'.")
     snapshot.refuse_if_walking(run_dir)
     if dry_run:
-        return _dry_run(run_dir, path, note, approve_unlock)
+        return _dry_run(run_dir, path, note, approve_unlock, who)
     n = snapshot.next_number(run_dir)
     copy = snapshot.repairs_dir(run_dir) / "notes" / f"{n}-{slug_of(note.why)}.md"
     atomic.write_text(copy, path.read_text(encoding="utf-8"))
@@ -141,7 +141,7 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
         raise RepairRefused(str(err)) from None
     lock = _enter_lock(run_dir)
     try:
-        res = _apply_locked(run_dir, note, approve_unlock)
+        res = _apply_locked(run_dir, note, approve_unlock, who)
         new = [p for p in res["check_after"] or [] if p not in before]
         failed = bool(res["refused"] or new)
         rolled_back = failed and not (note.force and not res["refused"])

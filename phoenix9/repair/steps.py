@@ -3,7 +3,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 
-from phoenix9 import failmodes, git, scrub, state
+import tomllib
+
+from phoenix9 import atomic, failmodes, gates, git, paths, resolve, scrub, settings, spec as specmod, state
+from phoenix9.library import load_library
 from phoenix9.repair import snapshot
 
 
@@ -17,6 +20,7 @@ class Context:
     run_dir: object
     dry: bool = False
     approve_unlock: bool = False
+    who: str = "repair"
 
 
 def _task(ctx, n: int) -> dict:
@@ -241,9 +245,226 @@ def rebuild_worktree(ctx) -> str:
         _moved_text(moved, task) if moved else "")
 
 
+FORBIDDEN_TOP = ("domains", "services", "safety_files", "keys", "secrets", "images", "docker")
+FORBIDDEN_KEYS = ("diff.allow_extra",)
+PROTECTED_STEPS = ("diff-rules", "secret-scan")
+
+
+def _lib():
+    """The step library of the running copy."""
+    return load_library(paths.library())
+
+
+def _forbidden_key(key: str) -> str | None:
+    """Why a settings key can never be changed by a repair, or None."""
+    top = key.split(".")[0]
+    if top in FORBIDDEN_TOP or key in FORBIDDEN_KEYS:
+        return f"'{key}' is a safety setting; a repair never changes it. Change it in Settings yourself."
+    if any(word in key.lower() for word in ("tool", "mcp")):
+        return f"'{key}' changes what the agent may use; a repair never changes it. Change it in Settings yourself."
+    parts = key.split(".")
+    if len(parts) >= 2 and parts[0] == "steps":
+        guard = _lib()
+        if parts[1] in PROTECTED_STEPS or (guard.has_step(parts[1]) and guard.step(parts[1]).safety):
+            return f"'{key}' belongs to step {parts[1]}, which guards the run; a repair never changes it."
+    return None
+
+
+def _enabled(values: dict) -> dict:
+    """The on/off map of the steps in a run's settings."""
+    return {n: bool(t["on"]) for n, t in (values.get("steps") or {}).items() if isinstance(t, dict) and "on" in t}
+
+
+def _plan_of(lib, values: dict) -> dict:
+    """The plan the resolver makes of these settings, as plain data; refuse when it cannot be made."""
+    try:
+        return resolve.resolve(lib, _enabled(values)).to_json()
+    except resolve.ResolveError as err:
+        raise StepRefused(f"the steps cannot work like that: {err}") from None
+
+
+def _guard_step_off(lib, old: dict, new: dict, name: str) -> None:
+    """Refuse switching a step off when it always runs, guards the run, or a safety step needs it."""
+    if not lib.has_step(name):
+        raise StepRefused(f"there is no step called '{name}'")
+    step = lib.step(name)
+    if step.default == "always" or name in PROTECTED_STEPS or step.safety:
+        raise StepRefused(f"step {name} can never be switched off by a repair")
+    lost = [r["name"] for r in old["steps"] if r["safety"] and r["on"]
+            and not next(n for n in new["steps"] if n["name"] == r["name"])["on"]]
+    if lost:
+        raise StepRefused(f"step {name} is needed by safety step {lost[0]}")
+
+
+def _freeze(ctx, plan: bool = False, key: str | None = None) -> None:
+    """Record in repairs/frozen.json that a repair set the plan or a setting, so the check accepts it."""
+    path = Path(ctx.run_dir) / snapshot.FROZEN
+    data = atomic.read_json(path) or {}
+    data["plan"] = bool(data.get("plan")) or plan
+    keys = list(data.get("settings") or [])
+    if key and key not in keys:
+        keys.append(key)
+    data["settings"] = keys
+    atomic.write_json(path, data)
+
+
+def _parse_toml_value(text: str):
+    """The value written as TOML text, or refuse."""
+    try:
+        return tomllib.loads(f"v = {text}")["v"]
+    except (tomllib.TOMLDecodeError, KeyError):
+        raise StepRefused(f"'{text}' is not a value I can read (write it as TOML, for example 4, true or \"text\")") from None
+
+
+def _leaves(key: str, value) -> dict:
+    """The dotted leaf keys a value would set (a table value sets every key inside it)."""
+    flat = settings._flatten({key: value})
+    if not flat:
+        raise StepRefused(f"'{key}' needs a value")
+    return flat
+
+
+def _check_leaf(lib, specs: dict, old_values: dict, path: str, value) -> None:
+    """Refuse one leaf key that is forbidden, unknown, wrongly typed, or shrinks the diff deny list."""
+    why = _forbidden_key(path)
+    if why:
+        raise StepRefused(why)
+    if path not in specs:
+        raise StepRefused(f"'{path}' is not a setting a repair can set")
+    problems = settings._leaf_problems(path, value, specs[path], "this run")
+    if problems:
+        raise StepRefused("; ".join(problems))
+    if path == "diff.deny_extra":
+        have = settings._flatten(old_values).get(path) or []
+        missing = [x for x in have if x not in value]
+        if missing:
+            raise StepRefused(f"diff.deny_extra can only grow; '{missing[0]}' would be dropped")
+
+
+def set_setting(ctx, key: str, value: str) -> str:
+    """Set one setting for this run in settings.json and make plan.json again from the settings."""
+    lib, run_dir = _lib(), Path(ctx.run_dir)
+    old_values = atomic.read_json(run_dir / "settings.json") or {}
+    leaves = _leaves(key, _parse_toml_value(value))
+    specs = settings.all_specs(lib)
+    for path, val in leaves.items():
+        _check_leaf(lib, specs, old_values, path, val)
+    flat = {**settings._flatten(old_values), **leaves}
+    new_values = settings._unflatten(flat)
+    old_plan, new_plan = _plan_of(lib, old_values), _plan_of(lib, new_values)
+    for path, val in leaves.items():
+        parts = path.split(".")
+        if parts[0] == "steps" and parts[-1] == "on" and not val:
+            _guard_step_off(lib, old_plan, new_plan, parts[1])
+    lost = [r["name"] for r in old_plan["steps"] if r["safety"] and r["on"]
+            and not next(n for n in new_plan["steps"] if n["name"] == r["name"])["on"]]
+    if lost:
+        raise StepRefused(f"that would switch off safety step {lost[0]}")
+    atomic.write_json(run_dir / "settings.json", new_values)
+    atomic.write_json(run_dir / "plan.json", new_plan)
+    for path in leaves:
+        _freeze(ctx, plan=True, key=path)
+    return f"set {key} = {value} for this run and made the plan again"
+
+
+def turn_off_step(ctx, name: str) -> str:
+    """Take one step out of this run's plan (never diff-rules, secret-scan or a step a safety rule needs)."""
+    lib, run_dir = _lib(), Path(ctx.run_dir)
+    values = atomic.read_json(run_dir / "settings.json") or {}
+    old_plan = _plan_of(lib, values)
+    if lib.has_step(name) and not next((r["on"] for r in old_plan["steps"] if r["name"] == name), False):
+        raise StepRefused(f"step {name} is already off in this run")
+    new_values = settings._unflatten({**settings._flatten(values), f"steps.{name}.on": False})
+    new_plan = _plan_of(lib, new_values)
+    _guard_step_off(lib, old_plan, new_plan, name)
+    atomic.write_json(run_dir / "settings.json", new_values)
+    atomic.write_json(run_dir / "plan.json", new_plan)
+    _freeze(ctx, plan=True, key=f"steps.{name}.on")
+    return f"turned off step {name} for this run"
+
+
+def _notes_file(run_dir: Path, path: str) -> Path:
+    """The spec file under the project's notes/, or refuse when it is anywhere else."""
+    notes = (paths.projects() / run_dir.parent.name / "notes").resolve()
+    target = Path(path)
+    target = (target if target.is_absolute() else notes.parent / target).resolve()
+    if not target.is_relative_to(notes) or not target.is_file():
+        raise StepRefused(f"the spec must be a file inside the project's notes/ folder: {path}")
+    return target
+
+
+def _merged_tasks(old: dict, new_spec) -> dict:
+    """The state tasks after a spec swap: same number and title keeps its entry, new are pending; refuse lost work."""
+    out = {}
+    for t in new_spec.tasks:
+        have = old.get(str(t.number))
+        if have is not None and have.get("title") == t.title:
+            out[str(t.number)] = dict(have, depends_on=list(t.depends_on))
+        elif have is not None and have.get("status") != "pending":
+            raise StepRefused(f"task {t.number} is {have.get('status')} here as '{have.get('title')}'; "
+                              f"the new spec calls it '{t.title}'")
+        else:
+            out[str(t.number)] = state.new_task(t.title, t.depends_on)
+    kept = [n for n, have in old.items() if n not in out and have.get("status") != "pending"]
+    if kept:
+        raise StepRefused(f"task {kept[0]} is not in the new spec but has already been worked on")
+    return out
+
+
+def replace_spec(ctx, path: str) -> str:
+    """Swap the run's spec for a file from the project's notes/, keeping the progress of matching tasks."""
+    run_dir = Path(ctx.run_dir)
+    file = _notes_file(run_dir, path)
+    text = file.read_text(encoding="utf-8")
+    problems = specmod.check(text)
+    if problems:
+        raise StepRefused("the new spec does not parse: " + "; ".join(problems[:3]))
+    new_spec = specmod.parse(text)
+    merged = _merged_tasks(state.load(run_dir).get("tasks") or {}, new_spec)
+    atomic.write_text(run_dir / "spec.md", text)
+    atomic.write_json(run_dir / "spec.json", specmod.to_json(new_spec))
+
+    def change(st):
+        st["tasks"] = merged
+    state.update(run_dir, change)
+    return f"replaced the spec with {file.name} ({len(merged)} tasks)"
+
+
+def close_question(ctx, id: str, action: str) -> str:
+    """Answer (or, with 'closed', close) one question of this run the normal way."""
+    run_dir = Path(ctx.run_dir)
+    gate = gates.read(run_dir, id)
+    if gate is None or gate.get("run") != run_dir.name:
+        raise StepRefused(f"question {id} is not a question of this run")
+    if action == "closed":
+        if ctx.dry:
+            return f"would close question {id}"
+        if not gates.close_questions(run_dir, "closed by a repair", who=ctx.who, only=id):
+            raise StepRefused(f"question {id} is already answered or closed")
+        return f"closed question {id}"
+    try:
+        project_settings = settings.load_project(paths.projects() / run_dir.parent.name)
+    except settings.SettingsError:
+        project_settings = {}
+    if not gates.may_answer(gate, ctx.who, project_settings):
+        raise StepRefused(f"'{ctx.who}' may not answer {gate['kind']} questions here")
+    if action not in gate["actions"]:
+        raise StepRefused(f"'{action}' is not allowed for question {id}; use one of {', '.join(gate['actions'])}")
+    if not any(g["id"] == id and g["state"] == "open" for g in gates.run_gates(run_dir)):
+        raise StepRefused(f"question {id} is not open (the run is not waiting on it)")
+    if ctx.dry:
+        return f"would answer question {id} with {action}"
+    try:
+        gates.answer(id, action, note="answered by a repair", who=ctx.who)
+    except (gates.NotOpen, ValueError) as err:
+        raise StepRefused(str(err)) from None
+    return f"answered question {id} with {action}"
+
+
 STEPS = {"redo": redo, "keep-hand-fix": keep_hand_fix, "reset-worktree": reset_worktree,
          "rebuild-worktree": rebuild_worktree, "mark-done": mark_done, "mark-skipped": mark_skipped, "retry": retry,
-         "clear-failures": clear_failures, "add-note": add_note}
+         "clear-failures": clear_failures, "add-note": add_note, "set-setting": set_setting,
+         "turn-off-step": turn_off_step, "replace-spec": replace_spec, "close-question": close_question}
 
 
 def run_step(ctx, step) -> str:

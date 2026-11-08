@@ -29,7 +29,8 @@ def _next_number(gdir: Path) -> int:
 
 
 def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = None,
-              step: str | None = None, links=(), actions: list | None = None, flags=()) -> dict:
+              step: str | None = None, links=(), actions: list | None = None, flags=(),
+              head: str | None = None, task_statuses: dict | None = None) -> dict:
     """Write a new gate file, set the run (and task) to waiting, and emit gate.opened."""
     if kind not in KINDS:
         raise ValueError(f"unknown gate kind {kind!r}; use one of {', '.join(KINDS)}")
@@ -45,6 +46,10 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
             "kind": kind, "title": title, "why": why, "task": task, "step": step,
             "links": [dict(x) for x in links], "actions": list(actions), "flags": list(flags),
             "created": state.now(), "answered": False}
+    if head is not None:                      # what the question was about (Merge checks it again on approve)
+        gate["head"] = head
+    if task_statuses is not None:
+        gate["task_statuses"] = dict(task_statuses)
     atomic.write_json(gdir / f"{gate['id']}.json", gate)
 
     ended = []
@@ -242,8 +247,36 @@ def poll(run_dir, gate_id: str) -> dict | None:
 FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
 FLAG_REPAIRED = "run was repaired"
 FLAG_NO_FULL_SUITE = "no full suite result"
-FLAG_UNFINISHED = "tasks not finished"
-ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_UNFINISHED)
+ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE)
+FINISHED_TASK = ("passed", "skipped")
+
+
+def run_repaired(run_dir) -> bool:
+    """True when a repair touched this run: a repair snapshot exists (taken before any step of a note runs),
+    or a repair.applied event that was not rolled back."""
+    run_dir = Path(run_dir)
+    base = run_dir / "repairs"
+    if base.is_dir() and any(p.is_dir() and p.name.isdigit() for p in base.iterdir()):
+        return True
+    for e in events.read(run_dir / "events.jsonl"):
+        if e.get("type") == "repair.applied" and not (e.get("data") or {}).get("rolled_back"):
+            return True
+    return False
+
+
+def _merge_changed_since(gate: dict) -> bool:
+    """Live check for a chat answering a merge question: True (refuse) when the run cannot be read, was repaired,
+    or has a task that is not passed or skipped; the flags written when the question opened may be stale."""
+    run, project = gate.get("run"), gate.get("project")
+    if not run or not project:
+        return True
+    run_dir = paths.runs(project) / run
+    st = atomic.read_json(run_dir / "state.json")
+    if not isinstance(st, dict):
+        return True
+    if any(t.get("status") not in FINISHED_TASK for t in (st.get("tasks") or {}).values()):
+        return True
+    return run_repaired(run_dir)
 
 
 def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
@@ -251,8 +284,8 @@ def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
 
     The delegate session (chat:delegate) may always answer escalations: that is what it is started for.
     A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
-    if who.startswith("chat:") and gate.get("kind") == "merge" and any(
-            f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []):
+    if who.startswith("chat:") and gate.get("kind") == "merge" and (
+            any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
         return False
     if who == "chat:delegate" and gate["kind"] == "escalation":
         return True

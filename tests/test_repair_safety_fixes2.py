@@ -100,15 +100,16 @@ def test_full_suite_records_the_head_it_passed_on(tmp_path, adapters):
 
 
 # ------------------------------------------------------------------ B. repair-flagged merge questions are Alex's
-@pytest.mark.parametrize("flag", [gates.FLAG_MARKED_BY_REPAIR, gates.FLAG_REPAIRED, gates.FLAG_NO_FULL_SUITE,
-                                  gates.FLAG_UNFINISHED])
-def test_chat_may_not_answer_a_repair_flagged_merge(flag):
+@pytest.mark.parametrize("flag", [gates.FLAG_MARKED_BY_REPAIR, gates.FLAG_REPAIRED, gates.FLAG_NO_FULL_SUITE])
+def test_chat_may_not_answer_a_repair_flagged_merge(tmp_path, flag):
+    r = make(tmp_path)
+    where = {"run": r["run"], "project": r["project"]}
     allowed = {"home_chat_may_answer": ["merge"]}
-    gate = {"kind": "merge", "flags": ["changes safety code", flag]}
+    gate = {"kind": "merge", "flags": ["changes safety code", flag], **where}
     assert not gates.may_answer(gate, "chat:home", allowed)
     assert not gates.may_answer(gate, "chat:delegate", allowed)
     assert gates.may_answer(gate, "cli", allowed) and gates.may_answer(gate, "dashboard", allowed)
-    assert gates.may_answer({"kind": "merge", "flags": ["changes safety code"]}, "chat:home", allowed)
+    assert gates.may_answer({"kind": "merge", "flags": ["changes safety code"], **where}, "chat:home", allowed)
 
 
 def test_gate_answer_checks_flags_at_answer_time(tmp_path):

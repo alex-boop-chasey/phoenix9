@@ -89,9 +89,12 @@ def test_list_filters(tmp_path):
 def test_chat_may_answer(tmp_path):
     folder = make_run(tmp_path)
     g = open_one(folder)
+    allowed = {"home_chat_may_answer": ["merge"]}
+    assert not gates.may_answer(g, "chat:home", allowed)       # its tasks are not finished yet: Alex only
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
     assert not gates.may_answer(g, "chat:home", {})
     assert not gates.may_answer(g, "chat:home", {"home_chat_may_answer": ["plan"]})
-    assert gates.may_answer(g, "chat:home", {"home_chat_may_answer": ["merge"]})
+    assert gates.may_answer(g, "chat:home", allowed)
     assert gates.may_answer(g, "dashboard", {})
 
 

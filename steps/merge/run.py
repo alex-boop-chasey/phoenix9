@@ -8,6 +8,7 @@ from phoenix9.stepctx import StepResult
 
 MR_FILE = "merge-request.txt"
 NOTE_FILE = "merge-note.md"
+ASKED_FILE = "merge-asked.json"     # the branch tip and task statuses the merge question was about
 DIRTY = "code/ has local changes"
 NO_LOGIN = "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"
 
@@ -74,24 +75,9 @@ def _full_suite_off(ctx) -> bool:
 
 
 def repaired(run_folder) -> bool:
-    """True when a repair touched this run: a repair snapshot exists (taken before any step of a note runs,
-    so a merge inside the note sees it), or a repair.applied event that was not rolled back."""
-    base = run_folder / "repairs"
-    if base.is_dir() and any(p.is_dir() and p.name.isdigit() for p in base.iterdir()):
-        return True
-    path = run_folder / "events.jsonl"
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return False
-    for raw in lines:
-        try:
-            e = json.loads(raw)
-        except ValueError:
-            continue
-        if e.get("type") == "repair.applied" and not (e.get("data") or {}).get("rolled_back"):
-            return True
-    return False
+    """True when a repair touched this run (a snapshot exists, taken before a note's steps run, or an applied
+    repair event): the same rule a chat's merge answer is checked against."""
+    return gates.run_repaired(run_folder)
 
 
 def _flags(ctx, tasks, base, branch):
@@ -230,8 +216,11 @@ def _ask(ctx, branch, flags, why) -> StepResult:
     if _preview_url(ctx):
         links.append({"label": "Preview", "url": _preview_url(ctx)})
     links.append({"label": "Summary", "doc": f"run:{ctx.run.id}/summary.md"})
+    tasks = state.load(ctx.run.folder)["tasks"]
+    asked = {"head": _branch_tip(ctx, branch), "task_statuses": {n: t["status"] for n, t in tasks.items()}}
+    atomic.write_json(ctx.run.folder / ASKED_FILE, asked)
     gate = {"kind": "merge", "title": f"Merge {_title(ctx)}?", "why": text, "links": links,
-            "actions": ["approve", "back", "skip", "stop"], "flags": flags}
+            "actions": ["approve", "back", "skip", "stop"], "flags": flags, **asked}
     return StepResult("gate", gate=gate)
 
 
@@ -291,9 +280,47 @@ def on_approved(ctx, produces) -> dict:
     return extra
 
 
+def _branch_tip(ctx, branch) -> str:
+    """The commit the run's branch points at in code/."""
+    return ctx.adapters.git.git(ctx.project.code_dir, "rev-parse", f"refs/heads/{branch}").strip()
+
+
+def _merge_gate(ctx) -> dict:
+    """The merge question of this run that was approved (the newest merge step line holding a gate)."""
+    line = next((x for x in reversed(state.load(ctx.run.folder)["steps"])
+                 if x.get("step") == "merge" and x.get("gate")), None)
+    return (gates.read(ctx.run.folder, line["gate"]) or {}) if line else {}
+
+
+def _still_what_was_asked(ctx) -> None:
+    """Refuse the approved merge when the run is no longer what the question showed: a task not passed or
+    skipped that was not already so (or is unfinished now), or a branch tip / worktree head that moved."""
+    tasks = state.load(ctx.run.folder)["tasks"]
+    gate = _merge_gate(ctx)
+    if not gate.get("head"):
+        gate = atomic.read_json(ctx.run.folder / ASKED_FILE) or {}
+    unfinished = sorted((n for n, t in tasks.items() if t["status"] not in ("passed", "skipped", "failed")), key=int)
+    then = gate.get("task_statuses")
+    changed = sorted((n for n, t in tasks.items() if then is not None and then.get(n) != t["status"]
+                      and t["status"] not in ("passed", "skipped")), key=int)
+    if unfinished or changed:
+        raise MergeError(f"task {', '.join(unfinished or changed)} changed since the merge question was asked, "
+                         "so the run was not merged: Alex, look at the run again (the merge request stays open)")
+    head = gate.get("head")
+    if not head:
+        raise MergeError("the merge question did not record which commit it was about, so the run was not merged: "
+                         "Alex, merge it yourself after checking (the merge request stays open)")
+    tip = _branch_tip(ctx, ctx.adapters.git.branch_name(ctx.run.id))
+    work = ctx.adapters.git.head(ctx.worktree) if ctx.worktree else tip
+    if tip != head or work != head:
+        raise MergeError("the run's branch moved after the merge question was asked, so the run was not merged: "
+                         "Alex, look at the new commits first (the merge request stays open)")
+
+
 def _approved(ctx) -> dict:
     """Do the approved merge and return the event data."""
     git, code = ctx.adapters.git, ctx.project.code_dir
+    _still_what_was_asked(ctx)
     on_main, clean = _code_state(ctx)
     mr = ctx.run.folder / MR_FILE
     if not mr.is_file():

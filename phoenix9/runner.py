@@ -557,7 +557,7 @@ class Runner:
                    kind=spec.get("kind", "step"), title=spec.get("title", step.title),
                    why=spec.get("why", "; ".join(result.reasons) or f"{step.title} needs you."),
                    task=task, step=step.name, links=spec.get("links", ()), actions=spec.get("actions"),
-                   flags=spec.get("flags", ()))
+                   flags=spec.get("flags", ()), head=spec.get("head"), task_statuses=spec.get("task_statuses"))
         return Outcome("waiting")
 
     def _handle_gate(self, run_dir: Path, setup: dict, things: dict, index: int, line: dict, number) -> Outcome | None:

@@ -46,7 +46,7 @@ function Failed({ fallback, reason }: { fallback: string; reason: string }) {
 }
 
 /** Check a block once and show it, or its fallback line with a grey reason when it cannot be shown. */
-export function BlockView({ part, frozen = false, at }: { part: BlockPart; frozen?: boolean; at?: string }) {
+export function BlockView({ part, frozen = false, at, later }: { part: BlockPart; frozen?: boolean; at?: string; later?: string[] }) {
   const { kind, json, fallback } = part
   const [result, setResult] = useState<CheckResult | null>(null)
 
@@ -61,7 +61,7 @@ export function BlockView({ part, frozen = false, at }: { part: BlockPart; froze
   if (!result) return <div className="ag-block-wait muted" aria-busy="true" data-testid="block-wait">{fallback}</div>
   if (!result.ok) return <Failed fallback={fallback} reason={result.reason ?? "the check failed"} />
 
-  const props = { json, resolved: result.resolved, frozen }
+  const props = { json, resolved: result.resolved, frozen, later }
   const body = kind === "card" ? <AnswerCard {...props} /> : kind === "choice" ? <ChoiceBlock {...props} />
     : kind === "confirm" ? <ConfirmBlock {...props} /> : <NavBlock {...props} />
   return (

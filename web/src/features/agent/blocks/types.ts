@@ -7,4 +7,6 @@ export interface BlockProps {
   resolved?: unknown
   /** True in items older than the latest conversation divider: no buttons. */
   frozen?: boolean
+  /** Texts of the user items after this block's message, so a choice can show it was answered. */
+  later?: string[]
 }

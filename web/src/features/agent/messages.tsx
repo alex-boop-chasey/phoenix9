@@ -43,13 +43,13 @@ export function UserBubble({ item, queued = false }: { item: UserItem; queued?: 
 }
 
 /** The agent's reply: left-aligned, no bubble, markdown as elements and reply blocks (frozen ones have no buttons). */
-export function AgentMessage({ markdown, frozen = false, at }: { markdown: string; frozen?: boolean; at?: string }) {
+export function AgentMessage({ markdown, frozen = false, at, later }: { markdown: string; frozen?: boolean; at?: string; later?: string[] }) {
   const parts = useMemo(() => parseBlocks(markdown), [markdown])
   return (
     <div className="ag-row ag-agent" data-testid="agent-message">
       {parts.map((p, n) => p.type === "text"
         ? <Markdown key={n} text={p.text} />
-        : <BlockView key={n} part={p} frozen={frozen} at={at} />)}
+        : <BlockView key={n} part={p} frozen={frozen} at={at} later={later} />)}
     </div>
   )
 }
@@ -92,6 +92,11 @@ function pendingQueued(items: AgentItem[]): Set<number> {
     if (!answered) out.add(idx)
   })
   return out
+}
+
+/** Texts of the user items after position idx. */
+function laterUsers(items: AgentItem[], idx: number): string[] {
+  return items.slice(idx + 1).flatMap((o) => (o.type === "user" ? [o.text] : []))
 }
 
 function sessionLabel(next: AgentItem | undefined): string {
@@ -166,7 +171,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
     }
     if (it.type === "user") rows.push(<UserBubble key={key} item={it} />)
     else if (it.type === "queued") { if (pending.has(idx)) rows.push(<UserBubble key={key} queued item={{ type: "user", line: it.line, text: it.text, origin: "panel", at: it.at }} />) }
-    else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} frozen={idx < lastDivider} at={it.at} />)
+    else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} frozen={idx < lastDivider} at={it.at} later={laterUsers(items, idx)} />)
     else if (it.type === "notice") rows.push(<Notice key={key} item={it} />)
     else if (it.type === "session") rows.push(<Divider key={key} label={sessionLabel(items[idx + 1])} />)
   }

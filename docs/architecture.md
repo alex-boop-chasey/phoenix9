@@ -1425,3 +1425,5 @@ sends one `[Phoenix panel · button] <label> done` note; a failure shows only th
 
 ### Card bodies: projects, gates, run, builds (`web/src/features/agent/blocks/bodies/`)
 - `projects` shows `ProjectTile` (`web/src/features/projects/ProjectTile.tsx`, the Projects page row, now shared; without `onRemove` the Remove button is left out) plus a "PR #n waiting to merge" link (`.p-pr`, above the tile's click overlay) when `needs_merge`. `gates` reuses `NeedsYouCard` (compact), `run` reuses `StepList`, `builds` is a list of run id, result badge and relative time linking to the Build tab.
+
+Task 18 (ChoiceBlock): `AgentMessage` and `BlockView` pass `later` (texts of the user items after the agent message) to blocks. A choice is answered, read-only, when a later user item starts with `[Phoenix panel · choice <id>` (followed by `]` or ` ·`); its answer text shows as "You chose: …". Multi mode joins labels with ", "; the "Other:" tile has its own text field and Send button.

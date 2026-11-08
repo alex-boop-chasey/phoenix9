@@ -1407,3 +1407,5 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 - `check({kind, json})` returns `{ok, reason, resolved}`. Not ok (bad JSON, missing or wrong `v`, unknown keys, an `actions` key, over 8 KB, bad values) is a result, not an error; `resolved` is then null.
 - card: `resolved` = `{type, query, title}` after `cards.check_query`. nav: each link goes through `routes.resolve`; `resolved` = `{links: [{hash, label}], dropped: [{link, to, reason}]}`, all failed = not ok. choice / confirm: `resolved` = the normalised block (`other` and `danger` default false; option keys must be unique).
 - `phoenix block check <file|-> [--kind K] [--json]` reads a fenced block (kind from the tag) or bare JSON (needs `--kind`); exit 1 with the reason when not ok.
+
+- `phoenix choice` / `phoenix confirm` (task 12) print a checked block plus one fallback line; `--json` gives `{block, fallback}`.

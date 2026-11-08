@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, ui as ops_ui, update
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, ui as ops_ui, update
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -39,6 +39,13 @@ WHO = "dashboard"
 
 class BadRequest(Exception):
     """The request itself is wrong (answered 400 before any ops call)."""
+
+
+class RawReply:
+    """A handler result sent as it is (not wrapped in JSON): content type, body bytes and extra headers."""
+
+    def __init__(self, content_type, body, headers):
+        self.content_type, self.body, self.headers = content_type, body, headers
 
 
 class NeedsConfirm(Exception):
@@ -250,6 +257,24 @@ def get_cards(req):
     except ValueError:
         raise BadRequest("'query' should be a JSON object.")
     return ops_cards.build(req.query.get("type", ""), query, req.query.get("title") or None)
+
+
+def get_docs_list(req):
+    """Reply with a run's documents."""
+    return ops_docs.list(check_run_id(req.query.get("run", "")))
+
+
+def get_docs_show(req):
+    """Reply with one document's scrubbed text."""
+    return ops_docs.show(req.query.get("id", ""))
+
+
+def get_docs_download(req):
+    """Reply with one document as a scrubbed attachment."""
+    doc = ops_docs.download(req.query.get("id", ""))
+    return RawReply("text/plain; charset=utf-8", doc["text"].encode(),
+                    {"Content-Disposition": f'attachment; filename="{doc["name"]}"',
+                     "X-Content-Type-Options": "nosniff"})
 
 
 def post_ui_go(req):
@@ -911,6 +936,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),
+    ("GET", r"/api/docs/list", get_docs_list),
+    ("GET", r"/api/docs/show", get_docs_show),
+    ("GET", r"/api/docs/download", get_docs_download),
     ("GET", r"/api/agent", get_agent),
     ("GET", r"/api/agent/messages", get_agent_messages),
     ("GET", r"/api/agent/sessions", get_agent_sessions),
@@ -986,12 +1014,14 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "phoenix-api"
 
     # ported from reference/selector/selector/server.py:119 (send_json)
-    def send_raw(self, status, content_type, raw, cache="no-store"):
+    def send_raw(self, status, content_type, raw, cache="no-store", headers=None):
         self.status = status
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", cache)
+        for key, value in (headers or {}).items():
+            self.send_header(key, value)
         self.end_headers()
         self.wfile.write(raw)
 
@@ -1064,7 +1094,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.fail(404, "Not found.")
         handler, params = route
         try:
-            self.send_json(200, {"ok": True, "data": handler(self, **params)})
+            result = handler(self, **params)
+            if isinstance(result, RawReply):
+                self.send_raw(200, result.content_type, result.body, headers=result.headers)
+            else:
+                self.send_json(200, {"ok": True, "data": result})
         except BadRequest as err:
             self.fail(400, str(err))
         except NeedsConfirm:

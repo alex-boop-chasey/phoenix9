@@ -191,7 +191,7 @@ def _ask(ctx, branch, flags, why) -> StepResult:
         text = "local only: approve merges into code/ main; " + "; ".join(why)
     if _preview_url(ctx):
         links.append({"label": "Preview", "url": _preview_url(ctx)})
-    links.append({"label": "Summary", "url": str(ctx.run.folder / "summary.md")})
+    links.append({"label": "Summary", "doc": f"run:{ctx.run.id}/summary.md"})
     gate = {"kind": "merge", "title": f"Merge {_title(ctx)}?", "why": text, "links": links,
             "actions": ["approve", "back", "skip", "stop"], "flags": flags}
     return StepResult("gate", gate=gate)

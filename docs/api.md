@@ -82,6 +82,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
 | GET | `/api/events/recent?project=&after=&limit=` | polling fallback | | `{events: [{id, ...event}], next}` | |
 | GET | `/api/cards?type=&query=&title=` | `ops.cards.build` | `query` is a JSON object (default `{}`) | `{type, title, data, actions, watch, inline}` (see "Reply blocks and dashboard control" in architecture.md) | 400 (bad JSON, unknown type, bad query: the reason in words), 404 (no such project or run) |
+| GET | `/api/docs/list?run=` | `ops.docs.list` | | `[{id, title, size}]` (ids like `run:<run id>/plan.md`) | 400 (bad run id), 404 (no such run) |
+| GET | `/api/docs/show?id=` | `ops.docs.show` | | `{id, title, text}`, scrubbed | 400 (bad id, `..`, outside the folder, not .md/.txt), 404 (no such document) |
+| GET | `/api/docs/download?id=` | `ops.docs.download` | | the scrubbed file as text with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` (not JSON) | same as show |
 | GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
 | GET | `/api/agent/messages?after=&limit=&session=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000; `session` = an id from `/api/agent/sessions` reads that earlier conversation instead of the current one) | 400 |
 | GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |

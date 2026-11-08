@@ -118,7 +118,7 @@ export interface Gate {
   why: string
   task: number | null
   step: string | null
-  links: { label: string; url: string }[]
+  links: { label: string; url?: string; doc?: string }[]
   actions: GateAction[]
   flags: string[]
   created: string

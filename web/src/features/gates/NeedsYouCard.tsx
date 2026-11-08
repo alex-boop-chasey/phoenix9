@@ -129,7 +129,8 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
         {gate.links.length > 0 && (
           <div className="links">
             {gate.links.map((l) => (
-              <a key={l.url} href={l.url} target="_blank" rel="noreferrer">
+              <a key={l.doc ?? l.url} href={l.doc ? `#/doc?path=${encodeURIComponent(l.doc)}` : l.url}
+                 {...(l.doc ? {} : { target: "_blank", rel: "noreferrer" })}>
                 <Icon name="git-pull-request" size="sm" />{l.label}
               </a>
             ))}

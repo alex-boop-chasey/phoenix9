@@ -1,8 +1,10 @@
 /** The Settings tab: a section index on the left, the Project section, then the Build section. */
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSearchParams } from "react-router"
 
 import { Icon } from "@/components/Icon"
 import { BuildSection } from "@/features/settings/BuildSection"
+import { scrollToAndHighlight } from "@/lib/focus"
 import { DangerZone } from "@/features/settings/DangerZone"
 import { ProjectSection } from "@/features/settings/ProjectSection"
 
@@ -11,17 +13,49 @@ const SECTIONS: { id: string; label: string; icon: "sliders-horizontal" | "hamme
   { id: "sec-build", label: "Build", icon: "hammer", links: [["s-preset", "Preset"], ["s-fail", "Failures"], ["s-merge", "Merge and deploy"]] },
 ]
 
-/** Scroll to a part of the page and flash a blue outline around it. */
+/** Scroll to a part of the page and flash an outline around it. */
 function jump(id: string) {
-  const el = document.getElementById(id)
-  if (!el) return
-  const calm = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-  el.scrollIntoView?.({ behavior: calm ? "auto" : "smooth", block: "center" })
-  el.animate?.([{ boxShadow: "0 0 0 2px var(--accent)" }, { boxShadow: "0 0 0 0 transparent" }], { duration: 1500 })
+  scrollToAndHighlight(document.getElementById(id))
+}
+
+/** The settings row that holds a dotted key such as "deploy.mode" (a row listing "deploy" holds all of its sub-keys). */
+export function rowForKey(key: string): HTMLElement | null {
+  for (const row of document.querySelectorAll<HTMLElement>("[data-settings]")) {
+    const held = row.dataset.settings!.split(" ")
+    if (held.some((k) => key === k || key.startsWith(`${k}.`))) return row
+  }
+  return null
+}
+
+const SECTION_ID: Record<string, string> = { project: "sec-project", build: "sec-build" }
+const WAIT_MS = 100
+const WAIT_TRIES = 50
+
+/** Open the section and scroll to the setting named in the address; waits while the settings are still loading. */
+function useAddressTarget(onOpen: (sectionId: string) => void) {
+  const [params] = useSearchParams()
+  const section = SECTION_ID[params.get("section") ?? ""] ?? null
+  const key = params.get("key")
+  useEffect(() => {
+    if (!section && !key) return
+    let tries = 0
+    let stop = () => {}
+    const timer = setInterval(() => {
+      const el = key ? rowForKey(key) : document.getElementById(section!)
+      if (!el && ++tries < WAIT_TRIES) return
+      clearInterval(timer)
+      if (!el) return
+      const sect = el.id.startsWith("sec-") ? el.id : el.closest<HTMLElement>(".sect")?.id
+      if (sect) onOpen(sect)
+      stop = scrollToAndHighlight(el)
+    }, WAIT_MS)
+    return () => { clearInterval(timer); stop() }
+  }, [section, key]) // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 export function SettingsTab({ name }: { name: string }) {
   const [current, setCurrent] = useState("sec-project")
+  useAddressTarget(setCurrent)
   const go = (id: string, section: string) => { setCurrent(section); jump(id) }
   return (
     <section data-project={name} className="idx-wrap" aria-label="Project settings">

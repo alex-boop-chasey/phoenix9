@@ -157,4 +157,17 @@ describe("LogsTab", () => {
     renderWithProviders(<LogsTab name="demo-site" />)
     expect((await screen.findAllByRole("alert"))[0]).toHaveTextContent("Logs are unavailable")
   })
+
+  it("address filters set the controls and the query", async () => {
+    const { calls } = mockApi(routes())
+    renderWithProviders(<LogsTab name="demo-site" />, { route: `/p/demo-site/logs?run=${RUN}&step=check&task=1&kind=diff` })
+    await waitFor(() => expect(calls.some((c) => c.path === "/api/logs" && c.query.run === RUN && c.query.step === "check" && c.query.task === "1" && c.query.kind === "diff")).toBe(true))
+    expect(screen.getByRole("button", { name: "Clear filters" })).toBeInTheDocument()
+  })
+
+  it("address log= opens that log", async () => {
+    mockApi(routes())
+    renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?log=s1" })
+    expect(await screen.findByText("hello from the builder")).toBeInTheDocument()
+  })
 })

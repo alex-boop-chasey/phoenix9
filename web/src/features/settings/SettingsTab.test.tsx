@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react"
+import { cleanup, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { SettingsTab } from "@/features/settings/SettingsTab"
@@ -185,4 +185,23 @@ test("set up so far shows just the name for an old entry", async () => {
   const old = { name: "supabase", at: null, run: null, run_name: null }
   await setup("demo-site", { "GET /api/projects/demo-site": { ...proj, setup: { services_set_up: [old] } } })
   expect(screen.getByText(/Set up so far: Supabase$/)).toBeInTheDocument()
+})
+
+test("key= scrolls to that setting and glows it for 2 s", async () => {
+  const scroll = vi.fn()
+  Element.prototype.scrollIntoView = scroll
+  await setup("demo-site")
+  cleanup()
+  renderWithProviders(<SettingsTab name="demo-site" />, { route: "/p/demo-site/settings?key=deploy.mode" })
+  await waitFor(() => expect(document.querySelector("#s-merge.focus-glow")).not.toBeNull())
+  expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "center" })
+  await waitFor(() => expect(document.querySelector(".focus-glow")).toBeNull(), { timeout: 3000 })
+})
+
+test("section=build opens the build section", async () => {
+  Element.prototype.scrollIntoView = vi.fn()
+  mockApi(baseRoutes("demo-site"))
+  renderWithProviders(<SettingsTab name="demo-site" />, { route: "/p/demo-site/settings?section=build" })
+  await waitFor(() => expect(document.querySelector("#sec-build.focus-glow")).not.toBeNull())
+  expect(screen.getByRole("button", { name: "Build" })).toHaveAttribute("aria-current", "true")
 })

@@ -1388,3 +1388,10 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 - `phoenix nav <to> [--param k=v ...] [--check] [--json]` resolves the route with `routes.resolve`, then prints the
   label, the link (dashboard address + hash), a `phoenix-nav` block and the fallback line "Open <label>: <link>".
   A route that cannot be resolved prints the reason and exits 1. `--check` prints only `ok` or the reason.
+
+### Deep links on Build, Logs and Settings pages
+- Build tab: `run=<id>` opens that run; `wizard=N` opens the wizard on slide N (1-7, larger numbers clamp to 7; `new=1` still means slide 1).
+- Logs tab: `run`, `step`, `task`, `kind` set the same filter state the controls set; `log=<id>` opens that log (the older `id=` is still read).
+- Project settings: `section=project|build` opens and scrolls to the section; `key=<dotted key>` scrolls to the row holding that setting (rows list their keys in `data-settings`; a row listing `deploy` holds `deploy.*`) and glows it for 2 s.
+- Global settings: `section=services|models|updates|addresses` opens that tab (the older `tab=` is still read; tabs now write `section=`).
+- Shared helper `web/src/lib/focus.ts` (`scrollToAndHighlight`, `useScrollToId`): scrolls to the element (no animation under reduced motion) and adds the `focus-glow` class for 2 s. The Overview page uses it too.

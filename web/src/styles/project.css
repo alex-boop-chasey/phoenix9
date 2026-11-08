@@ -48,4 +48,4 @@
 .changes time{font:400 12.5px/1.6 var(--f-mono); color:var(--text-3)}
 @container well (max-width:520px){ .changes li{grid-template-columns:10px minmax(0,1fr)} .changes time{grid-column:2} .changes li span{grid-column:2} }
 }
-.gate-focus{border-radius:var(--radius, 12px); outline:2px solid var(--focus); outline-offset:3px; box-shadow:0 0 0 6px var(--accent-soft),0 0 24px var(--accent-glow)}
+.focus-glow,.gate-focus{border-radius:var(--radius, 12px); outline:2px solid var(--focus); outline-offset:3px; box-shadow:0 0 0 6px var(--accent-soft),0 0 24px var(--accent-glow)}

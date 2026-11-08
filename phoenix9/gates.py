@@ -73,13 +73,19 @@ def _answer_path(path: Path) -> Path:
     return path.with_name(path.name[:-5] + ".answer.json")
 
 
+def held_ids(st: dict) -> set:
+    """Every gate id the run records it waits on: current.gate, a task's gate or a waiting step line."""
+    ids = {(st.get("current") or {}).get("gate")}
+    ids |= {t.get("gate") for t in (st.get("tasks") or {}).values() if t.get("status") not in TASK_ENDED}
+    ids |= {x.get("gate") for x in st.get("steps") or [] if x.get("status") == "waiting"}
+    ids.discard(None)
+    ids.discard("")
+    return ids
+
+
 def held(st: dict, gate_id: str) -> bool:
-    """True when the run records that it waits on this gate: current.gate, a task's gate or a waiting step line."""
-    if (st.get("current") or {}).get("gate") == gate_id:
-        return True
-    if any(t.get("gate") == gate_id and t.get("status") not in TASK_ENDED for t in (st.get("tasks") or {}).values()):
-        return True
-    return any(x.get("gate") == gate_id and x.get("status") == "waiting" for x in st.get("steps") or [])
+    """True when the run records that it waits on this gate (see held_ids)."""
+    return gate_id in held_ids(st)
 
 
 def _adoptable(st: dict) -> bool:
@@ -148,6 +154,11 @@ def list_gates(project: str | None = None, open_only: bool = True) -> list[dict]
     for run_dir in _run_folders(project):
         found += [g for g in _run_gates(run_dir) if not open_only or g["state"] == "open"]
     return sorted(found, key=lambda g: (g["created"], g["id"]))
+
+
+def orphans(run_dir) -> list[dict]:
+    """The run's questions that have no answer yet and are not open: nothing waits on them."""
+    return [g for g in run_gates(run_dir) if g["state"] == "closed" and "answer" not in g]
 
 
 def run_gates(run_dir) -> list[dict]:

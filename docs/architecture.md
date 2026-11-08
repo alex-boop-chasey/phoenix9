@@ -1430,3 +1430,18 @@ Task 18 (ChoiceBlock): `AgentMessage` and `BlockView` pass `later` (texts of the
 
 ### Documents: ids, API and CLI (`phoenix9/ops/docs.py`, task 21)
 Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `notes:<project>/<path>` (inside the project's notes folder), never by a server path. Only `.md` and `.txt` are served; `..`, empty or absolute parts and anything that resolves (symlinks followed) outside the folder are refused. Text is scrubbed with the project's scrubber. `GET /api/docs/list|show|download`, `phoenix doc list <run>` and `phoenix doc show <id>` (both with `--json`). A gate link to a document is `{label, doc}` instead of `{label, url}` (planner: `run:<id>/plan.md`, merge: `summary.md`); the panel opens it at `#/doc?path=<id>` (task 22), rendered with the safe markdown renderer, so no server-rendered HTML page exists.
+
+### Block formats and panel messages (summary)
+- Blocks are fenced code with language `phoenix-card`, `phoenix-choice`, `phoenix-confirm` or `phoenix-nav`, one JSON object with `"v": 1`, at most 8 KB, unknown keys refused (an `actions` key too). card: `{v, type, query?, title?}`; nav: `{v, links: [{to, params?, label?}]}` (1-8); choice: `{v, id, question, mode: single|multi, options (2-8, at most one recommended), other?}`; confirm: `{v, id, action, command, danger?}`. `id` is 1-40 letters, digits, `-` or `_`. Blocks are parsed only from the agent's own text items, never from user bubbles or `ActionCard` excerpts.
+- Cards carry only `type`, `query`, `title`; the panel fetches data from `GET /api/cards` and never trusts numbers in a block. Buttons come from the card builder only.
+- Panel messages (sent through `/api/agent/send`, one each): `[Phoenix panel · choice <id>] <label>` (multi: labels joined by ", "), `[Phoenix panel · choice <id> · other] <text>`, `[Phoenix panel · confirm <id>] yes` / `no`, `[Phoenix panel · confirm <id> · other] <text>`, `[Phoenix panel · button] <label> done`.
+- A confirm or choice counts as answered when a later user item starts with `[Phoenix panel · confirm|choice <id>` followed by `]` or ` ·`.
+
+### ConfirmBlock, NavBlock, agent rules and demo (tasks 19-20)
+- ConfirmBlock shows the action and exact command with Yes / No / Other. The agent runs the command, never Phoenix. It is read-only once answered or frozen and then shows "You answered: ...".
+- NavBlock shows only the resolved links, leaves dropped links out, shows nothing when no link resolves, and disables its buttons when frozen.
+- `deploy/agent/agent-rules.md` is the agent's rules file. `tests/seed_demo.py` plus `web/e2e/agent-blocks.spec.ts` make the demo and the end-to-end check.
+- The `#/doc?path=<id>` page is not in the route catalogue, so the agent cannot `nav` or `ui go` to it.
+
+### RunDocs (task 22)
+`web/src/features/docs/RunDocs.tsx` lists `docs/list?run=<id>` and shows View/Download only for `plan.md` and `summary.md` ids (LogsTab, RunningView and the run card body use it); it renders nothing when the list is empty or the request fails.

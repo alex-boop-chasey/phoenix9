@@ -215,3 +215,37 @@ def test_unrelated_user_line_leaves_the_item_pending():
     items, _ = transcript.parse(lines)
     assert of(items, "queued")[0]["pending"] is True
     assert agentlink._state({"status": "idle"}, items[:1]) == "queued"
+
+
+def panel_peer_line(text, envelope="[Phoenix panel · page: projects · folder: /srv/projects/demo]"):
+    """A user line shaped like Claude Code writes a message the panel sent in: isMeta, with a peer origin."""
+    wrapped = ('<cross-session-message from="uds:/run/phoenix9/panel.sock" from-name="Alex (Phoenix panel)" '
+               'from-mode="bypass">\n%s\n%s\n</cross-session-message>' % (envelope, text))
+    return j(type="user", isMeta=True, timestamp="2026-11-08T10:00:00Z", sessionId="s1",
+             origin={"kind": "peer", "name": "Alex (Phoenix panel)", "from": "uds:/run/phoenix9/panel.sock",
+                     "body": "%s\n%s" % (envelope, text)},
+             message={"role": "user", "content": "Another Claude session sent a message:\n" + wrapped}), wrapped
+
+
+def test_panel_message_written_as_meta_peer_line_is_shown_as_alex():
+    line, _ = panel_peer_line("please turn the chats off")
+    items, unknown = transcript.parse([line])
+    users = of(items, "user")
+    assert unknown == 0 and len(users) == 1
+    assert users[0]["origin"] == "panel" and users[0]["text"] == "please turn the chats off"
+
+
+def test_meta_peer_line_clears_its_queued_item():
+    line, wrapped = panel_peer_line("please turn the chats off")
+    items, _ = transcript.parse([j(type="queue-operation", operation="enqueue", content=wrapped), line])
+    assert of(items, "queued")[0]["pending"] is False
+    assert [u["text"] for u in of(items, "user")] == ["please turn the chats off"]
+
+
+def test_peer_without_envelope_and_other_meta_lines():
+    line = j(type="user", isMeta=True, origin={"kind": "peer", "name": "helper-7", "body": "hi"},
+             message={"role": "user", "content": "Another Claude session sent a message:\n<cross-session-message>"
+                      "\nhi\n</cross-session-message>"})
+    other = j(type="user", isMeta=True, message={"role": "user", "content": "<local-command-caveat>x"})
+    items, _ = transcript.parse([line, other])
+    assert [(u["origin"], u["text"]) for u in of(items, "user")] == [("peer:helper-7", "hi")]

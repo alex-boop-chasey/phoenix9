@@ -42,6 +42,7 @@ class Parser:
         return self.state["items"], updates
 
 
+_PEER_HEAD = "Another Claude session sent a message:"
 _WRAPPER = re.compile(r"<cross-session-message\b[^>]*>(.*?)(?:</cross-session-message>)?\Z", re.S)
 
 
@@ -91,8 +92,8 @@ def _handle(state: dict, number: int, obj: dict) -> None:
     if handler is None or (kind in ("user", "assistant") and not isinstance(obj.get("message"), dict)):
         state["unknown"] += 1
         return
-    if obj.get("isMeta") is True and kind == "user":
-        return
+    if obj.get("isMeta") is True and kind == "user" and not _is_peer(obj):
+        return              # Claude Code's own notes; messages from other sessions (the panel) are kept
     _session_divider(state, number, obj)
     at = obj.get("timestamp")
     handler(state, number, obj, at)
@@ -125,6 +126,12 @@ def _origin(obj: dict) -> str:
     return "panel" if name.startswith(PANEL_NAME) else "peer:" + name
 
 
+def _is_peer(obj: dict) -> bool:
+    """True when a line is a message another session (such as the Phoenix panel) sent in."""
+    origin = obj.get("origin")
+    return isinstance(origin, dict) and origin.get("kind") == "peer"
+
+
 def _user(state: dict, number: int, obj: dict, at) -> None:
     """Handle a user line: a message, or tool results for earlier actions."""
     content = obj["message"].get("content")
@@ -152,6 +159,8 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
     origin = obj.get("origin")
     body = origin.get("body") if isinstance(origin, dict) else None
     text = body if isinstance(body, str) else content
+    if _is_peer(obj):
+        text = _unwrap(text)                # just what Alex typed: no wrapper or [Phoenix panel · ...] line
     _clear_delivered(state, [content, text])
     _add(state, number, {"type": "user", "text": scrub.scrub(text), "origin": _origin(obj), "at": at})
 
@@ -159,12 +168,14 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
 def _unwrap(text: str) -> str:
     """The plain body of a message: no cross-session wrapper or envelope line, entities unescaped, trimmed."""
     text = text.strip()
+    if text.startswith(_PEER_HEAD):        # how Claude Code writes a delivered cross-session message
+        text = text[len(_PEER_HEAD):].strip()
     match = _WRAPPER.match(text)
     if match:
         text = match.group(1).strip()
-        first, _, rest = text.partition("\n")
-        if first.startswith("[Phoenix") and first.endswith("]"):
-            text = rest
+    first, _, rest = text.partition("\n")
+    if first.startswith("[Phoenix") and first.endswith("]"):
+        text = rest
     return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
 
 

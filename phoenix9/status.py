@@ -182,3 +182,10 @@ def all_project_states(names: list, last_used: dict | None = None) -> dict:
     all_runs, open_gates = runs.list_runs(), gates.list_gates()
     return {n: project_state(n, all_runs=all_runs, open_gates=open_gates, last_used=(last_used or {}).get(n, ""))
             for n in names}
+
+
+def run_view(st: dict, open_ids: set, now: float | None = None) -> dict:
+    """One run as the rows carry it (id, status as seen, task, why, now, worker), from its state and open question ids."""
+    summary = {**st, "tasks_total": len(st.get("tasks") or {}),
+               "tasks_passed": sum(1 for t in (st.get("tasks") or {}).values() if t.get("status") == "passed")}
+    return _run_view(summary, open_ids, time.time() if now is None else now)

@@ -11,6 +11,10 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
     p.set_defaults(func=check)
+    p = group.add_parser("report", parents=[common], help="write and show the plain-English report of a run")
+    p.add_argument("run_id")
+    p.add_argument("--project", help="the project of the run (the run id alone is enough)")
+    p.set_defaults(func=report)
     p = group.add_parser("undo", parents=[common], help="undo a repair (default: the newest snapshot)")
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
@@ -35,3 +39,9 @@ def check(args) -> int:
     text = "No problems found" if r["ok"] else "\n".join(f"{i}. {p['text']}" for i, p in enumerate(r["problems"], 1))
     show(args, {"ok": r["ok"], **r}, text)
     return 0 if r["ok"] else 1
+
+
+def report(args) -> int:
+    """Write the run report and show it."""
+    r = repair.report(args.run_id, project=args.project)
+    return show(args, {"ok": True, **r}, r["text"])

@@ -1,7 +1,7 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
-from phoenix9 import events, runs as core
-from phoenix9.ops import common
-from phoenix9.repair import apply as apply_mod, check as check_mod, report as report_mod, resume as resume_mod, snapshot
+from phoenix9 import atomic, events, runs as core
+from phoenix9.ops import common, runs as runs_ops
+from phoenix9.repair import apply as apply_mod, check as check_mod, notes, report as report_mod, resume as resume_mod, snapshot
 
 
 def _run_folder(run_id: str, project: str | None = None):
@@ -43,6 +43,26 @@ def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unloc
         return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
     except snapshot.RepairRefused as err:
         raise common.OpsError(str(err)) from None
+
+
+def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = False,
+               approve_unlock: bool = False) -> dict:
+    """Save posted note text in the run's repairs/notes and apply it; unreadable notes are OpsError, refusals Conflict."""
+    folder = _run_folder(run_id)
+    try:
+        note = notes.parse(text)
+    except notes.NoteError as err:
+        raise common.OpsError(str(err)) from None
+    if note.run != run_id:
+        raise common.OpsError(f"line 1: the note is for run '{note.run}', not '{run_id}'.")
+    if not runs_ops._may_stop(folder.parent.name, who):
+        raise common.Conflict(f"'{who}' may not repair runs in {folder.parent.name}.")
+    path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
+    atomic.write_text(path, text if text.endswith("\n") else text + "\n")
+    try:
+        return apply_mod.apply(path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+    except snapshot.RepairRefused as err:
+        raise common.Conflict(str(err)) from None
 
 
 def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:

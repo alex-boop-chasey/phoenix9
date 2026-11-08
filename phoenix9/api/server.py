@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, ui as ops_ui, update
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, runs, service as ops_service, services, settings, ui as ops_ui, update
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -826,6 +826,26 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def get_repair_report(req, run_id):
+    """Write the run report and reply with it: the markdown and the findings as JSON."""
+    run_id = check_run_id(run_id)
+    with req.server.write_lock:
+        done = ops_repair.report(run_id)
+        found = ops_repair.check(run_id)["problems"]
+    return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
+
+
+def post_repair_apply(req, run_id):
+    """Save the posted repair note and apply it (or only show a dry run)."""
+    run_id = check_run_id(run_id)
+    text = body_text(req, "note")
+    flags = {k: req.body.get(k, False) for k in ("dry_run", "approve_unlock")}
+    if not all(isinstance(v, bool) for v in flags.values()):
+        raise BadRequest("dry_run and approve_unlock have to be true or false.")
+    with req.server.write_lock:
+        return ops_repair.apply_text(run_id, text, who=WHO, **flags)
+
+
 def post_run_discard(req, project, run_id):
     """Discard a failed or stopped run's worktree and branch."""
     if req.body.get("confirm") is not True:
@@ -994,6 +1014,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
+    ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
+    ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]

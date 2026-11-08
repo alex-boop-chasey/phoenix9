@@ -73,3 +73,12 @@ test("an error shows the API's plain message", async () => {
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
   expect(await screen.findByText("The chat could not start.")).toBeInTheDocument()
 })
+
+test("is an outlined button; compact is the small sidebar size", () => {
+  const { unmount } = renderWithProviders(<ChatButton project="demo" chat={null} />)
+  expect(screen.getByRole("button", { name: /Chat/ })).toHaveClass("btn", "btn-secondary")
+  expect(screen.getByRole("button", { name: /Chat/ })).not.toHaveClass("btn-sm")
+  unmount()
+  renderWithProviders(<ChatButton project="demo" chat={null} compact />)
+  expect(screen.getByRole("button", { name: /Chat/ })).toHaveClass("btn", "btn-secondary", "btn-sm")
+})

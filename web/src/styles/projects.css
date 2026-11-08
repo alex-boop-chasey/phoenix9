@@ -73,6 +73,7 @@
 }
 .chatbtn{display:inline-flex; flex-direction:column; gap:4px; align-items:flex-start}
 .chatbtn .chatweb{font-size:12px}
+.ph-r .chatbtn .btn{--h:38px; padding:0 12px; font-size:13px}
 .chatbtn .chaterr{font-size:12px; color:var(--bad)}
 .chatdot{display:inline-block; width:8px; height:8px; margin-left:8px; border-radius:50%; background:var(--text-3, #888)}
 .chatdot-live,.chatdot-working{background:var(--ok)}

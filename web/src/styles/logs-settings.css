@@ -1,6 +1,6 @@
 /* Logs console and project Settings (from the mockup's "Logs: console" and "SETUP dialect" CSS). */
 .idx-wrap{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
-@container well (min-width:860px){ .idx-wrap{grid-template-columns:210px minmax(0,1fr)} .sidx{position:sticky; top:84px; align-self:start} }
+@container well (min-width:860px){ .idx-wrap{grid-template-columns:210px minmax(0,1fr)} .sidx{position:sticky; top:0; align-self:start} }
 .sidx{display:flex; flex-direction:column; gap:2px}
 .sidx button{display:flex; gap:10px; align-items:center; height:40px; padding:0 12px; border:0; border-radius:var(--r-sm); background:transparent; cursor:pointer; font-weight:600; font-size:14px; color:var(--text-2); text-align:left}
 .sidx button:hover{background:var(--surface-2); color:var(--text)}

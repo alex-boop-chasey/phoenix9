@@ -177,3 +177,24 @@ test("the open panel is remembered", () => {
   expect(again).toBeTruthy()
   expect(window.localStorage.getItem("phoenix.agent.open")).toBe("1")
 })
+
+test("only the main content scrolls: header and sidebar sit outside the page scroller", async () => {
+  setup({ route: "/p/demo-site/overview" })
+  const main = screen.getByRole("main")
+  expect(main).toHaveAttribute("id", "page")
+  expect(main).toHaveClass("well")
+  const header = document.querySelector("header.top")!
+  expect(header).not.toBeNull()
+  expect(main.contains(header)).toBe(false)
+  expect(main.contains(switcher())).toBe(false)
+  expect(header.parentElement).toHaveClass("app")
+  expect(main.contains(screen.getByText("x"))).toBe(true)
+})
+
+test("navigating scrolls the page scroller back to the top", async () => {
+  setup()
+  const main = screen.getByRole("main")
+  main.scrollTop = 300
+  fireEvent.click(screen.getByRole("link", { name: "Settings" }))
+  expect(main.scrollTop).toBe(0)
+})

@@ -10,10 +10,12 @@ import { useAgentAlerts } from "@/features/agent/alerts"
 import { useUiGo } from "@/features/agent/uiGo"
 import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
 import { useLiveEvents } from "@/lib/live"
+import { PAGE_SCROLLER_ID, scrollPageTop } from "@/lib/focus"
 import { useInfo, useProjects } from "@/lib/queries"
 import { sortForSwitcher } from "@/lib/switcher"
 
-/** The header, project switcher, phone picker, agent drawer and the "well" around every route. */
+/** A full-height frame: the header and the project switcher stay put, only the main content (#page) scrolls.
+ * The header, project switcher, phone picker, agent drawer and the "well" around every route. */
 export function AppShell({ children }: { children: ReactNode }) {
   const { data: info } = useInfo()
   const { data: projects } = useProjects()
@@ -37,7 +39,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     setWire(true)
     setSheet(false)
-    window.scrollTo?.(0, 0)
+    scrollPageTop()
     const t = setTimeout(() => setWire(false), 600)
     return () => clearTimeout(t)
   }, [pathname])
@@ -58,7 +60,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const closeDrawer = () => setDrawer(false)
 
   return (
-    <div className="min-h-screen overflow-x-hidden">
+    <div className="app overflow-x-hidden">
       <header className="top gut">
         <Link className="brand" to="/" aria-label="Phoenix, go to projects">
           <span className="mark"><Icon name="flame" /></span>
@@ -105,7 +107,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="shell gut">
         <ProjectSwitcher current={current} />
-        <main className={pathname.endsWith("/logs") ? "well console" : "well"}>
+        <main id={PAGE_SCROLLER_ID} className={pathname.endsWith("/logs") ? "well console" : "well"}>
           <div className={wire ? "wire on" : "wire"} data-testid="wire" />
           <Crumbs />
           {children}

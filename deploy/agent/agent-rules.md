@@ -100,3 +100,7 @@ A message that starts `[Phoenix · escalation] <run id> task <n>` means a build 
 ## Spending cap
 
 - Never raise a build's spending cap (a `budget` question, `raise`) without Alex's yes. Show him the cost so far and ask. The code refuses chat callers too, so do not try.
+
+## Replies
+- The server rulebook's "first reply opens with two lines from NOW.md" rule does NOT apply to you: never start a reply with "Where home is up to" / "Next step". Answer Alex straight away.
+- Don't repeat earlier answers or restate what you did unless he asks.

@@ -1,6 +1,6 @@
 """Commands for `phoenix repair`: check a run, write its report, apply a repair note, undo a repair, resume a run."""
 from phoenix9.cli.output import problem, show
-from phoenix9.ops import repair
+from phoenix9.ops import common, repair
 
 
 def add(sub, common) -> None:
@@ -55,6 +55,7 @@ def resume(args) -> int:
 def check(args) -> int:
     """Check a run: "No problems found" (exit 0) or a numbered list of what is wrong (exit 1)."""
     r = repair.check(args.run_id, project=args.project)
+    common.record_command(args.who, f"repair check {args.run_id}", r["project"])
     text = "No problems found" if r["ok"] else "\n".join(f"{i}. {p['text']}" for i, p in enumerate(r["problems"], 1))
     show(args, {"ok": r["ok"], **r}, text)
     return 0 if r["ok"] else 1
@@ -63,6 +64,7 @@ def check(args) -> int:
 def report(args) -> int:
     """Write the run report and show it."""
     r = repair.report(args.run_id, project=args.project)
+    common.record_command(args.who, f"repair report {args.run_id}", r["project"])
     return show(args, {"ok": True, **r}, r["text"])
 
 

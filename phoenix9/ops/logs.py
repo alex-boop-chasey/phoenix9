@@ -52,6 +52,11 @@ def _classify(rel: str, path: Path) -> dict | None:
         title = f"{'checks' if kind == 'check' else 'changes'} (task {task}, attempt {attempt})"
         return {"kind": kind, "task": task, "attempt": attempt,
                 "step": "acceptance" if kind == "check" else "builder", "title": title}
+    if rel == "repairs/report.md":
+        return {"kind": "repair-report", "task": None, "attempt": None, "step": None, "title": "run report"}
+    if rel.startswith("repairs/notes/") and name.endswith(".md"):
+        return {"kind": "repair-note", "task": None, "attempt": None, "step": None,
+                "title": f"repair note {name[:-3]}"}
     if rel.startswith("gates/") and name.endswith(".json") and not name.endswith(".answer.json"):
         gate = atomic.read_json(path) or {}
         return {"kind": "gate", "task": gate.get("task"), "attempt": None, "step": gate.get("step"),

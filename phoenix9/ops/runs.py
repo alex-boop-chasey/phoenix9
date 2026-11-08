@@ -324,6 +324,17 @@ def _preview_plan(project: str, overrides: dict) -> dict:
         raise OpsError(str(err)) from None
 
 
+def _repairs(folder: Path) -> "list[dict]":
+    """The repairs applied to a run, read from its repair.applied events (never from the notes)."""
+    found = []
+    for e in events.read(folder / "events.jsonl"):
+        if e.get("type") == "repair.applied":
+            d = e.get("data") or {}
+            found.append({"n": len(found) + 1, "who": d.get("who"), "title": d.get("title"),
+                          "note_id": d.get("note"), "at": e.get("ts"), "rolled_back": bool(d.get("rolled_back"))})
+    return found
+
+
 def detail(project: str, run_id: str) -> dict:
     """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,
     and its branch (None once the branch is gone)."""
@@ -351,7 +362,7 @@ def detail(project: str, run_id: str) -> dict:
             pass
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries,
-            "branch": _live_branch(project, run_id)}
+            "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
 
 
 def _live_branch(project: str, run_id: str) -> str | None:

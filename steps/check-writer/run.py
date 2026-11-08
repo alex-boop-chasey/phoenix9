@@ -4,7 +4,7 @@ import fnmatch
 from pathlib import Path
 
 from phoenix9 import checklint, checklock, keys, state
-from phoenix9.aistep import last_line, profile_test, task_text
+from phoenix9.aistep import fence, failures_list, last_line, profile_test, task_text
 from phoenix9.stepctx import StepResult
 
 EARLY_END = ("crashed", "timed_out", "no_output", "error")
@@ -52,8 +52,15 @@ def existing_checks(ctx, own_dir: str) -> str:
 
 def _failures(ctx) -> str:
     """Why earlier tries of this task failed (a broken check is rewritten), as a numbered list."""
-    items = list(ctx.things.get("failures") or [])
-    return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
+    return failures_list(ctx.things.get("failures") or []) or "None: this is the first try"
+
+
+def _objection(ctx) -> str:
+    """The reason a repair gave for throwing the old checks away (fenced as data), or a plain 'none'."""
+    tasks = (state.load(ctx.run.folder) or {}).get("tasks") or {}
+    task = tasks.get(str((ctx.task or {}).get("number")), {})
+    why = task.get("check_objection")
+    return fence(why) if why else "(none)"
 
 
 def unset_env_problems(ctx, written: list[str]) -> list[str]:
@@ -91,6 +98,7 @@ def before(ctx) -> dict:
         "repo_tree": repo_tree(ctx),
         "existing_checks": existing_checks(ctx, folder),
         "failures": _failures(ctx),
+        "objection": _objection(ctx),
     }
 
 

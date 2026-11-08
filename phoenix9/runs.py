@@ -77,13 +77,17 @@ def list_runs(project: str | None = None) -> list[dict]:
 
 
 def find_run(run_id: str) -> Path | None:
-    """The folder of the run with this id in any project, or None."""
+    """The folder of the run with this id in any project, or None (also for an id that is not a run id, or a
+    folder that resolves outside the runs folder, for example through a symlink)."""
+    if not isinstance(run_id, str) or not RUN_ID_RE.fullmatch(run_id):
+        return None
     root = paths.runs()
     if not root.is_dir():
         return None
+    top = root.resolve()
     for proj in sorted(root.iterdir()):
         d = proj / run_id
-        if (d / "state.json").is_file():
+        if (d / "state.json").is_file() and d.resolve().parent.parent == top and d.resolve().name == run_id:
             return d
     return None
 

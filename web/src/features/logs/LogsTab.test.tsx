@@ -170,4 +170,41 @@ describe("LogsTab", () => {
     renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?log=s1" })
     expect(await screen.findByText("hello from the builder")).toBeInTheDocument()
   })
+
+  describe("repair documents", () => {
+    const NOTE = `${RUN}/repairs/notes/1-fix.md`
+    const REPORT = `${RUN}/repairs/report.md`
+    const docs: LogEntry[] = [
+      entry({ id: NOTE, kind: "repair-note", task: null, attempt: null, step: null, title: "repair note 1-fix" }),
+      entry({ id: REPORT, kind: "repair-report", task: null, attempt: null, step: null, title: "run report" }),
+    ]
+    const withDocs = () => routes({
+      "GET /api/logs": docs,
+      "GET /api/logs/read": (r: MockRequest) => ({
+        id: r.query.id, kind: r.query.id === NOTE ? "repair-note" : "repair-report", title: "t",
+        text: r.query.id === NOTE ? "# Fix\n- skip task 2" : "# Run report\nAll fine", truncated: false, is_diff: false,
+      }),
+    })
+
+    it("lists them with plain labels", async () => {
+      mockApi(withDocs())
+      renderWithProviders(<LogsTab name="demo-site" />)
+      const note = await screen.findByRole("option", { name: /repair note 1-fix/ })
+      expect(note).toHaveTextContent("Repair note")
+      expect(screen.getByRole("option", { name: /run report/ })).toHaveTextContent("Run report")
+    })
+
+    it("opens a note as text from the address", async () => {
+      mockApi(withDocs())
+      renderWithProviders(<LogsTab name="demo-site" />, { route: `/p/demo-site/logs?log=${encodeURIComponent(NOTE)}` })
+      expect(await screen.findByText(/skip task 2/)).toBeInTheDocument()
+    })
+
+    it("opens a report when picked", async () => {
+      mockApi(withDocs())
+      renderWithProviders(<LogsTab name="demo-site" />)
+      await userEvent.click(await screen.findByRole("option", { name: /run report/ }))
+      expect(await screen.findByText(/All fine/)).toBeInTheDocument()
+    })
+  })
 })

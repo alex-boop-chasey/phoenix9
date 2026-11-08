@@ -11,7 +11,7 @@ run.queued run.started run.finished run.step.started run.step.finished task.star
 task.finished gate.opened gate.answered project.created project.changed settings.changed
 update.started update.installed update.failed update.rolledback deploy.finished run.held command
 """.split())
-EVENT_TYPES = EVENT_TYPES | {"run.discarded", "project.deleted", "ui.go"}   # run.discarded: `phoenix run discard` threw a run's work away; project.deleted: a project was deleted entirely
+EVENT_TYPES = EVENT_TYPES | {"run.discarded", "project.deleted", "ui.go", "repair.applied"}   # run.discarded: `phoenix run discard` threw a run's work away; project.deleted: a project was deleted entirely
 
 
 def _append(path: Path, line: str) -> None:

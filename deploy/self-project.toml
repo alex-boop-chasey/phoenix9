@@ -41,6 +41,8 @@ safety_files = [
   "deploy/agent/agent-rules.md",  # the agent's own rulebook
   # Deleting a project
   "phoenix9/project_delete.py",  # the delete-project plan and safety copy
+  # Repairs
+  "phoenix9/repair/*.py",  # repairs can change run state and unlock checks
   # The checks themselves
   "check.sh",  # the check command
   "check-browser.sh",  # the browser check command

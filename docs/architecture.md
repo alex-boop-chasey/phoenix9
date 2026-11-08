@@ -44,7 +44,8 @@ phoenix9/                      the Python package
   cli/                         one module per command group (thin: parse args, call ops, print): project.py
                                (also `project keys` and `project services`) run.py gate.py settings.py library.py
                                (steps, profiles, presets) runner.py api.py output.py, and from phase 4 services.py
-                               keys.py update.py deploy.py (also `deployers`) images.py doctor.py
+                               keys.py update.py deploy.py (also `deployers`) images.py doctor.py, and `repair.py` (`phoenix repair
+                               check|report|apply|undo|resume`, section 8.4; code in `phoenix9/repair/`)
   ops/                         the ONE backend layer. CLI and API both call these functions and nothing
                                else. Every function returns plain dicts/lists (JSON-able). Modules:
                                common runs gates settings library projects keys (phases 1-2), logs app github (phase 3),
@@ -664,7 +665,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied command`.
+  `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
+  is written for every applied repair note and every undo (section 8.4).
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
@@ -730,6 +733,103 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   already ended (who = `phoenix`, one event each), so questions left by older code disappear without
   hand edits.
   Gate ids: `<run-id>.<n>`.
+
+## 8.4 Repairs: report and notes (`phoenix9/repair/`, `ops/repair.py`, `phoenix repair`)
+
+The repair kit is DOCUMENT BASED. Phoenix writes a plain-English **run report** from the real run state; a
+fixer (the agent or Alex) writes a short **repair note**; Phoenix checks the note, snapshots, applies it,
+checks again and writes the result back into the note. Documents are views or instructions, never a second
+copy of the state: `state.json`, the gates and the worktree stay the only truth.
+
+**Files** (all under the run folder `HOME/runs/<p>/<run>/repairs/`):
+`report.md` (rewritten afresh each time), `notes/<n>-<slug>.md` (every applied note, n = 1, 2, 3 ... in
+order), `<n>/before/...` (snapshot n: run-state files, attempt folder names, worktree head, branch, a
+patch of uncommitted changes, the names of env files; never keys or env values), `<n>/removed/` (what undo
+or a redo moved aside), `frozen.json` (see below).
+
+**Modules**: `snapshot.py` (take, roll back, undo), `check.py` (`run_checks`: run state invariants, worktree,
+settings, spec, server), `report.py`, `notes.py` (parser, result writer), `apply.py` (the engine),
+`steps.py` (one function per step), `resume.py`.
+
+**The report** (`phoenix repair report <run>`, `GET /api/repair/<run>/report`) has the sections: what the run
+is doing, Tasks (one line each, with the tail of the last `checks.txt`, scrubbed), Open question, Worktree
+(branch, HEAD, dirty files, env files), What the check found, Repair note lines (one ready line per finding,
+in the note vocabulary), Details (paths).
+
+**The note format** is strict markdown:
+
+```
+# Repair <run-id>
+Why: one plain sentence (becomes the title in the event, log and changelog)
+
+## Steps
+- <step>
+- force            (optional: keep the result although the check finds new problems)
+
+## Result           (written by Phoenix; replaced on every apply or dry run)
+```
+
+Unknown or malformed lines are refused with their line number. Full step vocabulary (`notes.STEP_FORMS`):
+
+| Step | Does |
+| --- | --- |
+| `redo task N from scratch` | task N and every later task back to pending, tries 0, failures cleared; attempts moved aside |
+| `mark task N done because <why>` | task N passed |
+| `mark task N skipped because <why>` | task N skipped, unfinished dependents skipped too |
+| `retry task N` | task N pending with rerun on, failures kept |
+| `clear failures of task N` | forget its failure reasons |
+| `add a note to task N: <text>` | adds a note the next attempt reads |
+| `set <key>=<value> for this run` | one setting in the run's `settings.json`; `plan.json` made again |
+| `turn off step <name> for this run` | takes the step out of the plan (never `diff-rules`, `secret-scan` or a step a safety rule needs) |
+| `replace the spec with <path>` | swaps the spec for a file under the project's `notes/`, keeping matching tasks |
+| `keep my hand fix with message "<m>"` | commits uncommitted worktree changes as an outside fix |
+| `reset the worktree to <sha>` | hard reset to a commit of `phoenix/<run>` or main |
+| `rebuild the worktree` | removes and makes the worktree again from the branch |
+| `close question <id> as <action>` | answers (or `closed`) one question the normal way (`gates.answer`/`gates.close_questions`) |
+| `rewrite the checks of task N because <why>` | throws away the locked checks so Check-writer and Red check run again on resume; needs approval |
+| `rerun finish step <name>` | runs one finish step again on a failed run |
+| `resume` | puts the run back to `running` (or `queued`) so the runner carries on |
+
+**Apply order** (`apply.apply`): read and parse the note; find the run; refuse if the runner is walking it;
+(dry run: stop here, see below); copy the note to `notes/<n>-<slug>.md`; run the check (before); take
+snapshot n; take the run lock (`runend.lock`); do the steps in note order, stopping at the first refused
+step; run the check again; roll back to snapshot n if a step was refused or the check found a problem that
+was not there before, unless the note says `force` (a refused step always rolls back). Then write the
+`repair.applied` event, a `HOME/logs/commands.jsonl` line with who, a plain line in the project's
+`notes/changelog.md`, and the `## Result` section (in the stored copy and the original file).
+
+**Dry run** (`--dry-run`, API `dry_run`): the steps run on a scratch copy of the run folder; nothing real
+changes, no snapshot, no event; the `## Result` says "Dry run" and the outcome has `would_roll_back`.
+
+**Snapshot and undo**: a snapshot holds the run folder files (not `run.lock`), the worktree head and branch,
+and a worktree patch that went through `git.scan_secrets` and the scrubber; a patch with a finding is
+refused, not written. `phoenix repair undo <run> [--to N] --yes` restores snapshot N (default the newest);
+new attempts go aside into `repairs/<m>/removed/`. Undo is itself a repair: it takes a snapshot first and
+writes the same `repair.applied` event, log line and changelog line.
+
+**The walked-run refusal**: a repair never touches a run the runner is walking: status `running` with a
+heartbeat fresher than `heartbeat.STALE_S`, or a busy run lock. The answer is "The runner is walking this run.
+Stop it first or wait for a question." (API 409). A `running` run with a stale heartbeat may be repaired.
+
+**Never reachable by a step**: `docker.py`, images, firewall files, safety files, keys, secrets, and the
+settings `domains`, `diff.allow_extra`, `services`, `safety_files` (`steps.FORBIDDEN_TOP`, `FORBIDDEN_KEYS`);
+a setting may not shrink the diff deny list. Git commands go through `phoenix9/git.py` (hard rule 5 flags).
+
+**Approval for unlocking checks**: `rewrite the checks` removes locked check files, so it needs
+`--approve-unlock` (API `approve_unlock`) AND an asker who may answer an escalation in that project
+(`gates.may_answer`); otherwise the step is refused ("needs Alex's approval: it unlocks checks"). It marks
+the task with `check_objection` (the failure reasons that blamed the checks: SPEC_PROBLEM or a locked file),
+so the next attempt and the report see why the checks were redone. No AI runs: the step only sets the state
+up; Check-writer and Red check run in their containers when the run resumes.
+
+**`repairs/frozen.json`**: written when a step changes the plan or a setting. The check normally demands
+that `plan.json` equals what the resolver makes of the run's settings; when `frozen.json` exists the repair
+is accepted as the reason they differ.
+
+**The repair exception**: section 7 says an ended run is never changed again by the runner. The repair kit
+is the one place allowed to change an ended run (`failed` or `stopped` with its worktree kept), and only by
+an applied note, under the run lock, through `state.update`. Runs end only through `runend.end_run`; questions
+open only via the gate helpers and close only with `gates.close_questions` or `gates.answer`.
 
 ## 8.5 The API (phoenix-api, phase 3)
 
@@ -1356,6 +1456,11 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
 - `builds` card: `limit` 1-20, default 5 (outside that is a 400).
 - `phoenix card <type> [--query JSON] [--title T] [--json]` prints the summary line, the fenced `phoenix-card`
   block (only `v`, `type`, `query`, `title`), then the summary again. `--json` gives `{summary, block, card}`.
+
+- `repair` card: query `{project, run, note?}` (`note` = a file name in the run's `repairs/notes/`, default the
+  newest). Data `{run_id, project, status, status_line, findings: [{code, text, task}], note: {name, text,
+  dry_run} | null}`; `dry_run` is the dry-run outcome of the note (or `{error}`), `actions` is empty (the buttons
+  live in the card body and call `POST /api/repair/<run>/apply`); it watches types `run` and `repair`.
 
 ### Pull requests (`ops.github.prs`, `prs` card)
 - `ops.github.prs(project=None, state="open")` runs `gh pr list --repo <owner/name> --state <state> --json ...` through the Host adapter and returns rows `{project, number, title, state, draft, checks, url, updated_at}`. Answers are cached in memory for 60 s per (repo, state); a gh failure gives `{project, error}` for that project.

@@ -311,6 +311,17 @@ export interface PlanView {
   }
 }
 
+/** One repair applied to a run (from its repair.applied events). */
+export interface RunRepair {
+  n: number
+  who: string
+  title: string
+  /** The note file name; null for an undo, "resume" for a resume (no note file for either). */
+  note_id: string | null
+  at: string
+  rolled_back: boolean
+}
+
 export interface RunDetail {
   run_id: string
   project: string
@@ -332,6 +343,8 @@ export interface RunDetail {
   max_tries: number
   /** The git branch of the run, e.g. phoenix/<run-id>. */
   branch?: string
+  /** Repairs applied to the run, oldest first. */
+  repairs?: RunRepair[]
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
   discarded_at?: string
@@ -420,7 +433,7 @@ export interface DeployStatus {
 
 export interface LogEntry {
   id: string
-  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service"
+  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service" | "repair-note" | "repair-report"
   run: string
   task: number | null
   attempt: number | null

@@ -53,6 +53,7 @@ def world(tmp_path, adapters):
     ctx.project.code_dir = code
     ctx.run.spec["title"] = "Tiny"
     state.set_task(ctx.run.folder, 1, status="passed")
+    state.add_step_line(ctx.run.folder, "run-finish", None, "full-suite", status="passed")
     (ctx.run.folder / "summary.md").write_text("# Summary\n")
     return ctx, code, origin
 

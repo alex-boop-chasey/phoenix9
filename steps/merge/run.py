@@ -3,11 +3,12 @@ import fnmatch
 import json
 import re
 
-from phoenix9 import atomic, deploy, git as gitmod, release, settings, state
+from phoenix9 import atomic, deploy, gates, git as gitmod, release, settings, state
 from phoenix9.stepctx import StepResult
 
 MR_FILE = "merge-request.txt"
 NOTE_FILE = "merge-note.md"
+ASKED_FILE = "merge-asked.json"     # the branch tip and task statuses the merge question was about
 DIRTY = "code/ has local changes"
 NO_LOGIN = "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"
 
@@ -66,6 +67,19 @@ def matches_safety(path, globs) -> bool:
     return any(fnmatch.fnmatch(path, g) for g in globs)
 
 
+def _full_suite_off(ctx) -> bool:
+    """True when the run's plan has the full suite switched off (Alex's own setting), so no result is expected."""
+    plan = atomic.read_json(ctx.run.folder / "plan.json") or {}
+    row = next((r for r in plan.get("steps") or [] if r.get("name") == "full-suite"), None)
+    return row is not None and not row.get("on")
+
+
+def repaired(run_folder) -> bool:
+    """True when a repair touched this run (a snapshot exists, taken before a note's steps run, or an applied
+    repair event): the same rule a chat's merge answer is checked against."""
+    return gates.run_repaired(run_folder)
+
+
 def _flags(ctx, tasks, base, branch):
     """Return (flags, why parts) saying why this merge needs Alex."""
     flags, why = [], []
@@ -81,6 +95,16 @@ def _flags(ctx, tasks, base, branch):
         why.append("the full suite did not pass")
     elif line and line["status"] == "passed":
         why.append("the full suite passed")
+    elif line is None and not _full_suite_off(ctx):
+        flags.append(gates.FLAG_NO_FULL_SUITE)
+        why.append("there is no full suite result for this run")
+    by_repair = sorted((n for n, t in tasks.items() if t.get("marked_by_repair")), key=int)
+    if by_repair:
+        flags.append(gates.FLAG_MARKED_BY_REPAIR)
+        why.append(f"task {', '.join(by_repair)} was marked done or skipped by a repair")
+    if repaired(ctx.run.folder):
+        flags.append(gates.FLAG_REPAIRED)
+        why.append("this run was repaired")
     names = ctx.adapters.git.git(ctx.project.code_dir, "diff", "--name-only", f"{base}..{branch}").split("\n")
     globs = ctx.project.settings.get("safety_files") or []
     hit = [n for n in names if n and matches_safety(n, globs)]
@@ -192,8 +216,11 @@ def _ask(ctx, branch, flags, why) -> StepResult:
     if _preview_url(ctx):
         links.append({"label": "Preview", "url": _preview_url(ctx)})
     links.append({"label": "Summary", "doc": f"run:{ctx.run.id}/summary.md"})
+    tasks = state.load(ctx.run.folder)["tasks"]
+    asked = {"head": _branch_tip(ctx, branch), "task_statuses": {n: t["status"] for n, t in tasks.items()}}
+    atomic.write_json(ctx.run.folder / ASKED_FILE, asked)
     gate = {"kind": "merge", "title": f"Merge {_title(ctx)}?", "why": text, "links": links,
-            "actions": ["approve", "back", "skip", "stop"], "flags": flags}
+            "actions": ["approve", "back", "skip", "stop"], "flags": flags, **asked}
     return StepResult("gate", gate=gate)
 
 
@@ -220,6 +247,9 @@ def run(ctx):
     if git.git(code, "rev-list", "--count", f"{base}..{branch}").strip() == "0":
         return StepResult("skip", ["No changes to merge"])
     tasks = state.load(ctx.run.folder)["tasks"]
+    unfinished = sorted((n for n, t in tasks.items() if t["status"] not in ("passed", "skipped", "failed")), key=int)
+    if unfinished:
+        return StepResult("fail", [f"task {', '.join(unfinished)} is not finished, so the run is not merged"])
     flags, why = _flags(ctx, tasks, base, branch)
     mode = ctx.project.settings.get("merge", "auto")
     try:
@@ -250,9 +280,47 @@ def on_approved(ctx, produces) -> dict:
     return extra
 
 
+def _branch_tip(ctx, branch) -> str:
+    """The commit the run's branch points at in code/."""
+    return ctx.adapters.git.git(ctx.project.code_dir, "rev-parse", f"refs/heads/{branch}").strip()
+
+
+def _merge_gate(ctx) -> dict:
+    """The merge question of this run that was approved (the newest merge step line holding a gate)."""
+    line = next((x for x in reversed(state.load(ctx.run.folder)["steps"])
+                 if x.get("step") == "merge" and x.get("gate")), None)
+    return (gates.read(ctx.run.folder, line["gate"]) or {}) if line else {}
+
+
+def _still_what_was_asked(ctx) -> None:
+    """Refuse the approved merge when the run is no longer what the question showed: a task not passed or
+    skipped that was not already so (or is unfinished now), or a branch tip / worktree head that moved."""
+    tasks = state.load(ctx.run.folder)["tasks"]
+    gate = _merge_gate(ctx)
+    if not gate.get("head"):
+        gate = atomic.read_json(ctx.run.folder / ASKED_FILE) or {}
+    unfinished = sorted((n for n, t in tasks.items() if t["status"] not in ("passed", "skipped", "failed")), key=int)
+    then = gate.get("task_statuses")
+    changed = sorted((n for n, t in tasks.items() if then is not None and then.get(n) != t["status"]
+                      and t["status"] not in ("passed", "skipped")), key=int)
+    if unfinished or changed:
+        raise MergeError(f"task {', '.join(unfinished or changed)} changed since the merge question was asked, "
+                         "so the run was not merged: Alex, look at the run again (the merge request stays open)")
+    head = gate.get("head")
+    if not head:
+        raise MergeError("the merge question did not record which commit it was about, so the run was not merged: "
+                         "Alex, merge it yourself after checking (the merge request stays open)")
+    tip = _branch_tip(ctx, ctx.adapters.git.branch_name(ctx.run.id))
+    work = ctx.adapters.git.head(ctx.worktree) if ctx.worktree else tip
+    if tip != head or work != head:
+        raise MergeError("the run's branch moved after the merge question was asked, so the run was not merged: "
+                         "Alex, look at the new commits first (the merge request stays open)")
+
+
 def _approved(ctx) -> dict:
     """Do the approved merge and return the event data."""
     git, code = ctx.adapters.git, ctx.project.code_dir
+    _still_what_was_asked(ctx)
     on_main, clean = _code_state(ctx)
     mr = ctx.run.folder / MR_FILE
     if not mr.is_file():

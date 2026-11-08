@@ -90,17 +90,31 @@ def load(run_dir: Path) -> dict:
     return atomic.read_json(_file(run_dir))
 
 
-def _check(value: str, allowed: tuple, what: str) -> None:
+def _problem(value: str, allowed: tuple, what: str) -> str | None:
+    """The plain complaint when value is not allowed, else None."""
     if value not in allowed:
-        raise ValueError(f"bad {what} status {value!r}; use one of {', '.join(allowed)}")
+        return f"bad {what} status {value!r}; use one of {', '.join(allowed)}"
+    return None
+
+
+def _check(value: str, allowed: tuple, what: str) -> None:
+    problem = _problem(value, allowed, what)
+    if problem:
+        raise ValueError(problem)
+
+
+def status_problems(state: dict) -> list[str]:
+    """Every unknown status in a state: the run, its tasks and its step lines (empty when all are known)."""
+    found = [_problem(state.get("status"), RUN_STATUSES, "run")]
+    found += [_problem(t.get("status"), TASK_STATUSES, f"task {n}") for n, t in (state.get("tasks") or {}).items()]
+    found += [_problem(x.get("status"), STEP_STATUSES, "step") for x in state.get("steps") or []]
+    return [p for p in found if p]
 
 
 def _validate(state: dict) -> None:
-    _check(state["status"], RUN_STATUSES, "run")
-    for n, t in state.get("tasks", {}).items():
-        _check(t["status"], TASK_STATUSES, f"task {n}")
-    for line in state.get("steps", []):
-        _check(line["status"], STEP_STATUSES, "step")
+    problems = status_problems(state)
+    if problems:
+        raise ValueError(problems[0])
 
 
 def update(run_dir: Path, fn: Callable[[dict], None]) -> dict:

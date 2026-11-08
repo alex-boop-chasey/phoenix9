@@ -119,6 +119,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/defaults` | `ops.settings.save_defaults` (added in step 03) | `{overrides}` | `{project}` | 400, 404 |
 | POST | `/api/projects/<name>/runs` | `ops.runs.start_from_notes` (added in step 03) | `{spec \| brief, overrides}` | `{run_id, project, status}` | 400, 404 |
 | POST | `/api/runs/<project>/<run_id>/stop` | `ops.runs.stop` | `{"confirm": true}` | `{run_id, status, containers_removed, notes}`; `status` is `stopped` (the runner's clean stop ran at once) or `"stop requested"` (the runner is walking the run and stops it at its next boundary); refused with a plain message when the run already ended or the caller may not stop runs in the project (same rule as answering an escalation) | 400, 404 |
+| GET | `/api/repair/<run_id>/report` | `ops.repair.report` (`phoenix repair report <run>`) | | `{run_id, project, markdown, findings: [{code, text, task}]}`; writes `repairs/report.md` afresh from the real run state | 400, 404 |
+| POST | `/api/repair/<run_id>/apply` | `ops.repair.apply` (`phoenix repair apply <note> --yes`) | `{"note": "<note text>", "dry_run"?: bool, "approve_unlock"?: bool}` | The note is saved as `repairs/notes/<n>-<slug>.md` and applied with who `dashboard`: `{ok, dry_run, run_id, project, snapshot, steps, refused, check_before, check_after, forced, rolled_back}`. Same permission rule as stop (`gates.may_answer` for an escalation) | 400 (note cannot be read: the message names the line; note is for another run; bad flags), 404, 409 (plain refusal, e.g. "The runner is walking this run. Stop it first or wait for a question.") |
 | POST | `/api/runs/<project>/<run_id>/discard` | `ops.runs.discard` (`phoenix run discard <run> --yes [--force]`) | `{"confirm": true, "force"?: bool}` | `{run_id, status, discarded: true, notes}`; deletes the worktree, local branch and pushed GitHub branch of a failed or stopped run. Without `force: true` it is refused when that would lose work: an open merge request (merge-request.txt whose `gh pr view` state is not MERGED/CLOSED; no answer counts as open) or commits on the run's branch (local, else pushed) that main doesn't have | 400 (not failed or stopped, no confirm, or `force` not a bool), 404, 409 (already discarded; or would lose work: `{ok: false, message, needs_force: true, would_lose: [plain lines]}`) |
 | GET | `/api/gates/<gate_id>/review` | `ops.gates.review` | | merge gates only: `{gate, run, project, title, why, answered, summary, tasks{passed,total,retried[]}, full_suite{status,note}, safety{flag,files}, files[{path,added,removed,binary,safety,diff}], added, removed, merge_request}`; diff from the run's own branch, else its patch files, else `gh pr diff`; scrubbed. CLI `phoenix gate review <id>` | 400, 404 |
 | POST | `/api/gates/<gate_id>/answer` | `ops.gates.answer` | `{action, note}` | `{gate, action, note, who, at}` | 400, 404, 409 |
@@ -222,6 +224,20 @@ made of text blocks is a `user` item (an image shows as `[image]`).
   `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
   line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
   ping timing as `/api/events`.
+
+## Repair card and report
+
+`GET /api/cards?type=repair&query={"project":"p","run":"r","note"?:"<file>"}` builds the `repair` card (architecture
+section 8.4): `data` is `{run_id, project, status, status_line, findings: [{code, text, task}], note}`, where `note`
+is `null` or `{name, text, dry_run}` (`dry_run` is the dry-run outcome shaped like the apply answer below, or
+`{error}`); `actions` is `[]`; `watch` is `{projects, runs, types: ["run", "repair"]}`. The card needs `project`
+and `run` (else 400); no such run is a 404.
+
+`GET /api/repair/<run_id>/report` and `POST /api/repair/<run_id>/apply` take the run id alone (the project is
+found from it). Apply with `dry_run: true` changes nothing and adds `would_roll_back`. A successful apply writes a
+`repair.applied` event `{who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}`.
+`approve_unlock: true` is needed for notes with a `rewrite the checks` step. Undo and resume are CLI only
+(`phoenix repair undo|resume <run> --yes`).
 
 ## Overrides shape (wizard and defaults)
 

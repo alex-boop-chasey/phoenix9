@@ -29,7 +29,8 @@ def _next_number(gdir: Path) -> int:
 
 
 def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = None,
-              step: str | None = None, links=(), actions: list | None = None, flags=()) -> dict:
+              step: str | None = None, links=(), actions: list | None = None, flags=(),
+              head: str | None = None, task_statuses: dict | None = None) -> dict:
     """Write a new gate file, set the run (and task) to waiting, and emit gate.opened."""
     if kind not in KINDS:
         raise ValueError(f"unknown gate kind {kind!r}; use one of {', '.join(KINDS)}")
@@ -45,6 +46,10 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
             "kind": kind, "title": title, "why": why, "task": task, "step": step,
             "links": [dict(x) for x in links], "actions": list(actions), "flags": list(flags),
             "created": state.now(), "answered": False}
+    if head is not None:                      # what the question was about (Merge checks it again on approve)
+        gate["head"] = head
+    if task_statuses is not None:
+        gate["task_statuses"] = dict(task_statuses)
     atomic.write_json(gdir / f"{gate['id']}.json", gate)
 
     ended = []
@@ -73,13 +78,19 @@ def _answer_path(path: Path) -> Path:
     return path.with_name(path.name[:-5] + ".answer.json")
 
 
+def held_ids(st: dict) -> set:
+    """Every gate id the run records it waits on: current.gate, a task's gate or a waiting step line."""
+    ids = {(st.get("current") or {}).get("gate")}
+    ids |= {t.get("gate") for t in (st.get("tasks") or {}).values() if t.get("status") not in TASK_ENDED}
+    ids |= {x.get("gate") for x in st.get("steps") or [] if x.get("status") == "waiting"}
+    ids.discard(None)
+    ids.discard("")
+    return ids
+
+
 def held(st: dict, gate_id: str) -> bool:
-    """True when the run records that it waits on this gate: current.gate, a task's gate or a waiting step line."""
-    if (st.get("current") or {}).get("gate") == gate_id:
-        return True
-    if any(t.get("gate") == gate_id and t.get("status") not in TASK_ENDED for t in (st.get("tasks") or {}).values()):
-        return True
-    return any(x.get("gate") == gate_id and x.get("status") == "waiting" for x in st.get("steps") or [])
+    """True when the run records that it waits on this gate (see held_ids)."""
+    return gate_id in held_ids(st)
 
 
 def _adoptable(st: dict) -> bool:
@@ -150,6 +161,11 @@ def list_gates(project: str | None = None, open_only: bool = True) -> list[dict]
     return sorted(found, key=lambda g: (g["created"], g["id"]))
 
 
+def orphans(run_dir) -> list[dict]:
+    """The run's questions that have no answer yet and are not open: nothing waits on them."""
+    return [g for g in run_gates(run_dir) if g["state"] == "closed" and "answer" not in g]
+
+
 def run_gates(run_dir) -> list[dict]:
     """Every gate of one run with its state (open | answered | closed), oldest first."""
     return sorted(_run_gates(Path(run_dir)), key=lambda g: (g["created"], g["id"]))
@@ -200,8 +216,8 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> di
     return result
 
 
-def close_questions(run_dir, reason: str, who: str = "phoenix") -> list[str]:
-    """Close every unanswered question of a run that ended: answer file {action: closed, reason, who, at}.
+def close_questions(run_dir, reason: str, who: str = "phoenix", only: str | None = None) -> list[str]:
+    """Close every unanswered question of a run that ended (or just `only` this one): answer file {action: closed, reason, who, at}.
 
     Called by every way a run ends (and by the runner's start-up catch-up); returns the ids it closed."""
     run_dir = Path(run_dir)
@@ -210,7 +226,7 @@ def close_questions(run_dir, reason: str, who: str = "phoenix") -> list[str]:
         if path.name.endswith(".answer.json") or _answer_path(path).exists():
             continue
         gate = atomic.read_json(path)
-        if not gate:
+        if not gate or (only is not None and gate["id"] != only):
             continue
         atomic.write_json(_answer_path(path), {"action": "closed", "reason": reason, "note": "", "who": who,
                                                "at": state.now()})
@@ -227,10 +243,50 @@ def poll(run_dir, gate_id: str) -> dict | None:
     return atomic.read_json(_gates_dir(run_dir) / f"{gate_id}.answer.json")
 
 
+# Merge flags that make a merge question Alex's alone: no chat may answer it, whatever the project allows.
+FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
+FLAG_REPAIRED = "run was repaired"
+FLAG_NO_FULL_SUITE = "no full suite result"
+ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE)
+FINISHED_TASK = ("passed", "skipped")
+
+
+def run_repaired(run_dir) -> bool:
+    """True when a repair touched this run: a repair snapshot exists (taken before any step of a note runs),
+    or a repair.applied event that was not rolled back."""
+    run_dir = Path(run_dir)
+    base = run_dir / "repairs"
+    if base.is_dir() and any(p.is_dir() and p.name.isdigit() for p in base.iterdir()):
+        return True
+    for e in events.read(run_dir / "events.jsonl"):
+        if e.get("type") == "repair.applied" and not (e.get("data") or {}).get("rolled_back"):
+            return True
+    return False
+
+
+def _merge_changed_since(gate: dict) -> bool:
+    """Live check for a chat answering a merge question: True (refuse) when the run cannot be read, was repaired,
+    or has a task that is not passed or skipped; the flags written when the question opened may be stale."""
+    run, project = gate.get("run"), gate.get("project")
+    if not run or not project:
+        return True
+    run_dir = paths.runs(project) / run
+    st = atomic.read_json(run_dir / "state.json")
+    if not isinstance(st, dict):
+        return True
+    if any(t.get("status") not in FINISHED_TASK for t in (st.get("tasks") or {}).values()):
+        return True
+    return run_repaired(run_dir)
+
+
 def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
     """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
 
-    The delegate session (chat:delegate) may always answer escalations: that is what it is started for."""
+    The delegate session (chat:delegate) may always answer escalations: that is what it is started for.
+    A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
+    if who.startswith("chat:") and gate.get("kind") == "merge" and (
+            any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
+        return False
     if who == "chat:delegate" and gate["kind"] == "escalation":
         return True
     if not who.startswith("chat:"):

@@ -499,6 +499,37 @@ def _say(role: str, content, session: str, at: str, **extra) -> str:
     return _agent_line(role, session, at, {"role": role, "content": content}, **extra)
 
 
+def _fence(kind: str, obj: dict) -> str:
+    """One reply block as a fenced code block."""
+    return "```phoenix-%s\n%s\n```" % (kind, json.dumps(obj))
+
+
+DEMO_BLOCK_OBJECTS = {
+    "projects": {"v": 1, "type": "projects", "query": {"attention": True}, "title": "Projects that need you"},
+    "gates": {"v": 1, "type": "gates", "query": {"project": "demo-site"}},
+    "choice": {"v": 1, "id": "next-step", "question": "What should I look at next?", "mode": "single",
+               "options": [{"key": "form", "label": "The contact form", "recommended": True},
+                           {"key": "footer", "label": "The footer", "detail": "Links and the year"}],
+               "other": True},
+    "confirm": {"v": 1, "id": "stop-pricing", "action": "Stop the pricing page build",
+                "command": "phoenix run stop 20261031-100000-pricing-page --yes", "danger": True},
+    "nav": {"v": 1, "links": [{"to": "p/demo-site/overview", "label": "Open demo-site"}]},
+}
+DEMO_BLOCKS_TEXT = "\n\n".join([
+    "Here is where things stand.",
+    _fence("card", DEMO_BLOCK_OBJECTS["projects"]),
+    "These projects need you.",
+    _fence("card", DEMO_BLOCK_OBJECTS["gates"]),
+    "Two questions are waiting in demo-site.",
+    _fence("choice", DEMO_BLOCK_OBJECTS["choice"]),
+    "What should I look at next: the contact form or the footer?",
+    _fence("confirm", DEMO_BLOCK_OBJECTS["confirm"]),
+    "Shall I stop the pricing page build? Answer yes or no.",
+    _fence("nav", DEMO_BLOCK_OBJECTS["nav"]),
+    "Open demo-site from the Projects page.",
+])
+
+
 def agent_transcript_lines() -> list:
     """The demo conversation: every kind of panel item (user from the panel, the app and a peer, agent text,
     thinking, actions that worked and failed, a queued message, a notice and a session divider)."""
@@ -526,6 +557,7 @@ def agent_transcript_lines() -> list:
         _agent_line("system", s, _t(3), subtype="api_error", content="The API returned an error."),
         _say("assistant", [{"type": "text", "text": "Back again. The footer looks fine."}], s, _t(3, 10)),
         _say("user", "Thanks, carry on.", AGENT_EARLIER, _t(5)),
+        _say("assistant", [{"type": "text", "text": DEMO_BLOCKS_TEXT}], AGENT_EARLIER, _t(6)),
     ]
 
 

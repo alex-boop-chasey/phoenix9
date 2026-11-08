@@ -156,6 +156,27 @@ def test_seeded_agent_session_has_every_item_kind(seeded):
     assert all(set(i) == {"type", "duration_s", "at", "line"} for i in items if i["type"] == "thinking")
 
 
+def test_seeded_agent_reply_has_every_block_kind(seeded):
+    """The demo transcript ends with one agent reply holding every block kind, checked, with fallback lines,
+    in the live part of the chat (no session divider after it)."""
+    import re
+    from phoenix9 import transcript
+    from phoenix9.ops import blocks
+    items, unknown = transcript.parse(seed_demo.agent_transcript_lines())
+    assert unknown == 0
+    at = [n for n, i in enumerate(items) if i["type"] == "agent" and i["markdown"] == seed_demo.DEMO_BLOCKS_TEXT]
+    assert len(at) == 1
+    assert not [i for i in items[at[0]:] if i["type"] == "session"]
+    text = seed_demo.DEMO_BLOCKS_TEXT
+    found = re.findall(r"```phoenix-(card|choice|confirm|nav)\n(.*?)\n```", text, re.S)
+    assert [k for k, _ in found] == ["card", "card", "choice", "confirm", "nav"]
+    for kind, body in found:
+        assert blocks.check({"kind": kind, "json": body})["ok"], body
+    assert {json.loads(b).get("type") for k, b in found if k == "card"} == {"projects", "gates"}
+    parts = re.split(r"```phoenix-\w+\n.*?\n```", text, flags=re.S)
+    assert all(p.strip() for p in parts[1:])
+
+
 def _frames(resp, wanted: list, limit: int = 8) -> str:
     """Read the stream until every wanted text has been seen (or the time is up)."""
     import time

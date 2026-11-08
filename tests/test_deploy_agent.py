@@ -57,3 +57,17 @@ def test_helper_models_and_tools():
     assert nav["model"] == "claude-haiku-5-5" and nav["tools"] == "Read, Bash"
     assert front_matter(AGENT / "agents" / "editor.md")["model"] == "claude-sonnet-5-5"
     assert front_matter(AGENT / "agents" / "checker.md")["model"] == "claude-haiku-5-5"
+
+
+def test_rules_teach_reply_blocks():
+    """The rulebook shows the four block kinds, the make commands, the panel answers and the page rules."""
+    text = (AGENT / "agent-rules.md").read_text()
+    for kind in ["phoenix-card", "phoenix-choice", "phoenix-confirm", "phoenix-nav"]:
+        assert f"```{kind}" in text
+    for needle in ["follow every block with one plain fallback line",
+                   "phoenix card", "phoenix choice", "phoenix confirm", "phoenix nav",
+                   "[Phoenix panel · choice <id>]", "[Phoenix panel · confirm <id>]",
+                   "numbers, labels or free text", "only after the yes",
+                   "phoenix ui go", "a nav block otherwise", "Projects query, never your own"]:
+        assert needle in text, needle
+    assert "phoenix run pause" not in text

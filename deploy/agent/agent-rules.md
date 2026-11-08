@@ -40,3 +40,38 @@ and his projects. This file is copied into place as /srv/projects/home/CLAUDE.md
   `phoenix chat sleep <project>`.
 - Ask Alex first before `phoenix chat off <project> --yes`.
 - Read a project's chat links from `/srv/projects/<project>/.phoenix/chat.md`.
+
+## Reply blocks
+
+Answer with a block instead of a wall of text. A block is a fenced code block whose language tag is
+`phoenix-card`, `phoenix-choice`, `phoenix-confirm` or `phoenix-nav`, holding ONE JSON object with
+`"v": 1`. Never put an `actions` key in a block; the buttons come from Phoenix.
+
+```phoenix-card
+{"v": 1, "type": "projects", "query": {"attention": true}, "title": "Projects that need you"}
+```
+
+```phoenix-choice
+{"v": 1, "id": "next-step", "question": "What next?", "mode": "single",
+ "options": [{"key": "form", "label": "The contact form", "recommended": true}, {"key": "footer", "label": "The footer"}],
+ "other": true}
+```
+
+```phoenix-confirm
+{"v": 1, "id": "stop-build", "action": "Stop the pricing page build",
+ "command": "phoenix run stop 20261031-100000-pricing-page --yes", "danger": true}
+```
+
+```phoenix-nav
+{"v": 1, "links": [{"to": "p/demo-site/overview", "label": "Open demo-site"}]}
+```
+
+- Always follow every block with one plain fallback line. The Claude app shows that line; the panel hides it
+  when the block renders.
+- Use `phoenix card`, `phoenix choice`, `phoenix confirm`, `phoenix nav` to make blocks. They check the
+  block and print it ready to paste.
+- A line starting `[Phoenix panel · choice <id>]` or `[Phoenix panel · confirm <id>]` is Alex's answer to
+  that block. Accept numbers, labels or free text when he answers in the Claude app.
+- Run a confirmed command only after the yes. On a no, do nothing.
+- To show Alex a page use `phoenix ui go` when he is in the panel, a nav block otherwise.
+- For project searches use the Projects query, never your own (a `projects` card).

@@ -47,7 +47,7 @@ def make_run(tmp_path, project: str = PROJECT, run: str = RUN, status: str = "fa
     _put(run_dir, "spec.json", {"title": "Demo"})
     _put(run_dir, "spec.md", "# Demo\n")
     _put(run_dir, "overrides.json", {})
-    _put(run_dir, "gates/q-1.json", {"id": "q-1", "state": "closed"})
+    _put(run_dir, "gates/q-1.json", {"id": "q-1", "state": "answered", "created": "2026-11-08T07:00:00+00:00", "answer": {"action": "ok"}})
     for k in (1, 2):
         _put(run_dir, f"tasks/1/attempt-{k}/result.json", {"passed": k == 2})
         _put(run_dir, f"tasks/1/attempt-{k}/log.txt", "long log\n")

@@ -259,11 +259,11 @@ def _running_elsewhere(run_dir: Path) -> list[str]:
     return others
 
 
-def check_server(run_dir: Path, st: dict) -> list[Finding]:
-    """At most one run is running on the whole server."""
+def check_server(run_dir: Path, st: dict, as_run: Path | None = None) -> list[Finding]:
+    """At most one run is running on the whole server (as_run: the real folder when run_dir is a scratch copy)."""
     if st.get("status") != "running":
         return []
-    others = _running_elsewhere(run_dir)
+    others = _running_elsewhere(Path(as_run) if as_run else run_dir)
     if not others:
         return []
     return [Finding("many-runs-running", "Another run is running on the server too (" + ", ".join(others)
@@ -274,13 +274,15 @@ CHECKS = (check_statuses, check_agreement, check_tries, check_one_running, check
           check_worktree, check_settings, check_spec, check_server)
 
 
-def run_checks(run_dir) -> list[Finding]:
-    """Run every state invariant on one run folder and return all findings (empty = healthy)."""
+def run_checks(run_dir, as_run=None) -> list[Finding]:
+    """Run every state invariant on one run folder and return all findings (empty = healthy).
+
+    as_run: the real run folder when run_dir is a scratch copy of it, so the copy is not "another run"."""
     run_dir = Path(run_dir)
     st = state.load(run_dir) or {}
     found = check_statuses(run_dir, st)
     if found:
         return found                    # the other checks need known statuses
     for check in CHECKS[1:]:
-        found += check(Path(run_dir), st)
+        found += check(run_dir, st, as_run) if check is check_server else check(run_dir, st)
     return found

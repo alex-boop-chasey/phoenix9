@@ -1,7 +1,7 @@
-"""Ops for the repair kit: check a run, undo a repair of a run."""
+"""Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
 from phoenix9 import runs as core
 from phoenix9.ops import common
-from phoenix9.repair import check as check_mod, report as report_mod, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, report as report_mod, snapshot
 
 
 def _run_folder(run_id: str, project: str | None = None):
@@ -35,3 +35,11 @@ def report(run_id: str, project: str | None = None) -> dict:
     folder = _run_folder(run_id, project)
     text = report_mod.write(folder)
     return {"run_id": run_id, "project": folder.parent.name, "path": str(report_mod.report_path(folder)), "text": text}
+
+
+def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unlock: bool = False) -> dict:
+    """Apply a repair note to its run (or only show what it would do): the outcome, with the steps and both checks."""
+    try:
+        return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+    except snapshot.RepairRefused as err:
+        raise common.OpsError(str(err)) from None

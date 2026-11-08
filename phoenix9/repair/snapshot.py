@@ -275,6 +275,21 @@ def _record(run_dir: Path, who: str, n: int, m: int) -> None:
                           f"repair on run {run}: undid back to snapshot {n} (new snapshot {m})")
 
 
+def _restore(run_dir: Path, n: int, aside: int, last: int) -> None:
+    """Put the run back as snapshot n had it; new attempts go aside into repairs/<aside>/removed/."""
+    before = _snapshot_before(run_dir, n)
+    existed = _attempts_at(before, _kept_files(before))
+    _move_aside_new_attempts(run_dir, aside, existed)
+    _restore_removed(run_dir, n, last, existed)
+    _restore_files(run_dir, before)
+    _restore_worktree(run_dir, before)
+
+
+def roll_back(run_dir, n: int) -> None:
+    """Put the run back as snapshot n had it (the caller holds the run lock); used when a repair fails."""
+    _restore(Path(run_dir), n, n, n)
+
+
 def undo(run_dir, to: int | None = None, who: str = "cli") -> dict:
     """Restore snapshot `to` (default the newest) exactly, after taking an 'undo to <n>' snapshot of its own."""
     run_dir = Path(run_dir)
@@ -290,14 +305,9 @@ def undo(run_dir, to: int | None = None, who: str = "cli") -> dict:
         n = nums[-1] if to is None and nums else to
         if n is None:
             raise RepairRefused("There is nothing to undo: this run has no repair snapshots.")
-        before = _snapshot_before(run_dir, n)
-        kept = _kept_files(before)
-        existed = _attempts_at(before, kept)
+        _snapshot_before(run_dir, n)
         m = take(run_dir, f"undo to {n}")
-        _move_aside_new_attempts(run_dir, m, existed)
-        _restore_removed(run_dir, n, m - 1, existed)
-        _restore_files(run_dir, before)
-        _restore_worktree(run_dir, before)
+        _restore(run_dir, n, m, m - 1)
     finally:
         lock.__exit__(None, None, None)
     _record(run_dir, who, n, m)

@@ -87,14 +87,18 @@ class Result:
 
 
 # ------------------------------------------------------------- command line
-def build_command(ai: dict, prompt_file, cwd, system_prompt_file=None, mcp_config=None) -> list[str]:
+def build_command(ai: dict, prompt_file, cwd, system_prompt_file=None, mcp_config=None,
+                  resume: str | None = None) -> list[str]:
     """Return the command that runs one Claude Code session, from a step's ai block.
 
     The prompt is fed in from `prompt_file` and the session runs in `cwd` (paths as seen where the
     command runs, i.e. inside the container). `mcp_config` is the in-container path of the MCP file
-    (default /phoenix/mcp.json) and is only used when the ai block names MCP servers. Never `--bare`.
+    (default /phoenix/mcp.json) and is only used when the ai block names MCP servers. `resume` is a
+    Claude session id to continue (`--resume <id>`, used when a paused step starts again). Never `--bare`.
     """
     claude = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
+    if resume:
+        claude += ["--resume", str(resume)]
     if ai.get("model"):
         claude += ["--model", str(ai["model"])]
     claude += ["--max-turns", str(int(ai.get("max_turns") or 50))]
@@ -234,6 +238,26 @@ def _read_result(out_file: Path) -> dict:
             and len(sessions) == 1 and obj.get("result_index") == len(results) - 1):
         return obj
     return {}
+
+
+def session_id_in_log(out_file) -> str:
+    """The session id Claude printed when the session started (first line that has one), else ''.
+
+    Lets a session cut short (Pause now) still be continued later: it never wrote a result line."""
+    try:
+        with open(out_file, "rb") as f:
+            for line in f:
+                if b'"session_id"' not in line or len(line) > MAX_LINE:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, UnicodeError):
+                    continue
+                if isinstance(obj, dict) and obj.get("session_id"):
+                    return str(obj["session_id"])
+    except OSError:
+        pass
+    return ""
 
 
 def _is_rate_limited(raw: dict, text: str) -> bool:

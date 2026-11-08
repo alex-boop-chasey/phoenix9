@@ -7,9 +7,9 @@ from typing import Callable
 
 from . import atomic
 
-RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "done", "failed", "stopped")
+RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "paused", "done", "failed", "stopped")
 TASK_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
-STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
+STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting", "paused")
 
 
 # ported from reference/v8/phoenix/state.py:79 (Lock)

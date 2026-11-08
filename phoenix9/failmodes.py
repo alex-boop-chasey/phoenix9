@@ -36,7 +36,8 @@ def attempt_dir(run_dir, task_no: int, attempt: int) -> Path:
 
 def attempt_result(run_dir, task_no: int, attempt: int) -> dict | None:
     """How attempt k ended ({attempt, status, reasons}), or None while it is still going."""
-    return atomic.read_json(attempt_dir(run_dir, task_no, attempt) / "result.json")
+    found = atomic.read_json(attempt_dir(run_dir, task_no, attempt) / "result.json")
+    return found if isinstance(found, dict) and "status" in found else None   # a session record is not an end
 
 
 def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons) -> None:

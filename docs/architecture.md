@@ -540,10 +540,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - Run id: `YYYYMMDD-HHMMSS-<spec-slug>` (UTC). Branch: `phoenix/<run-id>`.
 - Folder `HOME/runs/<project>/<run-id>/`:
   `spec.md` (copy, read-only), `spec.json`, `settings.json` (frozen effective settings), `plan.json`
-  (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`,
-  `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
+  (resolver output), `state.json`, `events.jsonl`, `tasks/<n>/attempt-<k>/` (`prompt.md`, `claude/`
+  (mounted as the container user's `~/.claude/projects`, so a session can be continued), `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
   `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
-  `{who, at}` (only until the runner acts on it), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
+  `{who, at}` (only until the runner acts on it), `pause-request.json` `{who, at}` (same, for Pause now), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
   (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
 - **Task file** (`phoenix9/taskfile.py`): `tasks/<n>/task.md` is the one readable file of a task. Above the fixed
   line `## Fix notes` Phoenix writes a view from the real state (goal, status, tries, each failed attempt's
@@ -554,10 +554,20 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   for an ended run; event `run.note` carries no text). That section is the only part read back: all of it goes
   into the next attempt's prompt as "Notes from Alex / the Phoenix agent" (`{{fix_notes}}` in the builder and
   check-writer prompts), fenced with `aistep.fence` as information, never instructions.
+- **Pause now / Resume** (`phoenix9/pause.py`, `ops.runs.pause` / `resume`): run and step statuses include `paused`.
+  `phoenix run pause <run> --now --yes` writes `pause-request.json` and `docker stop`s (never removes) the running
+  AI step's container; the runner, which holds the run, sees the stopped session, marks the step line `paused`
+  (keeping `session_id`, read from the session log if the session never finished) and sets the run `paused`, leaving
+  the worktree untouched. During a non-AI step the request waits for that step to end. A paused run frees the queue
+  like `stopped` but keeps its worktree. `phoenix run resume <run>` sets `running` (or `queued` when another run is
+  going); the same step line runs again in a fresh container with `--resume <session_id>` and the prompt's first line
+  "You were paused mid-step. Check the files you were changing, then carry on."; it is not a new try. A missing session
+  file or a failed `--resume` resets the worktree to the attempt's `attempt_base`, starts the step clean, and the step
+  line's `resume_note` says so.
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
   gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
-  finished, note, gate, produces, reasons, answers} ], usage: {cost_usd, sessions}, image: {tag, id}}`.
+  finished, note, gate, produces, reasons, answers, session_id, resume_note} ], usage: {cost_usd, sessions}, image: {tag, id}}`.
   `image` = the profile's step image tag and its exact id (`docker image inspect --format {{.Id}}` through
   the docker adapter's `image_id`; `""` when the image was missing), written once at the run's first drive
   (`runner._record_image`), so a later rebuild never changes what the run says it used. The Build tab shows

@@ -272,6 +272,7 @@ class FakeDocker:
         self.outputs: list[str] = []
         self.orphans: list[str] = []
         self.removed: list[str] = []
+        self.stopped: list[str] = []
         self.volumes: list[str] = []
         self.images: dict[str, dict] = {}        # tag -> labels (an image that "exists")
         self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
@@ -332,6 +333,11 @@ class FakeDocker:
         """Record a container removal."""
         self.calls.append(("rm", (name,), {}))
         self.removed.append(name)
+
+    def stop(self, name):
+        """Record a container stop (Pause now)."""
+        self.calls.append(("stop", (name,), {}))
+        self.stopped.append(name)
 
     def ps_ids(self, label):
         """Return the scripted leftover container ids."""

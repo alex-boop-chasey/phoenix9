@@ -262,8 +262,11 @@ class Claude:
 
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
-               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None):
-        """Run one Claude session in a step container (trying fallback models) and return its Result."""
+               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None,
+               resume_session=None):
+        """Run one Claude session in a step container (trying fallback models) and return its Result.
+
+        `resume_session` continues that Claude session (`--resume <id>`) instead of starting a new one."""
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
         mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
@@ -274,7 +277,7 @@ class Claude:
                 Path(prompt_file).write_text(f"{text.rstrip()}\n\n{note}\n", encoding="utf-8")
 
         def one(model: str):
-            cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace")
+            cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace", resume=resume_session)
             rc, log = dk.run_claude_container(
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,

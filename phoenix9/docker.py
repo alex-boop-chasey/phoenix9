@@ -89,6 +89,10 @@ class DockerRunner:
         """Force-remove a container by name or id (no error if it is not there)."""
         subprocess.run([DOCKER, "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
+    def stop(self, name: str) -> None:
+        """Stop a running container by name or id and leave everything else alone (Pause now; no error if it is gone)."""
+        subprocess.run([DOCKER, "stop", "-t", "20", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     def ps_ids(self, label: str) -> list[str]:
         """Return the ids of all containers (running or not) carrying a label."""
         p = subprocess.run([DOCKER, "ps", "-aq", "--filter", f"label={label}"], capture_output=True, text=True)
@@ -338,9 +342,12 @@ def claude_env_file() -> Path:
     return paths.secrets() / "claude.env"
 
 
-def transcript_dir(project: str, run_id: str, task: int | str, attempt: int, role: str) -> Path:
-    """Return runs/<project>/<run>/prompts/<task>-<attempt>-<role>/, where the transcript is kept."""
-    return paths.runs(project) / run_id / "prompts" / f"{task}-{attempt}-{role}"
+def transcript_dir(project: str, run_id: str, task: int | str, attempt: int, role: str = "") -> Path:
+    """Return runs/<project>/<run>/tasks/<task>/attempt-<k>/claude/, where the session files are kept.
+
+    It lives in the attempt folder (not per role) so a paused step can continue its Claude session
+    in a fresh container (Pause now / Resume); session ids never clash, so roles can share it."""
+    return paths.runs(project) / run_id / "tasks" / str(task) / f"attempt-{attempt}" / "claude"
 
 
 def log_path(project: str, run_id: str, task: int | str, attempt: int, role: str, ext: str) -> Path:

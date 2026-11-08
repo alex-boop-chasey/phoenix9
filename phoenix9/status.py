@@ -11,7 +11,7 @@ import time
 
 from phoenix9 import gates, heartbeat, runs
 
-ACTIVE = ("queued", "running", "waiting", "paused-limit")
+ACTIVE = ("queued", "running", "waiting", "paused-limit", "paused")
 ENDED = gates.ENDED
 
 
@@ -55,7 +55,7 @@ def _task_number(r: dict) -> int | None:
 
 def _pick(active: list, asking: set) -> dict | None:
     """The current build: the run that needs Alex, else running, paused, carrying on, queued (newest first in each)."""
-    rank = {"running": 1, "paused-limit": 2, "waiting": 3, "queued": 4}
+    rank = {"running": 1, "paused-limit": 2, "paused": 2, "waiting": 3, "queued": 4}
     if not active:
         return None
     return min(active, key=lambda r: (0 if r["run_id"] in asking else rank.get(r["status"], 9),
@@ -73,6 +73,7 @@ def _why(status: str, asking: bool, carrying: bool) -> str:
     if carrying:
         return "Your answer is in; Phoenix is carrying on."
     return {"running": "It is running.", "paused-limit": "It is paused until Claude's usage limit resets.",
+            "paused": "It is paused. Resume it when you are ready.",
             "queued": "It is queued and starts when the server is free.",
             "waiting": "It is waiting."}.get(status, "")
 
@@ -120,7 +121,7 @@ def _run_text(run: dict | None) -> str:
         return "Idle"
     if run.get("worker") == NOT_RESPONDING:
         return "Worker not responding"
-    return {"queued": "Queued", "waiting": "Waiting for you", "paused-limit": "Paused (usage limit)",
+    return {"queued": "Queued", "waiting": "Waiting for you", "paused-limit": "Paused (usage limit)", "paused": "Paused",
             "running": f"Running task {run['task']} of {run['tasks']}" if run["task"] is not None else "Running"
             }.get(run["status"], "Idle")
 

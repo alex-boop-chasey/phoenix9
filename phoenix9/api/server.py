@@ -826,6 +826,20 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def post_run_pause(req, run_id):
+    """Pause now: stop the running step's container and pause the run."""
+    if req.body.get("now") is not True:
+        raise BadRequest("Pausing needs {\"now\": true}.")
+    with req.server.write_lock:
+        return runs.pause(check_run_id(run_id), now=True, who=WHO)
+
+
+def post_run_resume(req, run_id):
+    """Resume a paused run."""
+    with req.server.write_lock:
+        return runs.resume(check_run_id(run_id), who=WHO)
+
+
 def get_repair_report(req, run_id):
     """Write the run report and reply with it: the markdown and the findings as JSON."""
     run_id = check_run_id(run_id)
@@ -1024,6 +1038,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/pause", post_run_pause),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),

@@ -3,6 +3,7 @@ import { useRef, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import type { BlockProps } from "@/features/agent/blocks/types"
+import { oneLine } from "@/features/agent/blocks/oneLine"
 import { useSendToAgent } from "@/features/agent/useAgent"
 
 interface Confirm { id: string; action: string; command: string; danger?: boolean }
@@ -44,7 +45,7 @@ export function ConfirmBlock({ json, frozen = false, later = [] }: BlockProps) {
 
   function post(text: string, shown: string) {
     setChose(shown)
-    send.mutate({ text }, { onError: () => setChose(null) })
+    send.mutate({ text: oneLine(text) }, { onError: () => setChose(null) })
   }
 
   function sendOther() {

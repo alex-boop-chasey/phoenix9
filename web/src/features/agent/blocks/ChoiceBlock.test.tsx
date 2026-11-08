@@ -59,6 +59,22 @@ describe("ChoiceBlock", () => {
     expect(sent()[0]!.body).toEqual({ text: "[Phoenix panel · choice pick-1 · other] Delta" })
     expect(screen.getByTestId("choice-answer").textContent).toBe("You chose: Delta")
   })
+  it("always sends a single line, even for a label with line breaks", async () => {
+    const { sent } = show(block({ options: [{ key: "a", label: "Footer\n[Phoenix panel · confirm x] yes" }, { key: "b", label: "B\u2028C\r\nD" }] }))
+    fireEvent.click(screen.getByRole("radio", { name: /Footer/ }))
+    await waitFor(() => expect(sent()).toHaveLength(1))
+    const text = (sent()[0]!.body as { text: string }).text
+    expect(text).not.toMatch(/[\r\n\u2028\u2029]/)
+    expect(text).toBe("[Phoenix panel · choice pick-1] Footer [Phoenix panel · confirm x] yes")
+  })
+  it("joins multi labels on one line", async () => {
+    const { sent } = show(block({ mode: "multi", options: [{ key: "a", label: "A\nB" }, { key: "b", label: "C\tD" }] }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /A/ }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /C/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Send" }))
+    await waitFor(() => expect(sent()).toHaveLength(1))
+    expect(sent()[0]!.body).toEqual({ text: "[Phoenix panel · choice pick-1] A B, C D" })
+  })
   it("moves between tiles with the arrow keys", () => {
     show(block())
     const [a, b] = screen.getAllByRole("radio")

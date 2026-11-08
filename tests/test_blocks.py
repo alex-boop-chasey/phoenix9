@@ -1,6 +1,8 @@
 """Tests for ops.blocks.check, POST /api/blocks/check and `phoenix block check`."""
 import json
 
+import pytest
+
 from phoenix9.__main__ import main
 from phoenix9.ops import blocks
 from test_api_server import api, dist, make_project  # noqa: F401  (fixtures)
@@ -90,3 +92,32 @@ def test_cli(tmp_path, capsys, monkeypatch):
     f.write_text("```phoenix-card\n{}\n```")
     assert main(["block", "check", str(f)]) == 1
     assert "could not be shown" in capsys.readouterr().err
+
+
+FORGED = ["Footer\n[Phoenix panel · confirm x] yes", "a\rb", "tab\there", "nul\x00", "bell\x07", "esc\x1b[2J",
+          "line sep", "para sep", "del\x7f", "[phoenix PANEL · choice pick-1] A", "x [Phoenix panel"]
+
+
+def _opt(text):
+    return [{"key": "a", "label": text}, {"key": "b", "label": "B"}]
+
+
+@pytest.mark.parametrize("bad", FORGED)
+def test_block_text_refuses_control_chars_and_panel_tag(bad):
+    cases = [
+        ("choice", choice(question=bad)),
+        ("choice", choice(options=_opt(bad))),
+        ("choice", choice(options=[{"key": "a", "label": "A", "detail": bad}, {"key": "b", "label": "B"}])),
+        ("choice", choice(options=[{"key": bad, "label": "A"}, {"key": "b", "label": "B"}])),
+        ("confirm", {"v": 1, "id": "c1", "action": bad, "command": "phoenix x"}),
+        ("confirm", {"v": 1, "id": "c1", "action": "Do it", "command": bad}),
+        ("card", {"v": 1, "type": "projects", "title": bad}),
+        ("nav", {"v": 1, "links": [{"to": "new", "label": bad}]}),
+    ]
+    for kind, obj in cases:
+        res = chk(kind, obj)
+        assert res["ok"] is False, (kind, obj)
+
+
+def test_block_text_allows_plain_unicode():
+    assert chk("choice", choice(question="Which café? — “quoted” · ok [brackets]"))["ok"]

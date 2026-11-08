@@ -1,6 +1,7 @@
 """Ops for reply blocks: check one agent block (card, choice, confirm, nav) and resolve what it points at."""
 import json
 import re
+import unicodedata
 
 from phoenix9 import cards, routes
 from phoenix9.ops import common
@@ -24,12 +25,24 @@ def _keys(obj: dict, required: set, optional: set, where: str) -> None:
         raise _Bad(f"{where} needs '{key}'.")
 
 
+PANEL_TAG = "[phoenix panel"
+
+
+def _safe(value: str, key: str, where: str) -> str:
+    """Refuse text with control characters (newlines too) or the panel's own tag, so a block cannot forge an answer."""
+    if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in value):
+        raise _Bad(f"{where} '{key}' must be one line with no control characters.")
+    if PANEL_TAG in value.casefold():
+        raise _Bad(f"{where} '{key}' may not contain the text '[Phoenix panel'.")
+    return value
+
+
 def _text(obj: dict, key: str, where: str) -> str:
-    """A non-empty text field."""
+    """A non-empty, single-line text field without the panel's tag."""
     value = obj.get(key)
     if not isinstance(value, str) or not value.strip():
         raise _Bad(f"{where} '{key}' must be non-empty text.")
-    return value
+    return _safe(value, key, where)
 
 
 def _flag(obj: dict, key: str, where: str) -> bool:
@@ -62,6 +75,8 @@ def _card(obj: dict) -> dict:
     title = obj.get("title")
     if title is not None and not isinstance(title, str):
         raise _Bad("The card 'title' must be text.")
+    if title is not None:
+        _safe(title, "title", "The card")
     return {"type": name, "query": query, "title": title}
 
 
@@ -80,6 +95,8 @@ def _nav(obj: dict) -> dict:
             label = link.get("label")
             if label is not None and not isinstance(label, str):
                 raise _Bad(f"Link {i} 'label' must be text.")
+            if label is not None:
+                _safe(label, "label", f"Link {i}")
             found = routes.resolve(_text(link, "to", f"Link {i}"), link.get("params"))
             good.append({"hash": found["hash"], "label": label or found["label"]})
         except (_Bad, common.OpsError) as err:

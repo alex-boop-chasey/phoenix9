@@ -481,7 +481,7 @@ def close_question(ctx, id: str, action: str) -> str:
     gate = gates.read(run_dir, id)
     if gate is None or gate.get("run") != run_dir.name:
         raise StepRefused(f"question {id} is not a question of this run")
-    if not gates.may_answer(gate, ctx.who, _project_settings(run_dir)):
+    if not gates.may_answer(gate, ctx.who, _project_settings(run_dir), action):
         raise StepRefused(f"'{ctx.who}' may not answer {gate['kind']} questions here")
     if action == "closed":
         if ctx.dry:

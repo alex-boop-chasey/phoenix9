@@ -205,7 +205,6 @@ class Runner:
             return
         if not (st.get("current") or {}).get("gate"):
             _adopt_gate_held(run_dir)
-        failmodes.watch_delegate(self, Path(run_dir))
 
     def rerun_finish_step(self, run_dir, name: str) -> tuple[str, str]:
         """Repair kit: run one finish step again on a failed run (the caller holds the run lock).
@@ -417,7 +416,6 @@ class Runner:
         if move == "rerun":
             failmodes.acknowledge(self, run_dir, n, answer)
             return "rerun"
-        failmodes.stop_delegate(self, state.load(run_dir), n, answer)
         state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
         if move == "passed":
             failmodes._finish_task(run_dir, n, "passed", note=f"done by {who}")

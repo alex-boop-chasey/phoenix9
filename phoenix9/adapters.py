@@ -1,4 +1,4 @@
-"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
+"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, proxy) behind one object."""
 import ipaddress
 import os
 import shutil
@@ -238,25 +238,6 @@ class Http:
             return e.code, dict(e.headers), e.read()
 
 
-class Chat:
-    """Delegate mode: hands a failed task to the project's own chat agent (phoenix9/chat.py)."""
-
-    def delegate(self, project: str, project_dir, gate: str, prompt: str, log_path) -> dict:
-        """Start the detached project chat session; returns {"started", "handle", "error"}."""
-        from phoenix9 import chat
-        return chat.delegate(project, project_dir, gate, prompt, log_path)
-
-    def status(self, handle: str) -> str:
-        """"running" or "exited"."""
-        from phoenix9 import chat
-        return chat.status(handle)
-
-    def stop(self, handle):
-        """Stop a delegate session that is still running (e.g. Alex answered first)."""
-        from phoenix9 import chat
-        chat.stop(handle)
-
-
 class Claude:
     """Real claude adapter; filled in by step 09."""
 
@@ -323,11 +304,10 @@ class Adapters:
     http: Any
     clock: Any
     notify: Any
-    chat: Any
     proxy: Any = None
 
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
     return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
-                    clock=Clock(), notify=Notify(), chat=Chat(), proxy=Proxy())
+                    clock=Clock(), notify=Notify(), proxy=Proxy())

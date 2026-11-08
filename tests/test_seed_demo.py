@@ -129,11 +129,11 @@ def test_api_serves_seeded_data(seeded, monkeypatch, tmp_path):
 
 
 def test_demo_server_never_uses_real_adapters(tmp_path):
-    from fakes import FakeChat, FakeClaude, FakeDocker, FakeHost, FakeHttp, FakeNotify
+    from fakes import FakeClaude, FakeDocker, FakeHost, FakeHttp, FakeNotify
     adapters = demo_server.demo_adapters()
     assert isinstance(adapters.docker, FakeDocker) and isinstance(adapters.host, FakeHost)
     assert isinstance(adapters.claude, FakeClaude) and isinstance(adapters.http, FakeHttp)
-    assert isinstance(adapters.notify, FakeNotify) and isinstance(adapters.chat, FakeChat)
+    assert isinstance(adapters.notify, FakeNotify)
     httpd = demo_server.build_server(tmp_path / "h", tmp_path / "p", 0)
     try:
         assert common.make_adapters().docker.__class__ is FakeDocker

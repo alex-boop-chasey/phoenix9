@@ -111,12 +111,12 @@ describe("NeedsYouCard", () => {
 
   it("escalation shows acknowledged first with help line", () => {
     mockApi({})
-    renderWithProviders(<NeedsYouCard gate={{ ...escalation, flags: ["delegated to project chat"] }} />)
+    renderWithProviders(<NeedsYouCard gate={{ ...escalation, flags: ["handed to the Phoenix agent"] }} />)
     const names = screen.getAllByRole("button").map((b) => b.textContent)
     expect(names).toEqual(["Acknowledged", "Skip task", "Stop run"])
     expect(screen.getByText("Fix it, then press Acknowledged; the task runs once more.")).toBeInTheDocument()
     expect(screen.queryByText(/project's chat/)).toBeNull()
-    expect(screen.getByText(/A Claude session in the project's folder is working on it/)).toBeInTheDocument()
+    expect(screen.getByText(/The Phoenix agent has been asked to fix it/)).toBeInTheDocument()
   })
 
   it("acknowledged posts acknowledged", async () => {

@@ -275,23 +275,6 @@ def test_pause_mode_e2e_ack_via_cli(e2e):
     assert st["tasks"]["1"]["escalations"] == 1
 
 
-def test_delegate_mode_e2e(e2e):
-    set_settings(e2e, "on_failure=delegate", "max_tries=1")
-    fail_task_1_first(e2e)
-
-    def answer_through_cli(gate_id, action, note, who):
-        assert e2e.cli("gate", "answer", gate_id, action, "--who", who, "--note", note)[0] == 0
-
-    e2e.adapters.chat.answer_with = answer_through_cli
-    run_id = e2e.start()
-    e2e.settle()
-    st = e2e.state(run_id)
-    assert st["status"] == "done", st
-    assert len(e2e.adapters.chat.calls) == 1
-    lines = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
-    assert any(x["who"] == "chat:delegate" and "gate answer" in x["command"] for x in lines)
-
-
 def test_human_task_e2e(e2e, tmp_path):
     text = (ROOT / "plans" / "e2e-quick.md").read_text()
     head, rest = text.split("## Task 2:")

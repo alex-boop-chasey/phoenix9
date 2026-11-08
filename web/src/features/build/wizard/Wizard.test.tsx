@@ -268,7 +268,7 @@ test("failure modes explained", async () => {
   }
   expect(screen.getByText(/Move on to tasks that don't depend/)).toBeInTheDocument()
   expect(screen.getByText(/press Acknowledged when fixed/)).toBeInTheDocument()
-  expect(screen.getByText(/only alerts you if it can't/)).toBeInTheDocument()
+  expect(screen.getByText(/you are alerted if it is asleep or can't/)).toBeInTheDocument()
   expect(screen.getByRole("radio", { name: "Pause for me" })).toBeChecked()
   const tries = screen.getByLabelText("Tries per task (1 to 10)")
   await userEvent.clear(tries)

@@ -27,7 +27,7 @@ def answer(gate_id: str, action: str, note: str = "", who: str = "cli", by: floa
         project_settings = settings.load_project(common.project_dir(gate["project"]))
     except (settings.SettingsError, OpsError):
         project_settings = {}
-    if not core.may_answer(gate, who, project_settings):
+    if not core.may_answer(gate, who, project_settings, action):
         raise OpsError(f"'{who}' may not answer {gate['kind']} questions in {gate['project']}.")
     try:
         result = core.answer(gate_id, action, note=note, who=who, by=by)

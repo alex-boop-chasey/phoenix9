@@ -10,7 +10,7 @@ import pytest
 
 from helpers import scripted
 from helpers.scripted import calls, fail, gate, on
-from phoenix9 import atomic, chat, claude, failmodes, gates, paths, runs, state, watch
+from phoenix9 import atomic, claude, failmodes, gates, paths, runs, state, watch
 from phoenix9.ops import common
 from phoenix9.ops import runs as ops_runs
 from phoenix9.runner import Runner
@@ -268,73 +268,6 @@ def test_outside_fix_committed_before_rerun(tmp_path, runner):
     assert any(line in m for m in runner.adapters.notify.messages)
 
 
-# 12
-def test_delegate_calls_chat_adapter(tmp_path, runner, adapters):
-    on("builder", 1, 1, fail("missing dependency"))
-    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
-    assert runner.drive(run_dir) == "done"
-    assert attempts("builder") == [1, 2]
-    (g,) = gates.list_gates(open_only=False)
-    assert "delegated to project chat" in g["flags"]
-    assert gates.poll(run_dir, g["id"])["who"] == "chat:delegate"
-    assert adapters.notify.messages == []
-    (args, _), = adapters.chat.calls
-    project, project_dir, gate_id, prompt, log_path = args
-    assert project == "proj" and Path(project_dir) == paths.projects() / "proj" and gate_id == g["id"]
-    assert g["id"] in prompt and str(worktree(run_dir)) in prompt and "missing dependency" in prompt
-    assert "{{" not in prompt
-
-
-# 13
-def test_delegate_gives_up_falls_back_to_pause(tmp_path, runner, adapters):
-    adapters.chat.mode = "exit"
-    adapters.chat.log = [f"line {i}" for i in range(30)] + ["DELEGATE GAVE UP: needs a paid account"]
-    on("builder", 1, 1, fail("payment needed"))
-    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
-    assert runner.drive(run_dir) == "waiting"
-    assert len(adapters.notify.messages) == 1
-    assert "could not fix task 1" in adapters.notify.messages[0]
-    assert "DELEGATE GAVE UP" in adapters.notify.messages[0] and "line 5\n" not in adapters.notify.messages[0]
-    assert runner.drive(run_dir) == "waiting"
-    watch.watch_once(adapters, runner)
-    assert len(adapters.notify.messages) == 1
-    g = open_gate(run_dir)
-    gates.answer(g["id"], "acknowledged", who="cli")
-    assert runner.drive(run_dir) == "done"
-    assert attempts("builder") == [1, 2] and len(adapters.chat.calls) == 1
-
-
-# 14
-def test_delegate_timeout_notifies(tmp_path, runner, adapters):
-    adapters.chat.mode = "run"
-    on("builder", 1, 1, fail("flaky network"))
-    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
-    assert runner.drive(run_dir) == "waiting"
-    assert adapters.notify.messages == []
-    adapters.clock.t += (failmodes.DELEGATE_TIMEOUT_MIN - 1) * 60
-    watch.watch_once(adapters, runner)
-    assert adapters.notify.messages == []
-    adapters.clock.t += 60
-    watch.watch_once(adapters, runner)
-    watch.watch_once(adapters, runner)
-    assert len(adapters.notify.messages) == 1 and "waiting for you" in adapters.notify.messages[0]
-    assert state.load(run_dir)["status"] == "waiting"
-
-
-# 15
-def test_delegate_cannot_start_falls_back_to_pause(tmp_path, runner, adapters):
-    adapters.chat.mode = "fail"
-    on("builder", 1, 1, fail("broken"))
-    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
-    assert runner.drive(run_dir) == "waiting"
-    assert len(adapters.notify.messages) == 1
-    assert "could not be started" in adapters.notify.messages[0]
-    assert runner.drive(run_dir) == "waiting"
-    assert len(adapters.notify.messages) == 1
-    gates.answer(open_gate(run_dir)["id"], "acknowledged")
-    assert runner.drive(run_dir) == "done"
-
-
 # 16
 @pytest.mark.parametrize("action", ["approve", "skip", "stop"])
 def test_human_task_gate_approve_skip_stop(tmp_path, runner, action):
@@ -490,33 +423,6 @@ def test_run_stop_while_waiting(tmp_path, runner, adapters, monkeypatch):
     assert attempts("builder") == [1] and calls("summary") == []
 
 
-# 24
-def test_real_chat_adapter_command(tmp_path, monkeypatch):
-    seen = {}
-
-    class FakePopen:
-        pid = 4242
-
-        def __init__(self, argv, **kwargs):
-            seen["argv"], seen["kwargs"] = argv, kwargs
-
-        def poll(self):
-            return None
-
-    monkeypatch.setattr(chat.subprocess, "Popen", FakePopen)
-    project_dir = tmp_path / "projects" / "proj"
-    out = chat.delegate("proj", project_dir, "run.1", "fix task 1", tmp_path / "logs" / "delegate.log")
-    assert out == {"started": True, "handle": "4242", "error": ""}
-    argv, kw = seen["argv"], seen["kwargs"]
-    assert argv[:3] == ["claude", "-p", "fix task 1"] and "--bare" not in argv
-    assert argv[argv.index("--permission-mode") + 1] == "bypassPermissions"
-    assert argv[argv.index("--output-format") + 1] == "text"
-    assert kw["cwd"] == str(project_dir) and kw["start_new_session"] is True
-    assert kw["env"]["PHOENIX_WHO"] == "chat:delegate"
-    assert chat.status("4242") == "running"
-    assert chat.status("999999999") == "exited"
-
-
 def test_restart_after_failed_attempt_respects_max_tries(tmp_path, adapters, lib, project, monkeypatch):
     """A crash after attempt 1's result.json (failed) but before the failure mode ran: the restart
     must not start attempt 2 when max_tries is 1; it escalates."""
@@ -572,30 +478,6 @@ def test_gate_opened_but_not_held_is_adopted(tmp_path, runner, holder):
     else:
         assert attempts("builder") == [1, 2]
 
-
-
-def test_alex_answering_first_stops_the_delegate(tmp_path, runner, adapters):
-    adapters.chat.mode = "run"
-    on("builder", 1, 1, fail("flaky network"))
-    run_dir = start(tmp_path, max_tries=1, on_failure="delegate")
-    assert runner.drive(run_dir) == "waiting"
-    gate_id = state.load(run_dir)["current"]["gate"]
-    handle = state.load(run_dir)["tasks"]["1"]["delegate"]["handle"]
-    assert adapters.chat.status(handle) == "running"
-    gates.answer(gate_id, "skip", who="dashboard")
-    runner.drive(run_dir)
-    assert adapters.chat.status(handle) == "exited"
-    assert adapters.chat.stopped == [handle]
-
-
-def test_real_chat_reaps_finished_sessions(tmp_path):
-    from phoenix9 import chat
-    proc = __import__("subprocess").Popen(["true"])
-    chat._started[str(proc.pid)] = proc
-    proc.wait()
-    chat._started[str(proc.pid)] = proc
-    assert chat.status(str(proc.pid)) == "exited"
-    assert str(proc.pid) not in chat._started
 
 
 def test_discard_deletes_a_pushed_branch_on_the_remote(tmp_path, runner, adapters):

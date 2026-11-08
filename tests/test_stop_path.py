@@ -106,7 +106,7 @@ def test_stop_checks_the_same_permission_as_answering(tmp_path, runner):
     assert ops_runs.stop(run_dir.name, who="chat:home")["status"] == "stopped"
 
 
-@pytest.mark.parametrize("who", ["cli", "dashboard", "chat:delegate"])
+@pytest.mark.parametrize("who", ["cli", "dashboard"])
 def test_stop_allowed_callers(tmp_path, runner, who):
     run_dir = start(tmp_path)
     assert ops_runs.stop(run_dir.name, who=who)["status"] == "stopped"

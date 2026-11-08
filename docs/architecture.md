@@ -71,7 +71,7 @@ phoenix9/                      the Python package
   checklock.py reports.py      locked task checks (fingerprints); test report readers + verdict fallback
   checklint.py                 self-contained checks: env read but never set; red run that is a setup crash
   summary.py                   run summary facts -> summary.md / summary.html (assets/summary.html)
-  chat.py                      the `chat` adapter: delegate mode (section 9)
+  chat.py                      the Phoenix agent's restart and each project's chat unit (section 8)
   templates.py images.py       templates menu loader; profile Dockerfile checks
   stepctx.py                   StepContext and StepResult (section 4.4)
   claude.py docker.py git.py watch.py   ports of V8, adapters (section 9)
@@ -96,7 +96,6 @@ phoenix9/                      the Python package
   stepproxy.py                 starts the key proxies a step's `proxy` key asks for (section 14)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
 steps/<name>/                  step library: step.toml + prompt.md (ai) and/or run.py (script)
-steps/_delegate/               delegate-mode prompt (a `_` folder: not a step, the loader skips it)
 steps/_things.toml             every "thing" a step can need/produce, with its fallback
 presets/<name>.toml            simple, quick, full (custom = no file; it is "start from a preset")
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
@@ -566,7 +565,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   line's `resume_note` says so.
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
-  gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
+  gate, attempt_base, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
   finished, note, gate, produces, reasons, answers, session_id, resume_note} ], usage: {cost_usd, sessions}, image: {tag, id}}`.
   `image` = the profile's step image tag and its exact id (`docker image inspect --format {{.Id}}` through
   the docker adapter's `image_id`; `""` when the image was missing), written once at the run's first drive
@@ -589,8 +588,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
     escalations so far (max `failmodes.MAX_ESCALATIONS` = 2). `flagged` = why it failed (Build tab,
     summary). `gate` = the task's own gate (human-task or escalation). `attempt_base` = the commit
     each attempt starts from (a failed attempt is reset to it; an outside fix moves it).
-    `delegate` = `{gate, handle, started_at, log, notified}` while the project chat has the
-    escalation. `note` = why it was skipped ("depends on task 1, which failed", "skipped by cli").
+    (Old files may carry a `delegate` field from before build 5; it is ignored.) `note` = why it was skipped ("depends on task 1, which failed", "skipped by cli").
     `rerun` = an escalation was acknowledged: the next attempt starts whatever `should_retry` says;
     starting it sets `tries = k+1, rerun = false` in one update.
   - step lines: task steps get one line per attempt (`attempt`). A step that returned a gate has
@@ -620,8 +618,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   adds its reasons to `failures` and is retried until `max_tries`, unless it was already escalated,
   a reason starts with `SPEC_PROBLEM` or `AUTH_ERROR`, or it failed for exactly the same reasons as
   the attempt before. Then `on_failure`: `continue` = task `failed` + flagged, dependents `skipped`;
-  `pause` = escalation gate + one notify; `delegate` = the same gate (flag "delegated to project
-  chat") handed to the project chat (section 9 `chat`, 12). `acknowledged` = commit any outside fix,
+  `pause` = escalation gate + one notify; `delegate` = the same gate (flag "handed to the Phoenix
+  agent") plus one message to the agent (section 12). `acknowledged` = commit any outside fix,
   `attempt_base` = the worktree's HEAD (always, so a crash after the fix commit keeps the fix), one
   more attempt; if that fails, the mode once more, then `failed`. .env-style files found in the
   worktree at that point are moved to `tasks/<n>/outside-env/<path>` (never committed), with the
@@ -650,8 +648,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   (three crashes in a row, a usage limit that never cleared) and `phoenix run stop` / the API stop.
   The **run lock** (`<run>/run.lock`) is held by `Runner.drive` for the whole walk. `ops.runs.stop`
   (CLI, API, dashboard) first checks the caller like answering an escalation question
-  (`gates.may_answer`: a `chat:*` caller needs `home_chat_may_answer` to list `escalation`; `cli`,
-  `dashboard` and `chat:delegate` may), removes the run's containers, then: when it gets the run lock
+  (`gates.may_answer`: a `chat:*` caller needs `home_chat_may_answer` to list `escalation`; `cli`
+  and `dashboard` may), removes the run's containers, then: when it gets the run lock
   (the runner is not walking the run: queued, waiting, paused-limit, or between rounds) it calls the
   runner's own clean stop (`Runner.stop_now`) at once and replies `status: stopped`; when the lock is
   busy (the runner is walking it) it writes `<run>/stop-request.json` `{who, at}` and replies
@@ -950,7 +948,7 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   "Delete project entirely": folder and size, GitHub repo with `repo_verdict` (deleted only when it is the project's
   own, see section 9.5), open merge requests, unpushed commits, unsaved edits, runs, key names (never values; not
   kept in the copy), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home also by real
-  name, a linked folder, an active build or delegate session, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
+  name, a linked folder, an active build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
   (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
   `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
   with a note when there is no git repo or no commits; `git fetch --all` first), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
@@ -971,7 +969,6 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
 | `proxy` | `Proxy.start(spec, key, *, log_path, step, bind)` starts the per-step key proxy (`proxy.serve`, section 14) and returns its handle | `FakeProxyFactory`: forwards nothing and listens nowhere; records `(service, rules, step, bind, key_len, key_seen)` (never the key), returns a handle with `url = http://proxy.fake/<service>`, a fixed token and a recorded `stop()`; `.started`, `.stopped`, `.running()`. Tests script `FakeHttp` at that url |
-| `chat` | delegate mode (`phoenix9/chat.py`): `delegate(project, project_dir, gate_id, prompt, log_path) -> {started, handle, error}` starts a detached headless `claude -p <prompt> --permission-mode bypassPermissions --output-format text` in the project folder (own session, output to the log, env `PHOENIX_WHO=chat:delegate`, never `--bare`); `status(handle) -> running \| exited` (section 11, rule 1 exception) | `FakeChat.mode`: answer (acknowledges as chat:delegate) / exit / run / fail |
 `phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
 `subprocess` for these tools directly.
 
@@ -1039,8 +1036,8 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
 **Refused** (409): `phoenix9` and `home` (`project_removal.PROTECTED`, checked against the folder's real name
 too, so a link called something else cannot delete them); a project folder that is a link, or whose real parent is
 not the real projects folder; a project with a build queued, running,
-waiting or paused; a project whose chat state is `working`; a project with a delegate chat session (escalation
-hand-over) still running; any program whose working folder is inside the project's real folder (`/proc/*/cwd`
+waiting or paused; a project whose chat state is `working`;
+any program whose working folder is inside the project's real folder (`/proc/*/cwd`
 through the host adapter's `process_cwds()`: a grunt job, a desktop or terminal session; this process and its
 parent shell excepted); any caller other than `dashboard` or `cli` (the Phoenix
 agent and every `chat:*` caller, whatever the project's permissions).
@@ -1065,18 +1062,16 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 
-1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. One recorded
-   exception: the `delegate` failure mode starts a headless Claude session in the project folder with
-   full permissions (`bypassPermissions`; Alex's decision; a later build replaces it).
-   It is a separate process, never imported or driven step-by-step by the runner. `phoenix9/chat.py`
-   is the only place in phoenix9 that starts Claude on the host, and the only place that restarts the
-   Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
+1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. There is no
+   exception: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
+   (`agentlink.send`); the agent is a separate, already-running session that Phoenix never starts or drives.
+   `phoenix9/chat.py` is the only place that restarts the Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
    memory in `logs/agent-watch.json`). Project chats (`phoenix9/chat.py` and `phoenix9/projectchat.py`)
    add only unit and process control through the Host adapter: `chat_unit` (`claude-rc-chat@<listed
    project>`), `unit_state` (`systemctl is-active`), `unit_main_pid`, `start_unit` (`systemctl enable --now`),
    `stop_unit` (`systemctl disable --now`) and `stop_conversation` (`Host.stop_pid`, SIGTERM, only to the
-   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself there.
+   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -1130,15 +1125,16 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
   container or service recipe needs; the host Merge step never needed the helper) through the `host` adapter in phase 2; phase 4's key proxy is for
   step containers and service setup. The Merge step is a script step on the host, so no container ever
   holds the GitHub token either way.
-- **Delegate mode** (harness spec 13): the escalation gate opens exactly as in pause mode, with the
-  flag "delegated to project chat"; the runner renders `steps/_delegate/prompt.md` (a `_` folder, so
-  the library loader skips it) and starts the project chat once through the `chat` adapter, then
-  forgets it. The chat either fixes the cause in the run's worktree and answers the gate
-  `acknowledged --who chat:delegate`, or ends with `DELEGATE GAVE UP: <why>`. Alex is told once
-  (with the last 20 scrubbed lines of the delegate log) when it could not be started, has exited
-  without answering, its handle is gone after a restart, or 60 minutes passed
-  (`failmodes.DELEGATE_TIMEOUT_MIN`); the run then simply waits as in pause mode. Anyone's
-  `acknowledged` continues the run. The delegate is never started twice for one gate.
+- **Hand to the Phoenix agent** (`on_failure = "delegate"`): when a task runs out of tries the escalation
+  gate opens as in pause mode, with the flag "handed to the Phoenix agent", and Phoenix posts ONE message
+  through `agentlink.send` (from-name "Phoenix (build escalation)"): `[Phoenix · escalation] <run id> task <n>`.
+  Nothing else goes in it (no failure text, no file content): the agent reads the task file and
+  `phoenix repair report`, fixes with a fix note, a repair note, settings or a quick edit on the build's
+  own worktree, and answers `acknowledged` (`chat:home` may answer only that, only on a gate with the
+  flag: `gates.may_answer`). If the agent is asleep or the send fails, the flag is replaced by a note on
+  the gate saying so and Alex is told, exactly as in pause mode. At most `failmodes.MAX_ESCALATIONS` (2)
+  hand-offs per task; after that the task fails as in pause mode. Old state files may still carry a task
+  `delegate` field; it is read and ignored.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the
@@ -1438,7 +1434,7 @@ while one runs; each progress line is a job step, `result` = the `{ok, built, sk
 
 ### Project chats
 
-Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`, `claude remote-control --name <name> --spawn same-dir`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). Delegate mode (`on_failure = "delegate"`, section 9 `chat`) still starts its own headless Claude session in the project folder.
+Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`, `claude remote-control --name <name> --spawn same-dir`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). A build handed to the agent (`on_failure = "delegate"`) is only a message into that same inbox (section 7); no session is started.
 
 - **Five states** (`projectchat.state` -> `{state, bridge_session_id, web_url, app_url, last_active}`): `off` (unit inactive or failed), `starting` (unit activating, or active with no conversation yet and no chat document), `sleeping` (unit active, no live session in Claude's registry, but a chat document exists), `live` (registry entry found, idle), `working` (registry entry found, status busy). The unit state comes from systemd, the session from the registry (`agentlink.find_in`); a live session refreshes the chat document (at most every 10 minutes).
 - **Chat document** `.phoenix/chat.md`: heading `# Chat: <project>`, then one `Key: value` line each, in this order: `Project`, `Desktop app link`, `Web link`, `Conversation id`, `Local session id`, `Created`, `Last active` (times are UTC `YYYY-MM-DDTHH:MM:SSZ`). Written atomically (`projectchat.write_chat_doc`), read strictly (`read_chat_doc` returns fields or a reason).

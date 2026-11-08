@@ -218,7 +218,7 @@ def test_discard_checks_the_same_permission_as_stop(demo, tmp_path):
     assert ops_runs.discard(run_id, who="chat:home")["discarded"] is True
 
 
-@pytest.mark.parametrize("who", ["cli", "dashboard", "chat:delegate"])
+@pytest.mark.parametrize("who", ["cli", "dashboard"])
 def test_discard_allowed_callers(demo, tmp_path, who):
     run_id, _, _ = failed_run(demo, tmp_path)
     assert ops_runs.discard(run_id, who=who)["discarded"] is True

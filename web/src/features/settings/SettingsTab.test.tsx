@@ -131,7 +131,7 @@ test("on failure options explained", async () => {
   expect(screen.getByText("Pause for me")).toBeInTheDocument()
   expect(screen.getByText("Pause and show an escalation; press Acknowledged when fixed.")).toBeInTheDocument()
   expect(screen.getByText("Hand it to Claude in the project folder")).toBeInTheDocument()
-  expect(screen.getByText("A Claude session in the project's folder tries to fix it and only alerts you if it can't.")).toBeInTheDocument()
+  expect(screen.getByText("The Phoenix agent is sent one message to fix it; you are alerted if it is asleep or can't.")).toBeInTheDocument()
   expect(screen.getByRole("radio", { name: /Pause for me/ })).toBeChecked()
 })
 

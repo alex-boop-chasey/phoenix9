@@ -207,25 +207,6 @@ def _folder_refusals(name: str, folder: Path | None) -> list:
     return out
 
 
-def _delegates_running(name: str, adapters) -> list:
-    """Run ids whose delegate session (a headless project chat answering an escalation) is still running."""
-    if adapters is None:
-        return []
-    found = []
-    for r in runs.list_runs(name):
-        st = atomic.read_json(paths.runs(name) / r["run_id"] / "state.json") or {}
-        for task in (st.get("tasks") or {}).values():
-            handle = ((task or {}).get("delegate") or {}).get("handle") if isinstance(task, dict) else None
-            try:
-                if handle and adapters.chat.status(handle) == "running":
-                    found.append(r["run_id"])
-                    break
-            except Exception:     # cannot tell: count it as busy, to be safe
-                found.append(r["run_id"])
-                break
-    return found
-
-
 def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, adapters=None) -> list:
     """Plain sentences for everything that stops a delete (empty when it can run)."""
     out = []
@@ -239,9 +220,6 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
         out.append(f"A build is {busy[0]['status']} ({busy[0]['run_id']}). Stop it or let it finish first.")
     if chat_state == "working":
         out.append("The project's chat is working right now. Wait until it is done.")
-    delegates = _delegates_running(name, adapters)
-    if delegates:
-        out.append(f"A delegate chat session for build {delegates[0]} is still working. Wait until it is done.")
     inside = _working_inside(folder, adapters)
     if inside:
         shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")

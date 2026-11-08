@@ -254,6 +254,7 @@ FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
 FLAG_REPAIRED = "run was repaired"
 FLAG_NO_FULL_SUITE = "no full suite result"
 ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE)
+HANDOFF_FLAG = "handed to the Phoenix agent"      # on an escalation gate sent to the agent (failmodes.HANDOFF_FLAG)
 FINISHED_TASK = ("passed", "skipped")
 
 
@@ -285,22 +286,32 @@ def _merge_changed_since(gate: dict) -> bool:
     return run_repaired(run_dir)
 
 
-def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
+def may_answer(gate: dict, who: str, project_settings: dict, action: str | None = None) -> bool:
     """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
 
-    A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the delegate session.
-    The delegate session (chat:delegate) may always answer escalations: that is what it is started for.
+    A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the home chat.
+    The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
+    flag "handed to the Phoenix agent" (set when a failed task is handed to it).
     A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
     if who.startswith("chat:") and gate.get("kind") == "budget":
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
     if who.startswith("chat:") and gate.get("kind") == "merge" and (
             any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
         return False
-    if who == "chat:delegate" and gate["kind"] == "escalation":
-        return True
+    if who == "chat:home" and gate["kind"] == "escalation" and HANDOFF_FLAG in (gate.get("flags") or []):
+        return action == "acknowledged"
     if not who.startswith("chat:"):
         return True
     return gate["kind"] in (project_settings.get("home_chat_may_answer") or [])
+
+
+def set_flags(run_dir, gate_id: str, flags) -> dict:
+    """Replace the flags on a gate Phoenix itself wrote (used when a hand-off to the agent fails); returns the gate."""
+    path = _gates_dir(Path(run_dir)) / f"{gate_id}.json"
+    gate = atomic.read_json(path)
+    gate["flags"] = list(flags)
+    atomic.write_json(path, gate)
+    return gate
 
 
 def read(run_dir, gate_id: str) -> dict | None:

@@ -1,4 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { render as rtlRender, screen, waitFor } from "@testing-library/react"
+import type { ReactElement, ReactNode } from "react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { clearBlockCache } from "@/features/agent/blocks/BlockView"
@@ -7,11 +9,14 @@ import { AgentMessage, MessageList } from "@/features/agent/messages"
 import { ActionCard } from "@/features/agent/ActionCard"
 import type { AgentItem } from "@/features/agent/useAgent"
 
+const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={new QueryClient()}>{children}</QueryClientProvider>
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper })
+
 const card = '{"v":1,"type":"prs"}'
 const md = (json = card, fallback = "Open PRs: see the dashboard.") => `Before\n\n\`\`\`phoenix-card\n${json}\n\`\`\`\n${fallback}\n\nAfter`
 
 function mockCheck(result: { ok: boolean; reason?: string | null }) {
-  const fn = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { ok: result.ok, reason: result.reason ?? null, resolved: null } }), { status: 200 }))
+  const fn = vi.fn(async (_url?: unknown) => new Response(JSON.stringify({ ok: true, data: { ok: result.ok, reason: result.reason ?? null, resolved: null } }), { status: 200 }))
   vi.stubGlobal("fetch", fn)
   return fn
 }
@@ -48,7 +53,7 @@ describe("AgentMessage blocks", () => {
     await waitFor(() => expect(screen.getByTestId("block-card")).toBeTruthy())
     expect(screen.queryByText(/see the dashboard/)).toBeNull()
     rerender(<AgentMessage markdown={md()} />)
-    expect(fn).toHaveBeenCalledTimes(1)
+    expect(fn.mock.calls.filter((c) => String(c[0]).includes("blocks/check"))).toHaveLength(1)
   })
   it("shows fallback and reason when the check fails", async () => {
     mockCheck({ ok: false, reason: "bad type" })

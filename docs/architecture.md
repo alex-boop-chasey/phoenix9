@@ -1413,3 +1413,12 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 ### Block parser in the panel (task 13)
 
 `web/src/features/agent/blocks/parse.ts` splits agent markdown into text and `phoenix-*` block parts; the first non-empty line after a block is its fallback. `BlockView` checks each block once through `/api/blocks/check` (cached in memory by kind and text) and hides the fallback when the block renders; otherwise it shows the fallback plus "block could not be shown: <reason>". Only `AgentMessage` uses it. Items before the latest conversation divider are frozen (`frozen` prop, "as of <time>" line, no buttons). An unclosed `phoenix-` fence stays plain text.
+
+#### AnswerCard and card buttons (task 14)
+`web/src/features/agent/blocks/AnswerCard.tsx` fetches `GET /api/cards` for the checked card, shows loading and error
+states, and refreshes (debounced 500 ms) on a live event matching `watch` (empty list = any; `command` and `ui.go`
+events never match) or every `poll_s`. Frozen cards fetch once and show no buttons. Bodies are picked by type from
+`cardBodies.tsx` (plain JSON until tasks 15-17). `CardActions.tsx` draws the buttons from the answer only: link = new tab
+(`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
+server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and
+sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported.

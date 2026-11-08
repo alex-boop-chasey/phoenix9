@@ -89,6 +89,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
 | POST | `/api/agent/restart` | `ops.agent.restart` (restarts the `agent.unit` service and tells Alex) | `{confirm: true}` | `{restarted, unit}` | 403, 409 (no `confirm: true`; nothing restarted) |
 | POST | `/api/ui/go` | `ops.ui.go` | `{to, params?: {}}` | `{hash, label}`; the open dashboard follows through a `ui.go` event | 400 (not a page, bad option: the reason), 404 (no such project, run, gate or log) |
+| POST | `/api/blocks/check` | `ops.blocks.check` | `{kind: card\|choice\|confirm\|nav, json: text}` | `{ok, reason, resolved}` (not ok gives a plain reason; nav `resolved` is `{links: [{hash, label}], dropped: [{link, to, reason}]}`) | 400 (kind or json missing) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |

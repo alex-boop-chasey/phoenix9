@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, cards as ops_cards, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, ui as ops_ui, update
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, runs, service as ops_service, services, settings, ui as ops_ui, update
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -255,6 +255,11 @@ def get_cards(req):
 def post_ui_go(req):
     """Move the open dashboard to a page (400 with the reason when the page or its options are wrong)."""
     return ops_ui.go(body_text(req, "to"), body_dict(req, "params"), WHO)
+
+
+def post_blocks_check(req):
+    """Check one reply block ({kind, json}); the answer is {ok, reason, resolved}."""
+    return ops_blocks.check({"kind": body_text(req, "kind"), "json": body_text(req, "json")})
 
 
 def get_events_recent(req):
@@ -930,6 +935,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/agent/send", post_agent_send),
     ("POST", r"/api/agent/restart", post_agent_restart),
     ("POST", r"/api/ui/go", post_ui_go),
+    ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
     ("POST", rf"/api/chat/{NAME}/sleep", post_chat_sleep),
     ("POST", rf"/api/chat/{NAME}/off", post_chat_off),

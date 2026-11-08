@@ -1402,3 +1402,8 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
   and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
   only through the `projects` route params (`q`, `status`, ...).
 - Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (`features/agent/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.
+
+### Block check (`ops.blocks.check`, `POST /api/blocks/check`, `phoenix block check`)
+- `check({kind, json})` returns `{ok, reason, resolved}`. Not ok (bad JSON, missing or wrong `v`, unknown keys, an `actions` key, over 8 KB, bad values) is a result, not an error; `resolved` is then null.
+- card: `resolved` = `{type, query, title}` after `cards.check_query`. nav: each link goes through `routes.resolve`; `resolved` = `{links: [{hash, label}], dropped: [{link, to, reason}]}`, all failed = not ok. choice / confirm: `resolved` = the normalised block (`other` and `danger` default false; option keys must be unique).
+- `phoenix block check <file|-> [--kind K] [--json]` reads a fenced block (kind from the tag) or bare JSON (needs `--kind`); exit 1 with the reason when not ok.

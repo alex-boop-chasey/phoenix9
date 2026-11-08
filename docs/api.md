@@ -225,6 +225,20 @@ made of text blocks is a `user` item (an image shows as `[image]`).
   line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
   ping timing as `/api/events`.
 
+## Repair card and report
+
+`GET /api/cards?type=repair&query={"project":"p","run":"r","note"?:"<file>"}` builds the `repair` card (architecture
+section 8.4): `data` is `{run_id, project, status, status_line, findings: [{code, text, task}], note}`, where `note`
+is `null` or `{name, text, dry_run}` (`dry_run` is the dry-run outcome shaped like the apply answer below, or
+`{error}`); `actions` is `[]`; `watch` is `{projects, runs, types: ["run", "repair"]}`. The card needs `project`
+and `run` (else 400); no such run is a 404.
+
+`GET /api/repair/<run_id>/report` and `POST /api/repair/<run_id>/apply` take the run id alone (the project is
+found from it). Apply with `dry_run: true` changes nothing and adds `would_roll_back`. A successful apply writes a
+`repair.applied` event `{who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}`.
+`approve_unlock: true` is needed for notes with a `rewrite the checks` step. Undo and resume are CLI only
+(`phoenix repair undo|resume <run> --yes`).
+
 ## Overrides shape (wizard and defaults)
 
 The same nesting as phoenix.toml (architecture 5.2) and the same keys `settings.effective(...,

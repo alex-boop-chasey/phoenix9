@@ -195,3 +195,30 @@ def test_apply_preset_keeps_settings_drops_on(proj, lib):
     assert "check-writer" not in data["steps"]
     with pytest.raises(SettingsError):
         settings.apply_preset(proj, "mystery", lib)
+
+
+# ------------------------------------------------------------------ budget_usd (spending cap)
+def test_budget_defaults_to_no_cap_and_takes_numbers(proj, lib):
+    assert settings.effective(proj, lib).get("budget_usd") is None
+    write(proj, "budget_usd = 12.5\n")
+    assert settings.check(proj, lib) == []
+    assert settings.effective(proj, lib).get("budget_usd") == 12.5
+    write(proj, "budget_usd = 20\n")
+    assert settings.effective(proj, lib).get("budget_usd") == 20
+
+
+@pytest.mark.parametrize("text", ['"five"', "true", "0", "-3"])
+def test_budget_refuses_non_numbers_and_non_positive(proj, lib, text):
+    write(proj, f"budget_usd = {text}\n")
+    assert any("budget_usd" in p for p in settings.check(proj, lib))
+
+
+def test_budget_set_value_and_empty_clears(proj, lib):
+    settings.set_value(proj, "budget_usd", "7.5", lib)
+    assert settings.load_project(proj)["budget_usd"] == 7.5
+    settings.set_value(proj, "budget_usd", "10", lib)
+    assert settings.load_project(proj)["budget_usd"] == 10
+    with pytest.raises(SettingsError, match="number"):
+        settings.set_value(proj, "budget_usd", "lots", lib)
+    settings.set_value(proj, "budget_usd", "", lib)
+    assert "budget_usd" not in settings.load_project(proj)

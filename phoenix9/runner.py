@@ -487,6 +487,9 @@ class Runner:
         Every step start is a boundary: an ended run or a stop request stops the walk (runend.check)."""
         if not self._ending:
             runend.check(run_dir)
+            capped = self._spending_cap(run_dir, setup)
+            if capped is not None:
+                return capped
         heartbeat.mark_progress()                   # a step starting is the loop moving
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
@@ -516,6 +519,30 @@ class Runner:
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
         return Outcome(status, list(result.reasons))
+
+    def _spending_cap(self, run_dir: Path, setup: dict) -> Outcome | None:
+        """The spending cap, checked at every step boundary (the end of the step before). Returns None to go on;
+        waiting while its `budget` question is open; stopped when Alex answered stop. `raise` adds to the frozen cap.
+        Cost is the sum of finished Claude sessions (usage.cost_usd), so a usage-limit wait adds nothing."""
+        cap = setup["settings"].get("budget_usd")
+        st = state.load(run_dir)
+        held = (st.get("current") or {}).get("gate")
+        gate = gates.read(run_dir, held) if held else None
+        if gate and gate.get("kind") == "budget":
+            answer = gates.poll(run_dir, held)
+            if answer is None:
+                return Outcome("waiting")
+            state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
+            if answer["action"] == "stop":
+                return Outcome("stopped")
+            cap = raise_cap(run_dir, setup, answer.get("by"))
+        spent = float((st.get("usage") or {}).get("cost_usd") or 0.0)
+        if not cap or spent < cap:
+            return None
+        _open_gate(run_dir, ("run",), kind="budget", title="Spending cap reached",
+                   why=f"Spending cap of ${cap:.2f} reached at ${spent:.2f}. Raise the cap to carry on, or stop.",
+                   actions=gates.BUDGET_ACTIONS)
+        return Outcome("waiting")
 
     def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
         """Call the step's optional on_approved(ctx, produces) hook; its returned dict goes on the finished event."""
@@ -701,12 +728,25 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
         if holder[0] == "task":
             s["tasks"][str(holder[1])].update(gate=gate["id"], **(extra or {}))
             s["current"]["task"] = holder[1]
+        elif holder[0] == "run":                   # a question about the whole run (the spending cap)
+            pass
         else:
             s["steps"][holder[1]].update(status="waiting", gate=gate["id"],
                                          note=f"waiting for gate {gate['id']}", **(extra or {}))
         s["current"]["gate"] = gate["id"]
     state.update(Path(run_dir), change)
     return gate
+
+
+def raise_cap(run_dir, setup: dict, by) -> float:
+    """Add `by` dollars to the run's frozen cap (settings.json and the live settings) and return the new cap."""
+    run_dir = Path(run_dir)
+    values = atomic.read_json(run_dir / "settings.json") or {}
+    cap = float(values.get("budget_usd") or 0.0) + float(by or 0.0)
+    values["budget_usd"] = cap
+    atomic.write_json(run_dir / "settings.json", values)
+    setup["settings"]["budget_usd"] = cap
+    return cap
 
 
 def adopt_gate(run_dir) -> str | None:

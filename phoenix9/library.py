@@ -44,6 +44,8 @@ def _type_name(t: type | tuple[type, ...]) -> str:
     """A plain word for a Python type, for problem messages."""
     names = {str: "text", int: "a whole number", bool: "true/false", list: "a list", dict: "a table"}
     if isinstance(t, tuple):
+        if set(t) == {int, float}:
+            return "a number"
         return " or ".join(names.get(x, x.__name__) for x in t)
     return names.get(t, t.__name__)
 

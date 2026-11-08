@@ -22,7 +22,7 @@ ADVISOR_WHEN = ("blocked", "before-done", "on-demand")
 PRESET_META = ("title", "description")  # allowed in a preset file, ignored by settings
 
 HEADER = "Phoenix 9 project settings. Change them with `phoenix settings`, or edit by hand."
-KEY_ORDER = ["preset", "based_on", "profile", "merge", "max_tries", "on_failure", "services",
+KEY_ORDER = ["preset", "based_on", "profile", "merge", "max_tries", "on_failure", "budget_usd", "services",
              "safety_files", "home_chat_may_answer", "diff", "domains", "steps", "deploy",
              "allow_extra", "deny_extra", "allow", "on", "model", "with", "mode", "preview", "settings"]
 
@@ -53,6 +53,7 @@ PROJECT_SCHEMA: dict[str, Spec] = {
     "merge": _spec("auto", ("auto", "ask")),
     "max_tries": _spec(3),
     "on_failure": _spec("pause", ("continue", "pause", "delegate")),
+    "budget_usd": Spec((int, float), None),     # spending cap in dollars; empty (None) = no cap
     "services": _spec([], item_type=str),
     "safety_files": _spec([], item_type=str),
     "home_chat_may_answer": _spec([], item_type=str),
@@ -140,6 +141,8 @@ def _leaf_problems(path: str, value: Any, spec: Spec, where: str) -> list[str]:
     """Problems with one value against its spec (type, list items, allowed values)."""
     if not _is_type(value, spec.type):
         return [f"{where}: '{path}' must be {_type_name(spec.type)}"]
+    if path == "budget_usd" and value <= 0:
+        return [f"{where}: '{path}' must be more than 0 (leave it empty for no cap)"]
     items = value if spec.type is list else [value]
     if spec.type is list and spec.item_type and not all(_is_type(v, spec.item_type) for v in items):
         return [f"{where}: every item in '{path}' must be {_type_name(spec.item_type)}"]
@@ -474,6 +477,8 @@ def effective(project_dir, lib: Library, run_overrides: dict | None = None) -> E
     flat: dict[str, Any] = {}
     source: dict[str, str] = {}
     for path, spec in specs.items():
+        if spec.default is None:        # "empty" settings (the spending cap) are left out until someone sets them
+            continue
         flat[path] = list(spec.default) if isinstance(spec.default, list) else spec.default
         source[path] = "library"
 
@@ -539,6 +544,12 @@ def _coerce(path: str, raw: str, spec: Spec) -> Any:
             return int(raw.strip())
         except ValueError:
             raise SettingsError(f"'{path}' must be a whole number, not '{raw}'") from None
+    if spec.type == (int, float):
+        try:
+            number = float(raw.strip())
+        except ValueError:
+            raise SettingsError(f"'{path}' must be a number, not '{raw}'") from None
+        return int(number) if number.is_integer() else number
     if spec.type is list:
         parts = [p.strip() for p in raw.split(",") if p.strip()]
         if spec.item_type is int:
@@ -555,6 +566,11 @@ def set_value(project_dir, dotted_key: str, raw_value: str, lib: Library | None 
     specs = all_specs(_lib_or_default(lib))
     if dotted_key not in specs:
         raise SettingsError(f"phoenix.toml: unknown key '{dotted_key}'")
+    if dotted_key == "budget_usd" and not raw_value.strip():    # empty = no cap: drop the key
+        data = load_project(project_dir)
+        data.pop(dotted_key, None)
+        save_project(project_dir, data)
+        return
     value = _coerce(dotted_key, raw_value, specs[dotted_key])
     problems = _leaf_problems(dotted_key, value, specs[dotted_key], "phoenix.toml")
     if problems:

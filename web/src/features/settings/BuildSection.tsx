@@ -169,6 +169,17 @@ export function BuildSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
+      <SettingsRow keys={["budget_usd"]} id="s-budget" label="Spending cap">
+        <div className="field" style={{ maxWidth: 220 }}>
+          <label htmlFor="bs-budget">Spending cap ($)</label>
+          <input
+            id="bs-budget" className="input" type="number" min={0} step="any" placeholder="No cap"
+            value={String(val("budget_usd") ?? "")}
+            onChange={(e) => set("budget_usd", e.target.value === "" ? undefined : Number(e.target.value))}
+          />
+        </div>
+      </SettingsRow>
+
       <SettingsRow keys={["merge", "deploy"]} id="s-merge" label="Merge and deploy">
         <div className="stackg">
           <Choices

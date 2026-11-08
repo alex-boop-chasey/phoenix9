@@ -882,7 +882,7 @@ def post_gate_answer(req, gate_id):
     action = body_text(req, "action")
     note = body_text(req, "note", False) or ""
     with req.server.write_lock:
-        return gates.answer(gate_id, action, note, who=WHO)
+        return gates.answer(gate_id, action, note, who=WHO, by=req.body.get("by"))
 
 
 def post_service_connect(req, name):

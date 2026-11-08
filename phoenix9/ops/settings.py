@@ -108,7 +108,7 @@ def check(project: str) -> dict:
     return {"project": project, "ok": not problems, "problems": problems}
 
 
-SAFETY_TOP = ("domains", "diff", "safety_files", "services", "home_chat_may_answer", "profile")
+SAFETY_TOP = ("budget_usd", "domains", "diff", "safety_files", "services", "home_chat_may_answer", "profile")
 SAFETY_WORDS = ("tool", "mcp")
 SAFETY_REASON = "This is a safety setting: change this in Settings yourself."
 

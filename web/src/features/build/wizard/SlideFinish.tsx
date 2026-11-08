@@ -19,6 +19,14 @@ export function SlideFinish({ project, state, dispatch, baseline }: SlideProps) 
         options={MERGE.map((o) => ({ value: o.value, label: o.label, help: o.help }))}
       />
       {locked && <p className="small">Phoenix's own project always asks before merging.</p>}
+      <div className="field" style={{ maxWidth: 220, marginTop: 8 }}>
+        <label htmlFor="wz-budget">Spending cap ($)</label>
+        <input
+          id="wz-budget" className="input" type="number" min={0} step="any" placeholder="No cap"
+          value={a.budget} onChange={(e) => dispatch({ type: "budget", value: e.target.value })}
+        />
+        <p className="small">The build stops and asks you when it has spent this much. Leave empty for no cap.</p>
+      </div>
       <span className="lbl" style={{ marginTop: 8 }}>After the build</span>
       <div className="rail choices">
         <SwitchRow

@@ -107,6 +107,7 @@ export function RunningView({ name, runId, mode }: Props) {
           <h2 className="h2 break-words" style={{ fontSize: 30 }}>{d.title || d.run_id}</h2>
           <p className="small">
             Started <RelativeTime iso={started} />
+            {d.budget_usd ? <> · <span data-testid="budget">${(d.spent_usd ?? d.usage.cost_usd ?? 0).toFixed(2)} of ${d.budget_usd.toFixed(2)}</span></> : null}
             {d.branch && <> · branch <span className="mono">{d.branch}</span></>}
             {d.image?.id && <> · image <span className="mono" title={`${d.image.tag} ${d.image.id}`} data-testid="image-id">{d.image.id.replace(/^sha256:/, "").slice(0, 12)}</span></>}
           </p>

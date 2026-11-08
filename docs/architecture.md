@@ -427,6 +427,7 @@ profile = "python-script"
 merge = "auto"                # auto | ask
 max_tries = 3                 # tries per task (harness spec 13); the one place this is set
 on_failure = "pause"          # continue | pause | delegate
+# budget_usd = 25             # spending cap in dollars; leave out for no cap (checked after every step)
 services = []                 # e.g. ["supabase", "resend"]
 safety_files = []             # paths flagged "changes safety code" on merge requests (updates spec 4)
 home_chat_may_answer = []     # gate kinds the Home chat may answer itself; default none
@@ -599,6 +600,11 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   - `once` steps (e.g. Check-writer, Red check) are skipped once all of them passed in earlier
     attempts; while any of them has not, they all run again (the failed attempt's checks commit is
     reset away, and the Check-writer prompt lists the earlier failures). attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
+- Spending cap (`budget_usd`, frozen in the run's settings.json): at every step boundary the runner
+  compares `usage.cost_usd` with the cap. When reached it opens a gate of kind `budget` ("Spending cap of
+  $X reached at $Y", held by `current.gate` only) with actions `raise` (answer field `by` = dollars, added to
+  the frozen cap) and `stop`. Usage-limit waits cost nothing, so they never count. `gates.may_answer` refuses
+  every `chat:*` caller on budget gates: Alex alone raises or stops.
 - The attempt loop (`phoenix9/runner.py` + `phoenix9/failmodes.py`, harness spec 13): a task runs
   attempts of its task steps. A failed attempt (a step `fail`, or a crash: "step <name> crashed: ...")
   adds its reasons to `failures` and is retried until `max_tries`, unless it was already escalated,

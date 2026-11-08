@@ -2,7 +2,7 @@
 from phoenix9.cli.output import show, table
 from phoenix9.ops import gates
 
-ACTIONS = ("approve", "back", "skip", "stop", "acknowledged")
+ACTIONS = ("approve", "back", "skip", "stop", "acknowledged", "raise")
 
 
 def add(sub, common) -> None:
@@ -19,6 +19,7 @@ def add(sub, common) -> None:
     p.add_argument("gate_id")
     p.add_argument("answer", choices=ACTIONS)
     p.add_argument("--note", default="", help="words for the step (needed for 'back')")
+    p.add_argument("--by", type=float, default=None, help="dollars to add to the cap (for 'raise')")
     p.set_defaults(func=answer)
 
 
@@ -32,7 +33,7 @@ def list_(args) -> int:
 
 def answer(args) -> int:
     """Answer a gate."""
-    r = gates.answer(args.gate_id, args.answer, note=args.note, who=args.who)
+    r = gates.answer(args.gate_id, args.answer, note=args.note, who=args.who, by=args.by)
     return show(args, r, f"Answered {args.gate_id}: {args.answer}.")
 
 

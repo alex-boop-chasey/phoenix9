@@ -110,10 +110,10 @@ def move_run_on(gate: dict, action: str) -> None:
 
 def answering_moves_run(answer, home: str):
     """Wrap the gate answer so the demo run moves on afterwards, only while PHOENIX_HOME is the demo home."""
-    def wrapped(gate_id, action, note="", who="cli"):
+    def wrapped(gate_id, action, note="", who="cli", by=None):
         from phoenix9 import gates as core
         gate = next((g for g in core.list_gates(open_only=False) if g["id"] == gate_id), None)
-        result = answer(gate_id, action, note, who)
+        result = answer(gate_id, action, note, who, by)
         if gate is not None and os.environ.get("PHOENIX_HOME") == home:
             move_run_on(gate, action)
         return result

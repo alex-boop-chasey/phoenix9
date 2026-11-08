@@ -12,8 +12,9 @@ class RunHasEnded(ValueError):
     """A gate cannot be opened: the run is already done, failed or stopped."""
 
 
-KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step")
+KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step", "budget")
 DEFAULT_ACTIONS = ["approve", "back", "skip", "stop"]
+BUDGET_ACTIONS = ["raise", "stop"]
 ESCALATION_ACTIONS = ["acknowledged", "skip", "stop"]
 
 
@@ -195,7 +196,7 @@ def _refuse_if_not_open(path: Path, gate: dict) -> None:
         raise NotOpen(f"Run {gate['run']} is not waiting on question {gate_id} any more.")
 
 
-def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> dict:
+def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli", by: float | None = None) -> dict:
     """Record the answer to an open gate; the runner reads it later and changes the run itself."""
     path = _find(gate_id)
     if path is None:
@@ -207,7 +208,12 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli") -> di
         raise ValueError(f"{action!r} is not allowed here; use one of {', '.join(gate['actions'])}")
     if action == "back" and not note.strip():
         raise ValueError("'back' needs a note saying what to change")
+    if action == "raise":
+        if isinstance(by, bool) or not isinstance(by, (int, float)) or not 0 < by < 1_000_000:
+            raise ValueError("'raise' needs the number of dollars to add, more than 0 (by)")
     result = {"action": action, "note": note, "who": who, "at": state.now()}
+    if action == "raise":
+        result["by"] = by
     atomic.write_json(answer_path, result)
     gate["answered"] = True
     atomic.write_json(path, gate)
@@ -282,8 +288,11 @@ def _merge_changed_since(gate: dict) -> bool:
 def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
     """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
 
+    A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the delegate session.
     The delegate session (chat:delegate) may always answer escalations: that is what it is started for.
     A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
+    if who.startswith("chat:") and gate.get("kind") == "budget":
+        return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
     if who.startswith("chat:") and gate.get("kind") == "merge" and (
             any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
         return False

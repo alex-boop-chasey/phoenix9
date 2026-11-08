@@ -91,7 +91,7 @@ def plan(project: str, overrides: dict | None = None) -> dict:
         table = eff.values.get("steps", {}).get(row["name"], {})
         ai = {k: settings._nested(table, k.split("."), None) for k in ai_keys} if row["kind"] == "ai" else None
         steps.append({**row, "ai": ai})
-    keys = ("preset", "based_on", "max_tries", "on_failure", "merge", "deploy")
+    keys = ("preset", "based_on", "max_tries", "on_failure", "budget_usd", "merge", "deploy")
     return {"groups": data["groups"], "steps": steps, "errors": errors,
             "settings": {k: eff.values.get(k) for k in keys}}
 
@@ -382,8 +382,15 @@ def detail(project: str, run_id: str) -> dict:
             max_tries = eff.get("max_tries")
         except settings.SettingsError:
             pass
+    cap = frozen.get("budget_usd") if frozen_plan else overrides.get("budget_usd")
+    if cap is None and not frozen_plan:
+        try:
+            cap = settings.effective(common.project_dir(project), common.library(), overrides or None).get("budget_usd")
+        except settings.SettingsError:
+            pass
+    spent = float((state.load(folder) or {}).get("usage", {}).get("cost_usd") or 0.0)
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
-            "preset": facts["preset"], "max_tries": max_tries,
+            "preset": facts["preset"], "max_tries": max_tries, "budget_usd": cap, "spent_usd": round(spent, 2),
             "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
 
 

@@ -7,6 +7,7 @@ import { GatesBody } from "./bodies/GatesBody"
 import { LogBody } from "./bodies/LogBody"
 import { ProjectsBody } from "./bodies/ProjectsBody"
 import { PrsBody } from "./bodies/PrsBody"
+import { RepairBody } from "./bodies/RepairBody"
 import { RunBody } from "./bodies/RunBody"
 import { SettingsPreviewBody } from "./bodies/SettingsPreviewBody"
 import { TableBody } from "./bodies/TableBody"
@@ -34,4 +35,5 @@ export const CARD_BODIES: Record<string, (props: CardBodyProps) => ReactElement>
   "settings-preview": SettingsPreviewBody,
   table: TableBody,
   chart: ChartBody,
+  repair: RepairBody,
 }

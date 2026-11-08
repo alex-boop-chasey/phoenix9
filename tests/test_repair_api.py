@@ -75,3 +75,35 @@ def test_apply_refused_while_runner_walks_409(api, phoenix_env, tmp_path):
     heartbeat.write(time.time())
     status, body = post(api, {"note": NOTE})
     assert status == 409 and "Stop it first" in body["message"]
+
+
+def test_repair_card_without_note(phoenix_env, tmp_path):
+    from phoenix9.ops import cards as ops_cards
+    rr.make_run(tmp_path)
+    card = ops_cards.build("repair", {"project": rr.PROJECT, "run": rr.RUN})
+    assert card["data"]["note"] is None and "failed" in card["data"]["status_line"]
+    assert isinstance(card["data"]["findings"], list)
+
+
+def test_repair_card_shows_note_and_dry_run(phoenix_env, tmp_path):
+    from phoenix9.ops import cards as ops_cards
+    made = rr.make_run(tmp_path)
+    notes = made["run_dir"] / "repairs/notes"
+    notes.mkdir(parents=True)
+    (notes / "1-put-it-right.md").write_text(NOTE)
+    card = ops_cards.build("repair", {"project": rr.PROJECT, "run": rr.RUN, "note": "1-put-it-right.md"})
+    note = card["data"]["note"]
+    assert note["name"] == "1-put-it-right.md" and note["text"] == NOTE
+    assert note["dry_run"]["dry_run"] is True and "steps" in note["dry_run"]
+    assert "## Result" not in (notes / "1-put-it-right.md").read_text()
+    assert not (made["run_dir"] / "repairs/1").exists()
+
+
+def test_repair_card_bad_note_and_run(phoenix_env, tmp_path):
+    import pytest
+    from phoenix9.ops import cards as ops_cards, common
+    rr.make_run(tmp_path)
+    with pytest.raises(common.NotFound):
+        ops_cards.build("repair", {"project": rr.PROJECT, "run": "nope"})
+    with pytest.raises(common.OpsError):
+        ops_cards.build("repair", {"project": rr.PROJECT, "run": rr.RUN, "note": "../x"})

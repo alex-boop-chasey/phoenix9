@@ -47,7 +47,7 @@ def _check_gate(project: str, gate: str) -> None:
 
 
 def _check_run(project: str, run: str) -> None:
-    if "/" in run or not (paths.runs(project) / run).is_dir():
+    if not runs_mod.RUN_ID_RE.fullmatch(run) or not (paths.runs(project) / run).is_dir():
         raise common.NotFound(f"{project} has no build '{run}'.")
 
 

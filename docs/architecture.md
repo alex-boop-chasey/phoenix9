@@ -1384,7 +1384,7 @@ an ordered param list. The two files hold the same list (`tests/test_routes.py` 
 params)` refuses unknown routes and params, a missing project, a gate that is not open, a missing run or log, a
 wizard slide outside 1-7, a settings key not in the schema and a section not allowed (project settings: `project`,
 `build`; Phoenix settings: `services`, `models`, `updates`, `addresses`). It returns `{hash, label}`; the label is a
-breadcrumb such as `test-site › Settings › Build`. A run is accepted when its folder exists.
+breadcrumb such as `test-site › Settings › Build`. A run is accepted when it matches the run-id pattern (`runs.RUN_ID_RE`, `YYYYMMDD-HHMMSS-slug`, so `..` or `logs` never pass) and its folder exists.
 
 ### Dashboard address and `phoenix nav`
 - `ops.app.dashboard_url()` returns env `PHOENIX_DASHBOARD_URL` (if a usable http(s) address), else the saved

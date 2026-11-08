@@ -12,6 +12,9 @@ def slugify(text: str, limit: int = 30) -> str:
     return slug or "run"
 
 
+RUN_ID_RE = re.compile(r"^\d{8}-\d{6}-[a-z0-9-]+$")  # what new_run_id makes (YYYYMMDD-HHMMSS-slug)
+
+
 def new_run_id(spec_title: str, now: datetime | None = None) -> str:
     """A run id: YYYYMMDD-HHMMSS-<spec-slug> in UTC."""
     now = now or datetime.now(timezone.utc)

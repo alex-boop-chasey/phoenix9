@@ -52,6 +52,10 @@ def test_run_and_wizard(proj):
     assert got["hash"] == f"#/p/demo/build?run={RUN}&wizard=3"
     with pytest.raises(common.NotFound, match="no build"):
         routes.resolve("p/demo/build", {"run": "nope"})
+    (paths.runs("demo") / "logs").mkdir(exist_ok=True)
+    for bad in ("..", ".", "logs", f"{RUN}/..", f"../demo/{RUN}", "20260101-000000-Demo"):
+        with pytest.raises(common.NotFound, match="no build"):
+            routes.resolve("p/demo/build", {"run": bad})
     for bad in (0, 8, "x"):
         with pytest.raises(common.OpsError, match="slides 1 to 7"):
             routes.resolve("p/demo/build", {"wizard": bad})

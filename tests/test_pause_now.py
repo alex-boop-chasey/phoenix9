@@ -16,12 +16,13 @@ from phoenix9.runner import Runner
 from test_runner import REPO, SPEC, add_ai_step, give_profile, lib, make_run, order, project  # noqa: F401  (fixtures)
 
 ONE_TASK = SPEC.split("## Task 2")[0]
+SESSION = "0b6f2c1e-4d3a-4f5b-9c8d-7e6f5a4b3c2d"   # Claude session ids are UUIDs
 
 
 class PausingClaude(FakeClaude):
     """A fake Claude whose first session is cut short by Pause now (like `phoenix run pause --now`)."""
 
-    def __init__(self, run_id_of, session_id="sess-1", keep_session_file=True):
+    def __init__(self, run_id_of, session_id=SESSION, keep_session_file=True):
         super().__init__()
         self.run_id_of, self.session_id, self.keep = run_id_of, session_id, keep_session_file
         self.pause_first = True
@@ -32,7 +33,7 @@ class PausingClaude(FakeClaude):
         self.calls.append(("launch", (), kw))
         (Path(kw["workspace"]) / "wip.txt").write_text("half done\n")          # work in progress
         if self.keep:
-            claude_dir = Path(kw["prompt_file"]).parent / "claude" / "-workspace"
+            claude_dir = Path(kw["prompt_file"]).parent / "claude" / kw["role"] / "-workspace"
             claude_dir.mkdir(parents=True)
             (claude_dir / f"{self.session_id}.jsonl").write_text("{}\n")
         ops_runs.pause(self.run_id_of(), now=True)                              # the container is stopped
@@ -68,7 +69,7 @@ def test_pause_stops_the_container_and_pauses_run_and_step(setup):
     assert st["status"] == "paused"
     assert adapters.docker.stopped == ["cid-1"] and "cid-1" not in adapters.docker.removed
     line = reviewer_line(run_dir)
-    assert line["status"] == "paused" and line["session_id"] == "sess-1"
+    assert line["status"] == "paused" and line["session_id"] == SESSION
     assert (paths.work("proj", run_dir.name) / "wip.txt").read_text() == "half done\n"   # worktree untouched
     assert pause.requested(run_dir) is None
     assert st["tasks"]["1"]["tries"] == 1
@@ -89,7 +90,7 @@ def test_resume_continues_the_same_session_and_is_not_a_new_try(setup):
     assert ops_runs.resume(run_dir.name)["status"] == "running"
     assert Runner(adapters, lib).drive(run_dir) == "done"
     first, second = [c[2] for c in adapters.claude.calls if c[0] == "launch"]
-    assert "resume_session" not in first and second["resume_session"] == "sess-1"
+    assert "resume_session" not in first and second["resume_session"] == SESSION
     text = Path(second["prompt_file"]).read_text()
     assert text.splitlines()[0] == "You were paused mid-step. Check the files you were changing, then carry on."
     assert "Review Task 1" in text
@@ -110,6 +111,36 @@ def test_missing_session_file_restarts_clean_and_says_so(setup):
     assert not (paths.work("proj", run_dir.name) / "wip.txt").exists()      # back to the attempt's base
     assert "Restarted clean" in reviewer_line(run_dir)["note"]
     assert state.load(run_dir)["tasks"]["1"]["tries"] == 1
+
+
+@pytest.mark.parametrize("bad", ["sess-1", "../../etc/x", "--help"])
+def test_a_session_id_that_is_not_a_uuid_restarts_clean(setup, bad):
+    run_dir, adapters, lib = setup
+    adapters.claude = PausingClaude(lambda: run_dir.name, session_id=bad, keep_session_file=False)
+    Runner(adapters, lib).drive(run_dir)
+    ops_runs.resume(run_dir.name)
+    assert Runner(adapters, lib).drive(run_dir) == "done"
+    second = [c[2] for c in adapters.claude.calls if c[0] == "launch"][1]
+    assert "resume_session" not in second
+    assert "Restarted clean" in reviewer_line(run_dir)["note"]
+
+
+def test_a_failed_resume_session_still_counts_its_cost(setup):
+    run_dir, adapters, lib = setup
+    Runner(adapters, lib).drive(run_dir)
+    before = state.load(run_dir)["usage"]["sessions"]
+    real = adapters.claude.launch
+
+    def launch(docker_, **kw):
+        if kw.get("resume_session"):
+            adapters.claude.calls.append(("launch", (), kw))
+            return Result(kind="error", text="No conversation found", cost_usd=0.4)
+        return real(docker_, **kw)
+    adapters.claude.launch = launch
+    ops_runs.resume(run_dir.name)
+    assert Runner(adapters, lib).drive(run_dir) == "done"
+    usage = state.load(run_dir)["usage"]
+    assert usage["sessions"] == before + 2 and usage["cost_usd"] >= 0.4
 
 
 def test_failed_resume_restarts_clean(setup):
@@ -173,7 +204,7 @@ def test_state_accepts_paused():
 
 def test_claude_folder_is_the_attempt_folder_and_mounted_as_projects(tmp_path):
     here = docker.transcript_dir("proj", "r1", 2, 3, "builder")
-    assert here == paths.runs("proj") / "r1" / "tasks" / "2" / "attempt-3" / "claude"
+    assert here == paths.runs("proj") / "r1" / "tasks" / "2" / "attempt-3" / "claude" / "builder"
     prompt = tmp_path / "p.md"
     prompt.write_text("x")
     paths.secrets().mkdir(parents=True)
@@ -184,8 +215,8 @@ def test_claude_folder_is_the_attempt_folder_and_mounted_as_projects(tmp_path):
 
 
 def test_resume_goes_on_the_claude_command_line():
-    cmd = build_command({"model": "m"}, "/p", "/workspace", resume="abc")
-    assert cmd[cmd.index("--resume") + 1] == "abc" and "--bare" not in cmd
+    cmd = build_command({"model": "m"}, "/p", "/workspace", resume=SESSION)
+    assert cmd[cmd.index("--resume") + 1] == SESSION and "--bare" not in cmd
     assert "--resume" not in build_command({"model": "m"}, "/p", "/workspace")
 
 

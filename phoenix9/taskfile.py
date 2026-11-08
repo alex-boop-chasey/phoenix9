@@ -20,9 +20,14 @@ def path(run_dir, n: int) -> Path:
     return Path(run_dir) / "tasks" / str(n) / "task.md"
 
 
-def _indent(text: str) -> str:
+def _indent(text: str, by: str = "    ") -> str:
     """Text indented so none of its lines can start at the left edge (it can never look like the notes line)."""
-    return "\n".join("    " + line for line in str(text).splitlines()) or "    "
+    return "\n".join(by + line for line in str(text).splitlines()) or by
+
+
+def _flat(text) -> str:
+    """Text on one line (no line breaks), so it can never start a line of its own."""
+    return " ".join(str(text or "").split())
 
 
 def _goal(run_dir: Path, n: int) -> str:
@@ -64,8 +69,9 @@ def render_top(run_dir, n: int) -> str:
     run_dir = Path(run_dir)
     st = state.load(run_dir)
     t = st["tasks"].get(str(n)) or {}
-    out = [f"# Task {n}: {scrub.scrub(t.get('title', ''))}", "", TOP_HINT, "",
-           "## Goal", "", scrub.scrub(_goal(run_dir, n)) or "(no goal written)", "",
+    goal = scrub.scrub(_goal(run_dir, n)).strip("\n")
+    out = [f"# Task {n}: {_flat(scrub.scrub(t.get('title', '')))}", "", TOP_HINT, "",
+           "## Goal", "", _indent(goal, "  ") if goal.strip() else "(no goal written)", "",
            "## Status", "", f"- Status: {t.get('status', 'pending')}",
            f"- Tries so far: {t.get('tries', 0)}"]
     if t.get("flagged"):
@@ -83,14 +89,18 @@ def render_top(run_dir, n: int) -> str:
 
 
 def read_notes(run_dir, n: int) -> str:
-    """Everything below the `## Fix notes` line (the only part Phoenix reads back), or ''."""
+    """Everything below the `## Fix notes` line (the only part Phoenix reads back), or ''.
+
+    Only the exact line Phoenix writes counts. Nothing in the top part can make that line: the title and
+    every reason are flattened to one line and the goal and check output are indented, so the first exact
+    match is always Phoenix's own."""
     try:
         text = path(run_dir, n).read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        if line.rstrip() == NOTES_HEADING:
+        if line == NOTES_HEADING:
             return "\n".join(lines[i + 1:]).strip("\n")
     return ""
 
@@ -111,10 +121,14 @@ def refresh(run_dir, n: int) -> None:
 
 
 def add_note(run_dir, n: int, who: str, text: str, when: str | None = None) -> None:
-    """Append a dated note under `## Fix notes` (who recorded it); text is scrubbed first."""
+    """Append a dated note under `## Fix notes` (who recorded it); text is scrubbed first.
+
+    The body is indented by two spaces, so a note can never make a line that looks like a heading
+    (a fake `### <date>, <who>` author line or a second notes line)."""
     run_dir = Path(run_dir)
     stamp = (when or state.now())[:16].replace("T", " ")
-    entry = f"### {stamp} UTC, {' '.join(str(who).split())}\n\n{scrub.scrub(text.strip())}\n"
+    body = _indent(scrub.scrub(text.strip("\n")), "  ")
+    entry = f"### {stamp} UTC, {_flat(who)}\n\n{body}\n"
     with state.Lock(run_dir / "task-file.lock", wait=10.0):
         old = read_notes(run_dir, n)
         _write(run_dir, n, (old + "\n\n" if old else "") + entry)

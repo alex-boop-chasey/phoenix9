@@ -263,7 +263,7 @@ class Claude:
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
                 spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env)
-            return cl.parse(log, rc)
+            return cl.parse(log, rc, model=model)
         return cl.run_with_fallback(ai, one)
 
     def __getattr__(self, name: str):

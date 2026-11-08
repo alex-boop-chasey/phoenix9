@@ -296,6 +296,15 @@ def commit(worktree: Path, message: str, trailers: dict, skip_env: bool = False,
     return head(worktree)
 
 
+FIX_BY_CHAT = re.compile(r"^Phoenix-Fix-By:\s*chat:", re.I | re.M)
+
+
+def has_chat_fix(code_dir: Path, base: str, tip: str) -> bool:
+    """True when any commit in base..tip carries a `Phoenix-Fix-By: chat:...` trailer (a fix by the Phoenix
+    agent or a project chat). Raises GitError when git cannot tell."""
+    return bool(FIX_BY_CHAT.search(git(Path(code_dir), "log", "--format=%B%x00", f"{base}..{tip}")))
+
+
 def passed_tasks(worktree: Path, base_sha: str) -> list[int]:
     """Return the task numbers that have a Phoenix-Task trailer in `git log base..HEAD`, sorted."""
     # ported from reference/v8/phoenix/git.py:679

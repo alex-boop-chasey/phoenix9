@@ -253,7 +253,8 @@ def poll(run_dir, gate_id: str) -> dict | None:
 FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
 FLAG_REPAIRED = "run was repaired"
 FLAG_NO_FULL_SUITE = "no full suite result"
-ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE)
+FLAG_CHANGED_BY_AGENT = "changed by the Phoenix agent"   # a commit on the run branch has `Phoenix-Fix-By: chat:...`
+ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_CHANGED_BY_AGENT)
 HANDOFF_FLAG = "handed to the Phoenix agent"      # on an escalation gate sent to the agent (failmodes.HANDOFF_FLAG)
 FINISHED_TASK = ("passed", "skipped")
 
@@ -283,7 +284,35 @@ def _merge_changed_since(gate: dict) -> bool:
         return True
     if any(t.get("status") not in FINISHED_TASK for t in (st.get("tasks") or {}).values()):
         return True
-    return run_repaired(run_dir)
+    if run_repaired(run_dir):
+        return True
+    return _changed_by_chat(project, run, gate.get("head"))
+
+
+def _changed_by_chat(project: str, run: str, head: str | None) -> bool:
+    """True (refuse) when the run branch, or the commit the question was about, has a commit made for a chat
+    (`Phoenix-Fix-By: chat:...`) since it left main, or when git cannot tell."""
+    from phoenix9 import git as gitmod
+    code = paths.projects() / project / "code"
+    try:
+        main = gitmod.default_branch(code)
+        tips = [gitmod.branch_name(run)] + ([str(head)] if head else [])
+        checked = 0
+        for tip in tips:
+            if tip.startswith("-"):
+                return True
+            if gitmod.run_git(code, "rev-parse", "--verify", "--quiet", f"{tip}^{{commit}}",
+                              check=False).returncode != 0:
+                if tip == head:
+                    return True
+                continue                       # the branch may be gone (merged and deleted); the head still counts
+            base = gitmod.git(code, "merge-base", main, tip).strip()
+            checked += 1
+            if gitmod.has_chat_fix(code, base, tip):
+                return True
+        return checked == 0
+    except Exception:  # noqa: BLE001 - when git cannot tell, a chat may not answer
+        return True
 
 
 def may_answer(gate: dict, who: str, project_settings: dict, action: str | None = None) -> bool:
@@ -292,7 +321,8 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
     A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the home chat.
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
     flag "handed to the Phoenix agent" (set when a failed task is handed to it).
-    A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
+    A merge question flagged for a repair, a missing full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
+    commit on the run branch, checked live) is Alex's alone: chat:* callers never."""
     if who.startswith("chat:") and gate.get("kind") == "budget":
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
     if who.startswith("chat:") and gate.get("kind") == "merge" and (

@@ -164,7 +164,7 @@ def test_project_repo_from_project_json(capsys, demo):
 
 def test_who_is_recorded(capsys, demo):
     run_cmd(capsys, "settings", "set", "demo", "max_tries=4", "--who", "chat:abc")
-    run_cmd(capsys, "--who", "chat:def", "settings", "preset", "demo", "simple")
+    run_cmd(capsys, "--who", "chat:def", "settings", "preset", "demo", "quick")   # a preset that changes no safety setting (Simple would turn Verify off: chats are refused)
     lines = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
     assert [(x["who"], x["project"]) for x in lines] == [("chat:abc", "demo"), ("chat:def", "demo")]
     events = [json.loads(x) for x in paths.events().read_text().splitlines()]

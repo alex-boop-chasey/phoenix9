@@ -343,11 +343,17 @@ def claude_env_file() -> Path:
 
 
 def transcript_dir(project: str, run_id: str, task: int | str, attempt: int, role: str = "") -> Path:
-    """Return runs/<project>/<run>/tasks/<task>/attempt-<k>/claude/, where the session files are kept.
+    """Return runs/<project>/<run>/tasks/<task>/attempt-<k>/claude/<role>/, where the session files are kept.
 
-    It lives in the attempt folder (not per role) so a paused step can continue its Claude session
-    in a fresh container (Pause now / Resume); session ids never clash, so roles can share it."""
-    return paths.runs(project) / run_id / "tasks" / str(task) / f"attempt-{attempt}" / "claude"
+    It lives in the attempt folder so a paused step can continue its Claude session in a fresh container
+    (Pause now / Resume). Each role has its own subfolder, so one step's sessions (the builder's) are never
+    mounted into another step's container (the reviewer's)."""
+    base = paths.runs(project) / run_id / "tasks" / str(task) / f"attempt-{attempt}" / "claude"
+    if not role:
+        return base
+    if "/" in role or role.startswith(".") or role != role.strip():
+        raise ValueError(f"bad role name: {role!r}")
+    return base / role
 
 
 def log_path(project: str, run_id: str, task: int | str, attempt: int, role: str, ext: str) -> Path:

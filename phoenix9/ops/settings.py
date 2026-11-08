@@ -1,4 +1,12 @@
-"""Ops for a project's settings: show, set, preset, explain and check."""
+"""Ops for a project's settings: show, set, preset, explain and check.
+
+A chat caller (who = chat:*, the Phoenix agent or a project chat) may not change a safety setting here
+(`is_safety_key`: the spending cap, what happens when a task fails, sites, diff rules, safety files,
+services, tools, MCP, safety steps...). Alex changes those himself in Settings (the dashboard) or the CLI."""
+import shutil
+import tempfile
+from pathlib import Path
+
 from phoenix9 import events, resolve, settings as core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
@@ -18,9 +26,24 @@ def show(project: str) -> dict:
     return {"project": project, "values": eff.values, "source": eff.source}
 
 
+def _is_chat(who) -> bool:
+    return str(who or "").startswith("chat:")
+
+
+def _refuse_chat_safety(who, keys, lib=None) -> None:
+    """Raise OpsError when a chat caller tries to change any safety key."""
+    if not _is_chat(who):
+        return
+    lib = lib or common.library()
+    hit = sorted(k for k in keys if is_safety_key(k, lib))
+    if hit:
+        raise OpsError(f"'{who}' may not change {', '.join(hit)}. {SAFETY_REASON}")
+
+
 def set(project: str, key: str, value: str, who: str = "cli") -> dict:
     """Set one key (like steps.builder.model) in the project's phoenix.toml."""
     folder = common.project_dir(project)
+    _refuse_chat_safety(who, [key])
     try:
         core.set_value(folder, key, value, common.library())
     except core.SettingsError as err:
@@ -33,6 +56,7 @@ def set(project: str, key: str, value: str, who: str = "cli") -> dict:
 def change_list(project: str, key: str, item: str, add: bool, who: str = "cli") -> dict:
     """Add one item to (or remove it from) a list setting such as safety_files or services."""
     folder = common.project_dir(project)
+    _refuse_chat_safety(who, [key])
     try:
         value = core.change_list(folder, key, item, add, common.library())
     except core.SettingsError as err:
@@ -47,6 +71,7 @@ def change_list(project: str, key: str, item: str, add: bool, who: str = "cli") 
 def set_many(project: str, values: dict, who: str = "cli") -> dict:
     """Set several keys (typed values by dotted path) at once; nothing is written unless all are fine."""
     folder = common.project_dir(project)
+    _refuse_chat_safety(who, list(values or {}))
     try:
         core.set_values(folder, values, common.library())
     except core.SettingsError as err:
@@ -64,6 +89,9 @@ def save_defaults(project: str, overrides: dict, who: str = "cli") -> dict:
     rest = dict(overrides or {})
     name = rest.pop("preset", None)
     flat = core._flatten(rest)
+    _refuse_chat_safety(who, list(flat))
+    if name is not None and _is_chat(who):
+        _refuse_chat_preset(folder, name, who)
     try:
         lib = common.library()
         problems = core.flat_problems(flat, lib)
@@ -83,6 +111,8 @@ def save_defaults(project: str, overrides: dict, who: str = "cli") -> dict:
 def preset(project: str, name: str, who: str = "cli") -> dict:
     """Choose a preset for the project."""
     folder = common.project_dir(project)
+    if _is_chat(who):
+        _refuse_chat_preset(folder, name, who)
     try:
         core.apply_preset(folder, name, common.library())
     except core.SettingsError as err:
@@ -90,6 +120,26 @@ def preset(project: str, name: str, who: str = "cli") -> dict:
     events.emit("settings.changed", project=project, who=who, key="preset")
     common.record_command(who, f"settings preset {project} {name}", project, f"chose the {name} preset")
     return {"project": project, "preset": name}
+
+
+def _refuse_chat_preset(folder, name: str, who: str) -> None:
+    """A chat may choose a preset only when it changes no safety setting (e.g. Simple turns Verify off)."""
+    lib = common.library()
+    with tempfile.TemporaryDirectory(prefix="phoenix-preset-") as tmp:
+        src = core.project_file(folder)
+        if Path(src).exists():
+            shutil.copy(src, core.project_file(tmp))
+        try:
+            before = core.effective(tmp, lib).values
+            core.apply_preset(tmp, name, lib)
+            after = core.effective(tmp, lib).values
+        except core.SettingsError as err:
+            _fail(err)
+    flat_before, flat_after = core._flatten(before), core._flatten(after)
+    changed = [k for k in sorted({*flat_before, *flat_after})
+               if flat_before.get(k) != flat_after.get(k) and is_safety_key(k, lib)]
+    if changed:
+        raise OpsError(f"'{who}' may not choose the {name} preset: it changes {', '.join(changed)}. {SAFETY_REASON}")
 
 
 def explain(project: str) -> dict:
@@ -108,7 +158,8 @@ def check(project: str) -> dict:
     return {"project": project, "ok": not problems, "problems": problems}
 
 
-SAFETY_TOP = ("budget_usd", "domains", "diff", "safety_files", "services", "home_chat_may_answer", "profile")
+SAFETY_TOP = ("budget_usd", "on_failure", "domains", "diff", "safety_files", "services", "home_chat_may_answer",
+              "profile")
 SAFETY_WORDS = ("tool", "mcp")
 SAFETY_REASON = "This is a safety setting: change this in Settings yourself."
 

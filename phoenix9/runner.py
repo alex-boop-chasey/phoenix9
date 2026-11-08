@@ -122,6 +122,8 @@ class Runner:
             return self._end(run_dir, "stopped", who=asked.get("who") or "cli")
         if st["status"] == "paused":                   # only Resume (ops.runs.resume) puts a paused run back
             return "paused"
+        if st["status"] != "running":     # waiting or queued: no step of it was running, so no pause is due
+            pause.drop_stale(run_dir, st["project"], st["run_id"], f"the run was {st['status']}")
         if st["status"] == "waiting":
             gate_id = (st.get("current") or {}).get("gate") or _adopt_gate_held(run_dir)
             if gate_id and gates.current_answer(run_dir) is None:
@@ -152,6 +154,8 @@ class Runner:
                 runend.check(run_dir)
                 self._skip_all(run_dir, state.load(run_dir))
                 return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
+            if outcome == "waiting":           # the step that a pause was meant for has ended
+                pause.drop_stale(run_dir, project, run_id, "the run was waiting for an answer")
             if outcome != "waiting" or gates.current_answer(run_dir) is None:
                 break
             runend.check(run_dir)
@@ -552,7 +556,8 @@ class Runner:
     def _spending_cap(self, run_dir: Path, setup: dict) -> Outcome | None:
         """The spending cap, checked at every step boundary (the end of the step before). Returns None to go on;
         waiting while its `budget` question is open; stopped when Alex answered stop. `raise` adds to the frozen cap.
-        Cost is the sum of finished Claude sessions (usage.cost_usd), so a usage-limit wait adds nothing."""
+        Cost is the sum of finished Claude sessions (usage.cost_usd), so a usage-limit wait adds nothing. A session
+        whose cost could not be worked out (usage.unknown_cost_sessions) asks Alex too, instead of counting $0."""
         cap = setup["settings"].get("budget_usd")
         st = state.load(run_dir)
         held = (st.get("current") or {}).get("gate")
@@ -565,12 +570,24 @@ class Runner:
             if answer["action"] == "stop":
                 return Outcome("stopped")
             cap = raise_cap(run_dir, setup, answer.get("by"))
-        spent = float((st.get("usage") or {}).get("cost_usd") or 0.0)
-        if not cap or spent < cap:
+            _ack_unknown_cost(run_dir)              # Alex has seen the sessions whose cost is unknown
+            st = state.load(run_dir)
+        usage = st.get("usage") or {}
+        spent = float(usage.get("cost_usd") or 0.0)
+        unknown = int(usage.get("unknown_cost_sessions") or 0) - int(usage.get("unknown_cost_seen") or 0)
+        if not cap:
             return None
-        _open_gate(run_dir, ("run",), kind="budget", title="Spending cap reached",
-                   why=f"Spending cap of ${cap:.2f} reached at ${spent:.2f}. Raise the cap to carry on, or stop.",
-                   actions=gates.BUDGET_ACTIONS)
+        if spent < cap and unknown <= 0:
+            return None
+        if spent >= cap:
+            why = f"Spending cap of ${cap:.2f} reached at ${spent:.2f}. Raise the cap to carry on, or stop."
+            title = "Spending cap reached"
+        else:
+            why = (f"The cost of {unknown} AI session{'s' if unknown != 1 else ''} could not be worked out "
+                   f"(it stopped before saying), so ${spent:.2f} of the ${cap:.2f} cap is a low guess. "
+                   "Raise the cap to carry on, or stop.")
+            title = "Spending unknown"
+        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS)
         return Outcome("waiting")
 
     def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
@@ -768,6 +785,14 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
     return gate
 
 
+def _ack_unknown_cost(run_dir) -> None:
+    """A budget question was answered: the sessions with an unknown cost so far no longer ask again."""
+    def change(s):
+        usage = s.setdefault("usage", {"cost_usd": 0.0, "sessions": 0})
+        usage["unknown_cost_seen"] = int(usage.get("unknown_cost_sessions") or 0)
+    state.update(Path(run_dir), change)
+
+
 def raise_cap(run_dir, setup: dict, by) -> float:
     """Add `by` dollars to the run's frozen cap (settings.json and the live settings) and return the new cap."""
     run_dir = Path(run_dir)
@@ -881,6 +906,7 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
                 extra_env=stepproxy.container_env(ctx.proxies), **more)
     session = launch(resume_id)
     if resume_id and session.kind in ("error", "crashed") and pause.requested(ctx.run.folder) is None:
+        claude_mod.record_usage(ctx.run.folder, session)   # the failed --resume session still cost something
         _restart_clean(ctx, out_prompt, prompt_text)       # --resume failed: start the step again from the base
         session = launch()
     asked = pause.requested(ctx.run.folder)
@@ -931,7 +957,7 @@ def _resume_id(ctx: StepContext, attempt_dir: Path, prompt_file: Path, prompt_te
     if ctx.resume is None:
         return None
     session_id = ctx.resume.get("session_id") or ""
-    if pause.session_file(attempt_dir, session_id) is None:
+    if not pause.valid_session_id(session_id) or pause.session_file(attempt_dir, session_id, ctx.step.name) is None:
         _restart_clean(ctx, prompt_file, prompt_text)
         return None
     prompt_file.write_text(f"{pause.RESUME_LINE}\n\n{prompt_text}", encoding="utf-8")

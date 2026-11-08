@@ -105,6 +105,10 @@ def _flags(ctx, tasks, base, branch):
     if repaired(ctx.run.folder):
         flags.append(gates.FLAG_REPAIRED)
         why.append("this run was repaired")
+    log = ctx.adapters.git.git(ctx.project.code_dir, "log", "--format=%B%x00", f"{base}..{branch}")
+    if gitmod.FIX_BY_CHAT.search(log):
+        flags.append(gates.FLAG_CHANGED_BY_AGENT)
+        why.append("the Phoenix agent (or a project chat) changed the code of this run")
     names = ctx.adapters.git.git(ctx.project.code_dir, "diff", "--name-only", f"{base}..{branch}").split("\n")
     globs = ctx.project.settings.get("safety_files") or []
     hit = [n for n in names if n and matches_safety(n, globs)]

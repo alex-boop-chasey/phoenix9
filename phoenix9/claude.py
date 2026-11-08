@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Callable
 from zoneinfo import ZoneInfo
 
-from phoenix9 import atomic, paths, state
+from phoenix9 import atomic, paths, pause, prices, state
 from phoenix9.docker import Mount
 from phoenix9.scrub import Scrubber, read_env_file, scrub
 
@@ -84,6 +84,8 @@ class Result:
     resets_at: datetime | None = None
     raw_path: Path | None = None    # the stream-json log the result was read from
     model: str = ""                 # the model this session was started with (set by run_with_fallback)
+    cost_known: bool = True         # False: no result line and no token counts, so the cost could not be worked out
+    cost_estimated: bool = False    # True: cost worked out from the token counts (no trustworthy result line)
 
 
 # ------------------------------------------------------------- command line
@@ -98,6 +100,8 @@ def build_command(ai: dict, prompt_file, cwd, system_prompt_file=None, mcp_confi
     """
     claude = ["claude", "-p", "--output-format", "stream-json", "--verbose"]
     if resume:
+        if not pause.valid_session_id(str(resume)):
+            raise ValueError("a session to continue must be named by its UUID")
         claude += ["--resume", str(resume)]
     if ai.get("model"):
         claude += ["--model", str(ai["model"])]
@@ -260,6 +264,49 @@ def session_id_in_log(out_file) -> str:
     return ""
 
 
+def estimate_cost(out_file, model: str = "") -> float | None:
+    """Work out a session's cost from the token counts in its stream log, or None when it has none.
+
+    Used when there is no trustworthy result line (Pause now, a timeout, a crash). Every assistant message
+    carries a `usage` block; one message is written as several lines (one per content block) with the same
+    id, so each message id is counted once, with its largest numbers. A resumed session's reloaded context
+    is in the input and cache numbers of its first messages, so it is counted too. Prices come from
+    phoenix9/prices.py, by the message's own model (else `model`, else the most expensive known)."""
+    seen: dict[str, tuple[str, dict]] = {}
+    found = False
+    try:
+        with open(out_file, "rb") as f:
+            for i, line in enumerate(f):
+                if b'"usage"' not in line or len(line) > MAX_LINE:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except (json.JSONDecodeError, UnicodeError):
+                    continue
+                if not isinstance(obj, dict) or obj.get("type") != "assistant":
+                    continue
+                msg = obj.get("message")
+                if not isinstance(msg, dict) or not isinstance(msg.get("usage"), dict):
+                    continue
+                found = True
+                key = str(msg.get("id") or f"line-{i}")
+                usage = msg["usage"]
+                old = seen.get(key)
+                if old is not None:
+                    usage = {k: max(_num(old[1].get(k)), _num(usage.get(k)))
+                             for k in set(old[1]) | set(usage)}
+                seen[key] = (str(msg.get("model") or model or ""), usage)
+    except OSError:
+        return None
+    if not found:
+        return None
+    return round(sum(prices.cost(m, u) for m, u in seen.values()), 6)
+
+
+def _num(v) -> float:
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else 0.0
+
+
 def _is_rate_limited(raw: dict, text: str) -> bool:
     """Return True if the result says a usage limit was hit (general words only count in short error text)."""
     if HIT_LIMIT.search(text) and RESETS.search(text):
@@ -288,11 +335,13 @@ def _classify(raw: dict, rc: int, text: str) -> str:
 
 
 def parse(out_file: Path, rc: int = 0, stderr_file: Path | None = None,
-          now: float | None = None, tz: str = "UTC") -> Result:
+          now: float | None = None, tz: str = "UTC", model: str = "") -> Result:
     """Read a stream-json log and return what the session ended with.
 
     Only the single final `type: result` line counts; no result, an extra result line or a cut-off
     log is `crashed`. `now` and `tz` are used to read a reset time like "resets 3:45pm".
+    The cost is the result line's total; without one it is worked out from the log's token counts
+    (`estimate_cost`, priced by `model` when a message names none), or marked unknown (`cost_known`).
     """
     out_file = Path(out_file)
     raw = _read_result(out_file)
@@ -307,9 +356,17 @@ def parse(out_file: Path, rc: int = 0, stderr_file: Path | None = None,
     if kind == "rate_limited":
         stamp = parse_resets_at(text, tz=tz, now=now)
         resets_at = datetime.fromtimestamp(stamp, timezone.utc) if stamp is not None else None
+    total = raw.get("total_cost_usd")
+    cost, known, estimated = 0.0, True, False
+    if isinstance(total, (int, float)) and not isinstance(total, bool) and total >= 0:
+        cost = float(total)
+    else:                       # no trustworthy result line: work it out from the token counts
+        guess = estimate_cost(out_file, model)
+        estimated = guess is not None
+        cost, known = (guess, True) if guess is not None else (0.0, False)
     return Result(kind=kind, text=text, session_id=str(raw.get("session_id") or ""),
-                  cost_usd=float(raw.get("total_cost_usd") or 0.0), turns=int(raw.get("num_turns") or 0),
-                  resets_at=resets_at, raw_path=out_file)
+                  cost_usd=cost, turns=int(raw.get("num_turns") or 0),
+                  resets_at=resets_at, raw_path=out_file, cost_known=known, cost_estimated=estimated)
 
 
 # ------------------------------------------------------------- reset time parsing
@@ -468,11 +525,15 @@ def run_with_fallback(ai: dict, launch: Callable[[str], Result]) -> Result:
     """
     models = [m for m in [ai.get("model"), *(ai.get("fallback_models") or [])] if m]
     result = Result(kind="error", text="no model configured")
+    spent, known = 0.0, True               # what the tries before this one cost (counted on the last result)
     for model in models:
         result = launch(model)
         result.model = model
+        result.cost_usd = round(result.cost_usd + spent, 6)
+        result.cost_known = result.cost_known and known
         if result.kind != "model_unavailable":
             return result
+        spent, known = result.cost_usd, result.cost_known
     return result
 
 
@@ -512,13 +573,20 @@ def wait_for_limit(result: Result, probe: Callable[[], Result], now: Callable[[]
 # ------------------------------------------------------------- usage records
 def record_usage(run_dir, result: Result, attempt_dir=None) -> None:
     """Add one session to the run's state.json `usage` and, if given, write the attempt's result.json."""
+    known = getattr(result, "cost_known", True)
+
     def change(s):
         usage = s.setdefault("usage", {"cost_usd": 0.0, "sessions": 0})
         usage["cost_usd"] = round(float(usage.get("cost_usd") or 0.0) + result.cost_usd, 6)
         usage["sessions"] = int(usage.get("sessions") or 0) + 1
+        if getattr(result, "cost_estimated", False):
+            usage["estimated_sessions"] = int(usage.get("estimated_sessions") or 0) + 1
+        if not known:           # the spending cap asks Alex instead of counting this session as $0
+            usage["unknown_cost_sessions"] = int(usage.get("unknown_cost_sessions") or 0) + 1
     state.update(Path(run_dir), change)
     if attempt_dir is not None:
         atomic.write_json(Path(attempt_dir) / "result.json", {
             "at": state.now(), "kind": result.kind, "model": result.model, "session_id": result.session_id,
-            "cost_usd": result.cost_usd, "turns": result.turns, "text": scrub(result.text)[-2000:],
+            "cost_usd": result.cost_usd, "cost_known": known,
+            "cost_estimated": bool(getattr(result, "cost_estimated", False)), "turns": result.turns, "text": scrub(result.text)[-2000:],
             "resets_at": result.resets_at.isoformat() if result.resets_at else None})

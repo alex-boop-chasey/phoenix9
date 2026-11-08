@@ -688,12 +688,12 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped command`.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
-  `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set).
+  `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set); `run.pause.dropped {who, reason}` when a Pause now request is thrown away because the run ended, waited for an answer or was queued (it never pauses a run later by surprise).
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
   previous, who}`, `update.rolledback {tag, previous, result: rolled-back|rolled-back-unhealthy|

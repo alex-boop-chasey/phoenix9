@@ -334,3 +334,26 @@ def test_failed_merge_keeps_the_worktree(world):
     with pytest.raises(Exception):
         load("merge").run(ctx)
     assert ctx.worktree.exists()
+
+
+def test_a_fix_by_a_chat_switches_auto_to_ask_with_an_alex_only_flag(world):
+    from phoenix9 import gates
+    ctx, _, _ = world
+    (ctx.worktree / "c.txt").write_text("c\n")
+    git(ctx.worktree, "add", "-A")
+    git(ctx.worktree, "commit", "-q", "-m", "Outside fix before retry of task 1\n\nPhoenix-Fix-By: chat:home")
+    gh(ctx, ["pr", "create"], out=URL + "\n")
+    result = load("merge").run(ctx)
+    assert result.status == "gate" and gates.FLAG_CHANGED_BY_AGENT in result.gate["flags"]
+    assert "Phoenix agent" in result.gate["why"]
+
+
+def test_a_fix_by_alex_is_not_flagged(world):
+    from phoenix9 import gates
+    ctx, _, _ = world
+    (ctx.worktree / "c.txt").write_text("c\n")
+    git(ctx.worktree, "add", "-A")
+    git(ctx.worktree, "commit", "-q", "-m", "Outside fix\n\nPhoenix-Fix-By: dashboard")
+    result = load("merge").run(ctx)
+    assert result.status == "pass"
+    assert gates.FLAG_CHANGED_BY_AGENT not in (result.gate or {}).get("flags", [])

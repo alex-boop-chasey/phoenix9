@@ -16,8 +16,9 @@ def waiting_at_clean_merge(tmp_path):
     state.update(r["run_dir"], lambda s: s.update(tasks={"1": {**state.new_task("One"), "status": "passed"}},
                                                   steps=[]))
     (paths.projects() / r["project"] / "phoenix.toml").write_text('home_chat_may_answer = ["merge"]\n')
+    head = git(r["code"], "rev-parse", f"phoenix/{r['run']}").strip()
     gate = gates.open_gate(r["run_dir"], kind="merge", title="Merge?", why="all fine",
-                           actions=["approve", "back", "skip", "stop"], flags=[], head="abc", task_statuses={"1": "passed"})
+                           actions=["approve", "back", "skip", "stop"], flags=[], head=head, task_statuses={"1": "passed"})
     state.update(r["run_dir"], lambda s: s.setdefault("current", {}).update(gate=gate["id"]))
     return r, gate
 
@@ -25,7 +26,7 @@ def waiting_at_clean_merge(tmp_path):
 def test_gate_file_keeps_the_head_and_task_statuses(tmp_path):
     r, gate = waiting_at_clean_merge(tmp_path)
     saved = gates.read(r["run_dir"], gate["id"])
-    assert saved["head"] == "abc" and saved["task_statuses"] == {"1": "passed"}
+    assert len(saved["head"]) == 40 and saved["task_statuses"] == {"1": "passed"}
 
 
 def test_chat_may_answer_a_clean_merge_question(tmp_path):

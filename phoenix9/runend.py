@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from phoenix9 import atomic, events, gates, runs as runs_mod, state, summary
+from phoenix9 import atomic, events, gates, pause, runs as runs_mod, state, summary
 
 ENDED = ("done", "failed", "stopped")
 TASK_FINAL = ("passed", "failed", "skipped")
@@ -98,6 +98,7 @@ def end_run(run_dir, status: str, *, reason: str = "", who: str = "phoenix", ada
             s["error"] = reason
     state.update(run_dir, tidy)
     gates.close_questions(run_dir, f"run {status}", who=who)   # before the slow work: nothing is left to adopt
+    pause.drop_stale(run_dir, st["project"], st["run_id"], f"run {status}")   # an ended run never pauses
     if status == "stopped" and after_stop is not None:
         after_stop()
     notes = runs_mod.discard_branch(adapters, st["project"], st["run_id"]) \

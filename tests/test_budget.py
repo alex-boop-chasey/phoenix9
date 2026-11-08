@@ -109,3 +109,34 @@ def test_agent_rule_and_safety_key():
     rules = (Path(__file__).resolve().parent.parent / "deploy" / "agent" / "agent-rules.md").read_text()
     assert "Never raise a build's spending cap" in rules
     assert settings.PROJECT_SCHEMA["budget_usd"].default is None
+
+
+def test_a_session_with_unknown_cost_asks_instead_of_counting_nothing(tmp_path, project, adapters, lib):  # noqa: F811
+    run_dir = make_run(tmp_path, overrides={"budget_usd": 2.5})
+    state.update(run_dir, lambda s: s["usage"].update(unknown_cost_sessions=1))
+    runner = Runner(adapters, lib)
+    assert runner.drive(run_dir) == "waiting"
+    gate = budget_gate()
+    assert gate["title"] == "Spending unknown" and "could not be worked out" in gate["why"]
+    gates.answer(gate["id"], "raise", by=1, who="dashboard")
+    assert runner.drive(run_dir) == "done"                  # seen once: it does not ask again
+    assert len([g for g in gates.list_gates(open_only=False) if g["kind"] == "budget"]) == 1
+
+
+def test_unknown_cost_without_a_cap_just_carries_on(tmp_path, project, adapters, lib):  # noqa: F811
+    run_dir = make_run(tmp_path)
+    state.update(run_dir, lambda s: s["usage"].update(unknown_cost_sessions=2))
+    assert Runner(adapters, lib).drive(run_dir) == "done"
+    assert not gates.list_gates()
+
+
+def test_a_pause_request_left_while_the_run_waited_never_pauses_it_later(tmp_path, project, adapters, lib):  # noqa: F811
+    from phoenix9 import events, pause, paths
+    run_dir = make_run(tmp_path, overrides={"budget_usd": 2.5}, script=COSTLY)
+    runner = Runner(adapters, lib)
+    assert runner.drive(run_dir) == "waiting"
+    pause.request(run_dir, "dashboard")                     # slipped in just as the run went waiting
+    gates.answer(budget_gate()["id"], "raise", by=10, who="dashboard")
+    assert runner.drive(run_dir) == "done"                  # not paused by surprise
+    assert pause.requested(run_dir) is None
+    assert "run.pause.dropped" in [e["type"] for e in events.read(paths.events())]

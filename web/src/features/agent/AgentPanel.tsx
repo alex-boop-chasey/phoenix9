@@ -8,6 +8,7 @@ import { useAgentMessages, useAgentStatus, useEarlierSession, type AgentState } 
 import { Composer } from "@/features/agent/Composer"
 import { ContextChip } from "@/features/agent/ContextChip"
 import { MessageList } from "@/features/agent/messages"
+import type { UiMove } from "@/features/agent/uiGo"
 import { readWide, writeWide } from "@/features/agent/panelState"
 
 const LOOK: Record<AgentState, { cls: string; word: string }> = {
@@ -29,7 +30,9 @@ function StatusPill() {
 }
 
 /** The slide-in Phoenix agent panel; focus goes to the message box on open and back to `opener` on close. */
-export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null> }) {
+export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
+  open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; moved?: UiMove | null; onBack?: () => void
+}) {
   const statusQ = useAgentStatus()
   const status = statusQ.data
   const threadQ = useAgentMessages()
@@ -82,6 +85,12 @@ export function AgentPanel({ open, onClose, opener }: { open: boolean; onClose: 
         </div>
       </div>
       {offline && <p className="ag-banner" role="alert">Phoenix is not answering. The Phoenix agent will show here when it is back.</p>}
+      {moved && (
+        <p className="ag-banner" role="status" data-testid="agent-moved">
+          <span>Moved to {moved.label}</span>
+          <button className="btn btn-sm" onClick={onBack}>Back</button>
+        </p>
+      )}
       {viewing === null && !offline && !asleep && <ContextChip on={contextOn} onChange={setContextOn} />}
       {viewing !== null && (
         <div className="ag-banner" role="status">

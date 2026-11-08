@@ -7,6 +7,7 @@ import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
 import { AgentPanel } from "@/features/agent/AgentPanel"
 import { useAgentAlerts } from "@/features/agent/alerts"
+import { useUiGo } from "@/features/agent/uiGo"
 import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { useInfo, useProjects } from "@/lib/queries"
@@ -23,7 +24,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [wire, setWire] = useState(false)
   const unread = useAgentAlerts(drawer, () => setDrawer(true))
   const agentBtn = useRef<HTMLButtonElement>(null)
-  useLiveEvents()
+  const go = useUiGo(drawer)
+  useLiveEvents(undefined, go.onEvent)
 
   const current = matchPath("/p/:name/*", pathname)?.params.name ?? matchPath("/p/:name", pathname)?.params.name
   const update = info?.update
@@ -111,7 +113,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className={(drawer && phone) || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
-      <AgentPanel open={drawer} onClose={closeDrawer} opener={agentBtn} />
+      <AgentPanel open={drawer} onClose={closeDrawer} opener={agentBtn} moved={go.moved} onBack={go.back} />
       <div className={sheet ? "sheet open" : "sheet"} role="dialog" aria-label="Choose a project" aria-hidden={!sheet}>
         <div className="grab" />
         <div className="sw-head">

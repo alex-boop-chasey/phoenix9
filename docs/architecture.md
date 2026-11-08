@@ -1401,3 +1401,4 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
   `{hash, label, by: "agent"}` on the global stream, and records a `command` event. `phoenix ui go <to> [--param k=v ...]`
   and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
   only through the `projects` route params (`q`, `status`, ...).
+- Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (`features/agent/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.

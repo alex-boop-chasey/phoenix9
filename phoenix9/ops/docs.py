@@ -12,7 +12,7 @@ SUFFIXES = (".md", ".txt")
 MAX_BYTES = 1_000_000          # a longer document is cut here
 MAX_LISTED = 200
 TITLE_BYTES = 4096             # list() reads only this much of each file to find its title
-SKIP_DIRS = ("logs", "gates", ".git")
+SKIP_DIRS = ("logs", "gates", ".git")  # never served, nor any folder whose name starts with "."
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
@@ -30,6 +30,11 @@ def _relative(rest: str, id_: str) -> Path:
     if not parts[-1].lower().endswith(SUFFIXES):
         raise OpsError("Only .md and .txt documents can be shown.")
     return Path(*parts)
+
+
+def _skipped(rel: Path) -> bool:
+    """True when a document sits in a folder that is never served (logs/, gates/, .git/ or any dot folder)."""
+    return any(p in SKIP_DIRS or p.startswith(".") for p in rel.parts[:-1])
 
 
 def _base(kind: str, owner: str) -> Path:
@@ -51,7 +56,10 @@ def _parse(id_: str) -> tuple[str, str, Path, Path]:
     if not sep or kind not in ("run", "notes") or not slash:
         raise _bad(id_)
     rel = _relative(rest, id_)
-    return kind, owner, _base(kind, owner), rel
+    base = _base(kind, owner)
+    if _skipped(rel):
+        raise NotFound(f"There is no document '{id_}'.")
+    return kind, owner, base, rel
 
 
 def _fd_path(fd: int) -> Path | None:
@@ -155,7 +163,7 @@ def list(run_id: str) -> list:
         rel = path.relative_to(base)
         if path.is_symlink() or not path.is_file() or path.suffix.lower() not in SUFFIXES:
             continue
-        if any(p in SKIP_DIRS for p in rel.parts[:-1]):
+        if _skipped(rel):
             continue
         found.append((rel.as_posix(), path))
     found.sort(key=lambda x: (x[0] not in ("plan.md", "summary.md"), x[0]))

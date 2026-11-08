@@ -183,3 +183,14 @@ def test_list_title_never_uses_a_cut_line(folder):
     (folder / "cut.md").write_text("x" * 4080 + "\n# sekrit-value-12345\n")
     row = next(r for r in docs.list(RUN) if r["id"].endswith("cut.md"))
     assert row["title"] == "cut.md" and "sekrit" not in repr(row)
+
+
+@pytest.mark.parametrize("sub", ["logs", "gates", ".git", ".claude", "tasks/1/.hidden"])
+def test_show_skips_what_list_skips(folder, sub):
+    (folder / sub).mkdir(parents=True, exist_ok=True)
+    (folder / sub / "x.md").write_text("# hidden\n")
+    assert not any(r["id"].endswith(f"{sub}/x.md") for r in docs.list(RUN))
+    with pytest.raises(common.NotFound):
+        docs.show(f"run:{RUN}/{sub}/x.md")
+    with pytest.raises(common.NotFound):
+        docs.download(f"run:{RUN}/{sub}/x.md")

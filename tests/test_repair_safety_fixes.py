@@ -195,6 +195,7 @@ def test_rerun_finish_merge_needs_a_passed_full_suite(tmp_path):
     with pytest.raises(steps.StepRefused, match="full suite has passed"):
         steps.rerun_finish(steps.Context(r["run_dir"], who="cli", dry=True), "merge")
     _full_suite(r, "passed")
+    (r["run_dir"] / "full-suite-head.txt").write_text(git.head(r["work"]) + "\n")
     assert "would run" in steps.rerun_finish(steps.Context(r["run_dir"], who="cli", dry=True), "merge")
 
 

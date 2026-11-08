@@ -1,11 +1,10 @@
 """Check-writer: Claude writes the task's checks; Phoenix accepts only self-contained files in the task's checks
 folder, then locks them."""
 import fnmatch
-import re
 from pathlib import Path
 
 from phoenix9 import checklint, checklock, keys, state
-from phoenix9.aistep import last_line, profile_test, task_text
+from phoenix9.aistep import fence, failures_list, last_line, profile_test, task_text
 from phoenix9.stepctx import StepResult
 
 EARLY_END = ("crashed", "timed_out", "no_output", "error")
@@ -53,14 +52,7 @@ def existing_checks(ctx, own_dir: str) -> str:
 
 def _failures(ctx) -> str:
     """Why earlier tries of this task failed (a broken check is rewritten), as a numbered list."""
-    items = list(ctx.things.get("failures") or [])
-    return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
-
-
-def fence(text: str) -> str:
-    """Untrusted text inside a fenced block it cannot close early (its own backtick runs are broken up)."""
-    safe = re.sub(r"`{3,}", lambda m: "` " * len(m.group(0)), text).replace("~~~", "~ ~ ~")
-    return "```text\n" + safe.rstrip() + "\n```"
+    return failures_list(ctx.things.get("failures") or []) or "None: this is the first try"
 
 
 def _objection(ctx) -> str:

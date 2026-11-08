@@ -3,7 +3,7 @@ import fnmatch
 import json
 import re
 
-from phoenix9 import atomic, deploy, git as gitmod, release, settings, state
+from phoenix9 import atomic, deploy, gates, git as gitmod, release, settings, state
 from phoenix9.stepctx import StepResult
 
 MR_FILE = "merge-request.txt"
@@ -74,7 +74,11 @@ def _full_suite_off(ctx) -> bool:
 
 
 def repaired(run_folder) -> bool:
-    """True when a repair was applied to this run (a repair.applied event that was not rolled back)."""
+    """True when a repair touched this run: a repair snapshot exists (taken before any step of a note runs,
+    so a merge inside the note sees it), or a repair.applied event that was not rolled back."""
+    base = run_folder / "repairs"
+    if base.is_dir() and any(p.is_dir() and p.name.isdigit() for p in base.iterdir()):
+        return True
     path = run_folder / "events.jsonl"
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -106,14 +110,14 @@ def _flags(ctx, tasks, base, branch):
     elif line and line["status"] == "passed":
         why.append("the full suite passed")
     elif line is None and not _full_suite_off(ctx):
-        flags.append("no full suite result")
+        flags.append(gates.FLAG_NO_FULL_SUITE)
         why.append("there is no full suite result for this run")
     by_repair = sorted((n for n, t in tasks.items() if t.get("marked_by_repair")), key=int)
     if by_repair:
-        flags.append("tasks marked by a repair")
+        flags.append(gates.FLAG_MARKED_BY_REPAIR)
         why.append(f"task {', '.join(by_repair)} was marked done or skipped by a repair")
     if repaired(ctx.run.folder):
-        flags.append("run was repaired")
+        flags.append(gates.FLAG_REPAIRED)
         why.append("this run was repaired")
     names = ctx.adapters.git.git(ctx.project.code_dir, "diff", "--name-only", f"{base}..{branch}").split("\n")
     globs = ctx.project.settings.get("safety_files") or []
@@ -254,6 +258,9 @@ def run(ctx):
     if git.git(code, "rev-list", "--count", f"{base}..{branch}").strip() == "0":
         return StepResult("skip", ["No changes to merge"])
     tasks = state.load(ctx.run.folder)["tasks"]
+    unfinished = sorted((n for n, t in tasks.items() if t["status"] not in ("passed", "skipped", "failed")), key=int)
+    if unfinished:
+        return StepResult("fail", [f"task {', '.join(unfinished)} is not finished, so the run is not merged"])
     flags, why = _flags(ctx, tasks, base, branch)
     mode = ctx.project.settings.get("merge", "auto")
     try:

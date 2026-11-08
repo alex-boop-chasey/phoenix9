@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from phoenix9 import atomic, checklock, state
-from phoenix9.aistep import finish_line, profile_test, task_text
+from phoenix9.aistep import failures_list, finish_line, profile_test, task_text
 from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
 
@@ -51,8 +51,7 @@ def _git_log(ctx) -> str:
 
 def _failures(ctx) -> str:
     """Earlier attempts' reasons as a numbered list."""
-    items = list(ctx.things.get("failures") or [])
-    return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
+    return failures_list(ctx.things.get("failures") or []) or "None: this is the first try"
 
 
 def _services(ctx) -> str:

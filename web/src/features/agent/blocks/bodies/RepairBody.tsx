@@ -28,6 +28,20 @@ function unlocksChecks(note: string | null): boolean {
   return (note ?? "").split("\n").some((line) => /^- rewrite the checks of task \d+ because \S/.test(line.trim()))
 }
 
+/** True when the note has a `- force` line (results are kept even when the check fails). */
+function forces(note: string | null): boolean {
+  return (note ?? "").split("\n").some((line) => line.trim() === "- force")
+}
+
+/** What the confirm dialog says Apply will do. */
+function applyText(note: string | null): string {
+  const unlock = unlocksChecks(note) ? "This note unlocks the task's locked checks: they are thrown away and written again. " : ""
+  const check = forces(note)
+    ? "This note uses force: the results are kept even if the check fails afterwards."
+    : "If the check fails it rolls back."
+  return `${unlock}Phoenix takes a snapshot, applies the note and checks the run. ${check}`
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "it did not work"
 }
@@ -115,9 +129,7 @@ export function RepairBody({ data, frozen = false }: CardBodyProps) {
         </div>
       )}
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Apply this repair?"
-        body={(unlocksChecks(text)
-          ? "This note unlocks the task's locked checks: they are thrown away and written again. "
-          : "") + "Phoenix takes a snapshot, applies the note and checks the run. If the check fails it rolls back."}
+        body={applyText(text)}
         confirmLabel="Apply" onConfirm={() => void apply()} />
     </div>
   )

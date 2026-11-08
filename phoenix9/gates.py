@@ -238,10 +238,22 @@ def poll(run_dir, gate_id: str) -> dict | None:
     return atomic.read_json(_gates_dir(run_dir) / f"{gate_id}.answer.json")
 
 
+# Merge flags that make a merge question Alex's alone: no chat may answer it, whatever the project allows.
+FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
+FLAG_REPAIRED = "run was repaired"
+FLAG_NO_FULL_SUITE = "no full suite result"
+FLAG_UNFINISHED = "tasks not finished"
+ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_UNFINISHED)
+
+
 def may_answer(gate: dict, who: str, project_settings: dict) -> bool:
     """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
 
-    The delegate session (chat:delegate) may always answer escalations: that is what it is started for."""
+    The delegate session (chat:delegate) may always answer escalations: that is what it is started for.
+    A merge question flagged for a repair (or a missing full suite) is Alex's alone: chat:* callers never."""
+    if who.startswith("chat:") and gate.get("kind") == "merge" and any(
+            f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []):
+        return False
     if who == "chat:delegate" and gate["kind"] == "escalation":
         return True
     if not who.startswith("chat:"):

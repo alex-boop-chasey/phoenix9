@@ -8,6 +8,7 @@ from phoenix9.aistep import profile_test
 from phoenix9.stepctx import StepResult
 
 NO_SUITE = "the profile has no full suite command"
+HEAD_FILE = "full-suite-head.txt"      # the worktree head the last passing full suite ran on (repair reruns check it)
 
 
 def _verify():
@@ -46,5 +47,6 @@ def run(ctx):
     report = reports.combine(parts)
     atomic.write_json(ctx.run.folder / "final-report.json", report.to_dict())
     if report.ok:
+        atomic.write_text(ctx.run.folder / HEAD_FILE, ctx.adapters.git.head(ctx.worktree) + "\n")  # what it passed on
         return StepResult("pass", produces={"test-report": str(ctx.run.folder / "final-report.json")})
     return StepResult("fail", [reports.feedback(report, logs[-1])])

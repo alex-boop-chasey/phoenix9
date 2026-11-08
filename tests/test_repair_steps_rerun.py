@@ -142,6 +142,7 @@ def finish_run(tmp_path, adapters, monkeypatch, task_status="passed"):
                       {"group": "run-finish", "task": None, "step": "lockfile", "status": "skipped", "note": ""}]
         s["error"] = "merge failed"
     state.update(r["run_dir"], change)
+    (r["run_dir"] / "full-suite-head.txt").write_text(git.head(r["work"]) + "\n")
     monkeypatch.setattr(steps, "make_runner", lambda: Runner(adapters, lib_dir))
     return r
 

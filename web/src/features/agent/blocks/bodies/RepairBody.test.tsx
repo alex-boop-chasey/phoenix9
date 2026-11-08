@@ -65,4 +65,20 @@ describe("RepairBody", () => {
     await waitFor(() => expect(calls.length).toBe(1))
     expect(calls[0]?.body).toEqual({ note: unlock, confirm: true, approve_unlock: true })
   })
+
+  it("says a forced note keeps its results even if the check fails", async () => {
+    const forced = NOTE + "- force\n"
+    mockApi({})
+    renderWithProviders(<RepairBody type="repair" data={{ ...data, note: { ...data.note, text: forced } }} />)
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+    expect(await screen.findByText(/kept even if the check fails/)).toBeTruthy()
+    expect(screen.queryByText(/If the check fails it rolls back/)).toBeNull()
+  })
+
+  it("says an ordinary note rolls back when the check fails", async () => {
+    mockApi({})
+    renderWithProviders(<RepairBody type="repair" data={data} />)
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+    expect(await screen.findByText(/If the check fails it rolls back/)).toBeTruthy()
+  })
 })

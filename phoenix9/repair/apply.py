@@ -126,6 +126,10 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
     run_dir = core.find_run(note.run)
     if run_dir is None:
         raise RepairRefused(f"There is no run called '{note.run}'.")
+    if any(s.kind == "rerun-finish" and s.args.get("name") == "merge" for s in note.steps) and (
+            len(note.steps) > 1 or note.force):
+        raise RepairRefused("'rerun finish step merge' must be the only step of its note (and without force): "
+                            "apply the other steps first, then merge in a note of its own.")
     if steps.is_chat(who) and (note.force or approve_unlock):
         what = "force a repair past its check" if note.force else "unlock locked checks"
         raise RepairRefused(f"Needs Alex: a chat session may not {what}. Ask Alex to apply this note from the dashboard.")

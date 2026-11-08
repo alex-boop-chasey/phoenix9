@@ -7,6 +7,7 @@ import tomllib
 
 from phoenix9 import (adapters as adapters_mod, atomic, checklock, failmodes, gates, git, paths, resolve, runend, scrub,
                       settings, spec as specmod, state, summary)
+from phoenix9.aistep import REPAIR_NOTE
 from phoenix9.library import load_library
 from phoenix9.repair import snapshot
 from phoenix9.runner import RunFailed, Runner
@@ -89,7 +90,6 @@ def clear_failures(ctx, n: int) -> str:
     return f"cleared {count} failure(s) of task {n}"
 
 
-REPAIR_NOTE = "Note from the repair: "
 
 
 def add_note(ctx, n: int, text: str) -> str:
@@ -594,6 +594,9 @@ def make_runner() -> Runner:
     return Runner(adapters_mod.real(), paths.library())
 
 
+FULL_SUITE_HEAD = "full-suite-head.txt"     # written by the full-suite step when it passes
+
+
 def rerun_finish(ctx, name: str) -> str:
     """Run one finish step again on a failed run, add its line and work out the run's status from the finish steps."""
     st = state.load(ctx.run_dir)
@@ -605,7 +608,15 @@ def rerun_finish(ctx, name: str) -> str:
     if name == "merge" and not any(x.get("step") == "full-suite" and x.get("status") == "passed"
                                    for x in st.get("steps") or []):
         raise StepRefused("merge can only run again once the full suite has passed in this run")
-    _work(ctx)
+    work = _work(ctx)
+    if name == "merge":
+        passed_on = (Path(ctx.run_dir) / FULL_SUITE_HEAD)
+        recorded = passed_on.read_text(encoding="utf-8").strip() if passed_on.is_file() else ""
+        if not recorded:
+            raise StepRefused("merge can only run again when the full suite recorded the commit it passed on; "
+                              "run the full suite again first")
+        if recorded != git.head(work):
+            raise StepRefused("the worktree moved after the full suite passed; run the full suite again first")
     if ctx.dry:
         return f"would run finish step {name} again"
     try:

@@ -82,7 +82,7 @@ export function AnswerCard({ json, resolved, frozen = false }: BlockProps) {
           Could not load this card: {query.error instanceof Error ? query.error.message : "unknown error"}
         </p>
       )}
-      {data && <Body type={data.type} data={data.data} />}
+      {data && <Body type={data.type} data={data.data} frozen={frozen} />}
       {data && !frozen && <CardActions actions={data.actions ?? []} onNote={note} />}
     </div>
   )

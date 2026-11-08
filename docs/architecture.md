@@ -1421,7 +1421,7 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 #### AnswerCard and card buttons (task 14)
 `web/src/features/agent/blocks/AnswerCard.tsx` fetches `GET /api/cards` for the checked card, shows loading and error
 states, and refreshes (debounced 500 ms) on a live event matching `watch` (empty list = any; `command` and `ui.go`
-events never match) or every `poll_s`. Frozen cards fetch once and show no buttons. Bodies are picked by type from
+events never match) or every `poll_s`. Frozen cards fetch once and show no buttons: `AnswerCard` passes `frozen` to the body, and the gates body shows its Needs-you cards `readOnly` (no answer buttons, no Review link). Bodies are picked by type from
 `cardBodies.tsx` (plain JSON until tasks 15-17). `CardActions.tsx` draws the buttons from the answer only: link = new tab
 (`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
 server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and

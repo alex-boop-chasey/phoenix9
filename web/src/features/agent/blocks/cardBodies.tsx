@@ -14,7 +14,7 @@ import { UpdateBody } from "./bodies/UpdateBody"
 
 // The body components of cards by type; tasks 15-17 add real ones, until then a plain JSON view is shown.
 
-export interface CardBodyProps { type: string; data: unknown }
+export interface CardBodyProps { type: string; data: unknown; /** True for a card in an older conversation: show it read-only. */ frozen?: boolean }
 
 /** A plain JSON view of a card's data. */
 export function JsonBody({ data }: CardBodyProps) {

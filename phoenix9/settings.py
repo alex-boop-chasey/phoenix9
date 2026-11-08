@@ -21,6 +21,13 @@ CLAUDE_MD = ("library", "project", "both")
 ADVISOR_WHEN = ("blocked", "before-done", "on-demand")
 PRESET_META = ("title", "description")  # allowed in a preset file, ignored by settings
 
+# The on-failure choices as shown on screen (same labels as the web app).
+ON_FAILURE_WORDS = {
+    "continue": "Skip to the next independent task - flag it and move on to tasks that don't depend on it",
+    "pause": "Wait for me - stop and ask you",
+    "delegate": "Hand to the Phoenix agent - it gets one message to fix it; you are alerted if it is asleep or can't",
+}
+
 HEADER = "Phoenix 9 project settings. Change them with `phoenix settings`, or edit by hand."
 KEY_ORDER = ["preset", "based_on", "profile", "merge", "max_tries", "on_failure", "budget_usd", "services",
              "safety_files", "home_chat_may_answer", "diff", "domains", "steps", "deploy",
@@ -520,7 +527,8 @@ def explain(project_dir, lib: Library) -> str:
     lines = ["Settings that differ from the library defaults:"]
     changed = [(p, s) for p, s in eff.source.items() if s != "library"]
     for path, src in sorted(changed):
-        lines.append(f"  {path} = {eff.get(path)!r}  (from {src})")
+        meaning = ON_FAILURE_WORDS.get(eff.get(path)) if path == "on_failure" else None
+        lines.append(f"  {path} = {eff.get(path)!r}  (from {src})" + (f": {meaning}" if meaning else ""))
     if not changed:
         lines.append("  (none)")
     return text + "\n" + "\n".join(lines) + "\n"

@@ -14,9 +14,9 @@ import { useLibraryPresets, useLibraryTools, usePlanRows, useSetPreset, useSetSe
 import type { PlanStep } from "@/lib/types"
 
 export const ON_FAILURE = [
-  { value: "continue", label: "Continue", help: "Move on to tasks that don't depend on the failed one, and flag it." },
-  { value: "pause", label: "Pause for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
-  { value: "delegate", label: "Hand it to Claude in the project folder", help: "The Phoenix agent is sent one message to fix it; you are alerted if it is asleep or can't." },
+  { value: "continue", label: "Skip to the next independent task", help: "Move on to tasks that don't depend on the failed one, and flag it." },
+  { value: "pause", label: "Wait for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
+  { value: "delegate", label: "Hand to the Phoenix agent", help: "The Phoenix agent is sent one message to fix it; you are alerted if it is asleep or can't." },
 ]
 export const MERGE = [
   { value: "auto", label: "Merge automatically", help: "Merge when the checks pass." },

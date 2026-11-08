@@ -43,7 +43,7 @@ def _classify(rel: str, path: Path) -> dict | None:
                     "title": f"{role} session ({where})"}
         if name.endswith(".log"):
             step = "delegate" if name.startswith("delegate-") else name[:-4]
-            title = f"project chat hand-over ({name[9:-4]})" if step == "delegate" else f"{step} log"
+            title = f"Phoenix agent hand-over ({name[9:-4]})" if step == "delegate" else f"{step} log"
             return {"kind": "step", "task": None, "attempt": None, "step": step, "title": title}
         return None
     found = ATTEMPT_RE.match(rel)

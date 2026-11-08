@@ -69,3 +69,21 @@ test("polls while running and stops when done", async () => {
   await act(() => vi.advanceTimersByTimeAsync(20000))
   expect(runCalls()).toBe(3)
 })
+
+test("wizard=N opens the wizard at that slide", async () => {
+  mockApi(routes({
+    "GET /api/projects/demo-site/settings": { project: "demo-site", values: {}, source: {} },
+    "GET /api/library/presets": { presets: [] },
+    "GET /api/library/steps": { steps: [], problems: [] },
+    "GET /api/projects/demo-site/specs": [],
+    "POST /api/projects/demo-site/plan": { groups: {}, steps: [], errors: [], settings: {} },
+  }))
+  show("/p/demo-site/build?wizard=2")
+  expect(await screen.findByText("Step 2 of 7")).toBeInTheDocument()
+})
+
+test("run= opens that run", async () => {
+  mockApi(routes())
+  show("/p/demo-site/build?run=r-wait")
+  expect(await screen.findByRole("link", { name: "See this build's logs" })).toBeInTheDocument()
+})

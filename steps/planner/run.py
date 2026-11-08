@@ -87,7 +87,7 @@ def after(ctx, session) -> StepResult:
     mine = sum(1 for t in parsed.tasks if t.for_you)
     gate = {"kind": "plan", "title": f"Approve the plan for {parsed.title}",
             "why": f"{len(parsed.tasks)} tasks, {mine} for you",
-            "links": [{"label": "Plan", "url": str(plan)}],
+            "links": [{"label": "Plan", "doc": f"run:{ctx.run.id}/plan.md"}],
             "actions": ["approve", "back", "skip", "stop"]}
     return StepResult("gate", produces={"plan": str(plan)}, gate=gate)
 

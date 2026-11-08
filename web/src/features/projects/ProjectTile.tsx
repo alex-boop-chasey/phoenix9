@@ -1,4 +1,4 @@
-// One project as a horizontal card: state edge, name and path, status, repo and the Remove and VS Code buttons.
+// One project as a tile: state edge, name and path, status, repo, a waiting pull request and the Chat, Remove and VS Code buttons.
 import { memo, type MouseEvent } from "react"
 import { Link, useNavigate } from "react-router"
 
@@ -42,10 +42,13 @@ function CodeButton({ row }: { row: ProjectRow }) {
 }
 
 /** A project row; clicking anywhere except its links and buttons opens the project. Memoised: the callbacks take the project name so the parent can keep them stable. */
-export const ProjectRowCard = memo(function ProjectRowCard({ row, gone, onRemove }: {
+export const ProjectTile = memo(function ProjectTile({ row, gone = false, onRemove, pr }: {
   row: ProjectRow
-  gone: boolean
-  onRemove: (name: string) => void
+  gone?: boolean
+  /** Without it the Remove button is left out (the agent panel's tiles). */
+  onRemove?: (name: string) => void
+  /** An open pull request waiting to merge; shown as a link under the status. */
+  pr?: { number: number; url: string } | null
 }) {
   const navigate = useNavigate()
   const open = (e: MouseEvent) => {
@@ -59,9 +62,14 @@ export const ProjectRowCard = memo(function ProjectRowCard({ row, gone, onRemove
         <span className="p-path">{row.path}</span>
       </div>
       <div className="p-meta"><span className="p-status"><StateBadge row={row} /></span><RepoPart row={row} /></div>
+      {pr && (
+        <a className="p-pr" href={pr.url} target="_blank" rel="noreferrer">
+          <Icon name="git-pull-request" size="sm" /><span>PR #{pr.number} waiting to merge</span>
+        </a>
+      )}
       <div className="p-acts">
         <ChatButton project={row.name} chat={row.chat ?? null} />
-        <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>
+        {onRemove && <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>}
         <CodeButton row={row} />
       </div>
     </div>

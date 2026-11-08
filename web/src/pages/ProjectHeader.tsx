@@ -4,7 +4,7 @@ import { Link, NavLink, useLocation } from "react-router"
 
 import { ChatButton } from "@/components/ChatButton"
 import { Icon, type IconName } from "@/components/Icon"
-import { StateBadge } from "@/features/projects/ProjectRowCard"
+import { StateBadge } from "@/features/projects/ProjectTile"
 import { formatBytes } from "@/lib/format"
 import type { ProjectRow } from "@/lib/types"
 

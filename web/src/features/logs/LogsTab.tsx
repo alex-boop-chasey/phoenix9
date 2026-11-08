@@ -1,3 +1,4 @@
+import { RunDocs } from "@/features/docs/RunDocs"
 import { useQuery } from "@tanstack/react-query"
 import { useRef } from "react"
 import { useSearchParams } from "react-router"
@@ -26,9 +27,9 @@ export function LogsTab({ name }: { name: string }) {
     step: params.get("step") ?? "",
     kinds: (params.get("kind") ?? "").split(",").filter(Boolean),
   }
-  const id = params.get("id") ?? ""
+  const id = params.get("log") ?? params.get("id") ?? ""
 
-  function update(patch: Partial<LogFilterValues & { id: string }>) {
+  function update(patch: Partial<LogFilterValues & { id: string; log: string }>) {
     const next = new URLSearchParams(params)
     for (const [k, v] of Object.entries(patch)) {
       const text = Array.isArray(v) ? v.join(",") : v
@@ -62,7 +63,7 @@ export function LogsTab({ name }: { name: string }) {
   const steps = [...new Set(all.flatMap((e) => (e.step ? [e.step] : [])))].sort()
 
   function select(next: string) {
-    update({ id: next })
+    update({ log: next, id: "" })
     viewer.current?.scrollIntoView?.({ behavior: "smooth", block: "start" })
   }
   function refresh() {
@@ -82,6 +83,7 @@ export function LogsTab({ name }: { name: string }) {
           {entries.isFetching ? "Refreshing" : "Refresh"}
         </button>
       </LogFilters>
+      {values.run && <RunDocs runId={values.run} />}
       <div className="console">
         <div ref={list} className="min-w-0">
           {entries.error ? (

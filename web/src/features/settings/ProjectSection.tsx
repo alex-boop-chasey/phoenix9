@@ -27,11 +27,11 @@ export function changedFields(p: Project, v: FormValues): EditBody {
 }
 
 /** A row of the settings page: a label on the left, the control on the right. */
-export function SettingsRow({ id, label, labelFor, two = true, children }: {
-  id?: string; label: string; labelFor?: string; two?: boolean; children: React.ReactNode
+export function SettingsRow({ id, keys, label, labelFor, two = true, children }: {
+  id?: string; keys?: string[]; label: string; labelFor?: string; two?: boolean; children: React.ReactNode
 }) {
   return (
-    <div className={two ? "srow two" : "srow"} id={id}>
+    <div className={two ? "srow two" : "srow"} id={id} data-settings={keys?.join(" ")}>
       {labelFor ? <label className="lbl" htmlFor={labelFor}>{label}</label> : <span className="lbl">{label}</span>}
       {children}
     </div>
@@ -108,17 +108,17 @@ export function ProjectSection({ name }: { name: string }) {
         <h2 className="h2">Project</h2>
         <span className="area"><Icon name="sliders-horizontal" />Setup</span>
       </div>
-      <SettingsRow label="Name" labelFor="st-name">
+      <SettingsRow keys={["name"]} label="Name" labelFor="st-name">
         <input className="input mono" id="st-name" value={value.name} readOnly />
       </SettingsRow>
-      <SettingsRow label="Description" labelFor="st-desc">
+      <SettingsRow keys={["description"]} label="Description" labelFor="st-desc">
         <div className="field">
           <textarea className="textarea" id="st-desc" value={value.description} onChange={(e) => set({ description: e.target.value })} />
           <span className="help">A few lines. They go into the project's CLAUDE.md.</span>
         </div>
       </SettingsRow>
 
-      <SettingsRow id="s-repo" label="GitHub repo">
+      <SettingsRow keys={["repo"]} id="s-repo" label="GitHub repo">
         <div>
           <div className="swap">
             <span className="ico"><Icon name="github-logo" /></span>
@@ -134,7 +134,7 @@ export function ProjectSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
-      <SettingsRow label="Profile">
+      <SettingsRow keys={["profile"]} label="Profile">
         <div>
           <div className="swap">
             <span className="ico"><Icon name={now.icon} /></span>
@@ -158,7 +158,7 @@ export function ProjectSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
-      <SettingsRow id="s-svc" label="Services">
+      <SettingsRow keys={["services"]} id="s-svc" label="Services">
         <div>
           <div className="swap">
             <div className="chips" style={{ flex: 1 }}>

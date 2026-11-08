@@ -1338,3 +1338,114 @@ a second dialog listing what would be lost, whose button "Discard anyway and los
 It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
 status stays as it was), writes a `run.discarded` event
 and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".
+
+## Reply blocks and dashboard control
+
+(Agent build 3. Each task appends its own notes here.)
+
+### Cards (`phoenix9/cards/`, `ops.cards`, `GET /api/cards`, `phoenix card`)
+- A card type is a module in `phoenix9/cards/` (`-` written `_` in the file name). It has `schema` (allowed
+  query key → type name), optional `inline = True`, and `build(query) -> {title, data, actions, watch}`.
+  `cards.load`, `cards.types` and `cards.check_query` (returns a plain reason or None) live in `__init__.py`.
+- `ops.cards.build(type, query, title)` returns `{type, title, data, actions, watch, inline}`; an unknown type or
+  bad query is an `OpsError` (API 400).
+- `projects` card: `names` keeps only those projects, in that order (the `top`/`rest` split is kept; `total` is the kept count).
+  Its title is "Projects that need you" when `attention` is true, which the CLI summary uses.
+- `run` card: `run_id` may be `latest` (the newest run of the project; none is a 404). Stop is offered while the run's
+  status is in `status.ACTIVE`, with body `{"confirm": true}` as the Build tab sends it.
+- `builds` card: `limit` 1-20, default 5 (outside that is a 400).
+- `phoenix card <type> [--query JSON] [--title T] [--json]` prints the summary line, the fenced `phoenix-card`
+  block (only `v`, `type`, `query`, `title`), then the summary again. `--json` gives `{summary, block, card}`.
+
+### Pull requests (`ops.github.prs`, `prs` card)
+- `ops.github.prs(project=None, state="open")` runs `gh pr list --repo <owner/name> --state <state> --json ...` through the Host adapter and returns rows `{project, number, title, state, draft, checks, url, updated_at}`. Answers are cached in memory for 60 s per (repo, state); a gh failure gives `{project, error}` for that project.
+- The `prs` card lists those rows with one link per pull request. Each `projects` card row also carries `needs_merge` and `pr: {number, title, url}` (true when the project has an open, non-draft pull request).
+
+### Log, diff and update cards
+- `log` card (`project`, `id`, `tail` or `lines`): the last lines of `ops.logs.read` (already scrubbed). Count is clamped to 1-200 (default 50); `truncated` is true when lines were cut. Action: route `p/<name>/logs` with param `log`.
+- `diff` card (`project`, `id`): refuses logs whose kind is not `diff`. Data is `files: [{name, added, removed, lines}]` from at most 2000 lines.
+- `update` card (no query): data is `ops.update.status()`; actions are a route to `settings` (param `section: updates`) and, when an update is available, Install = `POST /api/update/install` body `{yes: true, tag: <newest>}` (as the Install button sends it), `confirm`, `danger`. Watches event types `["update"]`.
+
+### Inline cards: settings-preview, table, chart
+- Inline cards (`inline = True`) carry the agent's proposed content in `query`; their data has `footer: "proposed by the agent"`.
+- `settings-preview` (`project`, `set` with 1-20 dotted keys): rows `{key, before, after, ok, reason}`; `before` comes from
+  `ops.settings.show`, `ok`/`reason` from `ops.settings.dry_check` (the same validation as `set_many`, writes nothing).
+  Safety keys (`ops.settings.is_safety_key`: `domains.*`, `diff.*`, `safety_files`, `services`, `home_chat_may_answer`,
+  `profile`, any key naming a tool or MCP server such as `steps.*.tools`/`tools_denied`/`mcp_servers`, and every key of a
+  `safety = true` step) are never ok here: their reason says "change this in Settings yourself" (`dry_check(..., agent=True)`).
+  Apply = `POST /api/projects/<name>/settings` body `{set: {...}}` holding only the ok rows ("Apply n of m" when some are
+  left out), with `confirm` listing exactly those; absent when no row is ok.
+- `table` (`columns` 1-8, `rows` at most 50 lists, one cell per column, text cut to 200 characters) and `chart`
+  (`kind` bars|spark, default bars; `series` of `{label, value}`, at most 20 for bars, 60 for spark) refuse bad shapes with a plain reason.
+
+### Route catalogue (`phoenix9/routes.py`, `web/src/lib/routes.ts`)
+The pages the agent may point at: `projects`, `new`, `p/<name>/overview|build|logs|settings`, `settings`, each with
+an ordered param list. The two files hold the same list (`tests/test_routes.py` compares them). `routes.resolve(to,
+params)` refuses unknown routes and params, a missing project, a gate that is not open, a missing run or log, a
+wizard slide outside 1-7, a settings key not in the schema and a section not allowed (project settings: `project`,
+`build`; Phoenix settings: `services`, `models`, `updates`, `addresses`). It returns `{hash, label}`; the label is a
+breadcrumb such as `test-site › Settings › Build`. A run is accepted when it matches the run-id pattern (`runs.RUN_ID_RE`, `YYYYMMDD-HHMMSS-slug`, so `..` or `logs` never pass) and its folder exists.
+
+### Dashboard address and `phoenix nav`
+- `ops.app.dashboard_url()` returns env `PHOENIX_DASHBOARD_URL` (if a usable http(s) address), else the saved
+  `dashboard_url`, else the default; `ops.app.info()` reports it.
+- `phoenix nav <to> [--param k=v ...] [--check] [--json]` resolves the route with `routes.resolve`, then prints the
+  label, the link (dashboard address + hash), a `phoenix-nav` block and the fallback line "Open <label>: <link>".
+  A route that cannot be resolved prints the reason and exits 1. `--check` prints only `ok` or the reason.
+
+### Deep links on Build, Logs and Settings pages
+- Build tab: `run=<id>` opens that run; `wizard=N` opens the wizard on slide N (1-7, larger numbers clamp to 7; `new=1` still means slide 1).
+- Logs tab: `run`, `step`, `task`, `kind` set the same filter state the controls set; `log=<id>` opens that log (the older `id=` is still read).
+- Project settings: `section=project|build` opens and scrolls to the section; `key=<dotted key>` scrolls to the row holding that setting (rows list their keys in `data-settings`; a row listing `deploy` holds `deploy.*`) and glows it for 2 s.
+- Global settings: `section=services|models|updates|addresses` opens that tab (the older `tab=` is still read; tabs now write `section=`).
+- Shared helper `web/src/lib/focus.ts` (`scrollToAndHighlight`, `useScrollToId`): scrolls to the element (no animation under reduced motion) and adds the `focus-glow` class for 2 s. The Overview page uses it too.
+
+### `phoenix ui go`
+- `ops.ui.go(to, params, who)` resolves the route with `routes.resolve`, emits event `ui.go` (project null) with
+  `{hash, label, by: "agent"}` on the global stream, and records a `command` event. `phoenix ui go <to> [--param k=v ...]`
+  and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
+  only through the `projects` route params (`q`, `status`, ...).
+- Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (`features/agent/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.
+
+### Block check (`ops.blocks.check`, `POST /api/blocks/check`, `phoenix block check`)
+- `check({kind, json})` returns `{ok, reason, resolved}`. Not ok (bad JSON, missing or wrong `v`, unknown keys, an `actions` key, over 8 KB, bad values) is a result, not an error; `resolved` is then null.
+- card: `resolved` = `{type, query, title}` after `cards.check_query`. nav: each link goes through `routes.resolve`; `resolved` = `{links: [{hash, label}], dropped: [{link, to, reason}]}`, all failed = not ok. choice / confirm: `resolved` = the normalised block (`other` and `danger` default false; option keys must be unique).
+- `phoenix block check <file|-> [--kind K] [--json]` reads a fenced block (kind from the tag) or bare JSON (needs `--kind`); exit 1 with the reason when not ok.
+
+- `phoenix choice` / `phoenix confirm` (task 12) print a checked block plus one fallback line; `--json` gives `{block, fallback}`.
+
+### Block parser in the panel (task 13)
+
+`web/src/features/agent/blocks/parse.ts` splits agent markdown into text and `phoenix-*` block parts; the first non-empty line after a block is its fallback. `BlockView` checks each block once through `/api/blocks/check` (cached in memory by kind and text) and hides the fallback when the block renders; otherwise it shows the fallback plus "block could not be shown: <reason>". Only `AgentMessage` uses it. Items before the latest conversation divider are frozen (`frozen` prop, "as of <time>" line, no buttons). An unclosed `phoenix-` fence stays plain text.
+
+#### AnswerCard and card buttons (task 14)
+`web/src/features/agent/blocks/AnswerCard.tsx` fetches `GET /api/cards` for the checked card, shows loading and error
+states, and refreshes (debounced 500 ms) on a live event matching `watch` (empty list = any; `command` and `ui.go`
+events never match) or every `poll_s`. Frozen cards fetch once and show no buttons: `AnswerCard` passes `frozen` to the body, and the gates body shows its Needs-you cards `readOnly` (no answer buttons, no Review link). Bodies are picked by type from
+`cardBodies.tsx` (plain JSON until tasks 15-17). `CardActions.tsx` draws the buttons from the answer only: link = new tab
+(`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
+server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and
+sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported. A `link` action opens only an absolute http(s) address (`web/src/lib/safeUrl.ts`, shared with the prs body); any other href is not rendered.
+
+### Card bodies: projects, gates, run, builds (`web/src/features/agent/blocks/bodies/`)
+- `projects` shows `ProjectTile` (`web/src/features/projects/ProjectTile.tsx`, the Projects page row, now shared; without `onRemove` the Remove button is left out) plus a "PR #n waiting to merge" link (`.p-pr`, above the tile's click overlay) when `needs_merge`. `gates` reuses `NeedsYouCard` (compact), `run` reuses `StepList`, `builds` is a list of run id, result badge and relative time linking to the Build tab.
+
+Task 18 (ChoiceBlock): `AgentMessage` and `BlockView` pass `later` (texts of the user items after the agent message) to blocks. A choice is answered, read-only, when a later user item starts with `[Phoenix panel · choice <id>` (followed by `]` or ` ·`); its answer text shows as "You chose: …". Multi mode joins labels with ", "; the "Other:" tile has its own text field and Send button.
+
+### Documents: ids, API and CLI (`phoenix9/ops/docs.py`, task 21)
+Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `notes:<project>/<path>` (inside the project's notes folder), never by a server path. Only `.md` and `.txt` are served; `..`, empty or absolute parts and anything that resolves (symlinks followed) outside the folder are refused. A document is opened once (`O_NOFOLLOW`, never reopened by name) and the kernel's path of the open file (`/proc/self/fd/<fd>`) must be inside the real folder, so a folder swapped for a symlink mid-request cannot reach outside; a file that is gone, unreadable or not a regular file is NotFound (404). `list` reads only the first 4 KB of each file for its title (a last line cut by that limit is dropped). `list`, `show` and `download` skip the same folders: `logs/`, `gates/`, `.git/` and any folder starting with `.` (NotFound). Text is scrubbed with the project's scrubber. `GET /api/docs/list|show|download`, `phoenix doc list <run>` and `phoenix doc show <id>` (both with `--json`). A gate link to a document is `{label, doc}` instead of `{label, url}` (planner: `run:<id>/plan.md`, merge: `summary.md`); the panel opens it at `#/doc?path=<id>` (task 22), rendered with the safe markdown renderer, so no server-rendered HTML page exists.
+
+### Block formats and panel messages (summary)
+- Blocks are fenced code with language `phoenix-card`, `phoenix-choice`, `phoenix-confirm` or `phoenix-nav`, one JSON object with `"v": 1`, at most 8 KB, unknown keys refused (an `actions` key too). card: `{v, type, query?, title?}`; nav: `{v, links: [{to, params?, label?}]}` (1-8); choice: `{v, id, question, mode: single|multi, options (2-8, at most one recommended), other?}`; confirm: `{v, id, action, command, danger?}`. `id` is 1-40 letters, digits, `-` or `_`. Every text field (question, option keys, labels and details, action, command, card title, nav labels) must be one line: control characters (newlines and tabs too) and line/paragraph separators are refused, and so is the text `[Phoenix panel` in any case, so a block cannot forge a panel answer. Blocks are parsed only from the agent's own text items, never from user bubbles or `ActionCard` excerpts.
+- Cards carry only `type`, `query`, `title`; the panel fetches data from `GET /api/cards` and never trusts numbers in a block. Buttons come from the card builder only.
+- Panel messages (sent through `/api/agent/send`, one each): `[Phoenix panel · choice <id>] <label>` (multi: labels joined by ", "), `[Phoenix panel · choice <id> · other] <text>`, `[Phoenix panel · confirm <id>] yes` / `no`, `[Phoenix panel · confirm <id> · other] <text>`, `[Phoenix panel · button] <label> done`. Every panel message is sent as one line (`blocks/oneLine.ts` turns control characters and line breaks into spaces).
+- A confirm or choice counts as answered when a later user item starts with `[Phoenix panel · confirm|choice <id>` followed by `]` or ` ·`.
+
+### ConfirmBlock, NavBlock, agent rules and demo (tasks 19-20)
+- ConfirmBlock shows the action and exact command with Yes / No / Other. The agent runs the command, never Phoenix. It is read-only once answered or frozen and then shows "You answered: ...".
+- NavBlock shows only the resolved links, leaves dropped links out, shows nothing when no link resolves, and disables its buttons when frozen.
+- `deploy/agent/agent-rules.md` is the agent's rules file. `tests/seed_demo.py` plus `web/e2e/agent-blocks.spec.ts` make the demo and the end-to-end check.
+- The `#/doc?path=<id>` page is not in the route catalogue, so the agent cannot `nav` or `ui go` to it.
+
+### RunDocs (task 22)
+`web/src/features/docs/RunDocs.tsx` lists `docs/list?run=<id>` and shows View/Download only for `plan.md` and `summary.md` ids (LogsTab, RunningView and the run card body use it); it renders nothing when the list is empty or the request fails.

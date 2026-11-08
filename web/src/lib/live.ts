@@ -110,5 +110,5 @@ const EVENT_TYPES = [
   "run.queued", "run.started", "run.finished", "run.step.started", "run.step.finished", "task.started",
   "task.finished", "gate.opened", "gate.answered", "project.created", "project.changed", "settings.changed",
   "update.started", "update.installed", "update.failed", "update.rolledback", "deploy.finished", "run.held",
-  "command",
+  "command", "ui.go",
 ]

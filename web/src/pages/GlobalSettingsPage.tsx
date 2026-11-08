@@ -1,4 +1,4 @@
-// Phoenix settings (/settings): title row, Health board, and the Services / Models / Updates / Dashboard addresses tabs (tab in ?tab=).
+// Phoenix settings (/settings): title row, Health board, and the Services / Models / Updates / Dashboard addresses tabs (tab in ?section=).
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { Link, useSearchParams } from "react-router"
@@ -24,7 +24,8 @@ const TABS: { key: string; label: string; icon: IconName }[] = [
 /** The Settings page for all of Phoenix. */
 export default function GlobalSettingsPage() {
   const [params, setParams] = useSearchParams()
-  const tab = TABS.some((t) => t.key === params.get("tab")) ? (params.get("tab") as string) : "services"
+  const asked = params.get("section") ?? params.get("tab")   // "tab" is the older name
+  const tab = TABS.some((t) => t.key === asked) ? (asked as string) : "services"
   const qc = useQueryClient()
   const doctor = useDoctor()
   const info = useInfo()
@@ -64,7 +65,7 @@ export default function GlobalSettingsPage() {
           <button
             key={t.key} type="button" className="tab" data-g={t.key}
             aria-current={tab === t.key ? "page" : "false"}
-            onClick={() => setParams(t.key === "services" ? {} : { tab: t.key }, { replace: true })}
+            onClick={() => setParams(t.key === "services" ? {} : { section: t.key }, { replace: true })}
           >
             <Icon name={t.icon} />{t.label}
             {t.key === "updates" && newest && <span className="tc new">{newest}</span>}

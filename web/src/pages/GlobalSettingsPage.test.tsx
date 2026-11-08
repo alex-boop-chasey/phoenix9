@@ -202,4 +202,10 @@ describe("GlobalSettingsPage", () => {
     expect(screen.getByRole("button", { name: "Save addresses" })).toBeDisabled()
     expect(screen.getByRole("alert")).toHaveTextContent("Keep at least one allowed page address.")
   })
+
+  it("section= opens that tab", async () => {
+    mockApi(base([], {}))
+    renderWithProviders(<GlobalSettingsPage />, { route: "/settings?section=updates" })
+    expect(await screen.findByRole("button", { name: /Updates/ })).toHaveAttribute("aria-current", "page")
+  })
 })

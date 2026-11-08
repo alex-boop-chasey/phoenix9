@@ -41,6 +41,8 @@ const SLIDES: ComponentType<SlideProps>[] = [
 
 interface Props {
   name: string
+  /** Slide to open on (from a deep link); 1 by default. */
+  startSlide?: number
   onCancel: () => void
   onStarted: (runId: string) => void
 }
@@ -54,13 +56,13 @@ export function Wizard(props: Props) {
 }
 
 function WizardForm({
-  name, onCancel, onStarted, settings, presets, steps, specs,
+  name, startSlide = 1, onCancel, onStarted, settings, presets, steps, specs,
 }: Props & { settings: SettingsView; presets: Preset[]; steps: LibraryStep[]; specs: SpecFile[] }) {
   const base = useMemo(() => ({ project: name, steps }), [name, steps])
   const [state, dispatch] = useReducer(
     (s: WizardState, a: Action) => reduce(s, a, base),
     undefined,
-    () => startState(initialAnswers(settings, presets, steps)),
+    () => ({ ...startState(initialAnswers(settings, presets, steps)), slide: startSlide, seen: startSlide }),
   )
   const a = state.answers
   const basePreset = a.preset === "custom" ? (a.basedOn ?? "quick") : a.preset

@@ -106,3 +106,36 @@ def check(project: str) -> dict:
     folder = common.project_dir(project)
     problems = core.check(folder, common.library())
     return {"project": project, "ok": not problems, "problems": problems}
+
+
+SAFETY_TOP = ("domains", "diff", "safety_files", "services", "home_chat_may_answer", "profile")
+SAFETY_WORDS = ("tool", "mcp")
+SAFETY_REASON = "This is a safety setting: change this in Settings yourself."
+
+
+def is_safety_key(key: str, lib=None) -> bool:
+    """True when a dotted key loosens or tightens the agent's leash (sites, diff rules, secrets, tools, MCP, safety steps)."""
+    parts = key.split(".")
+    if parts[0] in SAFETY_TOP or any(w in key.lower() for w in SAFETY_WORDS):
+        return True
+    if parts[0] == "steps" and len(parts) > 1:
+        lib = lib or common.library()
+        step = next((s for s in lib.steps if s.name == parts[1]), None)
+        return step is None or bool(getattr(step, "safety", False))
+    return False
+
+
+def dry_check(project: str, values: dict, agent: bool = False) -> list[dict]:
+    """Check a proposed change key by key as set_many would, writing nothing: [{key, ok, reason}].
+
+    With agent=True (a change the agent proposed) every safety key is refused: only Alex changes those in Settings."""
+    common.project_dir(project)
+    lib = common.library()
+    rows = []
+    for key, value in values.items():
+        problems = core.flat_problems({key: value}, lib)
+        reason = "; ".join(p.removeprefix("phoenix.toml: ") for p in problems)
+        if agent and is_safety_key(key, lib):
+            problems, reason = [SAFETY_REASON], SAFETY_REASON
+        rows.append({"key": key, "ok": not problems, "reason": reason})
+    return rows

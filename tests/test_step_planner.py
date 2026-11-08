@@ -135,7 +135,7 @@ def test_good_plan_opens_plan_gate(tmp_path, setup):
     gate = json.loads((run_dir / "gates" / f"{open_gate_id(run_dir)}.json").read_text())
     assert gate["kind"] == "plan" and gate["title"] == "Approve the plan for Tiny tool"
     assert gate["why"] == "3 tasks, 1 for you"
-    assert gate["links"] == [{"label": "Plan", "url": str(run_dir / "plan.md")}]
+    assert gate["links"] == [{"label": "Plan", "doc": f"run:{run_dir.name}/plan.md"}]
     assert gate["actions"] == ["approve", "back", "skip", "stop"]
     assert (run_dir / "plan.md").read_text() == PLAN
     assert json.loads((run_dir / "plan.json").read_text())["groups"]["run-start"][-1] == "planner"

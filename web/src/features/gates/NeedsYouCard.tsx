@@ -5,6 +5,7 @@ import { Link } from "react-router"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { DocButtons } from "@/features/docs/DocButtons"
 import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
@@ -35,8 +36,8 @@ const DELEGATED_HELP =
   "A Claude session in the project's folder is working on it; it will answer this itself if it fixes it."
 const DELEGATED_FLAG = "delegated to project chat"   // the backend flag (failmodes.DELEGATE_FLAG); keep in step
 
-/** An amber card that shows one open question for Alex, with the buttons that answer it. */
-export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate; compact?: boolean; reviewHref?: string }) {
+/** An amber card that shows one open question for Alex, with the buttons that answer it (none when readOnly). */
+export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean }) {
   const answer = useAnswerGate(gate.project)
   const [pressed, setPressed] = useState<GateAction | null>(null)
   const [noting, setNoting] = useState(false)
@@ -128,7 +129,12 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
         {gate.flags.includes(DELEGATED_FLAG) && <p className="text-sm text-muted-foreground">{DELEGATED_HELP}</p>}
         {gate.links.length > 0 && (
           <div className="links">
-            {gate.links.map((l) => (
+            {gate.links.map((l) => l.doc ? (
+              <span key={l.doc} className="inline-flex flex-wrap items-center gap-2">
+                <Icon name="git-pull-request" size="sm" />{l.label}
+                <DocButtons id={l.doc} label={l.label} />
+              </span>
+            ) : (
               <a key={l.url} href={l.url} target="_blank" rel="noreferrer">
                 <Icon name="git-pull-request" size="sm" />{l.label}
               </a>
@@ -160,7 +166,9 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        {reviewHref && gate.kind === "merge" ? (
+        {readOnly ? (
+          <p className="text-sm text-muted-foreground" data-testid="need-readonly">An earlier snapshot: answer it from Needs you.</p>
+        ) : reviewHref && gate.kind === "merge" ? (
           <div className="acts">
             <Link className="btn btn-primary" to={reviewHref}><Icon name="git-merge" />Review and merge</Link>
           </div>

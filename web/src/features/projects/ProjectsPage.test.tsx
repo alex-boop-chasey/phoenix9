@@ -320,3 +320,21 @@ test("import page: Choose a folder browses folders and fills the path box", asyn
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
   expect(api.calls.some((c) => c.path === "/api/folders" && !c.query.path)).toBe(true)
 })
+
+describe("ProjectsPage deep links", () => {
+  it("fills the search bar and filters from the address, and keeps the address in step", async () => {
+    mockApi(routes())
+    renderPage("/?q=demo&sort=active&attention=1&status=zzz")
+    expect(await screen.findByRole("searchbox", { name: "Search projects" })).toHaveValue("demo")
+    expect(screen.getByLabelText("Sort")).toHaveValue("active")
+    expect(screen.getByLabelText("Show")).toHaveValue("all")
+    fireEvent.change(screen.getByLabelText("Show"), { target: { value: "run" } })
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/?q=demo&status=run&sort=active&attention=1"))
+  })
+
+  it("ignores an owner no project has", async () => {
+    mockApi(routes())
+    renderPage("/?owner=ghost")
+    expect(await screen.findByText("4 projects")).toBeInTheDocument()
+  })
+})

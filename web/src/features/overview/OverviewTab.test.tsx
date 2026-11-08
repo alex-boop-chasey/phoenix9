@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 
 import { OverviewTab } from "@/features/overview/OverviewTab"
 import { builds, gate, info, projects } from "@/test/fixtures"
@@ -116,5 +116,31 @@ describe("OverviewTab", () => {
     expect(screen.getByText("supabase")).toBeInTheDocument()
     expect(within(screen.getByLabelText("On this server")).queryByText("Chat")).toBeNull()
     expect(screen.getByRole("link", { name: "Change these in Settings" })).toHaveAttribute("href", "/p/tiny-tool/settings")
+  })
+})
+
+describe("OverviewTab gate link", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it("scrolls to the gate, glows for 2 s, and jumps without animation when motion is reduced", async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), addEventListener() {}, removeEventListener() {} }))
+    mockApi(routes("demo-site"))
+    renderWithProviders(<OverviewTab name="demo-site" />, { route: `/?gate=${gate.id}` })
+    const card = (await screen.findByText("Task 2 needs you")).closest(".gate-focus")
+    expect(card).not.toBeNull()
+    expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }))
+    await waitFor(() => expect(document.querySelector(".gate-focus")).toBeNull(), { timeout: 3000 })
+  })
+
+  it("ignores a gate that is not open", async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    mockApi(routes("demo-site"))
+    renderWithProviders(<OverviewTab name="demo-site" />, { route: "/?gate=nope" })
+    await screen.findByText("Task 2 needs you")
+    expect(scroll).not.toHaveBeenCalled()
+    expect(document.querySelector(".gate-focus")).toBeNull()
   })
 })

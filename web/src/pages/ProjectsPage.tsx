@@ -1,5 +1,5 @@
 // The home page: every project on the server, with search, filters, the Add project menu and live status.
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useMemo, useEffect, useRef, useState } from "react"
 import { Link, useNavigate } from "react-router"
 import { toast } from "sonner"
 
@@ -7,10 +7,11 @@ import { Icon } from "@/components/Icon"
 import { ErrorState } from "@/components/ErrorState"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AddProjectMenu } from "@/features/projects/AddProjectMenu"
-import { ProjectRowCard } from "@/features/projects/ProjectRowCard"
+import { ProjectTile } from "@/features/projects/ProjectTile"
 import { ProjectsFilters } from "@/features/projects/ProjectsFilters"
 import { RemoveDialog } from "@/features/projects/RemoveDialogs"
-import { apiParams, useProjectQuery } from "@/features/projects/useProjectQuery"
+import { ownersOf } from "@/features/projects/rows"
+import { apiParams, useProjectQuery, withKnownOwner } from "@/features/projects/useProjectQuery"
 import { useLiveEvents } from "@/lib/live"
 import { useProjects, useProjectSearch, useRefreshProjects, useRemoveProject } from "@/lib/queries"
 import type { ProjectRow } from "@/lib/types"
@@ -19,8 +20,10 @@ const FADE_MS = 220
 
 /** The Projects page. */
 export default function ProjectsPage() {
-  const { query, update, clear } = useProjectQuery()
+  const { query: asked, update, clear } = useProjectQuery()
   const all = useProjects()
+  const owners = useMemo(() => ownersOf(all.data ?? []), [all.data])
+  const query = all.data ? withKnownOwner(asked, owners) : asked
   const found = useProjectSearch(apiParams(query))
   const remove = useRemoveProject()
   const refresh = useRefreshProjects()
@@ -60,7 +63,7 @@ export default function ProjectsPage() {
   // Stable callbacks (they take the project name) so the memoised rows only re-render when their row changes.
   const askRemove = useCallback((name: string) => setAsking(name), [])
   const card = (row: ProjectRow) => (
-    <ProjectRowCard key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} />
+    <ProjectTile key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} />
   )
 
   const body = () => {

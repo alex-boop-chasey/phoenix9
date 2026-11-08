@@ -12,13 +12,16 @@ import { useBuilds } from "@/lib/queries"
 import { BuildList } from "./BuildList"
 import { RunningView } from "./RunningView"
 import { activeRun } from "./useRunLive"
+import { SLIDE_COUNT } from "./wizard/model"
 import { Wizard } from "./wizard/Wizard"
 
-type Mode = { kind: "list" } | { kind: "wizard" } | { kind: "run"; runId: string }
+type Mode = { kind: "list" } | { kind: "wizard"; slide: number } | { kind: "run"; runId: string }
 
 /** Which mode the address asks for (a bare address is the list, unless a run is active). */
 export function modeFrom(params: URLSearchParams): Mode | null {
-  if (params.get("new") === "1") return { kind: "wizard" }
+  const slide = Number(params.get("wizard"))
+  if (Number.isInteger(slide) && slide >= 1) return { kind: "wizard", slide: Math.min(slide, SLIDE_COUNT) }
+  if (params.get("new") === "1") return { kind: "wizard", slide: 1 }
   const run = params.get("run")
   if (run) return { kind: "run", runId: run }
   if (params.get("list") === "1") return { kind: "list" }
@@ -51,7 +54,7 @@ export function BuildTab({ name }: { name: string }) {
   if (asked?.kind === "wizard") {
     return (
       <Wizard
-        name={name} onCancel={() => void navigate(`${base}?list=1`)}
+        name={name} startSlide={asked.slide} onCancel={() => void navigate(`${base}?list=1`)}
         onStarted={(id) => {
           window.scrollTo?.(0, 0)
           void navigate(`${base}?run=${encodeURIComponent(id)}`, { replace: true, state: { started: true } })

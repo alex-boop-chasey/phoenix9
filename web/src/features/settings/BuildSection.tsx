@@ -121,7 +121,7 @@ export function BuildSection({ name }: { name: string }) {
         <span className="area"><Icon name="hammer" />Build</span>
       </div>
 
-      <SettingsRow id="s-preset" label="Preset">
+      <SettingsRow keys={["preset"]} id="s-preset" label="Preset">
         <div className="stackg">
           <Choices
             name="preset" label="Preset" value={preset} onChange={setChosen}
@@ -137,7 +137,7 @@ export function BuildSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
-      <SettingsRow label="Steps">
+      <SettingsRow keys={["steps"]} label="Steps">
         <div className="stackg">
           <div>
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setExplaining(true)}>
@@ -151,7 +151,7 @@ export function BuildSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
-      <SettingsRow id="s-fail" label="Failures">
+      <SettingsRow keys={["max_tries", "on_failure"]} id="s-fail" label="Failures">
         <div className="stackg">
           <div className="field" style={{ maxWidth: 200 }}>
             <label htmlFor="bs-max-tries">Tries per task</label>
@@ -169,7 +169,7 @@ export function BuildSection({ name }: { name: string }) {
         </div>
       </SettingsRow>
 
-      <SettingsRow id="s-merge" label="Merge and deploy">
+      <SettingsRow keys={["merge", "deploy"]} id="s-merge" label="Merge and deploy">
         <div className="stackg">
           <Choices
             name="merge" label="Merge" value={locked ? "ask" : String(val("merge") ?? "auto")} onChange={(v) => set("merge", v)}

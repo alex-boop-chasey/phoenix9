@@ -169,3 +169,5 @@
 .ag-tile-detail{display:block; font-size:.85em; opacity:.75}
 .ag-choice-other{flex:1; min-width:0; min-height:36px}
 .ag-choice-answer{font-size:.9em}
+.ag-tile-danger{border-color:var(--destructive,#c62828); color:var(--destructive,#c62828)}
+.ag-nav{display:flex; flex-wrap:wrap; gap:6px}

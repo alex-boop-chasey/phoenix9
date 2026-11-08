@@ -165,3 +165,21 @@ def test_fifo_and_folders_are_not_found(folder):
         docs.show(f"run:{RUN}/pipe.md")
     with pytest.raises(common.NotFound):
         docs.show(f"run:{RUN}/adir.md")
+
+
+def test_list_reads_only_the_start_of_each_file(folder, monkeypatch):
+    (folder / "big.md").write_text("# Big one\n" + "x" * 2_000_000)
+    limits = []
+    real = docs._read_fd
+    monkeypatch.setattr(docs, "_read_fd", lambda fd, limit: limits.append(limit) or real(fd, limit))
+    rows = {r["id"]: r for r in docs.list(RUN)}
+    assert rows[f"run:{RUN}/big.md"]["title"] == "Big one"
+    assert rows[f"run:{RUN}/big.md"]["size"] > 2_000_000
+    assert limits and max(limits) <= docs.TITLE_BYTES == 4096
+
+
+def test_list_title_never_uses_a_cut_line(folder):
+    keys.set_key("demo", "TOKEN", "sekrit-value-12345", secret=True)
+    (folder / "cut.md").write_text("x" * 4080 + "\n# sekrit-value-12345\n")
+    row = next(r for r in docs.list(RUN) if r["id"].endswith("cut.md"))
+    assert row["title"] == "cut.md" and "sekrit" not in repr(row)

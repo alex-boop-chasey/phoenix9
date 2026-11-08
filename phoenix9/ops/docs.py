@@ -11,6 +11,7 @@ from phoenix9.ops.common import NotFound, OpsError
 SUFFIXES = (".md", ".txt")
 MAX_BYTES = 1_000_000          # a longer document is cut here
 MAX_LISTED = 200
+TITLE_BYTES = 4096             # list() reads only this much of each file to find its title
 SKIP_DIRS = ("logs", "gates", ".git")
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -104,6 +105,13 @@ def _read_fd(fd: int, limit: int) -> bytes:
         raise NotFound("That document could not be read.") from None
 
 
+def _head(raw: bytes) -> bytes:
+    """The start of a file read for its title, without a last line that the read limit cut in half."""
+    if len(raw) < TITLE_BYTES:
+        return raw
+    return raw[:raw.rfind(b"\n") + 1]
+
+
 def resolve(id_: str) -> tuple[Path, str]:
     """The real file behind a document id and its project; OpsError/NotFound when the id is wrong or leaves its folder.
 
@@ -155,7 +163,7 @@ def list(run_id: str) -> list:
     rows = []
     for rel, path in found[:MAX_LISTED]:
         try:
-            text = _scrub(_read_fd(_open_inside(base, Path(rel), rel), MAX_BYTES), project)
+            text = _scrub(_head(_read_fd(_open_inside(base, Path(rel), rel), TITLE_BYTES)), project)
             size = path.stat().st_size
         except OpsError:
             continue  # gone or swapped since the folder was listed

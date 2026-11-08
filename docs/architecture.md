@@ -1395,3 +1395,9 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 - Project settings: `section=project|build` opens and scrolls to the section; `key=<dotted key>` scrolls to the row holding that setting (rows list their keys in `data-settings`; a row listing `deploy` holds `deploy.*`) and glows it for 2 s.
 - Global settings: `section=services|models|updates|addresses` opens that tab (the older `tab=` is still read; tabs now write `section=`).
 - Shared helper `web/src/lib/focus.ts` (`scrollToAndHighlight`, `useScrollToId`): scrolls to the element (no animation under reduced motion) and adds the `focus-glow` class for 2 s. The Overview page uses it too.
+
+### `phoenix ui go`
+- `ops.ui.go(to, params, who)` resolves the route with `routes.resolve`, emits event `ui.go` (project null) with
+  `{hash, label, by: "agent"}` on the global stream, and records a `command` event. `phoenix ui go <to> [--param k=v ...]`
+  and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
+  only through the `projects` route params (`q`, `status`, ...).

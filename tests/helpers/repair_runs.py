@@ -15,10 +15,10 @@ def sh(cwd, *args):
                           check=True, capture_output=True, text=True).stdout
 
 
-def make_repo(tmp_path) -> Path:
-    """A temp repo on main with one commit."""
-    code = tmp_path / "code"
-    code.mkdir()
+def make_repo(tmp_path, project: str = PROJECT) -> Path:
+    """A repo on main with one commit, where Phoenix keeps the project's code (PHOENIX_PROJECTS/<project>/code)."""
+    code = paths.projects() / project / "code"
+    code.mkdir(parents=True)
     sh(code, "init", "-q", "-b", "main")
     (code / "README.md").write_text("hello\n")
     sh(code, "add", "-A")
@@ -36,7 +36,7 @@ def _put(run_dir: Path, name: str, data) -> None:
 
 def make_run(tmp_path, project: str = PROJECT, run: str = RUN, status: str = "failed") -> dict:
     """Build a run folder in PHOENIX_HOME and a worktree on phoenix/<run>; return the paths."""
-    code = make_repo(tmp_path)
+    code = make_repo(tmp_path, project)
     work = git.make_worktree(code, run, paths.work(project, run))
     run_dir = paths.runs(project) / run
     run_dir.mkdir(parents=True)

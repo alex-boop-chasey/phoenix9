@@ -98,16 +98,41 @@ def _safe_patch(work: Path) -> str:
     return scrub.scrub(patch)
 
 
+def code_dir_of(run_dir: Path) -> Path:
+    """Return the project's own code repo (PHOENIX_PROJECTS/<project>/code), a place Phoenix wrote itself."""
+    return paths.projects() / Path(run_dir).parent.name / "code"
+
+
+def _missing_info(run_dir: Path) -> dict:
+    """The worktree record for a missing or unreadable worktree: the branch tip read from the project's code repo."""
+    branch = git.branch_name(Path(run_dir).name)
+    try:
+        tip = git.git(code_dir_of(run_dir), "rev-parse", "--verify", "-q", f"refs/heads/{branch}^{{commit}}").strip()
+    except git.GitError as e:
+        raise SnapshotError(f"Snapshot failed: the worktree is unreadable and branch {branch} cannot be read "
+                            f"({scrub.scrub(str(e))}).") from e
+    return {"head": tip, "branch": branch, "dirty": False, "missing": True}
+
+
+def _read_worktree(run_dir: Path) -> tuple[dict, str]:
+    """Return the worktree record and its patch; a missing or unreadable worktree is recorded as such."""
+    work = worktree_of(run_dir)
+    if not work.is_dir():
+        return _missing_info(run_dir), ""
+    try:
+        return _worktree_info(work), _safe_patch(work)
+    except git.GitError as e:
+        try:
+            return _missing_info(run_dir), ""
+        except SnapshotError:
+            raise SnapshotError(f"Snapshot failed: git could not read the worktree "
+                                f"({scrub.scrub(str(e))}).") from e
+
+
 def take(run_dir, label: str) -> int:
     """Copy the run's state files and worktree changes into repairs/<n>/before/ and return n."""
     run_dir = Path(run_dir)
-    work = worktree_of(run_dir)
-    if not work.is_dir():
-        raise SnapshotError("Snapshot refused: the run's worktree is gone, so there is nothing to snapshot.")
-    try:
-        info, patch = _worktree_info(work), _safe_patch(work)
-    except git.GitError as e:
-        raise SnapshotError(f"Snapshot failed: git could not read the worktree ({scrub.scrub(str(e))}).") from e
+    info, patch = _read_worktree(run_dir)
     n = next_number(run_dir)
     tmp = repairs_dir(run_dir) / f".tmp-{n}"
     final = repairs_dir(run_dir) / str(n)
@@ -242,11 +267,23 @@ def _restore_files(run_dir: Path, before: Path) -> None:
             (run_dir / rel).unlink()
 
 
+def _ensure_worktree(run_dir: Path, work: Path) -> None:
+    """Recreate the worktree from its branch when it is missing or git cannot read it."""
+    if work.is_dir():
+        top = git.run_git(work, "rev-parse", "--show-toplevel", check=False)
+        if top.returncode == 0 and Path(top.stdout.decode().strip()).resolve() == work.resolve():
+            return
+    code = code_dir_of(run_dir)
+    git.remove_worktree(code, work)
+    git.make_worktree(code, run_dir.name, work)
+
+
 def _restore_worktree(run_dir: Path, before: Path) -> None:
     """Reset the worktree hard to the snapshot's head on its branch and re-apply the dirty patch."""
     work = worktree_of(run_dir)
     info = json.loads((before / "worktree.json").read_text(encoding="utf-8"))
     try:
+        _ensure_worktree(run_dir, work)
         if git.git(work, "rev-parse", "--abbrev-ref", "HEAD").strip() != info["branch"]:
             git.git(work, "checkout", "-q", info["branch"])
         git.git(work, "reset", "--hard", "-q", info["head"])

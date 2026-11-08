@@ -125,7 +125,7 @@ def test_refused_step_rolls_back_earlier_steps(tmp_path):
 
 def test_step_not_built_yet_is_refused(tmp_path):
     r = make(tmp_path)
-    out = apply_mod.apply(note(tmp_path, r, "rebuild the worktree"), "agent")
+    out = apply_mod.apply(note(tmp_path, r, "rerun finish step lint"), "agent")
     assert out["rolled_back"] and "not supported yet" in out["refused"]
 
 
@@ -142,7 +142,7 @@ def test_dry_run_changes_nothing(tmp_path):
 
 def test_four_records_written(tmp_path):
     r = make(tmp_path)
-    (paths.projects() / r["project"]).mkdir()
+    (paths.projects() / r["project"]).mkdir(exist_ok=True)
     out = apply_mod.apply(note(tmp_path, r, "mark task 1 done because fine"), "alex")
     copy = r["run_dir"] / "repairs" / "notes" / "1-fix-the-thing.md"
     assert copy.is_file() and out["snapshot"] == 1 and (r["run_dir"] / "repairs/1/before").is_dir()

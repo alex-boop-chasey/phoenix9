@@ -204,7 +204,7 @@ def healthy(tmp_path, status="failed", tasks=None):
     """A healthy run with a real worktree; returns the make_run paths with run_dir set to the built run."""
     run_dir = build(tmp_path, status, tasks if tasks is not None else {"1": task("passed", 1)},
                     attempts={1: ["passed"]} if tasks is None else None)
-    return {"run_dir": run_dir, "work": paths.work("demo", RUN), "code": tmp_path / "code"}
+    return {"run_dir": run_dir, "work": paths.work("demo", RUN), "code": paths.projects() / "demo" / "code"}
 
 
 def test_healthy_everything(tmp_path):

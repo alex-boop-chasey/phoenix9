@@ -72,7 +72,7 @@ def test_round_trip(tmp_path):
 
 def test_writes_event_log_and_changelog(tmp_path):
     r = make_run(tmp_path)
-    (paths.projects() / r["project"]).mkdir()
+    (paths.projects() / r["project"]).mkdir(exist_ok=True)
     snapshot.take(r["run_dir"], "fix")
     snapshot.undo(r["run_dir"], who="alex")
     events = [json.loads(x) for x in (r["run_dir"] / "events.jsonl").read_text().splitlines()]

@@ -1,9 +1,13 @@
-"""The repair check, part 1: does a run's recorded state agree with itself (statuses, tries, steps, questions)?"""
+"""The repair check: does a run's recorded state agree with itself, and with its worktree, settings, spec and server?"""
+import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, gates, state, status
+from phoenix9 import atomic, gates, git, paths, resolve, settings, state, status
+from phoenix9.library import load_library
+from phoenix9.repair.snapshot import worktree_of
 
 ENDED_TASK_OK = {"done": ("passed", "skipped"), "failed": gates.TASK_ENDED, "stopped": gates.TASK_ENDED}
 
@@ -139,7 +143,135 @@ def check_questions(run_dir: Path, st: dict) -> list[Finding]:
     return found
 
 
-CHECKS = (check_statuses, check_agreement, check_tries, check_one_running, check_questions)
+def _worktree_expected(st: dict) -> bool:
+    """A run that has not started, or is finished and merged, may have no worktree."""
+    return st.get("status") not in ("queued", "done")
+
+
+def _tree_findings(work: Path, run_id: str) -> list[Finding]:
+    """The worktree is on the run's branch."""
+    branch = git.run_git(work, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.decode().strip()
+    want = git.branch_name(run_id)
+    if branch == want:
+        return []
+    return [Finding("worktree-wrong-branch", f"The worktree is on '{branch or 'no branch'}', not on {want}.",
+                    fix={"kind": "worktree-branch"})]
+
+
+def _base_findings(work: Path, st: dict) -> list[Finding]:
+    """Every task's attempt_base is a commit the worktree contains."""
+    found = []
+    for n, t in _tasks(st):
+        base = t.get("attempt_base")
+        if base and git.run_git(work, "merge-base", "--is-ancestor", base, "HEAD", check=False).returncode != 0:
+            found.append(Finding("base-not-in-worktree", f"Task {n} starts from commit {str(base)[:10]}, which the "
+                                 "worktree does not contain.", task=n, fix={"kind": "attempt-base", "task": n}))
+    return found
+
+
+def _env_findings(work: Path) -> list[Finding]:
+    """No .env-style file sits in the worktree."""
+    found = []
+    for root, dirs, files in os.walk(work):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in files:
+            if git.is_env_file(name):
+                rel = (Path(root) / name).relative_to(work).as_posix()
+                found.append(Finding("env-file", f"The worktree holds an env file ({rel}).",
+                                     fix={"kind": "env-file", "path": rel}))
+    return found
+
+
+def check_worktree(run_dir: Path, st: dict) -> list[Finding]:
+    """The worktree exists, is on phoenix/<run>, contains every attempt_base and holds no env file."""
+    work = worktree_of(run_dir)
+    if not (work / ".git").exists():
+        if not _worktree_expected(st):
+            return []
+        return [Finding("worktree-missing", f"The worktree for this run is missing ({work}).",
+                        fix={"kind": "worktree-missing"})]
+    try:
+        return _tree_findings(work, run_dir.name) + _base_findings(work, st) + _env_findings(work)
+    except git.GitError as err:
+        return [Finding("worktree-unreadable", f"Git cannot read the worktree: {err}", fix={"kind": "worktree-missing"})]
+
+
+def _plan_findings(run_dir: Path, values: dict, lib) -> list[Finding]:
+    """plan.json equals what the resolver makes of the frozen settings (unless a repair froze it)."""
+    if (run_dir / "repairs" / "frozen.json").is_file():
+        return []
+    plan = atomic.read_json(run_dir / "plan.json")
+    if plan is None:
+        return []
+    try:
+        enabled = {n: bool(t["on"]) for n, t in (values.get("steps") or {}).items()}
+        want = json.loads(json.dumps(resolve.resolve(lib, enabled).to_json()))
+    except (resolve.ResolveError, KeyError, TypeError) as err:
+        return [Finding("settings-no-plan", f"The settings cannot make a plan: {err}", fix={"kind": "plan"})]
+    if plan != want:
+        return [Finding("plan-differs", "plan.json is not what the settings in settings.json make.",
+                        fix={"kind": "plan"})]
+    return []
+
+
+def check_settings(run_dir: Path, st: dict) -> list[Finding]:
+    """settings.json is valid, and plan.json is what the resolver makes of it."""
+    values = atomic.read_json(run_dir / "settings.json")
+    if values is None:
+        return [] if not (run_dir / "settings.json").exists() else [
+            Finding("settings-bad", "settings.json cannot be read.", fix={"kind": "settings"})]
+    lib = load_library(paths.library())
+    problems = settings.validate(values, settings.all_specs(lib), "settings.json")
+    if problems:
+        return [Finding("settings-bad", "settings.json is not valid: " + "; ".join(problems), fix={"kind": "settings"})]
+    return _plan_findings(run_dir, values, lib)
+
+
+def check_spec(run_dir: Path, st: dict) -> list[Finding]:
+    """spec.json lists the same tasks (numbers, titles, depends_on) as the state."""
+    data = atomic.read_json(run_dir / "spec.json")
+    if data is None or "tasks" not in data:
+        return []
+    try:
+        spec = {int(t["number"]): (t["title"], sorted(t["depends_on"])) for t in data["tasks"]}
+    except (KeyError, TypeError, ValueError):
+        return [Finding("spec-bad", "spec.json has tasks that cannot be read.", fix={"kind": "spec"})]
+    have = {n: (t.get("title"), sorted(t.get("depends_on") or [])) for n, t in _tasks(st)}
+    found = []
+    for n in sorted(set(spec) | set(have)):
+        if n not in spec or n not in have:
+            where = "spec.json" if n not in spec else "the run state"
+            found.append(Finding("spec-task-missing", f"Task {n} is missing from {where}.", task=n, fix={"kind": "spec"}))
+        elif spec[n] != have[n]:
+            found.append(Finding("spec-task-differs", f"Task {n} differs between spec.json and the run state "
+                                 "(title or depends_on).", task=n, fix={"kind": "spec"}))
+    return found
+
+
+def _running_elsewhere(run_dir: Path) -> list[str]:
+    """The ids of other runs on the server whose state says running."""
+    root = paths.runs()
+    others = []
+    for proj in sorted(root.iterdir()) if root.is_dir() else []:
+        for d in sorted(proj.iterdir()) if proj.is_dir() else []:
+            if d.is_dir() and d != run_dir and (atomic.read_json(d / "state.json") or {}).get("status") == "running":
+                others.append(d.name)
+    return others
+
+
+def check_server(run_dir: Path, st: dict) -> list[Finding]:
+    """At most one run is running on the whole server."""
+    if st.get("status") != "running":
+        return []
+    others = _running_elsewhere(run_dir)
+    if not others:
+        return []
+    return [Finding("many-runs-running", "Another run is running on the server too (" + ", ".join(others)
+                    + "); only one can.", fix={"kind": "run-status"})]
+
+
+CHECKS = (check_statuses, check_agreement, check_tries, check_one_running, check_questions,
+          check_worktree, check_settings, check_spec, check_server)
 
 
 def run_checks(run_dir) -> list[Finding]:
@@ -150,5 +282,5 @@ def run_checks(run_dir) -> list[Finding]:
     if found:
         return found                    # the other checks need known statuses
     for check in CHECKS[1:]:
-        found += check(run_dir, st)
+        found += check(Path(run_dir), st)
     return found

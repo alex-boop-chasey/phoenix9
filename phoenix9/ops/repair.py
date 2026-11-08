@@ -1,7 +1,7 @@
-"""Ops for the repair kit: undo a repair of a run."""
+"""Ops for the repair kit: check a run, undo a repair of a run."""
 from phoenix9 import runs as core
 from phoenix9.ops import common
-from phoenix9.repair import snapshot
+from phoenix9.repair import check as check_mod, snapshot
 
 
 def _run_folder(run_id: str, project: str | None = None):
@@ -20,3 +20,11 @@ def undo(run_id: str, to: int | None = None, who: str = "cli", project: str | No
     except (snapshot.RepairRefused, snapshot.SnapshotError) as err:
         raise common.OpsError(str(err)) from None
     return {"run_id": run_id, "project": folder.parent.name, **done}
+
+
+def check(run_id: str, project: str | None = None) -> dict:
+    """Check a run for broken state: {run_id, project, ok, problems: [{code, text, task}]}."""
+    folder = _run_folder(run_id, project)
+    found = check_mod.run_checks(folder)
+    return {"run_id": run_id, "project": folder.parent.name, "ok": not found,
+            "problems": [{"code": f.code, "text": f.text, "task": f.task} for f in found]}

@@ -1,7 +1,7 @@
 /* New project order sheet and receipt (from the mockup "CREATE dialect: open tiles"). */
 @layer components {
 .order{display:grid; gap:24px; grid-template-columns:minmax(0,1fr)}
-@container well (min-width:980px){ .order{grid-template-columns:minmax(0,1fr) 320px; align-items:start} .receipt{position:sticky; top:84px} }
+@container well (min-width:980px){ .order{grid-template-columns:minmax(0,1fr) 320px; align-items:start} .receipt{position:sticky; top:0} }
 .osteps{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:0}
 .ostep{display:grid; grid-template-columns:36px minmax(0,1fr); gap:16px; padding:20px 0; border-bottom:1px solid var(--line)}
 .ostep:first-child{padding-top:0}

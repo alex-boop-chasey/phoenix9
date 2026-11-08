@@ -26,7 +26,7 @@ export function ProjectList({ rows, current, onPick, withChat }: { rows: Project
           <b>{p.name}</b>
           <small>{switchLine(p)}</small>
         </Link>
-        {withChat && p.name === current && <ChatButton project={p.name} chat={p.chat ?? null} />}
+        {withChat && p.name === current && <ChatButton project={p.name} chat={p.chat ?? null} compact />}
         </div>
       ))}
     </div>

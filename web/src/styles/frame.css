@@ -1,6 +1,7 @@
 /* The frame: header, project switcher, well, breadcrumbs, agent drawer, phone picker sheet (from the mockup) */
 @layer components {
-.top{position:sticky; top:0; z-index:30; will-change:transform; height:60px; display:flex; align-items:center; gap:12px; background:var(--bg-page); border-bottom:1px solid var(--line)}
+.app{height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
+.top{position:relative; flex:none; z-index:30; height:60px; display:flex; align-items:center; gap:12px; background:var(--bg-page); border-bottom:1px solid var(--line)}
 .brand{display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text); min-width:0}
 .mark{width:36px; height:36px; border-radius:var(--r-md); display:grid; place-items:center; color:#fff; flex:none;
   background:radial-gradient(circle at 50% 120%,#7DD8FF,#2E8BFF 55%,#0F3C9A); box-shadow:0 0 0 1px rgba(255,255,255,.08) inset,0 6px 20px -6px var(--accent-glow)}
@@ -22,11 +23,11 @@
 @media (max-width:899px){ .hbtn .wtxt{display:none} }
 @media (max-width:520px){ .upd{display:none} .wordmark b{font-size:19px} .top-r{gap:2px} .hbtn{min-width:44px; height:44px; padding:0} .hbtn.picker{padding:0} .top{gap:8px} }
 
-.shell{display:grid; gap:16px; padding-top:16px; padding-bottom:24px; max-width:1600px; margin:0 auto}
+.shell{flex:1 1 auto; min-height:0; width:100%; display:grid; grid-template-rows:minmax(0,1fr); gap:16px; padding-top:16px; padding-bottom:16px; max-width:1600px; margin:0 auto}
 @media (min-width:1000px){ .shell{grid-template-columns:224px minmax(0,1fr)} }
 .switcher{display:none}
 @media (min-width:1000px){
-  .switcher{display:flex; flex-direction:column; gap:4px; position:sticky; top:76px; will-change:transform; align-self:start; max-height:calc(100vh - 92px); overflow:auto; padding:4px 2px 8px}
+  .switcher{display:flex; flex-direction:column; gap:4px; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:4px 2px 8px}
 }
 .sw-head{display:flex; align-items:center; justify-content:space-between; padding:4px 8px 8px; font-size:13px; font-weight:600; color:var(--text-2)}
 .sw-head a{font-weight:600; font-size:13px; text-decoration:none}
@@ -41,11 +42,11 @@
 .sw-sep{height:1px; background:var(--line); margin:6px 8px}
 .sw-add{margin-top:6px}
 
-.well{position:relative; min-width:0; background:var(--bg-dash); border:1px solid var(--line); border-radius:var(--r-lg); padding:24px; min-height:calc(100vh - 92px); container-type:inline-size; container-name:well; box-shadow:var(--shadow-1)}
+.well{position:relative; min-width:0; background:var(--bg-dash); border:1px solid var(--line); border-radius:var(--r-lg); padding:24px; min-height:0; overflow-y:auto; overscroll-behavior:contain; container-type:inline-size; container-name:well; box-shadow:var(--shadow-1)}
 .well.console{background:var(--bg-console)}
 @media (min-width:1200px){ .well{padding:28px 32px} }
 @media (max-width:639px){
-  .shell{padding-top:0}
+  .shell{padding-top:0; padding-bottom:0}
   .well{margin-left:calc(-1 * max(16px, env(safe-area-inset-left, 0px))); margin-right:calc(-1 * max(16px, env(safe-area-inset-right, 0px))); border-radius:0; border-inline:0; padding:20px max(16px, env(safe-area-inset-left, 0px)) 24px}
 }
 /* The heat wire: a 4x-wide strip of the gradient slides left by half its width (one gradient length) on the compositor. */
@@ -74,7 +75,7 @@
 .dr-f{padding:16px 20px; border-top:1px solid var(--line); display:flex; gap:8px}
 }
 .sw-line{display:flex; flex-direction:column; gap:4px}
-.sw-line .chatbtn{margin:0 0 4px 12px}
+.sw-line .chatbtn{align-self:flex-start; margin:0 0 4px 44px}
 
 /* Agent panel: header tools, wide mode, phone full-screen sheet */
 .dr-h{flex-wrap:wrap}

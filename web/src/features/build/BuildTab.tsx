@@ -6,6 +6,7 @@ import { ErrorState } from "@/components/ErrorState"
 import { Icon } from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { scrollPageTop } from "@/lib/focus"
 import { useLiveEvents } from "@/lib/live"
 import { useBuilds } from "@/lib/queries"
 
@@ -48,7 +49,7 @@ export function BuildTab({ name }: { name: string }) {
   const selectedRun = asked?.kind === "run" ? asked.runId : undefined
   useEffect(() => {
     // A build that was just started shows from its top.
-    if (justStarted && selectedRun) window.scrollTo?.(0, 0)
+    if (justStarted && selectedRun) scrollPageTop()
   }, [justStarted, selectedRun])
 
   if (asked?.kind === "wizard") {
@@ -56,7 +57,7 @@ export function BuildTab({ name }: { name: string }) {
       <Wizard
         name={name} startSlide={asked.slide} onCancel={() => void navigate(`${base}?list=1`)}
         onStarted={(id) => {
-          window.scrollTo?.(0, 0)
+          scrollPageTop()
           void navigate(`${base}?run=${encodeURIComponent(id)}`, { replace: true, state: { started: true } })
         }}
       />

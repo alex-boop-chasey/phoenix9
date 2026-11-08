@@ -10,8 +10,8 @@ const TIPS: Partial<Record<ChatState, string>> = {
   off: "off: pressing Chat starts a fresh conversation",
 }
 
-/** A Chat button for a project, with a state dot and an "Open in browser instead" link after pressing. */
-export function ChatButton({ project, chat }: { project: string; chat: ChatInfo | null }) {
+/** An outlined Chat button for a project (compact = the small sidebar size), with a state dot and an "Open in browser instead" link after pressing. */
+export function ChatButton({ project, chat, compact = false }: { project: string; chat: ChatInfo | null; compact?: boolean }) {
   const open = useOpenChat()
   const [webUrl, setWebUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +31,7 @@ export function ChatButton({ project, chat }: { project: string; chat: ChatInfo 
 
   return (
     <span className="chatbtn">
-      <button type="button" className="btn" title={TIPS[state]} disabled={open.isPending} onClick={press}>
+      <button type="button" className={compact ? "btn btn-secondary btn-sm" : "btn btn-secondary"} title={TIPS[state]} disabled={open.isPending} onClick={press}>
         {open.isPending ? "Starting chat…" : "Chat"}
         {showDot && <i className={`chatdot chatdot-${state}`} aria-hidden="true" />}
       </button>

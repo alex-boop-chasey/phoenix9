@@ -15,7 +15,7 @@
 .tbar i.pend{background:var(--surface-3)}
 .tbar i.run{animation:pulse 1.6s ease-in-out infinite}
 .run{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
-@container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:84px} }
+@container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:0} }
 .stack{display:flex; flex-direction:column; gap:6px; min-width:0}
 .stack-h{font-size:13px; font-weight:700; color:var(--text-2); margin:12px 0 2px; display:flex; gap:8px; align-items:center}
 .stack-h:first-child{margin-top:0}

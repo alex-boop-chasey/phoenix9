@@ -1,5 +1,6 @@
 """Ops for the app as a whole: version info, the Global settings view and the services registry."""
 import importlib.util
+import os
 
 import phoenix9
 from phoenix9 import addresses, events, git, paths, settings, tomlw
@@ -44,12 +45,24 @@ def version_label(tag: str = "") -> str:
     return "v" + ".".join(phoenix9.__version__.split(".")[:2])
 
 
+def dashboard_url() -> str:
+    """The dashboard address: env PHOENIX_DASHBOARD_URL if it is a usable address, else the saved one, else the default."""
+    env = os.environ.get("PHOENIX_DASHBOARD_URL", "").strip()
+    if env:
+        try:
+            addresses.origin_of(env, "PHOENIX_DASHBOARD_URL")
+            return env
+        except addresses.AddressError:
+            pass
+    return addresses.read()["dashboard_url"]
+
+
 def info(tag: str = "") -> dict:
     """Version, update support, GitHub login and feature flags for the dashboard."""
     gh = github.status()
     where = addresses.read()
     return {"version": phoenix9.__version__, "label": version_label(tag), "update": _update_info(),
-            "github": gh, "services": {"supported": True}, "dashboard_url": where["dashboard_url"],
+            "github": gh, "services": {"supported": True}, "dashboard_url": dashboard_url(),
             "vscode_url": where["vscode_url"]}
 
 

@@ -1381,3 +1381,10 @@ params)` refuses unknown routes and params, a missing project, a gate that is no
 wizard slide outside 1-7, a settings key not in the schema and a section not allowed (project settings: `project`,
 `build`; Phoenix settings: `services`, `models`, `updates`, `addresses`). It returns `{hash, label}`; the label is a
 breadcrumb such as `test-site › Settings › Build`. A run is accepted when its folder exists.
+
+### Dashboard address and `phoenix nav`
+- `ops.app.dashboard_url()` returns env `PHOENIX_DASHBOARD_URL` (if a usable http(s) address), else the saved
+  `dashboard_url`, else the default; `ops.app.info()` reports it.
+- `phoenix nav <to> [--param k=v ...] [--check] [--json]` resolves the route with `routes.resolve`, then prints the
+  label, the link (dashboard address + hash), a `phoenix-nav` block and the fallback line "Open <label>: <link>".
+  A route that cannot be resolved prints the reason and exits 1. `--check` prints only `ok` or the reason.

@@ -33,6 +33,7 @@ from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, setti
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
+from phoenix9 import taskfile
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod, stepproxy
 from phoenix9.ops.common import OpsError
@@ -415,9 +416,11 @@ class Runner:
             if k == 0 or last is not None:
                 k += 1                                # the last attempt is over: start the next one
                 state.set_task(run_dir, n, tries=k, rerun=False, status="running")
+                taskfile.refresh(run_dir, n)
             else:
                 state.set_task(run_dir, n, status="running")   # attempt k was cut short: go on with it
             out = self._run_attempt(run_dir, setup, things, task_data, k)
+            taskfile.refresh(run_dir, n)             # the task file shows this attempt's result
             if out.status in ("waiting", "stopped"):
                 return out.status
             if out.status == "dropped":

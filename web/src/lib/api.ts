@@ -149,6 +149,8 @@ export const api = {
       `runs/${e(project)}/${e(runId)}/stop`,
       { confirm: true },
     ),
+  noteRun: (runId: string, task: number, text: string) =>
+    post<{ run_id: string; task: number; file_id: string }>(`runs/${e(runId)}/note`, { task, text }),
   discardRun: (project: string, runId: string, force = false) =>
     post<{ run_id: string; status: string; discarded: boolean; notes: string[] }>(
       `runs/${e(project)}/${e(runId)}/discard`,

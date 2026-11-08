@@ -251,6 +251,13 @@ export function useStopRun(project: string) {
   })
 }
 
+export function useNoteRun() {
+  return useMutation({
+    mutationFn: ({ runId, task, text }: { runId: string; task: number; text: string }) =>
+      api.noteRun(runId, task, text),
+  })
+}
+
 export function useDiscardRun(project: string) {
   const qc = useQueryClient()
   return useMutation({

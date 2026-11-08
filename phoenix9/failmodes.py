@@ -17,7 +17,7 @@ import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import atomic, events, gates, paths, scrub, state
+from phoenix9 import atomic, events, gates, paths, scrub, state, taskfile
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
@@ -93,6 +93,7 @@ def _finish_task(run_dir: Path, task_no: int, status: str, **fields) -> None:
     def change(s):
         s["tasks"][str(task_no)].update(status=status, gate=None, **fields)
     st = state.update(run_dir, change)
+    taskfile.refresh(run_dir, task_no)
     events.emit("task.finished", project=st["project"], run=st["run_id"], task=task_no, status=status,
                 note=fields.get("flagged") or fields.get("note", ""))
 

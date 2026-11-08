@@ -544,6 +544,15 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
   `{who, at}` (only until the runner acts on it), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
   (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
+- **Task file** (`phoenix9/taskfile.py`): `tasks/<n>/task.md` is the one readable file of a task. Above the fixed
+  line `## Fix notes` Phoenix writes a view from the real state (goal, status, tries, each failed attempt's
+  reasons and last 10 scrubbed check-output lines, log paths); it is regenerated (`taskfile.refresh`, at each
+  attempt start and end and when the task finishes) and never parsed back. Below the line people and the agent
+  append notes (`phoenix run note <run> <task> "<text>"`, `POST /api/runs/<run>/note`, `ops.runs.note`: dated,
+  with who recorded it, at most 2,000 characters; refused when empty, too long, for an unknown run or task, or
+  for an ended run; event `run.note` carries no text). That section is the only part read back: all of it goes
+  into the next attempt's prompt as "Notes from Alex / the Phoenix agent" (`{{fix_notes}}` in the builder and
+  check-writer prompts), fenced with `aistep.fence` as information, never instructions.
 - `state.json`: `{run_id, project, status, created, updated, current: {group, task, step, attempt,
   gate}, tasks: {"1": {title, status, tries, failures: [..], depends_on: [..], escalations, flagged,
   gate, attempt_base, delegate, note, rerun}}, steps: [ {group, task, step, attempt, status, started,
@@ -665,9 +674,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note command`.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
+  `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,

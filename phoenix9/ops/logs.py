@@ -12,6 +12,7 @@ MAX_BYTES = 2 * 1024 * 1024
 RESULT_LINES = 20
 SESSION_RE = re.compile(r"^(\d+)-(\d+)-([a-z0-9-]+)\.jsonl(\.stderr)?$")
 ATTEMPT_RE = re.compile(r"^tasks/(\d+)/attempt-(\d+)/(checks\.txt|diff\.patch)$")
+TASK_FILE_RE = re.compile(r"^tasks/(\d+)/task\.md$")
 SERVICE_LOGS = ("api.log", "updater.log")
 
 
@@ -52,6 +53,10 @@ def _classify(rel: str, path: Path) -> dict | None:
         title = f"{'checks' if kind == 'check' else 'changes'} (task {task}, attempt {attempt})"
         return {"kind": kind, "task": task, "attempt": attempt,
                 "step": "acceptance" if kind == "check" else "builder", "title": title}
+    found = TASK_FILE_RE.match(rel)
+    if found:
+        return {"kind": "task-file", "task": int(found.group(1)), "attempt": None, "step": None,
+                "title": f"task file (task {found.group(1)})"}
     if rel == "repairs/report.md":
         return {"kind": "repair-report", "task": None, "attempt": None, "step": None, "title": "run report"}
     if rel.startswith("repairs/notes/") and name.endswith(".md"):

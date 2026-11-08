@@ -1,4 +1,5 @@
-import { screen, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 
 import { line, openGate, runDetail } from "@/test/buildFixtures"
 import { mockApi } from "@/test/mockApi"
@@ -159,4 +160,42 @@ test("a resume has no note file, so it is plain text", () => {
   show(runDetail({ repairs: [repair({ note_id: "resume", title: "Resumed" })] }))
   expect(screen.getByText("repaired by alex: Resumed")).toBeInTheDocument()
   expect(screen.queryByRole("link", { name: /repaired by/ })).toBeNull()
+})
+
+test("each started task links its task file in the Logs tab", () => {
+  show()
+  const href = (n: number) => taskBox(n).querySelector("[data-task-file]")?.getAttribute("href")
+  expect(href(1)).toBe("/p/demo-site/logs?run=r-wait&log=r-wait%2Ftasks%2F1%2Ftask.md")
+  expect(href(2)).toContain("tasks%2F2%2Ftask.md")
+  expect(taskBox(3).querySelector("[data-task-file]")).toBeNull()
+})
+
+test("only the running task has Send a note, and it posts the note to the run", async () => {
+  const run = runDetail({ status: "running", tasks: { ...runDetail().tasks, "2": { ...runDetail().tasks["2"]!, status: "running" } } })
+  const { calls } = mockApi({ "POST /api/runs/r-wait/note": { run_id: "r-wait", task: 2, file_id: "r-wait/tasks/2/task.md" } })
+  renderWithProviders(<StepList run={run} />)
+  expect(screen.getAllByRole("button", { name: "Send a note" })).toHaveLength(1)
+  await userEvent.click(screen.getByRole("button", { name: "Send a note" }))
+  const dialog = await screen.findByRole("dialog")
+  expect(within(dialog).getByRole("button", { name: "Send note" })).toBeDisabled()
+  await userEvent.type(within(dialog).getByLabelText("Note"), "use the other port")
+  await userEvent.click(within(dialog).getByRole("button", { name: "Send note" }))
+  await waitFor(() => expect(calls.some((c) => c.path === "/api/runs/r-wait/note")).toBe(true))
+  expect(calls.find((c) => c.path === "/api/runs/r-wait/note")!.body).toEqual({ task: 2, text: "use the other port" })
+  expect(await within(dialog).findByText(/Note saved/)).toBeInTheDocument()
+})
+
+test("a note over 2,000 characters cannot be sent, and an ended build has no Send a note", async () => {
+  const mk = (status: "running" | "failed") =>
+    runDetail({ status, tasks: { ...runDetail().tasks, "2": { ...runDetail().tasks["2"]!, status: "running" } } })
+  mockApi({})
+  const { unmount } = renderWithProviders(<StepList run={mk("failed")} />)
+  expect(screen.queryByRole("button", { name: "Send a note" })).toBeNull()
+  unmount()
+  renderWithProviders(<StepList run={mk("running")} />)
+  await userEvent.click(screen.getByRole("button", { name: "Send a note" }))
+  const dialog = await screen.findByRole("dialog")
+  fireEvent.change(within(dialog).getByLabelText("Note"), { target: { value: "x".repeat(2001) } })
+  expect(within(dialog).getByRole("alert")).toHaveTextContent("2000")
+  expect(within(dialog).getByRole("button", { name: "Send note" })).toBeDisabled()
 })

@@ -3,6 +3,7 @@ import time
 
 from phoenix9.cli.output import problem, show, table
 from phoenix9.ops import runs
+from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
 STOP_WAIT_S = 60    # how long `run stop` waits for the runner to act on a stop request
@@ -34,6 +35,11 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=stop)
+    p = group.add_parser("note", parents=[common], help="add a note to a task; its next attempt reads it")
+    p.add_argument("run_id")
+    p.add_argument("task", type=int)
+    p.add_argument("text", help="the note (at most 2,000 characters)")
+    p.set_defaults(func=note)
     p = group.add_parser("discard", parents=[common],
                          help="throw away a failed or stopped run's worktree and branch (here and on GitHub)")
     p.add_argument("run_id")
@@ -141,6 +147,15 @@ def stop(args) -> int:
                                  "It stops at the next step boundary (see: phoenix run status).")
     return show(args, r, f"Stopped run {r['run_id']}." if r["status"] == "stopped"
                 else f"Run {r['run_id']} is {r['status']}.")
+
+
+def note(args) -> int:
+    """Add a note to a task's task file."""
+    try:
+        r = runs.note(args.run_id, args.task, args.text, who=args.who)
+    except OpsError as err:
+        return problem(args, str(err))
+    return show(args, r, f"Noted on task {r['task']} of run {r['run_id']}. The next attempt will read it.")
 
 
 def discard(args) -> int:

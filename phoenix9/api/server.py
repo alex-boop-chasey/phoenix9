@@ -848,6 +848,15 @@ def post_repair_apply(req, run_id):
         return ops_repair.apply_text(run_id, text, who=WHO, **flags)
 
 
+def post_run_note(req, run_id):
+    """Add a note to a task of a run (the next attempt reads it)."""
+    task = req.body.get("task")
+    if isinstance(task, bool) or not isinstance(task, int):
+        raise BadRequest("'task' should be a task number.")
+    with req.server.write_lock:
+        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=WHO)
+
+
 def post_run_discard(req, project, run_id):
     """Discard a failed or stopped run's worktree and branch."""
     if req.body.get("confirm") is not True:
@@ -1015,6 +1024,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),

@@ -208,6 +208,28 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     return {"run_id": run_id, "status": status, "containers_removed": removed, "notes": notes}
 
 
+def note(run_id: str, task: int, text: str, who: str = "cli", project: str | None = None) -> dict:
+    """Append a dated note under `## Fix notes` in a task's task.md; the next attempt's prompt carries it."""
+    from phoenix9 import taskfile
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st["status"] in FINISHED:
+        raise OpsError(f"Run {run_id} is already {st['status']}, so it takes no more notes.")
+    if isinstance(task, bool) or not isinstance(task, int) or str(task) not in st["tasks"]:
+        raise common.NotFound(f"Run {run_id} has no task {task}.")
+    if not isinstance(text, str) or not text.strip():
+        raise OpsError("The note is empty. Write what the next attempt should know.")
+    if len(text.strip()) > taskfile.MAX_NOTE:
+        raise OpsError(f"The note is {len(text.strip())} characters long; the most is {taskfile.MAX_NOTE}.")
+    taskfile.add_note(folder, task, who, text)
+    events.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
+    common.record_command(who, f"run note {run_id} {task}", st["project"])
+    return {"run_id": run_id, "task": task, "file": str(taskfile.path(folder, task)),
+            "file_id": f"{run_id}/tasks/{task}/task.md"}
+
+
 DISCARDABLE = ("failed", "stopped")
 
 

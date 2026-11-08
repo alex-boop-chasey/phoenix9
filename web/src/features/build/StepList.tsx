@@ -1,11 +1,12 @@
 import type { ReactNode } from "react"
+import { Link } from "react-router"
 
 import { Icon } from "@/components/Icon"
 import { Indicator, type IndicatorKind } from "@/components/Indicator"
 import { MergeReview } from "@/features/gates/MergeReview"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { formatDuration, relativeTime } from "@/lib/format"
-import type { Gate, ItemStatus, PlanStep, RunDetail, RunTask, StepGroup, StepLine } from "@/lib/types"
+import type { Gate, ItemStatus, PlanStep, RunDetail, RunRepair, RunTask, StepGroup, StepLine } from "@/lib/types"
 
 import { Muted } from "./parts"
 
@@ -156,6 +157,31 @@ function Block({ title, line, time, status, plan, room }: BlockProps) {
   )
 }
 
+/** The line to put a repair after: the latest step line that started before it (undefined: before every step). */
+function anchorOf(run: RunDetail, repair: RunRepair): StepLine | undefined {
+  const at = Date.parse(repair.at)
+  let best: StepLine | undefined
+  for (const l of run.steps) {
+    const t = Date.parse(l.started)
+    if (!Number.isFinite(t) || t > at) continue
+    if (!best || t >= Date.parse(best.started)) best = l
+  }
+  return best
+}
+
+/** A grey line "repaired by <who>: <title>"; linked to its note in the Logs tab when there is a note file. */
+function RepairLine({ run, repair }: { run: RunDetail; repair: RunRepair }) {
+  const text = `repaired by ${repair.who}: ${repair.title}`
+  const isNote = !!repair.note_id && repair.note_id.endsWith(".md")
+  const to = `/p/${encodeURIComponent(run.project)}/logs?run=${encodeURIComponent(run.run_id)}&log=${encodeURIComponent(`${run.run_id}/repairs/notes/${repair.note_id}`)}`
+  return (
+    <p className="small muted" data-repair={repair.n}>
+      {isNote ? <Link to={to}>{text}</Link> : text}
+      {repair.rolled_back && " (rolled back)"}
+    </p>
+  )
+}
+
 interface Props {
   run: RunDetail
   gates?: Gate[]
@@ -174,6 +200,14 @@ function timeOf(line: StepLine | undefined, shown: Shown): string {
 export function StepList({ run, gates, renderUnderStep }: Props) {
   const open = gates ?? run.gates
   const title = (name: string) => planRow(run, name)?.title || name
+  const repairs = run.repairs ?? []
+  const anchors = new Map<StepLine | undefined, RunRepair[]>()
+  for (const r of repairs) {
+    const a = anchorOf(run, r)
+    anchors.set(a, [...(anchors.get(a) ?? []), r])
+  }
+  const repairsAfter = (line: StepLine | undefined) =>
+    (line ? anchors.get(line) ?? [] : []).map((r) => <RepairLine key={`repair-${r.n}`} run={run} repair={r} />)
 
   function blocks(group: StepGroup, taskNo: number | null) {
     const task = taskNo === null ? undefined : run.tasks[String(taskNo)]
@@ -211,6 +245,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
             {mergeRoom ? <div className="need-card">{block}{room}</div> : block}
             {!mergeRoom && showGate && <div className="pt-2"><NeedsYouCard gate={showGate} compact /></div>}
             {!mergeRoom && line && renderUnderStep?.(line)}
+            {repairsAfter(line)}
           </div>
         )
       })
@@ -256,6 +291,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
     <div className="stack" aria-live="polite">
       {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
       <h3 className="stack-h">At the start</h3>
+      {(anchors.get(undefined) ?? []).map((r) => <RepairLine key={`repair-${r.n}`} run={run} repair={r} />)}
       {blocks("run-start", null)}
       {taskNumbers.map((n) => {
         const t = run.tasks[String(n)]!

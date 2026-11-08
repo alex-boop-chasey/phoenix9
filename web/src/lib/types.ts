@@ -316,7 +316,8 @@ export interface RunRepair {
   n: number
   who: string
   title: string
-  note_id: string
+  /** The note file name; null for an undo, "resume" for a resume (no note file for either). */
+  note_id: string | null
   at: string
   rolled_back: boolean
 }

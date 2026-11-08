@@ -13,7 +13,7 @@ export const KIND_INFO: Record<LogEntry["kind"], { label: string; icon: IconName
   gate: { label: "Questions", icon: "hand-palm" },
   command: { label: "Commands", icon: "terminal" },
   service: { label: "Service logs", icon: "hard-drives" },
-  "repair-note": { label: "Repair notes", icon: "list-bullets" },
+  "repair-note": { label: "Repair note", icon: "list-bullets" },
   "repair-report": { label: "Run report", icon: "list-bullets" },
 }
 

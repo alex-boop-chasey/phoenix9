@@ -133,3 +133,30 @@ test("unfrozen plan says planned", () => {
   show(runDetail({ plan_frozen: false }))
   expect(screen.getByText("Planned steps; the runner fixes them when the build starts.")).toBeInTheDocument()
 })
+
+const repair = (o: object) => ({ n: 1, who: "alex", title: "Put task 2 right", note_id: "1-fix.md", at: "2026-10-31T10:04:00Z", rolled_back: false, ...o })
+
+test("a repair shows as a grey line linked to its note", () => {
+  show(runDetail({ repairs: [repair({})] }))
+  const link = screen.getByRole("link", { name: "repaired by alex: Put task 2 right" })
+  expect(link.getAttribute("href")).toBe(
+    "/p/demo-site/logs?run=r-wait&log=r-wait%2Frepairs%2Fnotes%2F1-fix.md")
+})
+
+test("a repair sits after the step that ran before it", () => {
+  show(runDetail({ repairs: [repair({})] }))
+  const row = document.querySelector("[data-repair]")!.parentElement!
+  expect(row.getAttribute("data-step")).toBeTruthy()
+})
+
+test("an undo has no note, so it is plain text", () => {
+  show(runDetail({ repairs: [repair({ note_id: null, title: "Undo repair 1" })] }))
+  expect(screen.getByText("repaired by alex: Undo repair 1")).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: /repaired by/ })).toBeNull()
+})
+
+test("a resume has no note file, so it is plain text", () => {
+  show(runDetail({ repairs: [repair({ note_id: "resume", title: "Resumed" })] }))
+  expect(screen.getByText("repaired by alex: Resumed")).toBeInTheDocument()
+  expect(screen.queryByRole("link", { name: /repaired by/ })).toBeNull()
+})

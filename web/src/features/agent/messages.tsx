@@ -2,6 +2,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 import { ActionCard, ActionGroup } from "@/features/agent/ActionCard"
+import { BlockView } from "@/features/agent/blocks/BlockView"
+import { parseBlocks } from "@/features/agent/blocks/parse"
 import { Markdown } from "@/features/agent/markdown"
 import type { ActionItem, AgentItem, AgentState, NoticeItem, UserItem } from "@/features/agent/useAgent"
 
@@ -40,11 +42,14 @@ export function UserBubble({ item, queued = false }: { item: UserItem; queued?: 
   )
 }
 
-/** The agent's reply: left-aligned, no bubble, markdown as elements. */
-export function AgentMessage({ markdown }: { markdown: string }) {
+/** The agent's reply: left-aligned, no bubble, markdown as elements and reply blocks (frozen ones have no buttons). */
+export function AgentMessage({ markdown, frozen = false, at }: { markdown: string; frozen?: boolean; at?: string }) {
+  const parts = useMemo(() => parseBlocks(markdown), [markdown])
   return (
     <div className="ag-row ag-agent" data-testid="agent-message">
-      <Markdown text={markdown} />
+      {parts.map((p, n) => p.type === "text"
+        ? <Markdown key={n} text={p.text} />
+        : <BlockView key={n} part={p} frozen={frozen} at={at} />)}
     </div>
   )
 }
@@ -139,6 +144,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
 
   const rows: React.ReactNode[] = []
   let day = ""
+  const lastDivider = items.reduce((acc, it, n) => (it.type === "session" ? n : acc), -1)
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx] as AgentItem
     const key = `${it.type}-${it.line}-${idx}`
@@ -160,7 +166,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
     }
     if (it.type === "user") rows.push(<UserBubble key={key} item={it} />)
     else if (it.type === "queued") { if (pending.has(idx)) rows.push(<UserBubble key={key} queued item={{ type: "user", line: it.line, text: it.text, origin: "panel", at: it.at }} />) }
-    else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} />)
+    else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} frozen={idx < lastDivider} at={it.at} />)
     else if (it.type === "notice") rows.push(<Notice key={key} item={it} />)
     else if (it.type === "session") rows.push(<Divider key={key} label={sessionLabel(items[idx + 1])} />)
   }

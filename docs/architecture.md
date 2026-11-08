@@ -1409,3 +1409,7 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 - `phoenix block check <file|-> [--kind K] [--json]` reads a fenced block (kind from the tag) or bare JSON (needs `--kind`); exit 1 with the reason when not ok.
 
 - `phoenix choice` / `phoenix confirm` (task 12) print a checked block plus one fallback line; `--json` gives `{block, fallback}`.
+
+### Block parser in the panel (task 13)
+
+`web/src/features/agent/blocks/parse.ts` splits agent markdown into text and `phoenix-*` block parts; the first non-empty line after a block is its fallback. `BlockView` checks each block once through `/api/blocks/check` (cached in memory by kind and text) and hides the fallback when the block renders; otherwise it shows the fallback plus "block could not be shown: <reason>". Only `AgentMessage` uses it. Items before the latest conversation divider are frozen (`frozen` prop, "as of <time>" line, no buttons). An unclosed `phoenix-` fence stays plain text.

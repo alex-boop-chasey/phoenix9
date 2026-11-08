@@ -9,7 +9,7 @@ from phoenix9 import (adapters as adapters_mod, atomic, checklock, failmodes, ga
                       settings, spec as specmod, state, summary)
 from phoenix9.library import load_library
 from phoenix9.repair import snapshot
-from phoenix9.runner import Runner
+from phoenix9.runner import RunFailed, Runner
 
 
 class StepRefused(Exception):
@@ -563,7 +563,10 @@ def rerun_finish(ctx, name: str) -> str:
     _work(ctx)
     if ctx.dry:
         return f"would run finish step {name} again"
-    status, outcome = make_runner().rerun_finish_step(Path(ctx.run_dir), name)
+    try:
+        status, outcome = make_runner().rerun_finish_step(Path(ctx.run_dir), name)
+    except RunFailed as err:
+        raise StepRefused(f"finish step {name} cannot be run: {err}") from None
     if status == "done":
         summary.refresh(Path(ctx.run_dir), paths.library())
     words = {"passed": "passed", "failed": "failed", "skipped": "was skipped", "waiting": "opened a question"}

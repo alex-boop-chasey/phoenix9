@@ -1,6 +1,7 @@
 """Check-writer: Claude writes the task's checks; Phoenix accepts only self-contained files in the task's checks
 folder, then locks them."""
 import fnmatch
+import re
 from pathlib import Path
 
 from phoenix9 import checklint, checklock, keys, state
@@ -56,11 +57,18 @@ def _failures(ctx) -> str:
     return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
 
 
+def fence(text: str) -> str:
+    """Untrusted text inside a fenced block it cannot close early (its own backtick runs are broken up)."""
+    safe = re.sub(r"`{3,}", lambda m: "` " * len(m.group(0)), text).replace("~~~", "~ ~ ~")
+    return "```text\n" + safe.rstrip() + "\n```"
+
+
 def _objection(ctx) -> str:
-    """The reason a repair gave for throwing the old checks away, or a plain 'none'."""
+    """The reason a repair gave for throwing the old checks away (fenced as data), or a plain 'none'."""
     tasks = (state.load(ctx.run.folder) or {}).get("tasks") or {}
     task = tasks.get(str((ctx.task or {}).get("number")), {})
-    return task.get("check_objection") or "(none)"
+    why = task.get("check_objection")
+    return fence(why) if why else "(none)"
 
 
 def unset_env_problems(ctx, written: list[str]) -> list[str]:

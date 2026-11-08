@@ -23,6 +23,11 @@ interface RepairData {
   note: { name: string; text: string; dry_run: DryRun | null } | null
 }
 
+/** True when the note has a step that throws locked checks away (it needs the unlock approval). */
+function unlocksChecks(note: string | null): boolean {
+  return (note ?? "").split("\n").some((line) => /^- rewrite the checks of task \d+ because \S/.test(line.trim()))
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error && err.message ? err.message : "it did not work"
 }
@@ -69,7 +74,8 @@ export function RepairBody({ data, frozen = false }: CardBodyProps) {
     setConfirm(false)
     setBusy(true)
     try {
-      const out = await post<{ ok?: boolean; rolled_back?: boolean }>(path, { note: text })
+      const body = unlocksChecks(text) ? { note: text, confirm: true, approve_unlock: true } : { note: text, confirm: true }
+      const out = await post<{ ok?: boolean; rolled_back?: boolean }>(path, body)
       setMessage(out.rolled_back ? { ok: false, text: "The check failed, so the repair was rolled back." } : { ok: true, text: "Repair applied." })
     } catch (err) {
       setMessage({ ok: false, text: `Apply failed: ${errorText(err)}` })
@@ -109,7 +115,9 @@ export function RepairBody({ data, frozen = false }: CardBodyProps) {
         </div>
       )}
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Apply this repair?"
-        body="Phoenix takes a snapshot, applies the note and checks the run. If the check fails it rolls back."
+        body={(unlocksChecks(text)
+          ? "This note unlocks the task's locked checks: they are thrown away and written again. "
+          : "") + "Phoenix takes a snapshot, applies the note and checks the run. If the check fails it rolls back."}
         confirmLabel="Apply" onConfirm={() => void apply()} />
     </div>
   )

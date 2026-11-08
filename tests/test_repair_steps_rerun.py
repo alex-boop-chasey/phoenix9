@@ -115,7 +115,7 @@ def test_check_writer_prompt_shows_the_objection(tmp_path):
     spec.loader.exec_module(mod)
     from types import SimpleNamespace
     ctx = SimpleNamespace(run=SimpleNamespace(folder=r["run_dir"]), task={"number": 1})
-    assert mod._objection(ctx) == "the bullet is impossible"
+    assert mod._objection(ctx) == "```text\nthe bullet is impossible\n```"
     assert "{{objection}}" in (REPO / "steps/check-writer/prompt.md").read_text()
 
 
@@ -136,7 +136,8 @@ def finish_run(tmp_path, adapters, monkeypatch, task_status="passed"):
 
     def change(s):
         s["tasks"] = {"1": {**state.new_task("One"), "status": task_status}}
-        s["steps"] = [{"group": "run-finish", "task": None, "step": "summary", "status": "passed", "note": ""},
+        s["steps"] = [{"group": "run-finish", "task": None, "step": "full-suite", "status": "passed", "note": ""},
+                      {"group": "run-finish", "task": None, "step": "summary", "status": "passed", "note": ""},
                       {"group": "run-finish", "task": None, "step": "merge", "status": "failed", "note": "conflict"},
                       {"group": "run-finish", "task": None, "step": "lockfile", "status": "skipped", "note": ""}]
         s["error"] = "merge failed"

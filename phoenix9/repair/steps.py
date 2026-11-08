@@ -47,7 +47,7 @@ def _skip_dependents(st: dict, n: int, why: str) -> list[int]:
         for key, t in sorted(tasks.items(), key=lambda kv: int(kv[0])):
             if cur in [str(d) for d in t.get("depends_on") or []] and key not in todo and int(key) not in skipped:
                 if t.get("status") in ("pending", "running", "waiting"):
-                    t.update(status="skipped", gate=None, note=why)
+                    t.update(status="skipped", gate=None, note=why, marked_by_repair=True)
                     skipped.append(int(key))
                 todo.append(key)
     return sorted(skipped)
@@ -57,7 +57,7 @@ def mark_done(ctx, n: int, why: str) -> str:
     """Mark task n passed, with the reason as its note and its flag cleared."""
     _unwaiting(ctx, n)
     state.update(ctx.run_dir, lambda s: s["tasks"][str(n)].update(
-        status="passed", note=scrub.scrub(why), flagged="", gate=None, rerun=False))
+        status="passed", note=scrub.scrub(why), flagged="", gate=None, rerun=False, marked_by_repair=True))
     return f"task {n} is now done ({scrub.scrub(why)})"
 
 
@@ -67,7 +67,8 @@ def mark_skipped(ctx, n: int, why: str) -> str:
     skipped = []
 
     def change(s):
-        s["tasks"][str(n)].update(status="skipped", note=scrub.scrub(why), gate=None, rerun=False)
+        s["tasks"][str(n)].update(status="skipped", note=scrub.scrub(why), gate=None, rerun=False,
+                                  marked_by_repair=True)
         skipped.extend(_skip_dependents(s, n, f"depends on task {n}, which was skipped"))
     state.update(ctx.run_dir, change)
     more = f"; also skipped task {', '.join(map(str, skipped))}" if skipped else ""
@@ -88,9 +89,12 @@ def clear_failures(ctx, n: int) -> str:
     return f"cleared {count} failure(s) of task {n}"
 
 
+REPAIR_NOTE = "Note from the repair: "
+
+
 def add_note(ctx, n: int, text: str) -> str:
     """Add a note to the failures of task n, which the next attempt reads."""
-    line = "Note from the repair: " + scrub.scrub(text)
+    line = REPAIR_NOTE + scrub.scrub(text)
     _task(ctx, n)
     state.update(ctx.run_dir, lambda s: s["tasks"][str(n)].setdefault("failures", []).append(line))
     return f"added a note to task {n}"
@@ -172,6 +176,28 @@ def redo(ctx, n: int) -> str:
     return f"task {names} will start again from scratch" + ("" if work else " (the worktree is not touched in a dry run)")
 
 
+def _hand_fix_problems(ctx, work: Path) -> list[str]:
+    """The diff rules (default deny list incl. CLAUDE.md, the run's deny_extra, locked checks) on the uncommitted
+    hand fix; a chat session may not touch the project's safety files either. Empty when all is fine."""
+    import fnmatch
+    values = atomic.read_json(Path(ctx.run_dir) / "settings.json") or {}
+    diff = values.get("diff") or {}
+    try:
+        profile = settings.load_profile(paths.library(), values["profile"]) if values.get("profile") else {}
+    except Exception:            # noqa: BLE001 - an unreadable profile only means no profile allow-list
+        profile = {}
+    changes = git.diff_changes(work, "HEAD")
+    bad = git.check_changes(changes,
+                            allow_extra=[*profile.get("diff_allow_extra", ()), *diff.get("allow_extra", ())],
+                            deny_extra=list(diff.get("deny_extra", ())),
+                            locked=checklock.locked_paths(ctx.run_dir))
+    if is_chat(ctx.who):
+        globs = values.get("safety_files") or []
+        bad += [f"{c.path} is a safety file (only Alex may change it)" for c in changes
+                if any(fnmatch.fnmatch(p, g) for p in filter(None, (c.path, c.old_path)) for g in globs)]
+    return bad
+
+
 def keep_hand_fix(ctx, message: str) -> str:
     """Commit the uncommitted worktree changes as an outside fix and start the current task from that commit."""
     task = _env_task(ctx)
@@ -186,6 +212,9 @@ def keep_hand_fix(ctx, message: str) -> str:
         return "the worktree has no changes to keep" + extra
     if git.scan_secrets(git.diff_text(work, "HEAD")):
         raise StepRefused("the worktree changes look like they hold a secret; take it out first")
+    bad = _hand_fix_problems(ctx, work)
+    if bad:
+        raise StepRefused("the hand fix breaks the diff rules: " + "; ".join(bad[:3]))
     run_id = state.load(ctx.run_dir)["run_id"]
     sha = git.commit(work, scrub.scrub(message), {"Phoenix-Run": run_id, "Phoenix-Task": str(task),
                                                   "Phoenix-Fix-By": "repair"}, skip_env=True)
@@ -257,8 +286,15 @@ def _lib():
     return load_library(paths.library())
 
 
+# The only settings a repair may set (an allow-list: anything else is refused). diff.deny_extra may only grow.
+ALLOWED_TOP = ("max_tries", "diff.deny_extra")
+ALLOWED_STEP_KEYS = ("on", "model", "fallback_models", "timeout", "max_turns")
+GROW_ONLY = ("diff.deny_extra",)
+NOT_ALLOWED = "'{key}' is not a setting a repair may change; only Alex changes it, in Settings."
+
+
 def _forbidden_key(key: str) -> str | None:
-    """Why a settings key can never be changed by a repair, or None."""
+    """Why a settings key can never be changed by a repair, or None (allow-list plus the safety-key rule)."""
     top = key.split(".")[0]
     if top in FORBIDDEN_TOP or key in FORBIDDEN_KEYS:
         return f"'{key}' is a safety setting; a repair never changes it. Change it in Settings yourself."
@@ -269,6 +305,13 @@ def _forbidden_key(key: str) -> str | None:
         guard = _lib()
         if parts[1] in PROTECTED_STEPS or (guard.has_step(parts[1]) and guard.step(parts[1]).safety):
             return f"'{key}' belongs to step {parts[1]}, which guards the run; a repair never changes it."
+        if len(parts) != 3 or parts[2] not in ALLOWED_STEP_KEYS:
+            return NOT_ALLOWED.format(key=key)
+    elif key not in ALLOWED_TOP:
+        return NOT_ALLOWED.format(key=key)
+    from phoenix9.ops import settings as ops_settings
+    if key not in GROW_ONLY and ops_settings.is_safety_key(key, _lib()):
+        return f"'{key}' is a safety setting; a repair never changes it. Change it in Settings yourself."
     return None
 
 
@@ -438,18 +481,14 @@ def close_question(ctx, id: str, action: str) -> str:
     gate = gates.read(run_dir, id)
     if gate is None or gate.get("run") != run_dir.name:
         raise StepRefused(f"question {id} is not a question of this run")
+    if not gates.may_answer(gate, ctx.who, _project_settings(run_dir)):
+        raise StepRefused(f"'{ctx.who}' may not answer {gate['kind']} questions here")
     if action == "closed":
         if ctx.dry:
             return f"would close question {id}"
         if not gates.close_questions(run_dir, "closed by a repair", who=ctx.who, only=id):
             raise StepRefused(f"question {id} is already answered or closed")
         return f"closed question {id}"
-    try:
-        project_settings = settings.load_project(paths.projects() / run_dir.parent.name)
-    except settings.SettingsError:
-        project_settings = {}
-    if not gates.may_answer(gate, ctx.who, project_settings):
-        raise StepRefused(f"'{ctx.who}' may not answer {gate['kind']} questions here")
     if action not in gate["actions"]:
         raise StepRefused(f"'{action}' is not allowed for question {id}; use one of {', '.join(gate['actions'])}")
     if not any(g["id"] == id and g["state"] == "open" for g in gates.run_gates(run_dir)):
@@ -478,6 +517,8 @@ def _project_settings(run_dir: Path) -> dict:
 
 def _may_unlock(ctx) -> bool:
     """True when the unlock is approved and the asker may answer an escalation question of this project."""
+    if is_chat(ctx.who):
+        return False
     return bool(ctx.approve_unlock) and gates.may_answer({"kind": "escalation"}, ctx.who, _project_settings(Path(ctx.run_dir)))
 
 
@@ -487,6 +528,7 @@ def _objections(ctx, n: int, locked: list[str]) -> list[str]:
     texts = list(_task(ctx, n).get("failures") or [])
     texts += [x.get("note") or "" for x in st.get("steps") or []
               if x.get("task") == n and x.get("step") in BUILD_STEPS]
+    texts = [t for t in texts if not t.startswith(REPAIR_NOTE)]     # a repair's own notes never count as proof
     names = [p for f in locked for p in (f, f.rsplit("/", 1)[-1])]
     return [t for t in texts if t and ("SPEC_PROBLEM" in t or any(name in t for name in names))]
 
@@ -560,6 +602,9 @@ def rerun_finish(ctx, name: str) -> str:
     plan = atomic.read_json(Path(ctx.run_dir) / "plan.json") or {}
     if name not in (plan.get("groups") or {}).get("run-finish", []):
         raise StepRefused(f"'{name}' is not a finish step of this run")
+    if name == "merge" and not any(x.get("step") == "full-suite" and x.get("status") == "passed"
+                                   for x in st.get("steps") or []):
+        raise StepRefused("merge can only run again once the full suite has passed in this run")
     _work(ctx)
     if ctx.dry:
         return f"would run finish step {name} again"
@@ -595,8 +640,20 @@ STEPS = {"resume": resume_run, "redo": redo, "keep-hand-fix": keep_hand_fix, "re
          "rewrite-checks": rewrite_checks, "rerun-finish": rerun_finish}
 
 
+# Steps a chat session (who chat:*) may never apply: only Alex (cli / dashboard) does these.
+ALEX_ONLY_STEPS = ("set-setting", "turn-off-step", "mark-done")
+NEEDS_ALEX = "needs Alex: a chat session may not {what}; ask Alex to apply this note from the dashboard"
+
+
+def is_chat(who: str) -> bool:
+    """True for a chat or agent session (who chat:*), which may not do the Alex-only repairs."""
+    return (who or "").startswith("chat:")
+
+
 def run_step(ctx, step) -> str:
     """Do one parsed step; refuse the ones that are not built yet. Returns what it changed, in words."""
+    if is_chat(ctx.who) and step.kind in ALEX_ONLY_STEPS:
+        raise StepRefused(NEEDS_ALEX.format(what=f"'{step.text}'"))
     fn = STEPS.get(step.kind)
     if fn is None:
         raise StepRefused(f"'{step.text}' is not supported yet")

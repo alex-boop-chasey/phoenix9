@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
                         help="print JSON (for agents)")
     common.add_argument("--who", default=argparse.SUPPRESS,
-                        help="who is running this (default $PHOENIX_WHO or cli)")
+                        help="who is running this (default cli; ignored when $PHOENIX_WHO is set)")
     parser = argparse.ArgumentParser(prog="phoenix", description="Phoenix 9: project manager and build harness.",
                                      parents=[common])
     parser.add_argument("--version", action="version", version=f"phoenix {__version__}")
@@ -39,7 +39,9 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as stop:
         return stop.code if isinstance(stop.code, int) else (0 if stop.code is None else 2)
     args.json = getattr(args, "json", False)
-    args.who = getattr(args, "who", None) or os.environ.get("PHOENIX_WHO") or "cli"
+    # a session started with PHOENIX_WHO (the chat and agent units set chat:<name>) keeps that name: --who
+    # cannot override it, or a chat could call itself cli and do what only Alex may do
+    args.who = os.environ.get("PHOENIX_WHO") or getattr(args, "who", None) or "cli"
     if not getattr(args, "func", None):
         parser.print_help()
         return 0

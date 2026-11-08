@@ -31,7 +31,7 @@ describe("RepairBody", () => {
     await screen.findByText("Apply this repair?")
     fireEvent.click(screen.getAllByRole("button", { name: "Apply" }).at(-1)!)
     await waitFor(() => expect(calls.length).toBe(1))
-    expect(calls[0]?.body).toEqual({ note: NOTE })
+    expect(calls[0]?.body).toEqual({ note: NOTE, confirm: true })
     expect((await screen.findByTestId("repair-result")).textContent).toContain("applied")
   })
 
@@ -53,5 +53,16 @@ describe("RepairBody", () => {
     mockApi({})
     renderWithProviders(<RepairBody type="repair" data={data} frozen />)
     expect(screen.queryByRole("button", { name: "Apply" })).toBeNull()
+  })
+
+  it("says it unlocks checks and sends approve_unlock for a rewrite-checks note", async () => {
+    const unlock = "# Repair r1\n\nWhy: fix\n\n## Steps\n- rewrite the checks of task 1 because the bullet is impossible\n"
+    const { calls } = mockApi({ "POST /api/repair/r1/apply": { ok: true } })
+    renderWithProviders(<RepairBody type="repair" data={{ ...data, note: { ...data.note, text: unlock } }} />)
+    fireEvent.click(screen.getByRole("button", { name: "Apply" }))
+    expect((await screen.findByText(/unlocks the task's locked checks/)).textContent).toContain("written again")
+    fireEvent.click(screen.getAllByRole("button", { name: "Apply" }).at(-1)!)
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]?.body).toEqual({ note: unlock, confirm: true, approve_unlock: true })
   })
 })

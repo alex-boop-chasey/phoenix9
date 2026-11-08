@@ -66,6 +66,30 @@ def matches_safety(path, globs) -> bool:
     return any(fnmatch.fnmatch(path, g) for g in globs)
 
 
+def _full_suite_off(ctx) -> bool:
+    """True when the run's plan has the full suite switched off (Alex's own setting), so no result is expected."""
+    plan = atomic.read_json(ctx.run.folder / "plan.json") or {}
+    row = next((r for r in plan.get("steps") or [] if r.get("name") == "full-suite"), None)
+    return row is not None and not row.get("on")
+
+
+def repaired(run_folder) -> bool:
+    """True when a repair was applied to this run (a repair.applied event that was not rolled back)."""
+    path = run_folder / "events.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    for raw in lines:
+        try:
+            e = json.loads(raw)
+        except ValueError:
+            continue
+        if e.get("type") == "repair.applied" and not (e.get("data") or {}).get("rolled_back"):
+            return True
+    return False
+
+
 def _flags(ctx, tasks, base, branch):
     """Return (flags, why parts) saying why this merge needs Alex."""
     flags, why = [], []
@@ -81,6 +105,16 @@ def _flags(ctx, tasks, base, branch):
         why.append("the full suite did not pass")
     elif line and line["status"] == "passed":
         why.append("the full suite passed")
+    elif line is None and not _full_suite_off(ctx):
+        flags.append("no full suite result")
+        why.append("there is no full suite result for this run")
+    by_repair = sorted((n for n, t in tasks.items() if t.get("marked_by_repair")), key=int)
+    if by_repair:
+        flags.append("tasks marked by a repair")
+        why.append(f"task {', '.join(by_repair)} was marked done or skipped by a repair")
+    if repaired(ctx.run.folder):
+        flags.append("run was repaired")
+        why.append("this run was repaired")
     names = ctx.adapters.git.git(ctx.project.code_dir, "diff", "--name-only", f"{base}..{branch}").split("\n")
     globs = ctx.project.settings.get("safety_files") or []
     hit = [n for n in names if n and matches_safety(n, globs)]

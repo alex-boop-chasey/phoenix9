@@ -58,6 +58,24 @@ def _files_to_copy(run_dir: Path) -> list[Path]:
     return found
 
 
+SCRATCH_SKIP = ("run.lock", "before", "removed")
+
+
+def _scratch_ignore(folder, names):
+    """What a dry-run copy leaves out: the run lock, snapshot copies, and inside attempt folders everything but
+    result.json (logs and big attempt files: no repair step or check reads them, only the folder and its result)."""
+    here = Path(folder)
+    skip = {n for n in names if n in SCRATCH_SKIP}
+    if here.name.startswith("attempt-") and here.parent.parent.name == "tasks":
+        skip |= {n for n in names if n != "result.json"}
+    return skip
+
+
+def scratch_copy(run_dir, dest) -> None:
+    """Copy a run folder for a dry run or a resume check, without attempt logs (symlinks are copied as links)."""
+    shutil.copytree(run_dir, dest, ignore=_scratch_ignore, symlinks=True)
+
+
 def _attempt_folders(run_dir: Path) -> list[str]:
     """List the attempt folders of a run (tasks/<n>/attempt-<k>), relative to the run folder."""
     return sorted(p.relative_to(run_dir).as_posix() for p in Path(run_dir).glob("tasks/*/attempt-*") if p.is_dir())
@@ -249,7 +267,10 @@ def _restore_removed(run_dir: Path, n: int, last: int, existed: set[str]) -> Non
 
 def _restore_files(run_dir: Path, before: Path) -> None:
     """Put the kept run files back byte for byte and delete in-scope files made after the snapshot."""
-    kept = _kept_files(before)
+    kept = [rel for rel in _kept_files(before) if _in_scope(rel) and not _symlink_on_way(before, rel)]
+    way = next((rel for rel in kept if _symlink_on_way(run_dir, rel)), None)
+    if way:
+        raise RepairRefused(f"Undo refused: {way} is reached through a symlink in the run folder.")
     for rel in kept:
         target = run_dir / rel
         if rel == "state.json":
@@ -267,8 +288,18 @@ def _restore_files(run_dir: Path, before: Path) -> None:
         if (run_dir / "gates").is_dir() else []
     now_there += [p.relative_to(run_dir).as_posix() for p in run_dir.glob("tasks/*/attempt-*/result.json")]
     for rel in now_there:
-        if _in_scope(rel) and rel not in kept and _copyable(run_dir / rel):
+        if _in_scope(rel) and rel not in kept and _copyable(run_dir / rel) and not _symlink_on_way(run_dir, rel):
             (run_dir / rel).unlink()
+
+
+def _symlink_on_way(run_dir: Path, rel: str) -> bool:
+    """True when the target or any folder between the run folder and it is a symlink."""
+    cur = Path(run_dir)
+    for part in rel.split("/"):
+        cur = cur / part
+        if cur.is_symlink():
+            return True
+    return False
 
 
 def _ensure_worktree(run_dir: Path, work: Path) -> None:

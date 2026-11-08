@@ -200,9 +200,11 @@ class Runner:
 
     @staticmethod
     def _status_from_finish(run_dir: Path, outcome: str) -> str:
-        """Set and return the run's status after a finish step reran: waiting, failed or done."""
+        """Set and return the run's status after a finish step reran: waiting, failed or done.
+
+        Done only when every task passed or was skipped (none failed, pending, running or waiting)."""
         def change(s):
-            bad = any(t["status"] == "failed" for t in s["tasks"].values()) or any(
+            bad = any(t["status"] not in ("passed", "skipped") for t in s["tasks"].values()) or any(
                 x["status"] == "failed" and x["group"] in ("run-start", "run-finish") for x in s["steps"])
             s["status"] = "waiting" if outcome == "waiting" else "failed" if bad else "done"
             if s["status"] == "done":

@@ -842,6 +842,8 @@ def post_repair_apply(req, run_id):
     flags = {k: req.body.get(k, False) for k in ("dry_run", "approve_unlock")}
     if not all(isinstance(v, bool) for v in flags.values()):
         raise BadRequest("dry_run and approve_unlock have to be true or false.")
+    if not flags["dry_run"] and req.body.get("confirm") is not True:
+        raise BadRequest("Applying a repair needs confirmation.")
     with req.server.write_lock:
         return ops_repair.apply_text(run_id, text, who=WHO, **flags)
 

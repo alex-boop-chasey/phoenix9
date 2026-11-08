@@ -35,7 +35,7 @@ def test_apply_needs_guard_headers(api, phoenix_env, tmp_path):
 def test_apply_parse_error_400_with_line(api, phoenix_env, tmp_path):
     rr.make_run(tmp_path)
     bad = NOTE + "- do a dance\n"
-    status, body = post(api, {"note": bad})
+    status, body = post(api, {"note": bad, "confirm": True})
     assert status == 400 and "line 7" in body["message"]
 
 
@@ -48,7 +48,7 @@ def test_apply_bad_body_400(api, phoenix_env, tmp_path):
 
 def test_apply_unknown_run_404(api, phoenix_env):
     note = NOTE.replace(rr.RUN, "20261108-000000-nope")
-    assert post(api, {"note": note}, run="20261108-000000-nope")[0] == 404
+    assert post(api, {"note": note, "confirm": True}, run="20261108-000000-nope")[0] == 404
 
 
 def test_apply_dry_run_changes_nothing(api, phoenix_env, tmp_path):
@@ -60,7 +60,7 @@ def test_apply_dry_run_changes_nothing(api, phoenix_env, tmp_path):
 
 def test_apply_saves_note_and_applies(api, phoenix_env, tmp_path):
     made = rr.make_run(tmp_path, status="stopped")
-    status, body = post(api, {"note": NOTE})
+    status, body = post(api, {"note": NOTE, "confirm": True})
     assert status == 200, body
     assert body["data"]["dry_run"] is False
     saved = list((made["run_dir"] / "repairs/notes").glob("*.md"))
@@ -68,12 +68,22 @@ def test_apply_saves_note_and_applies(api, phoenix_env, tmp_path):
     assert (made["run_dir"] / "repairs/1").is_dir()
 
 
+def test_apply_without_confirm_400(api, phoenix_env, tmp_path):
+    made = rr.make_run(tmp_path, status="stopped")
+    for extra in ({}, {"confirm": False}, {"confirm": "yes"}):
+        status, body = post(api, {"note": NOTE, **extra})
+        assert status == 400 and "confirmation" in body["message"]
+    assert not (made["run_dir"] / "repairs/1").exists()
+    status, body = post(api, {"note": NOTE, "dry_run": True})
+    assert status == 200, body
+
+
 def test_apply_refused_while_runner_walks_409(api, phoenix_env, tmp_path):
     made = rr.make_run(tmp_path, status="running")
     atomic.write_json(made["run_dir"] / "state.json",
                       {"run_id": rr.RUN, "project": rr.PROJECT, "status": "running", "tasks": {}})
     heartbeat.write(time.time())
-    status, body = post(api, {"note": NOTE})
+    status, body = post(api, {"note": NOTE, "confirm": True})
     assert status == 409 and "Stop it first" in body["message"]
 
 

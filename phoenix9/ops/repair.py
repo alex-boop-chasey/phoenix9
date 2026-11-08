@@ -2,6 +2,7 @@
 from phoenix9 import atomic, events, runs as core
 from phoenix9.ops import common, runs as runs_ops
 from phoenix9.repair import apply as apply_mod, check as check_mod, notes, report as report_mod, resume as resume_mod, snapshot
+from phoenix9.repair.steps import is_chat
 
 
 def _run_folder(run_id: str, project: str | None = None):
@@ -12,9 +13,18 @@ def _run_folder(run_id: str, project: str | None = None):
     return folder
 
 
+def _may_repair(folder, who: str) -> None:
+    """Refuse a caller that may not repair runs of this project (the same rule as stopping a run)."""
+    if not runs_ops._may_stop(folder.parent.name, who):
+        raise common.Conflict(f"'{who}' may not repair runs in {folder.parent.name}.")
+
+
 def undo(run_id: str, to: int | None = None, who: str = "cli", project: str | None = None) -> dict:
     """Undo a repair: put the run back as snapshot `to` (default the newest) had it; refused while the runner walks it."""
     folder = _run_folder(run_id, project)
+    _may_repair(folder, who)
+    if is_chat(who):
+        raise common.Conflict("Undoing a repair needs Alex: ask him to run it from the dashboard or the command line.")
     try:
         done = snapshot.undo(folder, to=to, who=who)
     except (snapshot.RepairRefused, snapshot.SnapshotError) as err:
@@ -40,6 +50,11 @@ def report(run_id: str, project: str | None = None) -> dict:
 def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unlock: bool = False) -> dict:
     """Apply a repair note to its run (or only show what it would do): the outcome, with the steps and both checks."""
     try:
+        note = apply_mod._read_note(note_path)[2]
+    except snapshot.RepairRefused as err:
+        raise common.OpsError(str(err)) from None
+    _may_repair(_run_folder(note.run), who)
+    try:
         return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
     except snapshot.RepairRefused as err:
         raise common.OpsError(str(err)) from None
@@ -55,8 +70,7 @@ def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = F
         raise common.OpsError(str(err)) from None
     if note.run != run_id:
         raise common.OpsError(f"line 1: the note is for run '{note.run}', not '{run_id}'.")
-    if not runs_ops._may_stop(folder.parent.name, who):
-        raise common.Conflict(f"'{who}' may not repair runs in {folder.parent.name}.")
+    _may_repair(folder, who)
     path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
     atomic.write_text(path, text if text.endswith("\n") else text + "\n")
     try:
@@ -68,6 +82,7 @@ def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = F
 def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     """Resume a repaired run: snapshot it, move it to running (or queued), and record the repair."""
     folder = _run_folder(run_id, project)
+    _may_repair(folder, who)
     title = "Resume the run"
     try:
         snapshot.refuse_if_walking(folder)

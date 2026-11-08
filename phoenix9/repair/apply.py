@@ -1,6 +1,5 @@
 """The apply engine: check a repair note, snapshot, apply its steps under the run lock, check again, roll back on failure."""
 import re
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -8,7 +7,6 @@ from phoenix9 import atomic, events, runend, runs as core, scrub
 from phoenix9.repair import check, notes, snapshot, steps
 from phoenix9.repair.snapshot import RepairRefused
 
-SKIP_COPY = shutil.ignore_patterns("run.lock", "before", "removed")
 
 
 def slug_of(text: str) -> str:
@@ -76,7 +74,7 @@ def _dry_run(run_dir: Path, path: Path, note, approve_unlock: bool, who: str) ->
     """Run the steps on a scratch copy of the run folder and report; the real run and worktree stay as they were."""
     with tempfile.TemporaryDirectory(prefix="phoenix-dry-") as tmp:
         scratch = Path(tmp) / run_dir.parent.name / run_dir.name
-        shutil.copytree(run_dir, scratch, ignore=SKIP_COPY)
+        snapshot.scratch_copy(run_dir, scratch)
         before = _problems(check.run_checks(scratch, as_run=run_dir))
         ctx = steps.Context(scratch, dry=True, approve_unlock=approve_unlock, who=who)
         done, refused = _do_steps(ctx, note)
@@ -128,6 +126,9 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
     run_dir = core.find_run(note.run)
     if run_dir is None:
         raise RepairRefused(f"There is no run called '{note.run}'.")
+    if steps.is_chat(who) and (note.force or approve_unlock):
+        what = "force a repair past its check" if note.force else "unlock locked checks"
+        raise RepairRefused(f"Needs Alex: a chat session may not {what}. Ask Alex to apply this note from the dashboard.")
     snapshot.refuse_if_walking(run_dir)
     if dry_run:
         return _dry_run(run_dir, path, note, approve_unlock, who)

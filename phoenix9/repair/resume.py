@@ -1,5 +1,4 @@
 """Resume a repaired run: put a failed or stopped run back to running (or queued) so the runner carries on."""
-import shutil
 import tempfile
 from pathlib import Path
 
@@ -33,7 +32,7 @@ def _problems_after_flip(run_dir: Path) -> str:
     """The check of the run as it will be once resumed (done on a scratch copy), in words; empty when it passes."""
     with tempfile.TemporaryDirectory(prefix="phoenix-resume-") as tmp:
         scratch = Path(tmp) / run_dir.parent.name / run_dir.name
-        shutil.copytree(run_dir, scratch, ignore=shutil.ignore_patterns("run.lock", "before", "removed"))
+        snapshot.scratch_copy(run_dir, scratch)
         state.update(scratch, _flip)
         return " ".join(f.text for f in check.run_checks(scratch, as_run=run_dir))
 

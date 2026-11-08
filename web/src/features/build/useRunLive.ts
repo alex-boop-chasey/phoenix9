@@ -9,7 +9,7 @@ import type { RunDetail, RunStatus } from "@/lib/types"
 import { gatesShownInSteps } from "./StepList"
 import { resultText } from "./parts"
 
-const ACTIVE: RunStatus[] = ["queued", "running", "waiting"]
+const ACTIVE: RunStatus[] = ["queued", "running", "waiting", "paused"]
 const FINISHED: RunStatus[] = ["done", "failed", "stopped"]
 
 /** Whether a run can still change (and be stopped). */

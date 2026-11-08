@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
-import { useBuilds, useStopRun } from "@/lib/queries"
+import { useBuilds, usePauseRun, useResumeRun, useStopRun } from "@/lib/queries"
 import type { RunDetail } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
@@ -40,6 +40,7 @@ function sumLine(d: RunDetail, total: number, passed: number): string {
     case "waiting": return passed >= total && total > 0 ? `All ${total} tasks done; merge waiting` : "A step is waiting for you"
     case "running": return current ? `The ${current} step is working${d.current?.task ? ` on task ${d.current.task}` : ""}` : "Running"
     case "failed": return "The build failed"
+    case "paused": return "The build is paused; Resume carries on from the same step"
     case "stopped": return "The build was stopped"
     default: return "Starting: the first step runs in a moment"
   }
@@ -54,7 +55,7 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
   const edge = edgeOf(d.status)
   const failed = tasks.filter((t) => t.status === "failed").length
   const text = d.status === "running" && taskLine ? `Running ${taskLine.toLowerCase()}` : undefined
-  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
+  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "paused" ? "Paused" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
   return (
     <aside className="card run-sum" aria-label="Build summary">
       <div className="row" style={{ gap: 16 }}>
@@ -88,7 +89,10 @@ export function RunningView({ name, runId, mode }: Props) {
   const run = useRunLive(name, runId, mode)
   const builds = useBuilds(name)
   const stop = useStopRun(name)
+  const pause = usePauseRun(name)
+  const resume = useResumeRun(name)
   const [confirming, setConfirming] = useState(false)
+  const [pausing, setPausing] = useState(false)
 
   // A failed background refresh keeps the last good view; the error box is only for "never loaded".
   if (run.error && !run.data) return <ErrorState error={run.error} onRetry={() => void run.refetch()} />
@@ -114,15 +118,42 @@ export function RunningView({ name, runId, mode }: Props) {
         </div>
         {!s.active && <DiscardControl name={name} run={d} />}
         {s.active && (
-          <Button variant="danger" disabled={stop.isPending} onClick={() => setConfirming(true)}>
-            {stop.isPending ? <Wheel /> : <Icon name="stop-circle" />}
-            Stop build
-          </Button>
+          <div className="row" style={{ gap: 8 }}>
+            {d.status === "paused" ? (
+              <Button variant="secondary" disabled={resume.isPending} onClick={() => resume.mutate(runId)}>
+                {resume.isPending ? <Wheel /> : <Icon name="play-circle" />}
+                Resume
+              </Button>
+            ) : (
+              <>
+                <Button variant="secondary" disabled={pause.isPending} onClick={() => setPausing(true)}>
+                  {pause.isPending ? <Wheel /> : <Icon name="pause-circle" />}
+                  Pause now
+                </Button>
+                <Button variant="danger" disabled={stop.isPending} onClick={() => setConfirming(true)}>
+                  <Icon name="stop-circle" />
+                  Stop build
+                </Button>
+              </>
+            )}
+            {d.status === "paused" && (
+              <Button variant="danger" disabled={stop.isPending} onClick={() => setConfirming(true)}>
+                {stop.isPending ? <Wheel /> : <Icon name="stop-circle" />}
+                Stop
+              </Button>
+            )}
+          </div>
         )}
       </div>
       {run.error && <p role="status" className="small">Can't reach Phoenix right now; showing the last update.</p>}
       {stop.data?.status === "stop requested" && (
         <p role="status" className="small">Stop requested: Phoenix stops this build at the end of the step it is on.</p>
+      )}
+      {pause.data?.waits_for_step && (
+        <p role="status" className="small">Pause requested: Phoenix pauses this build when the step it is on ends.</p>
+      )}
+      {(pause.error || resume.error) && (
+        <Alert variant="destructive"><AlertDescription>{(pause.error ?? resume.error)?.message}</AlertDescription></Alert>
       )}
       {stop.error && (
         <Alert variant="destructive"><AlertDescription>{stop.error.message}</AlertDescription></Alert>
@@ -139,6 +170,11 @@ export function RunningView({ name, runId, mode }: Props) {
         />
       </div>
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}
+      <ConfirmDialog
+        open={pausing} onOpenChange={setPausing} title="Pause now?"
+        body="Stop the build at once? The work so far is kept and it carries on from the same step when you resume."
+        confirmLabel="Pause now" onConfirm={() => pause.mutate(runId)}
+      />
       <ConfirmDialog
         open={confirming} onOpenChange={setConfirming} title="Stop this build?"
         body="The build stops, and its unfinished work and branch are thrown away." confirmLabel="Stop build" destructive

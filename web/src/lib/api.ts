@@ -149,6 +149,10 @@ export const api = {
       `runs/${e(project)}/${e(runId)}/stop`,
       { confirm: true },
     ),
+  pauseRun: (runId: string) =>
+    post<{ run_id: string; status: string; waits_for_step: boolean }>(`runs/${e(runId)}/pause`, { now: true }),
+  resumeRun: (runId: string) =>
+    post<{ run_id: string; status: string; queued: boolean }>(`runs/${e(runId)}/resume`, {}),
   noteRun: (runId: string, task: number, text: string) =>
     post<{ run_id: string; task: number; file_id: string }>(`runs/${e(runId)}/note`, { task, text }),
   discardRun: (project: string, runId: string, force = false) =>

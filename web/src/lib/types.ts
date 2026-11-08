@@ -1,6 +1,6 @@
 // Types for every `data` shape in docs/api.md. Field names are exactly the server's (snake_case).
 
-export type RunStatus = "queued" | "running" | "waiting" | "paused-limit" | "done" | "failed" | "stopped"
+export type RunStatus = "queued" | "running" | "waiting" | "paused-limit" | "paused" | "done" | "failed" | "stopped"
 export type ItemStatus = "pending" | "running" | "passed" | "failed" | "skipped" | "waiting"
 export type AnyStatus = RunStatus | ItemStatus
 export type StepGroup = "run-start" | "task" | "run-finish"

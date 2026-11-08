@@ -14,6 +14,9 @@ import { runText } from "./rows"
 export function StateBadge({ row }: { row: ProjectRow }) {
   const state = switchState(row)
   if (state === "need") return <span className="badge b-need"><Icon name="bell-ringing" /><span className="b-t">Needs you</span></span>
+  if (row.run?.status === "paused") {
+    return <span className="badge b-need"><Icon name="pause-circle" /><span className="b-t">Paused</span></span>
+  }
   if (state === "run") {
     const text = runText(row)
     return <span className="badge b-run" title={text}><Wheel /><span className="b-t">{text}</span></span>

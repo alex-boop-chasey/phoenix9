@@ -1422,3 +1422,6 @@ events never match) or every `poll_s`. Frozen cards fetch once and show no butto
 (`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
 server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and
 sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported.
+
+### Card bodies: projects, gates, run, builds (`web/src/features/agent/blocks/bodies/`)
+- `projects` shows `ProjectTile` (`web/src/features/projects/ProjectTile.tsx`, the Projects page row, now shared; without `onRemove` the Remove button is left out) plus a "PR #n waiting to merge" link (`.p-pr`, above the tile's click overlay) when `needs_merge`. `gates` reuses `NeedsYouCard` (compact), `run` reuses `StepList`, `builds` is a list of run id, result badge and relative time linking to the Build tab.

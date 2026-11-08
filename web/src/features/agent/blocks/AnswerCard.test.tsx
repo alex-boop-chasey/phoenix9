@@ -22,16 +22,16 @@ class FakeEventSource {
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
-const json = '{"v":1,"type":"gates"}'
+const json = '{"v":1,"type":"mystery"}'
 const card = (over: Partial<CardAnswer> = {}): CardAnswer => ({
-  type: "gates", title: "Open questions", data: [{ id: 1 }], inline: false,
+  type: "mystery", title: "Open questions", data: [{ id: 1 }], inline: false,
   actions: [{ label: "Open", kind: "route", route: { to: "projects" } }],
   watch: { projects: ["demo"], runs: [], types: ["gate"] }, ...over,
 })
 
 function show(frozen = false) {
   return render(<QueryClientProvider client={new QueryClient()}>
-    <AnswerCard json={json} resolved={{ type: "gates", query: {}, title: null }} frozen={frozen} />
+    <AnswerCard json={json} resolved={{ type: "mystery", query: {}, title: null }} frozen={frozen} />
   </QueryClientProvider>)
 }
 
@@ -54,7 +54,7 @@ describe("AnswerCard", () => {
     await waitFor(() => expect(screen.getByText("Open questions")).toBeTruthy())
     expect(screen.getByTestId("card-json")).toBeTruthy()
     expect(screen.getByRole("button", { name: "Open" })).toBeTruthy()
-    expect(calls.find((c) => c.path === "/api/cards")?.query).toMatchObject({ type: "gates", query: "{}" })
+    expect(calls.find((c) => c.path === "/api/cards")?.query).toMatchObject({ type: "mystery", query: "{}" })
   })
   it("shows an error", async () => {
     mockApi({ ...agentRoutes(), "GET /api/cards": failure(400, "bad query"), "GET /api/events/recent": { events: [], next: 0 } })

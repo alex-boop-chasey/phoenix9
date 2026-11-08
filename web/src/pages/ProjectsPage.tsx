@@ -7,7 +7,7 @@ import { Icon } from "@/components/Icon"
 import { ErrorState } from "@/components/ErrorState"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AddProjectMenu } from "@/features/projects/AddProjectMenu"
-import { ProjectRowCard } from "@/features/projects/ProjectRowCard"
+import { ProjectTile } from "@/features/projects/ProjectTile"
 import { ProjectsFilters } from "@/features/projects/ProjectsFilters"
 import { RemoveDialog } from "@/features/projects/RemoveDialogs"
 import { ownersOf } from "@/features/projects/rows"
@@ -63,7 +63,7 @@ export default function ProjectsPage() {
   // Stable callbacks (they take the project name) so the memoised rows only re-render when their row changes.
   const askRemove = useCallback((name: string) => setAsking(name), [])
   const card = (row: ProjectRow) => (
-    <ProjectRowCard key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} />
+    <ProjectTile key={row.name} row={row} gone={gone.includes(row.name)} onRemove={askRemove} />
   )
 
   const body = () => {

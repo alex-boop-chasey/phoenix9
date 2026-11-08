@@ -570,7 +570,22 @@ def rerun_finish(ctx, name: str) -> str:
     return f"finish step {name} {words.get(outcome, outcome)}; the run is now {status}"
 
 
-STEPS = {"redo": redo, "keep-hand-fix": keep_hand_fix, "reset-worktree": reset_worktree,
+def resume_run(ctx) -> str:
+    """Put the run back to running (or queued if it never started) so the runner carries on; the run lock is held."""
+    from phoenix9.repair import resume
+    if ctx.dry:
+        why = resume.refusal(ctx.run_dir)
+        if why:
+            raise StepRefused(why)
+        return "would resume the run"
+    try:
+        status = resume.resume_locked(ctx.run_dir, ctx.who)
+    except resume.RepairRefused as err:
+        raise StepRefused(str(err)) from None
+    return f"the run is {status} and the runner carries on from the first unfinished task"
+
+
+STEPS = {"resume": resume_run, "redo": redo, "keep-hand-fix": keep_hand_fix, "reset-worktree": reset_worktree,
          "rebuild-worktree": rebuild_worktree, "mark-done": mark_done, "mark-skipped": mark_skipped, "retry": retry,
          "clear-failures": clear_failures, "add-note": add_note, "set-setting": set_setting,
          "turn-off-step": turn_off_step, "replace-spec": replace_spec, "close-question": close_question,

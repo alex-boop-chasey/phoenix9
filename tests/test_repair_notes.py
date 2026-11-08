@@ -6,7 +6,7 @@ import pytest
 from helpers.repair_runs import make_run, sh
 
 from phoenix9 import __main__ as cli_main, atomic, heartbeat, paths, state
-from phoenix9.repair import apply as apply_mod, check, snapshot
+from phoenix9.repair import apply as apply_mod, check, notes as notes_mod, snapshot, steps
 
 
 def tasks():
@@ -125,8 +125,9 @@ def test_refused_step_rolls_back_earlier_steps(tmp_path):
 
 def test_step_not_built_yet_is_refused(tmp_path):
     r = make(tmp_path)
-    out = apply_mod.apply(note(tmp_path, r, "resume"), "agent")
-    assert out["rolled_back"] and "not supported yet" in out["refused"]
+    ctx = steps.Context(r["run_dir"])
+    with pytest.raises(steps.StepRefused, match="not supported yet"):
+        steps.run_step(ctx, notes_mod.Step("later", {}, 7, "do something later"))
 
 
 def test_dry_run_changes_nothing(tmp_path):

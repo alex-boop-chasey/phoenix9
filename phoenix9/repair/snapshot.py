@@ -258,7 +258,10 @@ def _restore_files(run_dir: Path, before: Path) -> None:
                 (run_dir / ".state.json.restore").replace(target)
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(before / rel, target)
+        tmp = target.with_name(f".{target.name}.restore")
+        shutil.copyfile(before / rel, tmp)
+        shutil.copymode(target, tmp) if target.exists() else None
+        tmp.replace(target)             # replaced, not written into: spec.md is read-only
     now_there = [name for name in TOP_FILES + (FROZEN,) if (run_dir / name).is_file()]
     now_there += [p.relative_to(run_dir).as_posix() for p in (run_dir / "gates").rglob("*") if p.is_file()] \
         if (run_dir / "gates").is_dir() else []

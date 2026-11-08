@@ -1,4 +1,4 @@
-"""Commands for `phoenix repair`: check a run, write its report, apply a repair note, undo a repair."""
+"""Commands for `phoenix repair`: check a run, write its report, apply a repair note, undo a repair, resume a run."""
 from phoenix9.cli.output import problem, show
 from phoenix9.ops import repair
 
@@ -27,6 +27,11 @@ def add(sub, common) -> None:
     p.add_argument("--to", type=int, help="the snapshot number to go back to")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=undo)
+    p = group.add_parser("resume", parents=[common], help="let the runner carry on with a repaired run")
+    p.add_argument("run_id")
+    p.add_argument("--project", help="the project of the run (the run id alone is enough)")
+    p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=resume)
 
 
 def undo(args) -> int:
@@ -37,6 +42,14 @@ def undo(args) -> int:
     r = repair.undo(args.run_id, to=args.to, who=args.who, project=args.project)
     return show(args, {"ok": True, **r}, f"Undone: {args.run_id} is back as snapshot {r['restored']} had it "
                                          f"(a new snapshot {r['snapshot']} keeps what it was).")
+
+
+def resume(args) -> int:
+    """Resume a repaired run so the runner carries on with it."""
+    if not args.yes:
+        return problem(args, "Resume lets the runner carry on with this run. Add --yes to confirm.")
+    r = repair.resume(args.run_id, who=args.who, project=args.project)
+    return show(args, {"ok": True, **r}, f"Resumed: {args.run_id} is {r['status']}; the runner carries on.")
 
 
 def check(args) -> int:

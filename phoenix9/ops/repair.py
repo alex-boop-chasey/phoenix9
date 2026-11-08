@@ -1,7 +1,7 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
-from phoenix9 import runs as core
+from phoenix9 import events, runs as core
 from phoenix9.ops import common
-from phoenix9.repair import apply as apply_mod, check as check_mod, report as report_mod, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, report as report_mod, resume as resume_mod, snapshot
 
 
 def _run_folder(run_id: str, project: str | None = None):
@@ -43,3 +43,23 @@ def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unloc
         return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
     except snapshot.RepairRefused as err:
         raise common.OpsError(str(err)) from None
+
+
+def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
+    """Resume a repaired run: snapshot it, move it to running (or queued), and record the repair."""
+    folder = _run_folder(run_id, project)
+    title = "Resume the run"
+    try:
+        snapshot.refuse_if_walking(folder)
+        why = resume_mod.refusal(folder)
+        if why:
+            raise snapshot.RepairRefused(why)
+        got = snapshot.take(folder, title)
+        status = resume_mod.resume(folder, who)
+    except (snapshot.RepairRefused, snapshot.SnapshotError) as err:
+        raise common.OpsError(str(err)) from None
+    events.emit("repair.applied", project=folder.parent.name, run=run_id, who=who, note="resume", title=title,
+                steps=["resume"], check_before=[], check_after=[], forced=False, rolled_back=False, snapshot=got)
+    common.record_command(who, f"repair resume {run_id}", folder.parent.name,
+                          f"repair on run {run_id}: {title} (applied, snapshot {got})")
+    return {"run_id": run_id, "project": folder.parent.name, "status": status, "snapshot": got}

@@ -1,5 +1,6 @@
 // Body of the prs card: one row per pull request with its checks and a link to GitHub.
 import { relativeTime } from "@/lib/format"
+import { safeUrl } from "@/lib/safeUrl"
 
 import type { CardBodyProps } from "../cardBodies"
 
@@ -12,11 +13,6 @@ interface PrRow {
   url?: string
   updated_at?: string
   error?: string
-}
-
-/** Only web links are opened from a card. */
-function safeUrl(url: string | undefined): string | null {
-  return url && /^https?:\/\//i.test(url) ? url : null
 }
 
 /** The pull request rows of a prs card. */

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { navigateKeepingPanel } from "@/features/agent/navigate"
 import { post, get } from "@/lib/api"
 import { routeHash } from "@/lib/routes"
+import { safeUrl } from "@/lib/safeUrl"
 
 export interface CardAction {
   label: string
@@ -70,11 +71,11 @@ export function CardActions({ actions, onNote }: Props) {
   return (
     <div className="ag-card-actions" data-testid="card-actions">
       <div className="flex flex-wrap gap-2">
-        {actions.map((a, i) => a.kind === "link" && a.href ? (
+        {actions.map((a, i) => a.kind === "link" ? (safeUrl(a.href) ? (
           <Button key={i} asChild variant="outline" size="sm">
-            <a href={a.href} target="_blank" rel="noopener">{a.label}</a>
+            <a href={safeUrl(a.href)!} target="_blank" rel="noopener">{a.label}</a>
           </Button>
-        ) : (
+        ) : null) : (
           <Button key={i} type="button" variant={a.danger ? "destructive" : "outline"} size="sm" disabled={busy} onClick={() => click(a)}>
             {a.label}
           </Button>

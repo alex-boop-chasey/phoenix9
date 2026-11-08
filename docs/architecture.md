@@ -1425,7 +1425,7 @@ events never match) or every `poll_s`. Frozen cards fetch once and show no butto
 `cardBodies.tsx` (plain JSON until tasks 15-17). `CardActions.tsx` draws the buttons from the answer only: link = new tab
 (`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
 server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and
-sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported.
+sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported. A `link` action opens only an absolute http(s) address (`web/src/lib/safeUrl.ts`, shared with the prs body); any other href is not rendered.
 
 ### Card bodies: projects, gates, run, builds (`web/src/features/agent/blocks/bodies/`)
 - `projects` shows `ProjectTile` (`web/src/features/projects/ProjectTile.tsx`, the Projects page row, now shared; without `onRemove` the Remove button is left out) plus a "PR #n waiting to merge" link (`.p-pr`, above the tile's click overlay) when `needs_merge`. `gates` reuses `NeedsYouCard` (compact), `run` reuses `StepList`, `builds` is a list of run id, result badge and relative time linking to the Build tab.

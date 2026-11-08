@@ -24,6 +24,18 @@ describe("CardActions", () => {
     expect(a.getAttribute("target")).toBe("_blank")
     expect(a.getAttribute("rel")).toBe("noopener")
   })
+  it("never renders a link that is not http or https", () => {
+    show([
+      { label: "Bad", kind: "link", href: "javascript:alert(1)" },
+      { label: "Data", kind: "link", href: "data:text/html,<b>x</b>" },
+      { label: "Rel", kind: "link", href: "//evil.example/x" },
+      { label: "Good", kind: "link", href: "http://example.com/" },
+    ])
+    expect(screen.queryByText("Bad")).toBeNull()
+    expect(screen.queryByText("Data")).toBeNull()
+    expect(screen.queryByText("Rel")).toBeNull()
+    expect(screen.getByRole("link", { name: "Good" }).getAttribute("href")).toBe("http://example.com/")
+  })
   it("navigates on a route button", () => {
     show([{ label: "Open build", kind: "route", route: { to: "p/demo/build", params: { run: "r1" } } }])
     fireEvent.click(screen.getByRole("button", { name: "Open build" }))

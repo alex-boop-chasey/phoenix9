@@ -26,14 +26,46 @@ def test_settings_preview_good_change(proj):
     assert _files(proj) == before  # dry validation writes nothing
 
 
-def test_settings_preview_bad_row_has_no_apply(proj):
+def test_settings_preview_bad_row_is_left_out_of_apply(proj):
     before = _files(proj)
     card = ops_cards.build("settings-preview", {"project": "demo", "set": {"max_tries": 5, "nope.key": 1}})
     rows = {r["key"]: r for r in card["data"]["rows"]}
     assert rows["max_tries"]["ok"] is True
     assert rows["nope.key"]["ok"] is False and "nope.key" in rows["nope.key"]["reason"]
-    assert card["actions"] == []
+    (apply,) = card["actions"]
+    assert apply["op"]["body"] == {"set": {"max_tries": 5}}
+    assert "nope.key" not in apply["confirm"]
     assert _files(proj) == before
+
+
+def test_settings_preview_no_ok_rows_has_no_apply(proj):
+    card = ops_cards.build("settings-preview", {"project": "demo", "set": {"nope.key": 1}})
+    assert card["actions"] == []
+
+
+SAFETY_CHANGES = [
+    ("domains.allow", ["evil.example"]), ("diff.allow_extra", [".github/workflows/x.yml"]),
+    ("diff.deny_extra", []), ("safety_files", []), ("services", ["stripe"]),
+    ("home_chat_may_answer", ["merge"]), ("steps.builder.tools", ["Bash"]),
+    ("steps.builder.tools_denied", []), ("steps.builder.mcp_servers", ["anything"]),
+    ("steps.reviewer.mcp_servers", ["x"]), ("steps.diff-rules.on", False), ("steps.secret-scan.on", False),
+    ("steps.red-check.once", False)]
+
+
+@pytest.mark.parametrize("key,value", SAFETY_CHANGES)
+def test_settings_preview_never_applies_safety_settings(proj, key, value):
+    card = ops_cards.build("settings-preview", {"project": "demo", "set": {key: value, "max_tries": 4}})
+    rows = {r["key"]: r for r in card["data"]["rows"]}
+    assert rows[key]["ok"] is False
+    assert "change this in Settings yourself" in rows[key]["reason"]
+    (apply,) = card["actions"]
+    assert apply["op"]["body"] == {"set": {"max_tries": 4}}
+    assert key not in apply["confirm"]
+
+
+def test_settings_preview_safety_only_has_no_apply(proj):
+    card = ops_cards.build("settings-preview", {"project": "demo", "set": {"domains.allow": ["x.example"]}})
+    assert card["actions"] == []
 
 
 @pytest.mark.parametrize("query", [

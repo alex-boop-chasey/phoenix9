@@ -1370,7 +1370,11 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
 - Inline cards (`inline = True`) carry the agent's proposed content in `query`; their data has `footer: "proposed by the agent"`.
 - `settings-preview` (`project`, `set` with 1-20 dotted keys): rows `{key, before, after, ok, reason}`; `before` comes from
   `ops.settings.show`, `ok`/`reason` from `ops.settings.dry_check` (the same validation as `set_many`, writes nothing).
-  Apply = `POST /api/projects/<name>/settings` body `{set: {...}}` with `confirm` listing the changes; absent when any row is not ok.
+  Safety keys (`ops.settings.is_safety_key`: `domains.*`, `diff.*`, `safety_files`, `services`, `home_chat_may_answer`,
+  `profile`, any key naming a tool or MCP server such as `steps.*.tools`/`tools_denied`/`mcp_servers`, and every key of a
+  `safety = true` step) are never ok here: their reason says "change this in Settings yourself" (`dry_check(..., agent=True)`).
+  Apply = `POST /api/projects/<name>/settings` body `{set: {...}}` holding only the ok rows ("Apply n of m" when some are
+  left out), with `confirm` listing exactly those; absent when no row is ok.
 - `table` (`columns` 1-8, `rows` at most 50 lists, one cell per column, text cut to 200 characters) and `chart`
   (`kind` bars|spark, default bars; `series` of `{label, value}`, at most 20 for bars, 60 for spark) refuse bad shapes with a plain reason.
 

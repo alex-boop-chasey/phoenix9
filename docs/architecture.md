@@ -1373,3 +1373,11 @@ and the command record; the Build tab then says "Work discarded" and the ledger 
   Apply = `POST /api/projects/<name>/settings` body `{set: {...}}` with `confirm` listing the changes; absent when any row is not ok.
 - `table` (`columns` 1-8, `rows` at most 50 lists, one cell per column, text cut to 200 characters) and `chart`
   (`kind` bars|spark, default bars; `series` of `{label, value}`, at most 20 for bars, 60 for spark) refuse bad shapes with a plain reason.
+
+### Route catalogue (`phoenix9/routes.py`, `web/src/lib/routes.ts`)
+The pages the agent may point at: `projects`, `new`, `p/<name>/overview|build|logs|settings`, `settings`, each with
+an ordered param list. The two files hold the same list (`tests/test_routes.py` compares them). `routes.resolve(to,
+params)` refuses unknown routes and params, a missing project, a gate that is not open, a missing run or log, a
+wizard slide outside 1-7, a settings key not in the schema and a section not allowed (project settings: `project`,
+`build`; Phoenix settings: `services`, `models`, `updates`, `addresses`). It returns `{hash, label}`; the label is a
+breadcrumb such as `test-site › Settings › Build`. A run is accepted when its folder exists.

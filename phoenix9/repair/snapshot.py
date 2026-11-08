@@ -2,9 +2,10 @@
 import json
 import re
 import shutil
+import time
 from pathlib import Path
 
-from phoenix9 import atomic, git, paths, scrub
+from phoenix9 import atomic, events, git, heartbeat, paths, runend, scrub, state
 
 TOP_FILES = ("state.json", "settings.json", "plan.json", "things.json", "spec.json", "spec.md", "overrides.json")
 NEVER_READ = ("secrets", "keys")
@@ -54,6 +55,11 @@ def _files_to_copy(run_dir: Path) -> list[Path]:
         found += sorted(p.relative_to(run_dir) for p in gates.rglob("*") if _copyable(p))
     found += sorted(p.relative_to(run_dir) for p in run_dir.glob("tasks/*/attempt-*/result.json") if _copyable(p))
     return found
+
+
+def _attempt_folders(run_dir: Path) -> list[str]:
+    """List the attempt folders of a run (tasks/<n>/attempt-<k>), relative to the run folder."""
+    return sorted(p.relative_to(run_dir).as_posix() for p in Path(run_dir).glob("tasks/*/attempt-*") if p.is_dir())
 
 
 def _non_env(names: list[str]) -> list[str]:
@@ -115,6 +121,7 @@ def take(run_dir, label: str) -> int:
         atomic.write_text(before / "label.txt", f"{label}\n")
         atomic.write_text(before / "worktree.json", json.dumps(info, indent=2) + "\n")
         atomic.write_text(before / "worktree.patch", patch)
+        atomic.write_text(before / "attempts.json", json.dumps(_attempt_folders(run_dir)) + "\n")
         tmp.rename(final)
     except BaseException:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -136,3 +143,163 @@ def move_to_removed(run_dir, n: int, path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dest))
     return dest
+
+
+class RepairRefused(Exception):
+    """A repair was refused; the message says why in plain words."""
+
+
+WALKING_MESSAGE = "The runner is walking this run. Stop it first or wait for a question."
+LOCK_WAIT_S = 3.0
+
+
+def refuse_if_walking(run_dir, lock_ok: bool = False) -> None:
+    """Refuse (RepairRefused) when the runner is walking the run: running with a fresh heartbeat, or the run lock
+    busy (lock_ok: the caller holds that lock itself, so only the state and heartbeat are looked at)."""
+    run_dir = Path(run_dir)
+    if not lock_ok and state.Lock.held(run_dir / "run.lock"):
+        raise RepairRefused(WALKING_MESSAGE)
+    st = state.load(run_dir) or {}
+    if st.get("status") == "running" and not heartbeat.is_stale(time.time()):
+        raise RepairRefused(WALKING_MESSAGE)
+
+
+def label_of(run_dir, n: int) -> str:
+    """Return the label text of snapshot n."""
+    try:
+        return (repairs_dir(run_dir) / str(n) / "before" / "label.txt").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _snapshot_before(run_dir: Path, n: int) -> Path:
+    """Return the before/ folder of snapshot n, or refuse when there is no such snapshot."""
+    before = repairs_dir(run_dir) / str(n) / "before"
+    if not (before / "worktree.json").is_file():
+        raise RepairRefused(f"There is no repair snapshot number {n} for this run.")
+    return before
+
+
+def _in_scope(rel: str) -> bool:
+    """True for run files a snapshot owns: the top files, gates/ and attempt result.json files."""
+    parts = rel.split("/")
+    return rel in TOP_FILES or parts[0] == "gates" or (
+        len(parts) == 4 and parts[0] == "tasks" and parts[2].startswith("attempt-") and parts[3] == "result.json")
+
+
+def _kept_files(before: Path) -> list[str]:
+    """List the run files kept in a snapshot, relative paths."""
+    skip = ("label.txt", "worktree.json", "worktree.patch", "attempts.json")
+    return sorted(p.relative_to(before).as_posix() for p in before.rglob("*") if p.is_file()
+                  and p.relative_to(before).as_posix() not in skip)
+
+
+def _attempts_at(before: Path, kept: list[str]) -> set[str]:
+    """The attempt folders that existed when snapshot `before` was taken."""
+    listing = atomic.read_json(before / "attempts.json")
+    if isinstance(listing, list):
+        return set(listing)
+    return {k.rsplit("/", 1)[0] for k in kept if k.endswith("/result.json") and k.startswith("tasks/")}
+
+
+def _move_aside_new_attempts(run_dir: Path, m: int, existed: set[str]) -> None:
+    """Move attempt folders that did not exist at the snapshot into repairs/<m>/removed/."""
+    for folder in sorted(run_dir.glob("tasks/*/attempt-*")):
+        if folder.is_dir() and folder.relative_to(run_dir).as_posix() not in existed:
+            move_to_removed(run_dir, m, folder)
+
+
+def _restore_removed(run_dir: Path, n: int, last: int, existed: set[str]) -> None:
+    """Move attempt folders back from repairs/<n..last>/removed/ when they existed at snapshot n and are gone now."""
+    for k in range(n, last + 1):
+        removed = repairs_dir(run_dir) / str(k) / "removed"
+        for folder in sorted(removed.glob("tasks/*/attempt-*")) if removed.is_dir() else []:
+            rel = folder.relative_to(removed)
+            dest = run_dir / rel
+            if folder.is_dir() and rel.as_posix() in existed and not dest.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(folder), str(dest))
+
+
+def _restore_files(run_dir: Path, before: Path) -> None:
+    """Put the kept run files back byte for byte and delete in-scope files made after the snapshot."""
+    kept = _kept_files(before)
+    for rel in kept:
+        target = run_dir / rel
+        if rel == "state.json":
+            with state.Lock(run_dir / "state.lock"):
+                shutil.copyfile(before / rel, run_dir / ".state.json.restore")
+                (run_dir / ".state.json.restore").replace(target)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(before / rel, target)
+    now_there = [name for name in TOP_FILES if (run_dir / name).is_file()]
+    now_there += [p.relative_to(run_dir).as_posix() for p in (run_dir / "gates").rglob("*") if p.is_file()] \
+        if (run_dir / "gates").is_dir() else []
+    now_there += [p.relative_to(run_dir).as_posix() for p in run_dir.glob("tasks/*/attempt-*/result.json")]
+    for rel in now_there:
+        if _in_scope(rel) and rel not in kept and _copyable(run_dir / rel):
+            (run_dir / rel).unlink()
+
+
+def _restore_worktree(run_dir: Path, before: Path) -> None:
+    """Reset the worktree hard to the snapshot's head on its branch and re-apply the dirty patch."""
+    work = worktree_of(run_dir)
+    info = json.loads((before / "worktree.json").read_text(encoding="utf-8"))
+    try:
+        if git.git(work, "rev-parse", "--abbrev-ref", "HEAD").strip() != info["branch"]:
+            git.git(work, "checkout", "-q", info["branch"])
+        git.git(work, "reset", "--hard", "-q", info["head"])
+        git.git(work, "clean", "-fdq", "-e", ".env*")
+        patch = (before / "worktree.patch").read_bytes()
+        if info.get("dirty") and patch.strip():
+            git.run_git(work, "apply", "--binary", "--whitespace=nowarn", "-", input=patch)
+    except git.GitError as e:
+        raise RepairRefused(f"Undo failed: git could not restore the worktree ({scrub.scrub(str(e))}).") from e
+
+
+def _find_run_project(run_dir: Path) -> str:
+    """The project name of a run folder."""
+    return run_dir.parent.name
+
+
+def _record(run_dir: Path, who: str, n: int, m: int) -> None:
+    """Write the repair.applied event, the commands-log line and the changelog line for an undo."""
+    from phoenix9.ops import common
+    project, run = _find_run_project(run_dir), run_dir.name
+    title = f"undo to {n}"
+    events.emit("repair.applied", project=project, run=run, who=who, note=None, title=title,
+                steps=[f"restore snapshot {n}"], check_before=None, check_after=None, forced=False,
+                rolled_back=False, snapshot=m)
+    common.record_command(who, f"repair undo {run} --to {n}", project,
+                          f"repair on run {run}: undid back to snapshot {n} (new snapshot {m})")
+
+
+def undo(run_dir, to: int | None = None, who: str = "cli") -> dict:
+    """Restore snapshot `to` (default the newest) exactly, after taking an 'undo to <n>' snapshot of its own."""
+    run_dir = Path(run_dir)
+    refuse_if_walking(run_dir)
+    try:
+        lock = runend.lock(run_dir, wait=LOCK_WAIT_S)
+        lock.__enter__()
+    except TimeoutError:
+        raise RepairRefused(WALKING_MESSAGE) from None
+    try:
+        refuse_if_walking(run_dir, lock_ok=True)
+        nums = _numbers(run_dir)
+        n = nums[-1] if to is None and nums else to
+        if n is None:
+            raise RepairRefused("There is nothing to undo: this run has no repair snapshots.")
+        before = _snapshot_before(run_dir, n)
+        kept = _kept_files(before)
+        existed = _attempts_at(before, kept)
+        m = take(run_dir, f"undo to {n}")
+        _move_aside_new_attempts(run_dir, m, existed)
+        _restore_removed(run_dir, n, m - 1, existed)
+        _restore_files(run_dir, before)
+        _restore_worktree(run_dir, before)
+    finally:
+        lock.__exit__(None, None, None)
+    _record(run_dir, who, n, m)
+    return {"restored": n, "snapshot": m, "title": f"undo to {n}"}
+

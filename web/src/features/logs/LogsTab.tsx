@@ -1,3 +1,4 @@
+import { RunDocs } from "@/features/docs/RunDocs"
 import { useQuery } from "@tanstack/react-query"
 import { useRef } from "react"
 import { useSearchParams } from "react-router"
@@ -82,6 +83,7 @@ export function LogsTab({ name }: { name: string }) {
           {entries.isFetching ? "Refreshing" : "Refresh"}
         </button>
       </LogFilters>
+      {values.run && <RunDocs runId={values.run} />}
       <div className="console">
         <div ref={list} className="min-w-0">
           {entries.error ? (

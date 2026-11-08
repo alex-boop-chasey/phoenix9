@@ -5,6 +5,7 @@ import { Link } from "react-router"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { DocButtons } from "@/features/docs/DocButtons"
 import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
@@ -128,9 +129,13 @@ export function NeedsYouCard({ gate, compact = false, reviewHref }: { gate: Gate
         {gate.flags.includes(DELEGATED_FLAG) && <p className="text-sm text-muted-foreground">{DELEGATED_HELP}</p>}
         {gate.links.length > 0 && (
           <div className="links">
-            {gate.links.map((l) => (
-              <a key={l.doc ?? l.url} href={l.doc ? `#/doc?path=${encodeURIComponent(l.doc)}` : l.url}
-                 {...(l.doc ? {} : { target: "_blank", rel: "noreferrer" })}>
+            {gate.links.map((l) => l.doc ? (
+              <span key={l.doc} className="inline-flex flex-wrap items-center gap-2">
+                <Icon name="git-pull-request" size="sm" />{l.label}
+                <DocButtons id={l.doc} label={l.label} />
+              </span>
+            ) : (
+              <a key={l.url} href={l.url} target="_blank" rel="noreferrer">
                 <Icon name="git-pull-request" size="sm" />{l.label}
               </a>
             ))}

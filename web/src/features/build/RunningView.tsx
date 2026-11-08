@@ -1,4 +1,5 @@
 // One build, live: title with Stop build, the stacked blocks, and the sticky summary beside them.
+import { RunDocs } from "@/features/docs/RunDocs"
 import { useState } from "react"
 import { Link } from "react-router"
 
@@ -76,6 +77,7 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
         <dt>Cost</dt><dd className="mono">{cost}</dd>
       </dl>
       {live && <span className="live" data-testid="live-mode"><i />{live}</span>}
+      <RunDocs runId={d.run_id} />
       <Link to={`/p/${encodeURIComponent(name)}/logs?run=${encodeURIComponent(d.run_id)}`}>See this build's logs</Link>
     </aside>
   )

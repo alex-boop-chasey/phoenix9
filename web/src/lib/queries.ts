@@ -69,7 +69,7 @@ export const useProject = (name: string) =>
 export const useBuilds = (name: string) =>
   useQuery({ queryKey: keys.builds(name), queryFn: () => api.builds(name), enabled: !!name })
 const RUN_POLL_MS = 4000
-const LIVE_RUN = ["queued", "running", "waiting"]
+const LIVE_RUN = ["queued", "running", "waiting", "paused"]
 
 /** One run's detail; refetched every 4 s while it is queued, running or waiting. */
 export const useRun = (project: string, runId: string) =>
@@ -248,6 +248,35 @@ export function useStopRun(project: string) {
       invalidateProject(qc, project)
       void qc.invalidateQueries({ queryKey: keys.run(project, runId) })
     },
+  })
+}
+
+export function usePauseRun(project: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) => api.pauseRun(runId),
+    onSuccess: (_d, runId) => {
+      invalidateProject(qc, project)
+      void qc.invalidateQueries({ queryKey: keys.run(project, runId) })
+    },
+  })
+}
+
+export function useResumeRun(project: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (runId: string) => api.resumeRun(runId),
+    onSuccess: (_d, runId) => {
+      invalidateProject(qc, project)
+      void qc.invalidateQueries({ queryKey: keys.run(project, runId) })
+    },
+  })
+}
+
+export function useNoteRun() {
+  return useMutation({
+    mutationFn: ({ runId, task, text }: { runId: string; task: number; text: string }) =>
+      api.noteRun(runId, task, text),
   })
 }
 

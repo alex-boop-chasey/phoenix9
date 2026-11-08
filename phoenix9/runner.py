@@ -29,10 +29,11 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, events, failmodes, gates, hold, paths, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, events, failmodes, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
+from phoenix9 import taskfile
 from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
 from phoenix9 import docker as docker_mod, stepproxy
 from phoenix9.ops.common import OpsError
@@ -62,6 +63,14 @@ TASK_ANSWERS = {
     "human-task": {"approve": "passed", "skip": "skipped", "stop": "stopped"},
     "escalation": {"acknowledged": "rerun", "skip": "skipped", "stop": "stopped"},
 }
+
+
+class RunPaused(Exception):
+    """Pause now was asked for; the runner pauses the run at this point (the worktree stays as it is)."""
+
+    def __init__(self, who: str = "cli"):
+        super().__init__(f"pause requested by {who}")
+        self.who = who
 
 
 class RunFailed(Exception):
@@ -111,6 +120,10 @@ class Runner:
         asked = runend.stop_requested(run_dir)
         if asked is not None:
             return self._end(run_dir, "stopped", who=asked.get("who") or "cli")
+        if st["status"] == "paused":                   # only Resume (ops.runs.resume) puts a paused run back
+            return "paused"
+        if st["status"] != "running":     # waiting or queued: no step of it was running, so no pause is due
+            pause.drop_stale(run_dir, st["project"], st["run_id"], f"the run was {st['status']}")
         if st["status"] == "waiting":
             gate_id = (st.get("current") or {}).get("gate") or _adopt_gate_held(run_dir)
             if gate_id and gates.current_answer(run_dir) is None:
@@ -129,6 +142,8 @@ class Runner:
             return self._stop(run_dir, setup, things, who=asked.who)
         except runend.RunEnded as ended:          # someone else ended it: leave it exactly as it is
             return ended.status
+        except RunPaused as asked:                # Pause now, seen mid-step or at a step start
+            return self._pause(run_dir, asked.who)
 
     def _walk_to_end(self, run_dir: Path, setup: dict, things: dict, project: str, run_id: str) -> str:
         """Walk until the run waits or ends; re-reads the run before finishing (runend.check)."""
@@ -139,6 +154,8 @@ class Runner:
                 runend.check(run_dir)
                 self._skip_all(run_dir, state.load(run_dir))
                 return self._finish(run_dir, project, run_id, "failed", scrub.scrub(str(err)))
+            if outcome == "waiting":           # the step that a pause was meant for has ended
+                pause.drop_stale(run_dir, project, run_id, "the run was waiting for an answer")
             if outcome != "waiting" or gates.current_answer(run_dir) is None:
                 break
             runend.check(run_dir)
@@ -150,6 +167,20 @@ class Runner:
             return self._stop(run_dir, setup, things)
         runend.check(run_dir)
         return self._finish(run_dir, project, run_id, "failed" if outcome == "failed" else "done")
+
+    def _pause(self, run_dir: Path, who: str) -> str:
+        """Set the run `paused` (the paused step line was already marked); the worktree is not touched."""
+        moved = []
+
+        def change(s):
+            if s["status"] not in FINAL:
+                s["status"] = "paused"
+                moved.append(s)
+        st = state.update(run_dir, change)
+        pause.clear(run_dir)
+        if moved:
+            events.emit("run.paused", project=st["project"], run=st["run_id"], who=who)
+        return st["status"]
 
     def stop_now(self, run_dir, who: str = "cli", wait: float = runend.LOCK_WAIT_S) -> dict:
         """Stop a run the runner is not walking, the same clean way as a `stop` answer, under the run lock.
@@ -178,7 +209,6 @@ class Runner:
             return
         if not (st.get("current") or {}).get("gate"):
             _adopt_gate_held(run_dir)
-        failmodes.watch_delegate(self, Path(run_dir))
 
     def rerun_finish_step(self, run_dir, name: str) -> tuple[str, str]:
         """Repair kit: run one finish step again on a failed run (the caller holds the run lock).
@@ -390,7 +420,6 @@ class Runner:
         if move == "rerun":
             failmodes.acknowledge(self, run_dir, n, answer)
             return "rerun"
-        failmodes.stop_delegate(self, state.load(run_dir), n, answer)
         state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
         if move == "passed":
             failmodes._finish_task(run_dir, n, "passed", note=f"done by {who}")
@@ -415,9 +444,11 @@ class Runner:
             if k == 0 or last is not None:
                 k += 1                                # the last attempt is over: start the next one
                 state.set_task(run_dir, n, tries=k, rerun=False, status="running")
+                taskfile.refresh(run_dir, n)
             else:
                 state.set_task(run_dir, n, status="running")   # attempt k was cut short: go on with it
             out = self._run_attempt(run_dir, setup, things, task_data, k)
+            taskfile.refresh(run_dir, n)             # the task file shows this attempt's result
             if out.status in ("waiting", "stopped"):
                 return out.status
             if out.status == "dropped":
@@ -484,6 +515,12 @@ class Runner:
         Every step start is a boundary: an ended run or a stop request stops the walk (runend.check)."""
         if not self._ending:
             runend.check(run_dir)
+            asked = pause.requested(run_dir)
+            if asked is not None:                   # a pause that waited for the step before this one to end
+                raise RunPaused(asked.get("who") or "cli")
+            capped = self._spending_cap(run_dir, setup)
+            if capped is not None:
+                return capped
         heartbeat.mark_progress()                   # a step starting is the loop moving
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
@@ -497,15 +534,17 @@ class Runner:
             if out is not None:
                 return out
             line = state.load(run_dir)["steps"][index]
+        resume = {"session_id": line.get("session_id") or ""} if line and line["status"] == "paused" else None
         if index is None:
             index = state.add_step_line(run_dir, group, number, name, "running", attempt=attempt)
         else:
-            state.set_step_line(run_dir, index, status="running", finished=None, note="")
+            state.set_step_line(run_dir, index, status="running", finished=None, note="", resume_note="")
         state.update(run_dir, lambda s: s.__setitem__(
             "current", {"group": group, "task": number, "step": name, "attempt": attempt or 1, "gate": None}))
         events.emit("run.step.started", project=project, run=run_id, task=number, step=name, group=group)
         step = self.lib.step(name)
         ctx = self._context(run_dir, setup, things, step, task, attempt or 1, _ctx_answer(line))
+        ctx.resume = resume                         # a paused step starts again in a fresh container (not a new try)
         result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
             return self._open_step_gate(run_dir, index, step, number, result)
@@ -513,6 +552,43 @@ class Runner:
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
         return Outcome(status, list(result.reasons))
+
+    def _spending_cap(self, run_dir: Path, setup: dict) -> Outcome | None:
+        """The spending cap, checked at every step boundary (the end of the step before). Returns None to go on;
+        waiting while its `budget` question is open; stopped when Alex answered stop. `raise` adds to the frozen cap.
+        Cost is the sum of finished Claude sessions (usage.cost_usd), so a usage-limit wait adds nothing. A session
+        whose cost could not be worked out (usage.unknown_cost_sessions) asks Alex too, instead of counting $0."""
+        cap = setup["settings"].get("budget_usd")
+        st = state.load(run_dir)
+        held = (st.get("current") or {}).get("gate")
+        gate = gates.read(run_dir, held) if held else None
+        if gate and gate.get("kind") == "budget":
+            answer = gates.poll(run_dir, held)
+            if answer is None:
+                return Outcome("waiting")
+            state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
+            if answer["action"] == "stop":
+                return Outcome("stopped")
+            cap = raise_cap(run_dir, setup, answer.get("by"))
+            _ack_unknown_cost(run_dir)              # Alex has seen the sessions whose cost is unknown
+            st = state.load(run_dir)
+        usage = st.get("usage") or {}
+        spent = float(usage.get("cost_usd") or 0.0)
+        unknown = int(usage.get("unknown_cost_sessions") or 0) - int(usage.get("unknown_cost_seen") or 0)
+        if not cap:
+            return None
+        if spent < cap and unknown <= 0:
+            return None
+        if spent >= cap:
+            why = f"Spending cap of ${cap:.2f} reached at ${spent:.2f}. Raise the cap to carry on, or stop."
+            title = "Spending cap reached"
+        else:
+            why = (f"The cost of {unknown} AI session{'s' if unknown != 1 else ''} could not be worked out "
+                   f"(it stopped before saying), so ${spent:.2f} of the ${cap:.2f} cap is a low guess. "
+                   "Raise the cap to carry on, or stop.")
+            title = "Spending unknown"
+        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS)
+        return Outcome("waiting")
 
     def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
         """Call the step's optional on_approved(ctx, produces) hook; its returned dict goes on the finished event."""
@@ -537,7 +613,8 @@ class Runner:
         if produces:
             things.update(produces)
             atomic.write_json(run_dir / "things.json", things)
-        state.set_step_line(run_dir, index, status=status, note=scrub.scrub("; ".join(reasons)))
+        kept = st["steps"][index].get("resume_note", "")   # "restarted clean" stays on the line
+        state.set_step_line(run_dir, index, status=status, note=scrub.scrub("; ".join(reasons)) or kept)
         events.emit("run.step.finished", project=st["project"], run=st["run_id"], task=number, step=name,
                     status=status, reasons=[scrub.scrub(r) for r in reasons], **extra)
 
@@ -626,7 +703,7 @@ class Runner:
             return result
         except CodeError as err:
             return StepResult("fail", [str(err)])
-        except UsageLimit:
+        except (UsageLimit, RunPaused):
             raise
         except Exception as err:
             ctx.log(traceback.format_exc())
@@ -698,12 +775,33 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
         if holder[0] == "task":
             s["tasks"][str(holder[1])].update(gate=gate["id"], **(extra or {}))
             s["current"]["task"] = holder[1]
+        elif holder[0] == "run":                   # a question about the whole run (the spending cap)
+            pass
         else:
             s["steps"][holder[1]].update(status="waiting", gate=gate["id"],
                                          note=f"waiting for gate {gate['id']}", **(extra or {}))
         s["current"]["gate"] = gate["id"]
     state.update(Path(run_dir), change)
     return gate
+
+
+def _ack_unknown_cost(run_dir) -> None:
+    """A budget question was answered: the sessions with an unknown cost so far no longer ask again."""
+    def change(s):
+        usage = s.setdefault("usage", {"cost_usd": 0.0, "sessions": 0})
+        usage["unknown_cost_seen"] = int(usage.get("unknown_cost_sessions") or 0)
+    state.update(Path(run_dir), change)
+
+
+def raise_cap(run_dir, setup: dict, by) -> float:
+    """Add `by` dollars to the run's frozen cap (settings.json and the live settings) and return the new cap."""
+    run_dir = Path(run_dir)
+    values = atomic.read_json(run_dir / "settings.json") or {}
+    cap = float(values.get("budget_usd") or 0.0) + float(by or 0.0)
+    values["budget_usd"] = cap
+    atomic.write_json(run_dir / "settings.json", values)
+    setup["settings"]["budget_usd"] = cap
+    return cap
 
 
 def adopt_gate(run_dir) -> str | None:
@@ -779,7 +877,9 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     attempt_dir = ctx.run.folder / "tasks" / str(number) / f"attempt-{ctx.attempt}"
     attempt_dir.mkdir(parents=True, exist_ok=True)
     out_prompt = attempt_dir / f"{ctx.step.name}-prompt.md"
-    out_prompt.write_text(render_prompt(prompt_file.read_text(encoding="utf-8"), values), encoding="utf-8")
+    prompt_text = render_prompt(prompt_file.read_text(encoding="utf-8"), values)
+    out_prompt.write_text(prompt_text, encoding="utf-8")
+    resume_id = _resume_id(ctx, attempt_dir, out_prompt, prompt_text)
     profile = ctx.project.profile
     domains = docker_mod.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()),
                                             project_domains(ctx))
@@ -793,15 +893,31 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     if allow_file:
         extra_mounts.append(docker_mod.Mount(allow_file, docker_mod.ALLOWED_PROXY_MOUNT))
     docker_mod.hand_writable_mounts(ctx.adapters.docker, extra_mounts)  # e.g. the planner's /out
-    with keys_mod.env_file(ctx.project.name) as key_file:
-        session = ctx.adapters.claude.launch(
-            ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
-            attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
-            prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
-            domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
-            extra_mounts=extra_mounts, env_files=[key_file] if key_file else [],
-            extra_env=stepproxy.container_env(ctx.proxies))
+
+    def launch(resume_session=None):
+        with keys_mod.env_file(ctx.project.name) as key_file:
+            more = {"resume_session": resume_session} if resume_session else {}
+            return ctx.adapters.claude.launch(
+                ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
+                attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
+                prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
+                domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
+                extra_mounts=extra_mounts, env_files=[key_file] if key_file else [],
+                extra_env=stepproxy.container_env(ctx.proxies), **more)
+    session = launch(resume_id)
+    if resume_id and session.kind in ("error", "crashed") and pause.requested(ctx.run.folder) is None:
+        claude_mod.record_usage(ctx.run.folder, session)   # the failed --resume session still cost something
+        _restart_clean(ctx, out_prompt, prompt_text)       # --resume failed: start the step again from the base
+        session = launch()
+    asked = pause.requested(ctx.run.folder)
+    if asked is not None and session.kind != "ok":          # Pause now stopped the container mid-step
+        claude_mod.record_usage(ctx.run.folder, session)
+        started = session.session_id or (claude_mod.session_id_in_log(session.raw_path) if session.raw_path else "")
+        _mark_paused(ctx, started or resume_id or "")
+        ctx.log("session paused")
+        raise RunPaused(asked.get("who") or "cli")
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
+    _save_session_id(ctx, session.session_id)
     ctx.log(f"session ended: {session.kind}")
     if session.kind == "rate_limited":
         raise UsageLimit(session)
@@ -810,3 +926,53 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     if session.kind == "ok":
         return StepResult("pass")
     return StepResult("fail", [f"The AI session ended without finishing ({session.kind})."])
+
+
+def _step_line(ctx: StepContext) -> int | None:
+    """Index of this step's running line for its task (the one `_do_step` just marked running)."""
+    number = ctx.task["number"] if ctx.task else None
+    lines = state.load(ctx.run.folder)["steps"]
+    return next((i for i in range(len(lines) - 1, -1, -1)
+                 if lines[i]["step"] == ctx.step.name and lines[i]["task"] == number
+                 and lines[i]["status"] == "running"), None)
+
+
+def _save_session_id(ctx: StepContext, session_id: str) -> None:
+    """Keep the Claude session id on the step line (so a pause or a look later can find the session)."""
+    index = _step_line(ctx)
+    if index is not None and session_id:
+        state.set_step_line(ctx.run.folder, index, session_id=session_id)
+
+
+def _mark_paused(ctx: StepContext, session_id: str) -> None:
+    """Pause now: the step line becomes `paused` and keeps the session id; the worktree is left as it is."""
+    index = _step_line(ctx)
+    if index is not None:
+        state.set_step_line(ctx.run.folder, index, status="paused", session_id=session_id, note="paused")
+
+
+def _resume_id(ctx: StepContext, attempt_dir: Path, prompt_file: Path, prompt_text: str) -> str | None:
+    """For a step starting again after a pause: the session id to continue (and the prompt gets its first
+    line), or None after resetting the worktree to the attempt's base when the session cannot be continued."""
+    if ctx.resume is None:
+        return None
+    session_id = ctx.resume.get("session_id") or ""
+    if not pause.valid_session_id(session_id) or pause.session_file(attempt_dir, session_id, ctx.step.name) is None:
+        _restart_clean(ctx, prompt_file, prompt_text)
+        return None
+    prompt_file.write_text(f"{pause.RESUME_LINE}\n\n{prompt_text}", encoding="utf-8")
+    return session_id
+
+
+def _restart_clean(ctx: StepContext, prompt_file: Path, prompt_text: str) -> None:
+    """The paused session is gone or `--resume` failed: back to the attempt's base, the original prompt, and
+    the step line says so."""
+    number = ctx.task["number"] if ctx.task else None
+    base = (state.load(ctx.run.folder)["tasks"].get(str(number)) or {}).get("attempt_base") if number else None
+    if ctx.worktree and base:
+        ctx.adapters.git.reset_attempt(ctx.worktree, base)
+    prompt_file.write_text(prompt_text, encoding="utf-8")
+    index = _step_line(ctx)
+    if index is not None:
+        state.set_step_line(ctx.run.folder, index, resume_note=pause.CLEAN_NOTE, note=pause.CLEAN_NOTE)
+    ctx.log(pause.CLEAN_NOTE)

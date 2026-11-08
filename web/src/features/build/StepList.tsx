@@ -8,6 +8,7 @@ import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { formatDuration, relativeTime } from "@/lib/format"
 import type { Gate, ItemStatus, PlanStep, RunDetail, RunRepair, RunTask, StepGroup, StepLine } from "@/lib/types"
 
+import { NoteButton } from "./NoteDialog"
 import { Muted } from "./parts"
 
 /** The latest attempt's line for a step (of one task, or of the run when task is null). */
@@ -182,6 +183,15 @@ function RepairLine({ run, repair }: { run: RunDetail; repair: RunRepair }) {
   )
 }
 
+/** The link to a task's task file (shown in the Logs tab). */
+function TaskFileLink({ run, n }: { run: RunDetail; n: number }) {
+  const id = `${run.run_id}/tasks/${n}/task.md`
+  const to = `/p/${encodeURIComponent(run.project)}/logs?run=${encodeURIComponent(run.run_id)}&log=${encodeURIComponent(id)}`
+  return <Link to={to} className="small" data-task-file={n}>Task file</Link>
+}
+
+const ENDED = ["done", "failed", "stopped"]
+
 interface Props {
   run: RunDetail
   gates?: Gate[]
@@ -266,7 +276,10 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
           </div>
           <div className="blk-r"><Icon name="caret-right" size="sm" className="car" /></div>
         </summary>
-        <div className="tg-in">{blocks("task", n)}</div>
+        <div className="tg-in">
+          <TaskFileLink run={run} n={n} />
+          {blocks("task", n)}
+        </div>
       </details>
     )
   }
@@ -304,6 +317,10 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
               Task {n} · {t.title}
               {t.tries > 0 && <span className="small">attempt {t.tries} of {run.max_tries}</span>}
             </h3>
+            <div className="row" style={{ gap: 12 }}>
+              <TaskFileLink run={run} n={n} />
+              {t.status === "running" && !ENDED.includes(run.status) && <NoteButton runId={run.run_id} task={n} />}
+            </div>
             {blocks("task", n)}
           </div>
         )

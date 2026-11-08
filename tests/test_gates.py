@@ -86,8 +86,33 @@ def test_list_filters(tmp_path):
     assert gates.list_gates("nobody") == []
 
 
+def code_with_run_branch(folder, message="work"):
+    """The project's code repo with the run's branch phoenix/<run> one commit ahead of main."""
+    import subprocess
+    st = state.load(folder)
+    code = paths.projects() / st["project"] / "code"
+    code.mkdir(parents=True, exist_ok=True)
+
+    def g(*args):
+        return subprocess.run(["git", "-C", str(code), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                              check=True, capture_output=True, text=True).stdout
+    if not (code / ".git").exists():
+        g("init", "-q", "-b", "main")
+        (code / "a.txt").write_text("a\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", "first")
+        g("branch", f"phoenix/{st['run_id']}")
+    g("checkout", "-q", f"phoenix/{st['run_id']}")
+    (code / "b.txt").write_text(message + "\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", message)
+    g("checkout", "-q", "main")
+    return code
+
+
 def test_chat_may_answer(tmp_path):
     folder = make_run(tmp_path)
+    code_with_run_branch(folder)
     g = open_one(folder)
     allowed = {"home_chat_may_answer": ["merge"]}
     assert not gates.may_answer(g, "chat:home", allowed)       # its tasks are not finished yet: Alex only
@@ -166,3 +191,24 @@ def test_listed_gates_say_their_state(tmp_path):
     b = open_one(folder)
     found = {g["id"]: g["state"] for g in gates.list_gates(open_only=False)}
     assert found == {a["id"]: "answered", b["id"]: "open"}
+
+
+@pytest.mark.parametrize("who", ["chat:home", "chat:demo"])
+def test_chat_refused_on_a_merge_when_a_chat_fixed_the_run(tmp_path, who):
+    """A `Phoenix-Fix-By: chat:` commit on the run branch makes the merge Alex's alone (checked live)."""
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    g = open_one(folder)
+    allowed = {"home_chat_may_answer": ["merge"]}
+    assert gates.may_answer(g, who, allowed)
+    code_with_run_branch(folder, f"Outside fix before retry of task 1\n\nPhoenix-Fix-By: {who}")
+    assert not gates.may_answer(g, who, allowed)
+    assert gates.may_answer(g, "dashboard", allowed)      # Alex still can
+    assert gates.FLAG_CHANGED_BY_AGENT in gates.ALEX_ONLY_FLAGS
+
+
+def test_chat_refused_on_a_merge_when_git_cannot_tell(tmp_path):
+    folder = make_run(tmp_path)                             # no code repo at all
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    assert not gates.may_answer(open_one(folder), "chat:home", {"home_chat_may_answer": ["merge"]})

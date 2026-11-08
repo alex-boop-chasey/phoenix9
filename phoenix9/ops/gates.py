@@ -15,7 +15,7 @@ def list_(project: str | None = None) -> list:
     return core.list_gates(project)
 
 
-def answer(gate_id: str, action: str, note: str = "", who: str = "cli") -> dict:
+def answer(gate_id: str, action: str, note: str = "", who: str = "cli", by: float | None = None) -> dict:
     """Answer an open gate (the runner picks the answer up). A closed question, or one of a run that has
     ended or moved on, is refused (Conflict) with a plain message."""
     gate = next((g for g in core.list_gates(open_only=False) if g["id"] == gate_id), None)
@@ -27,10 +27,10 @@ def answer(gate_id: str, action: str, note: str = "", who: str = "cli") -> dict:
         project_settings = settings.load_project(common.project_dir(gate["project"]))
     except (settings.SettingsError, OpsError):
         project_settings = {}
-    if not core.may_answer(gate, who, project_settings):
+    if not core.may_answer(gate, who, project_settings, action):
         raise OpsError(f"'{who}' may not answer {gate['kind']} questions in {gate['project']}.")
     try:
-        result = core.answer(gate_id, action, note=note, who=who)
+        result = core.answer(gate_id, action, note=note, who=who, by=by)
     except core.NotOpen as err:
         raise common.Conflict(str(err)) from None
     except ValueError as err:

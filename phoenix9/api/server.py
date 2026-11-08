@@ -826,6 +826,20 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def post_run_pause(req, run_id):
+    """Pause now: stop the running step's container and pause the run."""
+    if req.body.get("now") is not True:
+        raise BadRequest("Pausing needs {\"now\": true}.")
+    with req.server.write_lock:
+        return runs.pause(check_run_id(run_id), now=True, who=WHO)
+
+
+def post_run_resume(req, run_id):
+    """Resume a paused run."""
+    with req.server.write_lock:
+        return runs.resume(check_run_id(run_id), who=WHO)
+
+
 def get_repair_report(req, run_id):
     """Write the run report and reply with it: the markdown and the findings as JSON."""
     run_id = check_run_id(run_id)
@@ -846,6 +860,15 @@ def post_repair_apply(req, run_id):
         raise BadRequest("Applying a repair needs confirmation.")
     with req.server.write_lock:
         return ops_repair.apply_text(run_id, text, who=WHO, **flags)
+
+
+def post_run_note(req, run_id):
+    """Add a note to a task of a run (the next attempt reads it)."""
+    task = req.body.get("task")
+    if isinstance(task, bool) or not isinstance(task, int):
+        raise BadRequest("'task' should be a task number.")
+    with req.server.write_lock:
+        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=WHO)
 
 
 def post_run_discard(req, project, run_id):
@@ -873,7 +896,7 @@ def post_gate_answer(req, gate_id):
     action = body_text(req, "action")
     note = body_text(req, "note", False) or ""
     with req.server.write_lock:
-        return gates.answer(gate_id, action, note, who=WHO)
+        return gates.answer(gate_id, action, note, who=WHO, by=req.body.get("by"))
 
 
 def post_service_connect(req, name):
@@ -1015,6 +1038,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/pause", post_run_pause),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
+    ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),

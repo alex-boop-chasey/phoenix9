@@ -3,8 +3,10 @@ import time
 
 from phoenix9.cli.output import problem, show, table
 from phoenix9.ops import runs
+from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
+PAUSE_WAIT_S = 60   # how long `run pause` waits for the runner to show the run paused
 STOP_WAIT_S = 60    # how long `run stop` waits for the runner to act on a stop request
 
 
@@ -34,6 +36,20 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=stop)
+    p = group.add_parser("pause", parents=[common],
+                         help="pause the step that is running now (the worktree stays as it is)")
+    p.add_argument("run_id")
+    p.add_argument("--now", action="store_true", help="pause the running step right now")
+    p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=pause)
+    p = group.add_parser("resume", parents=[common], help="carry on a paused run where it stopped")
+    p.add_argument("run_id")
+    p.set_defaults(func=resume)
+    p = group.add_parser("note", parents=[common], help="add a note to a task; its next attempt reads it")
+    p.add_argument("run_id")
+    p.add_argument("task", type=int)
+    p.add_argument("text", help="the note (at most 2,000 characters)")
+    p.set_defaults(func=note)
     p = group.add_parser("discard", parents=[common],
                          help="throw away a failed or stopped run's worktree and branch (here and on GitHub)")
     p.add_argument("run_id")
@@ -143,6 +159,15 @@ def stop(args) -> int:
                 else f"Run {r['run_id']} is {r['status']}.")
 
 
+def note(args) -> int:
+    """Add a note to a task's task file."""
+    try:
+        r = runs.note(args.run_id, args.task, args.text, who=args.who)
+    except OpsError as err:
+        return problem(args, str(err))
+    return show(args, r, f"Noted on task {r['task']} of run {r['run_id']}. The next attempt will read it.")
+
+
 def discard(args) -> int:
     """Discard a failed or stopped run's work (needs --yes)."""
     if not args.yes:
@@ -151,3 +176,32 @@ def discard(args) -> int:
     r = runs.discard(args.run_id, who=args.who, force=args.force)
     words = f"Discarded the work of run {r['run_id']}."
     return show(args, r, "\n".join([words, *(f"Note: {n}" for n in r["notes"])]))
+
+
+def pause(args) -> int:
+    """Pause the running step (needs --now and --yes); wait up to a minute for the run to show paused."""
+    if not (args.now and args.yes):
+        return problem(args, f"This stops the step that is running in run {args.run_id}; the work so far is kept "
+                             "and Resume carries on. Add --now --yes to go ahead.")
+    r = runs.pause(args.run_id, now=True, who=args.who)
+    deadline = time.monotonic() + PAUSE_WAIT_S
+    while not r["waits_for_step"] and r["status"] != "paused" and time.monotonic() < deadline:
+        now = runs.status(args.run_id)["status"]
+        if now != "running":
+            r = {**r, "status": now}
+            break
+        time.sleep(1)
+    if r["waits_for_step"]:
+        text = f"Run {r['run_id']} pauses when the step that is running ends."
+    elif r["status"] == "paused":
+        text = f"Paused run {r['run_id']}. Resume it with: phoenix run resume {r['run_id']}"
+    else:
+        text = f"Pause requested for run {r['run_id']}; the runner has not paused it yet (see: phoenix run status)."
+    return show(args, r, text)
+
+
+def resume(args) -> int:
+    """Resume a paused run."""
+    r = runs.resume(args.run_id, who=args.who)
+    return show(args, r, f"Run {r['run_id']} is queued; it starts when the server is free." if r["queued"]
+                else f"Run {r['run_id']} is running again.")

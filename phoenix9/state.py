@@ -7,9 +7,9 @@ from typing import Callable
 
 from . import atomic
 
-RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "done", "failed", "stopped")
+RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "paused", "done", "failed", "stopped")
 TASK_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
-STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting")
+STEP_STATUSES = ("pending", "running", "passed", "failed", "skipped", "waiting", "paused")
 
 
 # ported from reference/v8/phoenix/state.py:79 (Lock)
@@ -73,11 +73,11 @@ def new_task(title: str = "", depends_on=()) -> dict:
     next attempt; escalations = how many times Alex (or the project chat) acknowledged it;
     flagged = why it failed, shown on the Build tab; gate = the open gate it waits on;
     attempt_base = the commit each attempt starts from (failed attempts are reset to it);
-    delegate = the project chat hand-over (handle, started_at, notified); note = why it was skipped;
+    note = why it was skipped;
     rerun = an escalation was acknowledged, so the next attempt runs whatever should_retry says.
     """
     return {"title": title, "status": "pending", "tries": 0, "failures": [], "depends_on": list(depends_on),
-            "escalations": 0, "flagged": "", "gate": None, "attempt_base": None, "delegate": None, "note": "",
+            "escalations": 0, "flagged": "", "gate": None, "attempt_base": None, "note": "",
             "rerun": False}
 
 

@@ -953,21 +953,6 @@ def test_retry_keeps_a_repo_that_was_never_phoenixs(env, unitdir):
 
 # ---- last-moment checks, lock, fetch, empty repos, delegate sessions (finding 9) ----
 
-def test_delegate_session_still_running_refuses(env, unitdir):
-    folder = _stuff(env)
-    d = paths.runs("alpha") / "r9"
-    atomic.write_json(d / "state.json", {"run_id": "r9", "project": "alpha", "status": "failed",
-                                         "created": "2026-11-07T10:00:00Z", "updated": "2026-11-07T10:00:00Z",
-                                         "tasks": {"1": {"status": "failed", "delegate": {"handle": "h1"}}}})
-    env["fakes"].chat.running["h1"] = True
-    assert any("delegate" in r for r in project_delete.plan("alpha", "cli", env["fakes"])["refusals"])
-    with pytest.raises(OpsError, match="delegate"):
-        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
-    _all_there(folder)
-    env["fakes"].chat.running["h1"] = False
-    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
-
-
 def test_busy_again_after_the_copy_stops_everything(env, unitdir, monkeypatch):
     folder = _stuff(env)
     real = project_delete.backup

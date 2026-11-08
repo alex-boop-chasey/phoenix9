@@ -94,6 +94,7 @@ export function SlideReview({ state, dispatch, plan, baseline, presets, specs }:
         <Rows rows={[
           ["Tries per task", String(a.maxTries)],
           ["When a task still fails", ON_FAILURE.find((o) => o.value === a.onFailure)?.label ?? a.onFailure],
+          ["Spending cap", a.budget.trim() ? `$${a.budget}` : "No cap"],
         ]} />
       </ReviewCard>
       <ReviewCard n={6} title="Finish" onEdit={edit}>

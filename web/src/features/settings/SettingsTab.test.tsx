@@ -126,13 +126,13 @@ test("explain dialog shows the step list", async () => {
 
 test("on failure options explained", async () => {
   await setup()
-  expect(screen.getByText("Continue")).toBeInTheDocument()
+  expect(screen.getByText("Skip to the next independent task")).toBeInTheDocument()
   expect(screen.getByText("Move on to tasks that don't depend on the failed one, and flag it.")).toBeInTheDocument()
-  expect(screen.getByText("Pause for me")).toBeInTheDocument()
+  expect(screen.getByText("Wait for me")).toBeInTheDocument()
   expect(screen.getByText("Pause and show an escalation; press Acknowledged when fixed.")).toBeInTheDocument()
-  expect(screen.getByText("Hand it to Claude in the project folder")).toBeInTheDocument()
-  expect(screen.getByText("A Claude session in the project's folder tries to fix it and only alerts you if it can't.")).toBeInTheDocument()
-  expect(screen.getByRole("radio", { name: /Pause for me/ })).toBeChecked()
+  expect(screen.getByText("Hand to the Phoenix agent")).toBeInTheDocument()
+  expect(screen.getByText("The Phoenix agent is sent one message to fix it; you are alerted if it is asleep or can't.")).toBeInTheDocument()
+  expect(screen.getByRole("radio", { name: /Wait for me/ })).toBeChecked()
 })
 
 test("phoenix9 merge locked to ask", async () => {

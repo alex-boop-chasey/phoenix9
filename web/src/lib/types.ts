@@ -1,6 +1,6 @@
 // Types for every `data` shape in docs/api.md. Field names are exactly the server's (snake_case).
 
-export type RunStatus = "queued" | "running" | "waiting" | "paused-limit" | "done" | "failed" | "stopped"
+export type RunStatus = "queued" | "running" | "waiting" | "paused-limit" | "paused" | "done" | "failed" | "stopped"
 export type ItemStatus = "pending" | "running" | "passed" | "failed" | "skipped" | "waiting"
 export type AnyStatus = RunStatus | ItemStatus
 export type StepGroup = "run-start" | "task" | "run-finish"
@@ -305,6 +305,7 @@ export interface PlanView {
     based_on?: string | null
     max_tries?: number
     on_failure?: string
+    budget_usd?: number | null
     merge?: string
     /** The effective [deploy] table (older fixtures use a plain string). */
     deploy?: string | { with?: string; mode?: string; preview?: boolean }
@@ -341,6 +342,10 @@ export interface RunDetail {
   title: string
   preset: string
   max_tries: number
+  /** The spending cap in dollars (frozen once the build starts); empty = no cap. */
+  budget_usd?: number | null
+  /** Dollars spent so far. */
+  spent_usd?: number
   /** The git branch of the run, e.g. phoenix/<run-id>. */
   branch?: string
   /** Repairs applied to the run, oldest first. */

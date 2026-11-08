@@ -14,9 +14,9 @@ import { useLibraryPresets, useLibraryTools, usePlanRows, useSetPreset, useSetSe
 import type { PlanStep } from "@/lib/types"
 
 export const ON_FAILURE = [
-  { value: "continue", label: "Continue", help: "Move on to tasks that don't depend on the failed one, and flag it." },
-  { value: "pause", label: "Pause for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
-  { value: "delegate", label: "Hand it to Claude in the project folder", help: "A Claude session in the project's folder tries to fix it and only alerts you if it can't." },
+  { value: "continue", label: "Skip to the next independent task", help: "Move on to tasks that don't depend on the failed one, and flag it." },
+  { value: "pause", label: "Wait for me", help: "Pause and show an escalation; press Acknowledged when fixed." },
+  { value: "delegate", label: "Hand to the Phoenix agent", help: "The Phoenix agent is sent one message to fix it; you are alerted if it is asleep or can't." },
 ]
 export const MERGE = [
   { value: "auto", label: "Merge automatically", help: "Merge when the checks pass." },
@@ -165,6 +165,17 @@ export function BuildSection({ name }: { name: string }) {
           <Choices
             name="on_failure" label="On failure" value={String(val("on_failure") ?? "pause")} onChange={(v) => set("on_failure", v)}
             options={ON_FAILURE.map((o) => ({ value: o.value, label: o.label, help: o.help }))}
+          />
+        </div>
+      </SettingsRow>
+
+      <SettingsRow keys={["budget_usd"]} id="s-budget" label="Spending cap">
+        <div className="field" style={{ maxWidth: 220 }}>
+          <label htmlFor="bs-budget">Spending cap ($)</label>
+          <input
+            id="bs-budget" className="input" type="number" min={0} step="any" placeholder="No cap"
+            value={String(val("budget_usd") ?? "")}
+            onChange={(e) => set("budget_usd", e.target.value === "" ? undefined : Number(e.target.value))}
           />
         </div>
       </SettingsRow>

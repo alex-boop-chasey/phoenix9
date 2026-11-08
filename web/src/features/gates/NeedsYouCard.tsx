@@ -33,8 +33,8 @@ const ESCALATION_HELP =
 const DEFER_HELP =
   "\"Build without it for now\" carries on and builds the site so it still works without these keys. Phoenix shows \"Waiting for keys\" until you save them; the next build then switches the service on."
 const DELEGATED_HELP =
-  "A Claude session in the project's folder is working on it; it will answer this itself if it fixes it."
-const DELEGATED_FLAG = "delegated to project chat"   // the backend flag (failmodes.DELEGATE_FLAG); keep in step
+  "The Phoenix agent has been asked to fix it; it will answer this itself if it can."
+const DELEGATED_FLAG = "handed to the Phoenix agent"   // the backend flag (failmodes.HANDOFF_FLAG); keep in step
 
 /** An amber card that shows one open question for Alex, with the buttons that answer it (none when readOnly). */
 export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean }) {

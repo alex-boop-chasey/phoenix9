@@ -1,4 +1,4 @@
-"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, chat, proxy) behind one object."""
+"""Adapters: every outside tool (docker, claude, git, host, http, clock, notify, proxy) behind one object."""
 import ipaddress
 import os
 import shutil
@@ -238,32 +238,16 @@ class Http:
             return e.code, dict(e.headers), e.read()
 
 
-class Chat:
-    """Delegate mode: hands a failed task to the project's own chat agent (phoenix9/chat.py)."""
-
-    def delegate(self, project: str, project_dir, gate: str, prompt: str, log_path) -> dict:
-        """Start the detached project chat session; returns {"started", "handle", "error"}."""
-        from phoenix9 import chat
-        return chat.delegate(project, project_dir, gate, prompt, log_path)
-
-    def status(self, handle: str) -> str:
-        """"running" or "exited"."""
-        from phoenix9 import chat
-        return chat.status(handle)
-
-    def stop(self, handle):
-        """Stop a delegate session that is still running (e.g. Alex answered first)."""
-        from phoenix9 import chat
-        chat.stop(handle)
-
-
 class Claude:
     """Real claude adapter; filled in by step 09."""
 
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
-               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None):
-        """Run one Claude session in a step container (trying fallback models) and return its Result."""
+               domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None,
+               resume_session=None):
+        """Run one Claude session in a step container (trying fallback models) and return its Result.
+
+        `resume_session` continues that Claude session (`--resume <id>`) instead of starting a new one."""
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
         mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
@@ -274,12 +258,12 @@ class Claude:
                 Path(prompt_file).write_text(f"{text.rstrip()}\n\n{note}\n", encoding="utf-8")
 
         def one(model: str):
-            cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace")
+            cmd = cl.build_command({**ai, "model": model}, dk.PROMPT_MOUNT, "/workspace", resume=resume_session)
             rc, log = dk.run_claude_container(
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
                 spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env)
-            return cl.parse(log, rc)
+            return cl.parse(log, rc, model=model)
         return cl.run_with_fallback(ai, one)
 
     def __getattr__(self, name: str):
@@ -320,11 +304,10 @@ class Adapters:
     http: Any
     clock: Any
     notify: Any
-    chat: Any
     proxy: Any = None
 
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
     return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
-                    clock=Clock(), notify=Notify(), chat=Chat(), proxy=Proxy())
+                    clock=Clock(), notify=Notify(), proxy=Proxy())

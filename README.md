@@ -14,6 +14,6 @@ Each task is one attempt loop. The presets change which steps are in it:
 
 When a task fails, `on_failure` decides what happens once its tries are used up:
 
-- **continue:** the task is marked failed, the tasks that depend on it are skipped, and the run carries on. The merge then asks you first.
-- **pause:** the run stops and asks you ("Needs you"). Fix things, answer `acknowledged`, and the task gets one more attempt.
-- **delegate:** the same question goes first to a Claude session Phoenix starts in the project's folder. If it fixes the task and answers, the run goes on; if it gives up, you are told.
+- **continue ("Skip to the next independent task"):** the task is marked failed, the tasks that depend on it are skipped, and the run carries on. The merge then asks you first.
+- **pause ("Wait for me"):** the run stops and asks you ("Needs you"). Fix things, answer `acknowledged`, and the task gets one more attempt.
+- **delegate ("Hand to the Phoenix agent"):** the same question goes to the Phoenix agent as one short message. If it fixes the task and answers, the run goes on; if it is asleep or can't, you are told and the build waits for you.

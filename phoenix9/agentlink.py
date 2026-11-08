@@ -231,12 +231,13 @@ def clean_context(context) -> dict:
 
 
 WHO_RE = re.compile(r"^[A-Za-z0-9/_.:-]{1,80}$")
+SPACED_WHO = ("build escalation",)      # the one sender name with a space: a build handing a task over
 
 
 def clean_who(who) -> str:
     """The sender name the agent may be told: newlines stripped, only [A-Za-z0-9/_.:-], at most 80, else 'unknown'."""
     value = who.replace("\r", "").replace("\n", "") if isinstance(who, str) else ""
-    return value if WHO_RE.fullmatch(value) else "unknown"
+    return value if WHO_RE.fullmatch(value) or value in SPACED_WHO else "unknown"
 
 
 def from_name(who: str, panel: bool = False) -> str:

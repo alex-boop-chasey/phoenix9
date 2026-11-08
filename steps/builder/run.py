@@ -1,7 +1,7 @@
 """Builder: Claude writes the code for one task; Phoenix judges only the files it left behind."""
 from pathlib import Path
 
-from phoenix9 import atomic, checklock, state
+from phoenix9 import atomic, checklock, state, taskfile
 from phoenix9.aistep import failures_list, finish_line, profile_test, task_text
 from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
@@ -63,6 +63,11 @@ def _services(ctx) -> str:
     return notes if notes and notes != "no-services" else NO_SERVICES_TEXT
 
 
+def fix_notes(ctx) -> str:
+    """The notes below `## Fix notes` in this task's task file, fenced as data (or "(none)")."""
+    return taskfile.prompt_notes(ctx.run.folder, ctx.task["number"]) if ctx.task else taskfile.NO_NOTES
+
+
 def before(ctx) -> dict:
     """Fill the builder prompt's placeholders."""
     test = profile_test(ctx)
@@ -78,6 +83,7 @@ def before(ctx) -> dict:
         "git_log": _git_log(ctx),
         "services": _services(ctx),
         "failures": _failures(ctx),
+        "fix_notes": fix_notes(ctx),
         "attempt": ctx.attempt,
         "max_tries": ctx.project.settings.get("max_tries", 1),
     }

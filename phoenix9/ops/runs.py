@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
-from phoenix9 import runend, status as status_core
+from phoenix9 import pause as pause_core, runend, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -91,7 +91,7 @@ def plan(project: str, overrides: dict | None = None) -> dict:
         table = eff.values.get("steps", {}).get(row["name"], {})
         ai = {k: settings._nested(table, k.split("."), None) for k in ai_keys} if row["kind"] == "ai" else None
         steps.append({**row, "ai": ai})
-    keys = ("preset", "based_on", "max_tries", "on_failure", "merge", "deploy")
+    keys = ("preset", "based_on", "max_tries", "on_failure", "budget_usd", "merge", "deploy")
     return {"groups": data["groups"], "steps": steps, "errors": errors,
             "settings": {k: eff.values.get(k) for k in keys}}
 
@@ -206,6 +206,98 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     common.record_command(who, f"run stop {run_id}", st["project"],
                           f"stopped run {run_id}" if status == "stopped" else f"asked run {run_id} to stop")
     return {"run_id": run_id, "status": status, "containers_removed": removed, "notes": notes}
+
+
+def _running_step_kind(st: dict) -> str:
+    """"ai" or "script": the kind of the step the run is on now ("script" when it cannot be told)."""
+    name = (st.get("current") or {}).get("step")
+    try:
+        return common.library().step(name).kind if name else "script"
+    except (KeyError, OSError, ValueError):
+        return "script"
+
+
+def pause(run_id: str, now: bool = False, who: str = "cli", project: str | None = None) -> dict:
+    """Pause now: stop the running AI step's container (stop, not remove) and leave the run's worktree alone.
+
+    The runner, which holds the run, sees the request and sets the step line and the run to `paused`
+    (status "pause requested" until then). During a step that is not AI the step is left to end, then the
+    run pauses (`waits_for_step` is true and the notes say so)."""
+    if now is not True:
+        raise OpsError("Say --now to pause the step that is running. (To end after the current step, use stop.)")
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st["status"] == "paused":
+        raise common.Conflict(f"Run {run_id} is already paused.")
+    if st["status"] != "running":
+        raise OpsError(f"Run {run_id} is {st['status']}, so there is no running step to pause.")
+    if not _may_stop(st["project"], who):
+        raise OpsError(f"'{who}' may not pause runs in {st['project']}.")
+    pause_core.request(folder, who)
+    waits, stopped, notes = False, 0, []
+    if _running_step_kind(st) == "ai":
+        docker_ = common.make_adapters().docker
+        for cid in docker_.ps_ids(f"{docker.LABEL}.run={run_id}"):
+            docker_.stop(cid)
+            stopped += 1
+    else:
+        waits = True
+        notes.append("The step that is running is not an AI step, so Phoenix waits for it to end, then pauses.")
+    common.record_command(who, f"run pause {run_id} --now", st["project"], f"asked run {run_id} to pause")
+    return {"run_id": run_id, "status": "pause requested", "waits_for_step": waits,
+            "containers_stopped": stopped, "notes": notes}
+
+
+def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
+    """Resume a paused run: `running` (the runner picks it up), or `queued` when another run is going.
+
+    The paused step runs again in a fresh container and, for an AI step, continues its Claude session."""
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st["status"] != "paused":
+        raise OpsError(f"Run {run_id} is {st['status']}, not paused, so there is nothing to resume.")
+    if not _may_stop(st["project"], who):
+        raise OpsError(f"'{who}' may not resume runs in {st['project']}.")
+    busy = any(r["run_id"] != run_id and r["status"] in ("running", "waiting", "paused-limit")
+               for r in core.list_runs())
+    new = "queued" if busy else "running"
+    try:
+        with runend.lock(folder, wait=STOP_LOCK_WAIT_S):
+            after = state.update(folder, lambda s: s.__setitem__("status", new) if s["status"] == "paused" else None)
+    except TimeoutError:
+        raise common.Conflict(f"Run {run_id} is busy right now. Try again in a moment.") from None
+    if after["status"] != new:
+        raise OpsError(f"Run {run_id} is {after['status']}, not paused, so there is nothing to resume.")
+    pause_core.clear(folder)
+    events.emit("run.resumed", project=st["project"], run=run_id, who=who, status=new)
+    common.record_command(who, f"run resume {run_id}", st["project"], f"resumed run {run_id}")
+    return {"run_id": run_id, "status": new, "queued": new == "queued"}
+
+
+def note(run_id: str, task: int, text: str, who: str = "cli", project: str | None = None) -> dict:
+    """Append a dated note under `## Fix notes` in a task's task.md; the next attempt's prompt carries it."""
+    from phoenix9 import taskfile
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    if st["status"] in FINISHED:
+        raise OpsError(f"Run {run_id} is already {st['status']}, so it takes no more notes.")
+    if isinstance(task, bool) or not isinstance(task, int) or str(task) not in st["tasks"]:
+        raise common.NotFound(f"Run {run_id} has no task {task}.")
+    if not isinstance(text, str) or not text.strip():
+        raise OpsError("The note is empty. Write what the next attempt should know.")
+    if len(text.strip()) > taskfile.MAX_NOTE:
+        raise OpsError(f"The note is {len(text.strip())} characters long; the most is {taskfile.MAX_NOTE}.")
+    taskfile.add_note(folder, task, who, text)
+    events.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
+    common.record_command(who, f"run note {run_id} {task}", st["project"])
+    return {"run_id": run_id, "task": task, "file": str(taskfile.path(folder, task)),
+            "file_id": f"{run_id}/tasks/{task}/task.md"}
 
 
 DISCARDABLE = ("failed", "stopped")
@@ -360,8 +452,15 @@ def detail(project: str, run_id: str) -> dict:
             max_tries = eff.get("max_tries")
         except settings.SettingsError:
             pass
+    cap = frozen.get("budget_usd") if frozen_plan else overrides.get("budget_usd")
+    if cap is None and not frozen_plan:
+        try:
+            cap = settings.effective(common.project_dir(project), common.library(), overrides or None).get("budget_usd")
+        except settings.SettingsError:
+            pass
+    spent = float((state.load(folder) or {}).get("usage", {}).get("cost_usd") or 0.0)
     return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
-            "preset": facts["preset"], "max_tries": max_tries,
+            "preset": facts["preset"], "max_tries": max_tries, "budget_usd": cap, "spent_usd": round(spent, 2),
             "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
 
 

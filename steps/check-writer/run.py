@@ -3,7 +3,7 @@ folder, then locks them."""
 import fnmatch
 from pathlib import Path
 
-from phoenix9 import checklint, checklock, keys, state
+from phoenix9 import checklint, checklock, keys, state, taskfile
 from phoenix9.aistep import fence, failures_list, last_line, profile_test, task_text
 from phoenix9.stepctx import StepResult
 
@@ -83,6 +83,11 @@ def unset_env_problems(ctx, written: list[str]) -> list[str]:
     return problems
 
 
+def fix_notes(ctx) -> str:
+    """The notes below `## Fix notes` in this task's task file, fenced as data (or "(none)")."""
+    return taskfile.prompt_notes(ctx.run.folder, ctx.task["number"]) if ctx.task else taskfile.NO_NOTES
+
+
 def before(ctx) -> dict:
     """Fill the check-writer prompt's placeholders."""
     test = profile_test(ctx)
@@ -98,6 +103,7 @@ def before(ctx) -> dict:
         "repo_tree": repo_tree(ctx),
         "existing_checks": existing_checks(ctx, folder),
         "failures": _failures(ctx),
+        "fix_notes": fix_notes(ctx),
         "objection": _objection(ctx),
     }
 

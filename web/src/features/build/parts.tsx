@@ -24,6 +24,8 @@ export function resultText(
       return currentTask ? `Running task ${currentTask} of ${total}` : "Running"
     case "waiting":
       return "Waiting for you"
+    case "paused":
+      return "Paused"
     case "paused-limit":
       return "Paused (usage limit)"
     default:
@@ -78,7 +80,7 @@ export function taskPieces(status: RunStatus, total: number, passed: number, fai
 export function edgeOf(status: RunStatus): "ok" | "bad" | "need" | "run" | "none" {
   if (status === "done") return "ok"
   if (status === "failed") return "bad"
-  if (status === "waiting") return "need"
+  if (status === "waiting" || status === "paused") return "need"
   if (status === "running") return "run"
   return "none"
 }
@@ -87,7 +89,7 @@ export function edgeOf(status: RunStatus): "ok" | "bad" | "need" | "run" | "none
 export function ResultBadge({ status, text }: { status: RunStatus; text: string }) {
   const edge = edgeOf(status)
   const variant = edge === "ok" ? "ok" : edge === "bad" ? "bad" : edge === "need" ? "need" : edge === "run" ? "running" : "info"
-  const icon = edge === "ok" ? "check-circle" : edge === "bad" ? "x-circle" : edge === "need" ? "bell-ringing" : status === "stopped" ? "stop-circle" : "circle-dashed"
+  const icon = edge === "ok" ? "check-circle" : edge === "bad" ? "x-circle" : edge === "need" ? (status === "paused" ? "pause-circle" : "bell-ringing") : status === "stopped" ? "stop-circle" : "circle-dashed"
   return (
     <Badge variant={variant} data-status={status}>
       {edge === "run" ? <Wheel /> : <Icon name={icon} />}

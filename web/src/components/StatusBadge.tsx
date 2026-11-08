@@ -10,6 +10,7 @@ const LOOK: Record<AnyStatus, { label: string; variant: Variant; icon?: IconName
   running: { label: "Running", variant: "running" },
   waiting: { label: "Waiting for you", variant: "need", icon: "bell-ringing" },
   "paused-limit": { label: "Paused (usage limit)", variant: "info", icon: "hand-palm" },
+  paused: { label: "Paused", variant: "need", icon: "pause-circle" },
   done: { label: "Done", variant: "ok", icon: "check-circle" },
   passed: { label: "Passed", variant: "ok", icon: "check-circle" },
   failed: { label: "Failed", variant: "bad", icon: "x-circle" },

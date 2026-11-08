@@ -21,6 +21,8 @@ export interface Answers {
   /** AI edits by dotted key ("steps.builder.model"); only what the user typed. */
   ai: Record<string, unknown>
   maxTries: number
+  /** The spending cap in dollars as typed; empty = no cap. */
+  budget: string
   onFailure: OnFailure
   merge: MergeMode
   deploy: boolean
@@ -55,6 +57,7 @@ export type Action =
   | { type: "step"; name: string; on: boolean }
   | { type: "ai"; key: string; value: unknown }
   | { type: "maxTries"; value: number }
+  | { type: "budget"; value: string }
   | { type: "onFailure"; value: OnFailure }
   | { type: "merge"; value: MergeMode }
   | { type: "deploy"; on: boolean }
@@ -94,6 +97,13 @@ export const deployerChosen = (deploy: unknown) => {
   return !!w && w !== "none"
 }
 
+/** The typed spending cap as a number: undefined when empty, NaN when it is not a positive number. */
+export function budgetValue(text: string): number | undefined {
+  if (!text.trim()) return undefined
+  const n = Number(text)
+  return Number.isFinite(n) && n > 0 ? n : Number.NaN
+}
+
 /** Starting answers: the project's own saved settings. */
 export function initialAnswers(settings: SettingsView, presets: Preset[], steps: Context["steps"]): Answers {
   const v = settings.values
@@ -110,6 +120,7 @@ export function initialAnswers(settings: SettingsView, presets: Preset[], steps:
   return {
     source: "spec", spec: "", brief: "", preset, basedOn, steps: on, ai: {},
     maxTries: typeof v.max_tries === "number" ? v.max_tries : 3, onFailure, merge,
+    budget: typeof v.budget_usd === "number" ? String(v.budget_usd) : "",
     deploy: deployIsOn(v.deploy), plannerBeforeBrief: null,
   }
 }
@@ -171,6 +182,7 @@ export function reduce(state: WizardState, action: Action, ctx: Pick<Context, "p
       return answers({ ...a, ai })
     }
     case "maxTries": return answers({ ...a, maxTries: action.value })
+    case "budget": return answers({ ...a, budget: action.value })
     case "onFailure": return answers({ ...a, onFailure: action.value })
     case "merge": return answers({ ...a, merge: mergeLocked(ctx.project) ? "ask" : action.value })
     case "deploy": return answers({ ...a, deploy: action.on })
@@ -218,6 +230,8 @@ export function toOverrides(a: Answers, ctx: Context): Overrides {
   if (a.maxTries !== base.max_tries) out.max_tries = a.maxTries
   if (a.onFailure !== base.on_failure) out.on_failure = a.onFailure
   if (a.merge !== base.merge) out.merge = a.merge
+  const cap = budgetValue(a.budget)
+  if (cap !== undefined && !Number.isNaN(cap) && cap !== base.budget_usd) out.budget_usd = cap
   if (a.deploy !== deployIsOn(base.deploy)) out.deploy = { mode: a.deploy ? deployOnMode(base.deploy) : "off" }
   return out
 }
@@ -239,6 +253,8 @@ export function validateSlide(n: number, a: Answers, plan: Pick<PlanView, "error
       return plan.errors
     case 5:
       return Number.isInteger(a.maxTries) && a.maxTries >= 1 && a.maxTries <= 10 ? [] : ["Tries must be a whole number from 1 to 10."]
+    case 6:
+      return Number.isNaN(budgetValue(a.budget)) ? ["The spending cap must be a number of dollars above 0, or empty."] : []
     default:
       return []
   }

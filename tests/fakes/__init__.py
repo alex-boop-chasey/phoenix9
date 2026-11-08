@@ -203,64 +203,6 @@ class FakeHttp:
         return self.responses.get((method.upper(), url), (404, {}, b""))
 
 
-class FakeChat:
-    """Records delegate requests; `mode` scripts what the pretend project chat does.
-
-    answer: it fixes things and answers the gate `acknowledged` as chat:delegate, then exits.
-    exit:   it starts, gives up without answering, and exits.
-    run:    it starts and keeps running (never answers).
-    fail:   it cannot be started.
-    `fix` (optional) is called with the gate id before answering (e.g. to write a fix into the worktree).
-    `log` lines are written into the log file it is given.
-    """
-
-    def __init__(self):
-        """Start empty, in answer mode."""
-        self.calls: list[tuple] = []
-        self.result = None
-        self.mode = "answer"
-        self.note = "fixed it"
-        self.fix = None
-        self.answer_with = None     # optional f(gate, answer, note, who) that answers through the CLI instead
-        self.log: list[str] = []
-        self.running: dict[str, bool] = {}
-        self.stopped: list[str] = []
-
-    def delegate(self, *args, **kwargs):
-        """Record the request and act out the scripted mode."""
-        self.calls.append((args, kwargs))
-        if self.result is not None:
-            return self.result
-        project, project_dir, gate, prompt, log_path = (list(args) + [None] * 5)[:5]
-        gate = kwargs.get("gate", gate)
-        log_path = kwargs.get("log_path", log_path)
-        if self.mode == "fail":
-            return {"started": False, "handle": "", "error": "claude: command not found"}
-        if log_path and self.log:
-            Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(log_path).write_text("\n".join(self.log) + "\n")
-        handle = f"fake-{len(self.calls)}"
-        self.running[handle] = self.mode == "run"
-        if self.mode == "answer":
-            from phoenix9 import gates
-            if self.fix:
-                self.fix(gate)
-            if self.answer_with:
-                self.answer_with(gate, "acknowledged", self.note, "chat:delegate")
-            else:
-                gates.answer(gate, "acknowledged", note=self.note, who="chat:delegate")
-        return {"started": True, "handle": handle, "error": ""}
-
-    def status(self, handle):
-        """running while scripted to run; unknown handles (lost in a restart) count as exited."""
-        return "running" if self.running.get(handle) else "exited"
-
-    def stop(self, handle):
-        """Record the stop and mark the pretend session as ended."""
-        self.stopped.append(handle)
-        self.running[handle] = False
-
-
 class FakeDocker:
     """Fake docker runner: records argv, returns scripted exit codes, writes scripted output files."""
 
@@ -272,6 +214,7 @@ class FakeDocker:
         self.outputs: list[str] = []
         self.orphans: list[str] = []
         self.removed: list[str] = []
+        self.stopped: list[str] = []
         self.volumes: list[str] = []
         self.images: dict[str, dict] = {}        # tag -> labels (an image that "exists")
         self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
@@ -332,6 +275,11 @@ class FakeDocker:
         """Record a container removal."""
         self.calls.append(("rm", (name,), {}))
         self.removed.append(name)
+
+    def stop(self, name):
+        """Record a container stop (Pause now)."""
+        self.calls.append(("stop", (name,), {}))
+        self.stopped.append(name)
 
     def ps_ids(self, label):
         """Return the scripted leftover container ids."""
@@ -527,5 +475,5 @@ class FakeProxyFactory:
 def fake_adapters(tmp_path) -> Adapters:
     """Build the full fake set. Git is the real git adapter (real git runs on temp repos)."""
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=FakeHost(),
-                    http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(), chat=FakeChat(),
+                    http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(),
                     proxy=FakeProxyFactory())

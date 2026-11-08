@@ -219,7 +219,7 @@ def check_agent(adapters, memory: Memory) -> None:
 
 
 CHAT_CHECK_S = 600
-BUSY_RUN_STATUSES = ("queued", "running", "waiting", "paused-limit")
+BUSY_RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "paused")
 
 
 def _chat_action(project: str, info: dict, now: float, cfg: dict) -> str | None:

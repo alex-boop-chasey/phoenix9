@@ -3,10 +3,10 @@
 The runner calls three things from here:
 - `should_retry` after every failed attempt: another try, or stop trying?
 - `after_last_try` when it stops trying: `continue` fails the task (its dependents are skipped);
-  `pause` and `delegate` open an escalation gate and the run waits.
+  `pause` and `delegate` open an escalation gate and the run waits (`delegate` also sends one message
+  to the Phoenix agent, which falls back to `pause` when it cannot be reached).
 - `acknowledge` when an escalation is answered `acknowledged`: commit any outside fix, count the
   escalation, and let the runner run exactly one more attempt.
-`watch_delegate` is the watchdog for delegate mode; the runner calls it whenever a run is waiting.
 
 Nothing here knows any step by name. Everything it needs is in the run folder: state.json, the frozen
 settings.json, spec.json and each attempt's tasks/<n>/attempt-<k>/result.json.
@@ -17,15 +17,14 @@ import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import atomic, events, gates, paths, scrub, state
+from phoenix9 import agentlink, atomic, events, gates, paths, scrub, state, taskfile
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
 MAX_ESCALATIONS = 2          # a task is escalated at most this many times, then it is failed
-DELEGATE_TIMEOUT_MIN = 60    # after this long without an answer from the project chat, Alex is told
 EARLY_PREFIXES = ("SPEC_PROBLEM", "AUTH_ERROR")   # reasons that make retrying pointless
-DELEGATE_FLAG = "delegated to project chat"
-LOG_TAIL = 20
+HANDOFF_FLAG = gates.HANDOFF_FLAG
+HANDOFF_WHO = "build escalation"      # the agent sees the sender as "Phoenix (build escalation)"
 
 
 # ---------------------------------------------------------------------- attempt records
@@ -36,7 +35,8 @@ def attempt_dir(run_dir, task_no: int, attempt: int) -> Path:
 
 def attempt_result(run_dir, task_no: int, attempt: int) -> dict | None:
     """How attempt k ended ({attempt, status, reasons}), or None while it is still going."""
-    return atomic.read_json(attempt_dir(run_dir, task_no, attempt) / "result.json")
+    found = atomic.read_json(attempt_dir(run_dir, task_no, attempt) / "result.json")
+    return found if isinstance(found, dict) and "status" in found else None   # a session record is not an end
 
 
 def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons) -> None:
@@ -93,6 +93,7 @@ def _finish_task(run_dir: Path, task_no: int, status: str, **fields) -> None:
     def change(s):
         s["tasks"][str(task_no)].update(status=status, gate=None, **fields)
     st = state.update(run_dir, change)
+    taskfile.refresh(run_dir, task_no)
     events.emit("task.finished", project=st["project"], run=st["run_id"], task=task_no, status=status,
                 note=fields.get("flagged") or fields.get("note", ""))
 
@@ -132,57 +133,48 @@ def _links(run_dir: Path, task_no: int, tries: int) -> list[dict]:
             for k in range(1, tries + 1) if attempt_dir(run_dir, task_no, k).is_dir()]
 
 
-def _prompt_template(runner) -> str:
-    """steps/_delegate/prompt.md from the runner's library, else from this copy of Phoenix."""
-    for root in (Path(runner.lib.root), Path(__file__).resolve().parent.parent):
-        f = root / "steps" / "_delegate" / "prompt.md"
-        if f.is_file():
-            return f.read_text(encoding="utf-8")
-    raise FileNotFoundError("steps/_delegate/prompt.md is missing")
+def handoff_text(run_id: str, task_no: int) -> str:
+    """The one line sent to the Phoenix agent: only the run and task, never failure text or file content."""
+    return f"[Phoenix · escalation] {run_id} task {task_no}"
+
+
+def _hand_to_agent(run_dir: Path, gate: dict, run_id: str, project: str, task_no: int) -> str:
+    """Send the hand-off message. Returns "" when it was sent, else the plain reason it was not."""
+    try:
+        agentlink.send(handoff_text(run_id, task_no), {"project": project, "run": run_id}, who=HANDOFF_WHO)
+    except Exception as err:  # noqa: BLE001 - an agent that is asleep or broken must fall back to Alex, not crash
+        return scrub.scrub(str(err).strip().splitlines()[0] if str(err).strip() else type(err).__name__)
+    return ""
 
 
 def escalate(runner, run_dir, task_no: int, reasons) -> dict:
-    """Open the escalation gate for a task and tell Alex, or hand it to the project chat (delegate).
+    """Open the escalation gate for a task and tell Alex, or hand it to the Phoenix agent (delegate).
 
     The gate: kind escalation, actions acknowledged / skip / stop, title "Task N needs you", why = the
-    last reasons, links = the attempt folders. Exactly one notify message goes to Alex, unless the
-    project chat was started (then Alex hears only if it gives up or times out: `watch_delegate`).
+    last reasons, links = the attempt folders. In delegate mode the gate carries the flag
+    HANDOFF_FLAG and ONE message goes to the agent through agentlink.send; Alex hears nothing unless
+    the agent is asleep or the send fails: then the flag is replaced by a note saying so and Alex is
+    told, exactly as in pause mode.
     """
-    from phoenix9.runner import _open_gate, render_prompt
+    from phoenix9.runner import _open_gate
     run_dir = Path(run_dir)
     mode = (atomic.read_json(run_dir / "settings.json") or {}).get("on_failure", "pause")
     st = state.load(run_dir)
     task = st["tasks"][str(task_no)]
     project, run_id, tries = st["project"], st["run_id"], task.get("tries", 0)
     why = scrub.scrub("; ".join(reasons)) or "it kept failing"
-    gate = _open_gate(run_dir, ("task", task_no), extra={"delegate": None},
-                      kind="escalation", title=f"Task {task_no} needs you", why=why,
+    gate = _open_gate(run_dir, ("task", task_no), kind="escalation", title=f"Task {task_no} needs you", why=why,
                       task=task_no, links=_links(run_dir, task_no, tries),
-                      flags=[DELEGATE_FLAG] if mode == "delegate" else [])
+                      flags=[HANDOFF_FLAG] if mode == "delegate" else [])
     told = f"Phoenix: task {task_no} of run {run_id} ({project}) needs you: {why} (gate {gate['id']})"
     if mode != "delegate":
         runner.adapters.notify.send(told)
         return gate
-    values = {"task": task_no, "run": run_id, "tries": tries, "reasons": "\n".join(f"- {r}" for r in reasons),
-              "attempt_dirs": ", ".join(x["url"] for x in gate["links"]) or "(none)",
-              "worktree": str(paths.work(project, run_id)), "spec_path": str(run_dir / "spec.md"),
-              "gate_id": gate["id"]}
-    prompt = render_prompt(_prompt_template(runner), values)
-    log_path = run_dir / "logs" / f"delegate-{gate['id']}.log"
-    record = {"gate": gate["id"], "handle": "", "started_at": runner.adapters.clock.now(),
-              "log": str(log_path), "notified": False}
-    try:
-        started = runner.adapters.chat.delegate(project, paths.projects() / project, gate["id"], prompt, log_path)
-    except Exception as err:  # noqa: BLE001 - a broken hand-over must fall back to Alex, not crash
-        started = {"started": False, "error": f"{type(err).__name__}: {err}"}
-    started = started or {"started": False, "error": "no answer from the chat adapter"}
-    if started.get("started"):
-        record["handle"] = started.get("handle", "")
-    else:
-        runner.adapters.notify.send(f"Phoenix: the project chat could not be started: "
-                                    f"{scrub.scrub(started.get('error', ''))}. {told}")
-        record["notified"] = True
-    state.update(run_dir, lambda s: s["tasks"][str(task_no)].__setitem__("delegate", record))
+    problem = _hand_to_agent(run_dir, gate, run_id, project, task_no)
+    if problem:
+        note = f"could not be handed to the Phoenix agent ({problem}); waiting for you"
+        gate = gates.set_flags(run_dir, gate["id"], [note])
+        runner.adapters.notify.send(f"Phoenix: the Phoenix agent could not be reached: {problem}. {told}")
     return gate
 
 
@@ -226,20 +218,6 @@ def outside_fix_commit(adapters, run_dir, worktree, task_no: int, who: str) -> s
                                skip_env=True)
 
 
-def stop_delegate(runner, st: dict, task_no: int, answer: dict) -> None:
-    """If someone other than the project chat answered, stop the chat session first so it cannot keep
-    editing the worktree while the task runs again."""
-    record = st["tasks"][str(task_no)].get("delegate") or {}
-    if record.get("handle") and answer.get("who") != chat_who():
-        runner.adapters.chat.stop(record["handle"])
-
-
-def chat_who() -> str:
-    """The name the delegate session answers gates with."""
-    from phoenix9 import chat
-    return chat.WHO
-
-
 def acknowledge(runner, run_dir, task_no: int, answer: dict) -> None:
     """An escalation was acknowledged: commit any outside fix, set attempt_base to the worktree's
     HEAD (always, so a crash after the fix commit still keeps it), count the escalation, add the
@@ -248,7 +226,6 @@ def acknowledge(runner, run_dir, task_no: int, answer: dict) -> None:
     run_dir = Path(run_dir)
     st = state.load(run_dir)
     worktree = paths.work(st["project"], st["run_id"])
-    stop_delegate(runner, st, task_no, answer)
     outside_fix_commit(runner.adapters, run_dir, worktree, task_no, answer.get("who", "cli"))
     sha = runner.adapters.git.head(worktree) if worktree.is_dir() else None
     note = (answer.get("note") or "").strip()
@@ -264,42 +241,3 @@ def acknowledge(runner, run_dir, task_no: int, answer: dict) -> None:
             t["failures"].append(scrub.scrub(f"Note from {answer.get('who', 'cli')}: {note}"))
         s["current"]["gate"] = None
     state.update(run_dir, change)
-
-
-# ---------------------------------------------------------------------- delegate watchdog
-def _tail(path: str) -> str:
-    try:
-        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    return scrub.scrub("\n".join(lines[-LOG_TAIL:]))
-
-
-def watch_delegate(runner, run_dir) -> None:
-    """While a delegated escalation waits: if the project chat has exited, its handle is gone (a
-    restart), or DELEGATE_TIMEOUT_MIN passed, all without an answer, tell Alex once. The run keeps
-    waiting exactly as in pause mode."""
-    run_dir = Path(run_dir)
-    st = state.load(run_dir)
-    gate_id = (st.get("current") or {}).get("gate")
-    gate = gates.read(run_dir, gate_id) if gate_id else None
-    if not gate or gate.get("kind") != "escalation" or DELEGATE_FLAG not in gate.get("flags", ()):
-        return
-    if gates.poll(run_dir, gate_id) is not None:
-        return
-    task_no = gate["task"]
-    record = st["tasks"][str(task_no)].get("delegate") or {}
-    if record.get("gate") != gate_id:
-        record = {"gate": gate_id, "handle": "", "started_at": None, "log": "", "notified": False}
-    if record.get("notified"):
-        return
-    if record.get("handle"):
-        gone = runner.adapters.chat.status(record["handle"]) != "running"
-        late = runner.adapters.clock.now() - (record.get("started_at") or 0) >= DELEGATE_TIMEOUT_MIN * 60
-        if not (gone or late):
-            return
-    tail = _tail(record.get("log", ""))
-    runner.adapters.notify.send(f"Phoenix: the project chat could not fix task {task_no}; it is waiting for "
-                                f"you (run {st['run_id']}, gate {gate_id})." + (f"\n{tail}" if tail else ""))
-    record["notified"] = True
-    state.update(run_dir, lambda s: s["tasks"][str(task_no)].__setitem__("delegate", record))

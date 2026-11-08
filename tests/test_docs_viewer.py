@@ -113,3 +113,55 @@ def test_gate_links_carry_doc_ids():
     from steps.planner import run as planner
     import inspect
     assert '"doc": f"run:{ctx.run.id}/plan.md"' in inspect.getsource(planner)
+
+
+def _swap_on_open(monkeypatch, folder, outside, name):
+    """Swap folder/<name> for a symlink to <outside> the moment the document is opened (a TOCTOU race won)."""
+    real_os_open, real_open = os.open, open
+
+    def swap(path):
+        p = str(path)
+        if p.endswith(f"{name}/doc.md") and (folder / name).is_dir() and not (folder / name).is_symlink():
+            (folder / name).rename(folder / f"{name}-old")
+            os.symlink(outside, folder / name)
+
+    def os_open(path, *a, **k):
+        swap(path)
+        return real_os_open(path, *a, **k)
+
+    def py_open(path, *a, **k):
+        swap(path)
+        return real_open(path, *a, **k)
+
+    monkeypatch.setattr(os, "open", os_open)
+    monkeypatch.setattr(docs, "open", py_open, raising=False)
+
+
+def test_symlink_swap_after_check_is_refused(folder, tmp_path, monkeypatch):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "doc.md").write_text("# stolen\nTOP SECRET\n")
+    (folder / "sub").mkdir()
+    (folder / "sub" / "doc.md").write_text("# fine\n")
+    _swap_on_open(monkeypatch, folder, outside, "sub")
+    with pytest.raises(common.OpsError) as err:
+        docs.show(f"run:{RUN}/sub/doc.md")
+    assert "TOP SECRET" not in str(err.value)
+
+
+def test_unreadable_or_vanished_is_not_found(folder, monkeypatch):
+    def gone(*a, **k):
+        raise FileNotFoundError("vanished")
+    monkeypatch.setattr(os, "open", gone)
+    monkeypatch.setattr(docs, "open", gone, raising=False)
+    with pytest.raises(common.NotFound):
+        docs.show(f"run:{RUN}/plan.md")
+
+
+def test_fifo_and_folders_are_not_found(folder):
+    os.mkfifo(folder / "pipe.md")
+    (folder / "adir.md").mkdir()
+    with pytest.raises(common.NotFound):
+        docs.show(f"run:{RUN}/pipe.md")
+    with pytest.raises(common.NotFound):
+        docs.show(f"run:{RUN}/adir.md")

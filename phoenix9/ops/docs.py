@@ -1,5 +1,7 @@
 """Documents of a run or a project's notes, addressed by a Phoenix id (never a server path), served scrubbed."""
+import os
 import re
+import stat
 from pathlib import Path
 
 from phoenix9 import runs
@@ -41,20 +43,82 @@ def _base(kind: str, owner: str) -> Path:
     return common.project_dir(owner) / "notes"
 
 
-def resolve(id_: str) -> tuple[Path, str]:
-    """The real file behind a document id and its project; OpsError/NotFound when the id is wrong or leaves its folder."""
+def _parse(id_: str) -> tuple[str, str, Path, Path]:
+    """An id split into (kind, owner, base folder, relative path); OpsError/NotFound when it is wrong."""
     kind, sep, tail = (id_ or "").partition(":")
     owner, slash, rest = tail.partition("/")
     if not sep or kind not in ("run", "notes") or not slash:
         raise _bad(id_)
     rel = _relative(rest, id_)
-    base = _base(kind, owner)
-    target = (base / rel).resolve()
-    if not target.is_relative_to(base.resolve()):
-        raise OpsError("That document is outside the allowed folder.")
-    if not target.is_file():
-        raise NotFound(f"There is no document '{id_}'.")
-    return target, _project_of(kind, owner, base)
+    return kind, owner, _base(kind, owner), rel
+
+
+def _fd_path(fd: int) -> Path | None:
+    """The real path the kernel says an open file has, or None when /proc is not there."""
+    try:
+        return Path(os.readlink(f"/proc/self/fd/{fd}"))
+    except OSError:
+        return None
+
+
+def _open_inside(base: Path, rel: Path, id_: str) -> int:
+    """Open base/rel once for reading and prove the opened file is a regular file inside base; returns the fd.
+
+    The file is opened a single time (never by name again), its final part is never a symlink (O_NOFOLLOW),
+    and the kernel's own path of the open file must sit inside the real base folder, so a folder swapped
+    for a symlink between any check and the read cannot reach outside."""
+    root = base.resolve()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(base / rel, flags)
+    except OSError as err:
+        if err.errno == getattr(os, "ELOOP", 40) or (base / rel).is_symlink():
+            raise OpsError("That document is outside the allowed folder.") from None
+        raise NotFound(f"There is no document '{id_}'.") from None
+    try:
+        real = _fd_path(fd)
+        if real is None:  # no /proc: fall back to the resolved name, checked to be the same file
+            real = (base / rel).resolve()
+            st, now = os.fstat(fd), os.stat(real)
+            if (st.st_dev, st.st_ino) != (now.st_dev, now.st_ino):
+                raise OpsError("That document is outside the allowed folder.")
+        if not real.is_relative_to(root):
+            raise OpsError("That document is outside the allowed folder.")
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise NotFound(f"There is no document '{id_}'.")
+    except OSError:
+        os.close(fd)
+        raise NotFound(f"There is no document '{id_}'.") from None
+    except OpsError:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _read_fd(fd: int, limit: int) -> bytes:
+    """Up to limit bytes from an open file, closing it; OSError becomes NotFound."""
+    try:
+        with os.fdopen(fd, "rb") as f:
+            return f.read(limit)
+    except OSError:
+        raise NotFound("That document could not be read.") from None
+
+
+def resolve(id_: str) -> tuple[Path, str]:
+    """The real file behind a document id and its project; OpsError/NotFound when the id is wrong or leaves its folder.
+
+    Only for showing where a document lives; reading goes through _load, which opens the file once."""
+    kind, owner, base, rel = _parse(id_)
+    fd = _open_inside(base, rel, id_)
+    os.close(fd)
+    return base / rel, _project_of(kind, owner, base)
+
+
+def _load(id_: str) -> tuple[str, str]:
+    """The file name and scrubbed text of a document id, read through one checked open."""
+    kind, owner, base, rel = _parse(id_)
+    raw = _read_fd(_open_inside(base, rel, id_), MAX_BYTES)
+    return rel.name, _scrub(raw, _project_of(kind, owner, base))
 
 
 def _title(text: str, fallback: str) -> str:
@@ -70,10 +134,8 @@ def _project_of(kind: str, owner: str, base: Path) -> str:
     return owner if kind == "notes" else base.parent.name
 
 
-def _read(path: Path, project: str) -> str:
-    """The scrubbed text of a file (project keys, secret files and secret shapes), cut at MAX_BYTES."""
-    with open(path, "rb") as f:
-        raw = f.read(MAX_BYTES)
+def _scrub(raw: bytes, project: str) -> str:
+    """The scrubbed text of some bytes (project keys, secret files and secret shapes)."""
     return logs._scrubber(project).text(raw.decode("utf-8", errors="replace"))
 
 
@@ -90,19 +152,25 @@ def list(run_id: str) -> list:
         found.append((rel.as_posix(), path))
     found.sort(key=lambda x: (x[0] not in ("plan.md", "summary.md"), x[0]))
     project = _project_of("run", run_id, base)
-    return [{"id": f"run:{run_id}/{rel}", "title": _title(_read(path, project), path.name), "size": path.stat().st_size}
-            for rel, path in found[:MAX_LISTED]]
+    rows = []
+    for rel, path in found[:MAX_LISTED]:
+        try:
+            text = _scrub(_read_fd(_open_inside(base, Path(rel), rel), MAX_BYTES), project)
+            size = path.stat().st_size
+        except OpsError:
+            continue  # gone or swapped since the folder was listed
+        rows.append({"id": f"run:{run_id}/{rel}", "title": _title(text, path.name), "size": size})
+    return rows
 
 
 def show(id_: str) -> dict:
     """One document: {id, title, text}, the text scrubbed."""
-    path, project = resolve(id_)
-    text = _read(path, project)
-    return {"id": id_, "title": _title(text, path.name), "text": text}
+    name, text = _load(id_)
+    return {"id": id_, "title": _title(text, name), "text": text}
 
 
 def download(id_: str) -> dict:
     """One document for download: {name, text} with a safe file name and the text scrubbed."""
-    path, project = resolve(id_)
-    name = re.sub(r"[^A-Za-z0-9._-]", "_", path.name).lstrip(".") or "document.txt"
-    return {"name": name, "text": _read(path, project)}
+    name, text = _load(id_)
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".") or "document.txt"
+    return {"name": name, "text": text}

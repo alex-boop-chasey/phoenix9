@@ -1,5 +1,6 @@
 // The Overview tab: open questions, the current build, recent changes, and the About card.
-import { Link } from "react-router"
+import { useEffect, useState } from "react"
+import { Link, useSearchParams } from "react-router"
 
 import { Icon } from "@/components/Icon"
 import { StatusBadge } from "@/components/StatusBadge"
@@ -8,6 +9,7 @@ import { DeployCard } from "@/features/deploy/DeployCard"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { useBuilds, useChangelog, useGates, useProject } from "@/lib/queries"
 import { useLiveEvents } from "@/lib/live"
+import { findRoute } from "@/lib/routes"
 import type { BuildRow, ProjectRow } from "@/lib/types"
 
 import { AboutCard } from "./AboutCard"
@@ -70,6 +72,26 @@ function CurrentBuild({ name, row, builds, loaded }: { name: string; row: Projec
   )
 }
 
+const GATE_PARAM = findRoute("p/<name>/overview")!.params[0]!   // "gate"
+const GLOW_MS = 2000
+
+/** Scroll to the gate named in the address (if it is open) and return its id for the 2 s glow; unknown ids are ignored. */
+function useGateFocus(ids: string[]): string | null {
+  const [params] = useSearchParams()
+  const wanted = params.get(GATE_PARAM)
+  const present = wanted !== null && ids.includes(wanted)
+  const [focused, setFocused] = useState<string | null>(null)
+  useEffect(() => {
+    if (!wanted || !present) return
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+    document.getElementById(`gate-${wanted}`)?.scrollIntoView?.({ behavior: reduce ? "auto" : "smooth", block: "center" })
+    setFocused(wanted)
+    const t = setTimeout(() => setFocused(null), GLOW_MS)
+    return () => clearTimeout(t)
+  }, [wanted, present])
+  return focused
+}
+
 /** The Overview tab: open questions, about, current build and recent changes. */
 export function OverviewTab({ name }: { name: string }) {
   useLiveEvents(name)
@@ -80,12 +102,17 @@ export function OverviewTab({ name }: { name: string }) {
   const row = project.data
   const open = (gates.data ?? []).filter((g) => g.project === name)   // the API lists only open questions
   const recent = [...(changes.data ?? [])].reverse()
+  const focused = useGateFocus(open.map((g) => g.id))
   const waitingKeys = project.data?.setup?.waiting_for_keys ?? []
 
   return (
     <div className="ov">
       <div className="ov-main">
-        {open.map((g) => <NeedsYouCard key={g.id} gate={g} reviewHref={`/p/${name}/build?run=${g.run}`} />)}
+        {open.map((g) => (
+          <div key={g.id} id={`gate-${g.id}`} className={g.id === focused ? "gate-focus" : undefined}>
+            <NeedsYouCard gate={g} reviewHref={`/p/${name}/build?run=${g.run}`} />
+          </div>
+        ))}
         {waitingKeys.length > 0 && (
           <section className="card stackg" aria-label="Waiting for keys">
             <p className="small"><b>Waiting for keys: {waitingKeys.join(", ")}</b></p>

@@ -180,6 +180,35 @@ class Runner:
             _adopt_gate_held(run_dir)
         failmodes.watch_delegate(self, Path(run_dir))
 
+    def rerun_finish_step(self, run_dir, name: str) -> tuple[str, str]:
+        """Repair kit: run one finish step again on a failed run (the caller holds the run lock).
+
+        Its old line is dropped and a new one added; the run's status is then worked out from the tasks and
+        finish steps: done, failed, or waiting when the step opened a question. Returns (status, step outcome)."""
+        run_dir = Path(run_dir)
+        st = state.load(run_dir)
+        setup = self._setup(run_dir, st["project"], st["run_id"])
+        things = atomic.read_json(run_dir / "things.json", {})
+        state.update(run_dir, lambda s: s.__setitem__("steps", [
+            x for x in s["steps"] if not (x["group"] == "run-finish" and x["step"] == name and x["task"] is None)]))
+        self._ending = True        # the run is over: the step call must not stop at the ended-run boundary
+        try:
+            out = self._do_step(run_dir, setup, things, "run-finish", name, None)
+        finally:
+            self._ending = False
+        return self._status_from_finish(run_dir, out.status), out.status
+
+    @staticmethod
+    def _status_from_finish(run_dir: Path, outcome: str) -> str:
+        """Set and return the run's status after a finish step reran: waiting, failed or done."""
+        def change(s):
+            bad = any(t["status"] == "failed" for t in s["tasks"].values()) or any(
+                x["status"] == "failed" and x["group"] in ("run-start", "run-finish") for x in s["steps"])
+            s["status"] = "waiting" if outcome == "waiting" else "failed" if bad else "done"
+            if s["status"] == "done":
+                s.pop("error", None)
+        return state.update(run_dir, change)["status"]
+
     def _end_run(self, run_dir: Path, status: str, reason: str = "", who: str = "phoenix",
                  setup: dict | None = None, things: dict | None = None) -> dict:
         """End the run through runend.end_run; a stop still runs the finish steps marked `after_stop`."""

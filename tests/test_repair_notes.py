@@ -125,7 +125,7 @@ def test_refused_step_rolls_back_earlier_steps(tmp_path):
 
 def test_step_not_built_yet_is_refused(tmp_path):
     r = make(tmp_path)
-    out = apply_mod.apply(note(tmp_path, r, "rerun finish step lint"), "agent")
+    out = apply_mod.apply(note(tmp_path, r, "resume"), "agent")
     assert out["rolled_back"] and "not supported yet" in out["refused"]
 
 

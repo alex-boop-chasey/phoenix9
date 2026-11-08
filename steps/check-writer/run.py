@@ -56,6 +56,13 @@ def _failures(ctx) -> str:
     return "\n".join(f"{i}. {r}" for i, r in enumerate(items, 1)) or "None: this is the first try"
 
 
+def _objection(ctx) -> str:
+    """The reason a repair gave for throwing the old checks away, or a plain 'none'."""
+    tasks = (state.load(ctx.run.folder) or {}).get("tasks") or {}
+    task = tasks.get(str((ctx.task or {}).get("number")), {})
+    return task.get("check_objection") or "(none)"
+
+
 def unset_env_problems(ctx, written: list[str]) -> list[str]:
     """One plain message per check file that reads environment variables it never sets itself."""
     allowed = checklint.container_env_names() | {k["name"] for k in keys.list_keys(ctx.project.name)}
@@ -91,6 +98,7 @@ def before(ctx) -> dict:
         "repo_tree": repo_tree(ctx),
         "existing_checks": existing_checks(ctx, folder),
         "failures": _failures(ctx),
+        "objection": _objection(ctx),
     }
 
 

@@ -5,9 +5,11 @@ from types import SimpleNamespace
 
 import tomllib
 
-from phoenix9 import atomic, failmodes, gates, git, paths, resolve, scrub, settings, spec as specmod, state
+from phoenix9 import (adapters as adapters_mod, atomic, checklock, failmodes, gates, git, paths, resolve, runend, scrub,
+                      settings, spec as specmod, state, summary)
 from phoenix9.library import load_library
 from phoenix9.repair import snapshot
+from phoenix9.runner import Runner
 
 
 class StepRefused(Exception):
@@ -461,10 +463,118 @@ def close_question(ctx, id: str, action: str) -> str:
     return f"answered question {id} with {action}"
 
 
+# ---------------------------------------------------------------------- rewrite checks, rerun finish step
+UNLOCK_REFUSED = "needs Alex's approval: it unlocks checks"
+BUILD_STEPS = ("builder", "reviewer")
+
+
+def _project_settings(run_dir: Path) -> dict:
+    """The project's own settings, or nothing when they cannot be read."""
+    try:
+        return settings.load_project(paths.projects() / run_dir.parent.name)
+    except settings.SettingsError:
+        return {}
+
+
+def _may_unlock(ctx) -> bool:
+    """True when the unlock is approved and the asker may answer an escalation question of this project."""
+    return bool(ctx.approve_unlock) and gates.may_answer({"kind": "escalation"}, ctx.who, _project_settings(Path(ctx.run_dir)))
+
+
+def _objections(ctx, n: int, locked: list[str]) -> list[str]:
+    """The failure and step-line reasons of task n that give the checks as the cause (SPEC_PROBLEM or a locked file)."""
+    st = state.load(ctx.run_dir)
+    texts = list(_task(ctx, n).get("failures") or [])
+    texts += [x.get("note") or "" for x in st.get("steps") or []
+              if x.get("task") == n and x.get("step") in BUILD_STEPS]
+    names = [p for f in locked for p in (f, f.rsplit("/", 1)[-1])]
+    return [t for t in texts if t and ("SPEC_PROBLEM" in t or any(name in t for name in names))]
+
+
+def _locked_files(ctx, n: int) -> tuple[str, list[str]]:
+    """The folder and the files in task n's checklock manifest (empty when the task has none)."""
+    data = atomic.read_json(Path(ctx.run_dir) / "tasks" / str(n) / "checks.lock.json") or {}
+    return data.get("dir", ""), sorted(data.get("files") or {})
+
+
+def _once_steps(ctx) -> set[str]:
+    """The task steps this run's settings mark `once`."""
+    values = atomic.read_json(Path(ctx.run_dir) / "settings.json") or {}
+    return {name for name, conf in (values.get("steps") or {}).items() if isinstance(conf, dict) and conf.get("once")}
+
+
+def _remove_checks(ctx, n: int, files: list[str]) -> str | None:
+    """Take the locked check files out of the worktree with one commit; return the new head (None if nothing changed)."""
+    work = _work(ctx)
+    git.run_git(work, "rm", "-rq", "--ignore-unmatch", "--", *files, check=False)
+    for rel in files:
+        (work / rel).unlink(missing_ok=True)
+    if git.run_git(work, "diff", "--cached", "--quiet", check=False).returncode == 0:
+        return None
+    git.git(work, *git.IDENT, "commit", "-q", "--no-verify", "-m",
+            f"Remove the checks of task {n} (repair)\n\nPhoenix-Run: {Path(ctx.run_dir).name}\nPhoenix-Task: {n}\n")
+    return git.head(work)
+
+
+def rewrite_checks(ctx, n: int, why: str) -> str:
+    """Throw away the locked checks of task n so Check-writer and Red check run again on resume (needs approval)."""
+    task = _task(ctx, n)
+    folder, files = _locked_files(ctx, n)
+    if not _objections(ctx, n, files):
+        raise StepRefused(f"task {n} has no SPEC_PROBLEM and no failure naming its locked checks; "
+                          "the checks are not the problem")
+    if not _may_unlock(ctx):
+        raise StepRefused(UNLOCK_REFUSED)
+    once = _once_steps(ctx)
+    objection = scrub.scrub(why)
+    if ctx.dry:
+        return f"would remove the locked checks of task {n} and run the check writer again"
+    head = _remove_checks(ctx, n, files) if files else None
+    (Path(ctx.run_dir) / "tasks" / str(n) / "checks.lock.json").unlink(missing_ok=True)
+
+    def change(s):
+        t = s["tasks"][str(n)]
+        t.update(status="pending", tries=0, flagged="", gate=None, rerun=False, check_objection=objection)
+        if head:
+            t["attempt_base"] = head
+        s["steps"] = [x for x in s["steps"]
+                      if not (x.get("task") == n and x.get("step") in once and x.get("status") == "passed")]
+        for other in s["tasks"].values():
+            if other.get("status") == "skipped" and (other.get("note") or "").startswith(f"depends on task {n}"):
+                other.update(status="pending", note="")
+    state.update(ctx.run_dir, change)
+    return (f"removed the locked checks of task {n} ({len(files)} file(s)); task {n} is pending and the check "
+            f"writer sees your objection: {objection}")
+
+
+def make_runner() -> Runner:
+    """The runner a repair uses to run one step; tests put a fake in its place."""
+    return Runner(adapters_mod.real(), paths.library())
+
+
+def rerun_finish(ctx, name: str) -> str:
+    """Run one finish step again on a failed run, add its line and work out the run's status from the finish steps."""
+    st = state.load(ctx.run_dir)
+    if st.get("status") != "failed":
+        raise StepRefused("a finish step can only run again on a failed run")
+    plan = atomic.read_json(Path(ctx.run_dir) / "plan.json") or {}
+    if name not in (plan.get("groups") or {}).get("run-finish", []):
+        raise StepRefused(f"'{name}' is not a finish step of this run")
+    _work(ctx)
+    if ctx.dry:
+        return f"would run finish step {name} again"
+    status, outcome = make_runner().rerun_finish_step(Path(ctx.run_dir), name)
+    if status == "done":
+        summary.refresh(Path(ctx.run_dir), paths.library())
+    words = {"passed": "passed", "failed": "failed", "skipped": "was skipped", "waiting": "opened a question"}
+    return f"finish step {name} {words.get(outcome, outcome)}; the run is now {status}"
+
+
 STEPS = {"redo": redo, "keep-hand-fix": keep_hand_fix, "reset-worktree": reset_worktree,
          "rebuild-worktree": rebuild_worktree, "mark-done": mark_done, "mark-skipped": mark_skipped, "retry": retry,
          "clear-failures": clear_failures, "add-note": add_note, "set-setting": set_setting,
-         "turn-off-step": turn_off_step, "replace-spec": replace_spec, "close-question": close_question}
+         "turn-off-step": turn_off_step, "replace-spec": replace_spec, "close-question": close_question,
+         "rewrite-checks": rewrite_checks, "rerun-finish": rerun_finish}
 
 
 def run_step(ctx, step) -> str:

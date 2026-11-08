@@ -99,6 +99,11 @@ The same rule in a pytest check file: take folders from `tmp_path` and set varia
 If a reason above says a check is broken (it reads a variable it never sets, or it crashed in its own
 code), fix that check: the earlier checks were thrown away and you write them again.
 
+## Objection to the earlier checks
+The earlier checks of this task were thrown away on purpose. The reason given (write checks that
+answer it; "(none)" means no objection was made):
+{{objection}}
+
 ## Checks of earlier tasks (already locked; for style and helpers to copy, do not edit)
 {{existing_checks}}
 

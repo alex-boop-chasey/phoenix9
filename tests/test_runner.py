@@ -226,7 +226,8 @@ def test_spec_check_fails_a_bad_spec(tmp_path, project, adapters, lib):
     shutil.rmtree(lib / "steps" / "pick-up")
     shutil.copytree(REPO / "steps" / "pick-up", lib / "steps" / "pick-up")
     shutil.copytree(REPO / "steps" / "spec-check", lib / "steps" / "spec-check")
-    run_dir = make_run(tmp_path, spec="# Spec: Bad\n\n## Task 1: Only\nGoal: x\n")
+    run_dir = make_run(tmp_path, spec="# Spec: Bad\n\n## Task 1: Only\nGoal: x\n",
+                       overrides={"steps": {"planner": {"on": False}}})   # Planner on would accept any text
     assert Runner(adapters, lib).drive(run_dir) == "failed"
     st = state.load(run_dir)
     assert st["tasks"]["1"]["status"] == "skipped"

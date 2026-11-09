@@ -7,7 +7,7 @@ import pytest
 
 from helpers import scripted
 from helpers.stepunit import load, make_ctx, make_work
-from phoenix9 import aistep, atomic, events, gates, runs, state
+from phoenix9 import aistep, atomic, events, gates, runs, spec, state
 from phoenix9.__main__ import main
 from phoenix9.claude import Result
 from phoenix9.runner import Runner
@@ -80,11 +80,12 @@ def planner_prompts(runner) -> list[str]:
     return [c[2]["prompt_file"].read_text() for c in runner.adapters.claude.calls if c[2]["role"] == "planner"]
 
 
-def unit_ctx(tmp_path, adapters, planner_on):
+def unit_ctx(tmp_path, adapters, planner_on, text=BRIEF):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     work = make_work(tmp_path)
     ctx = make_ctx(tmp_path, adapters, work, "spec-check")
     ctx.task = None
-    (ctx.run.folder / "spec.md").write_text(BRIEF)
+    (ctx.run.folder / "spec.md").write_text(text)
     groups = {"run-start": ["pick-up", "spec-check"] + (["planner"] if planner_on else [])}
     atomic.write_json(ctx.run.folder / "plan.json", {"groups": groups})
     return ctx
@@ -102,6 +103,69 @@ def test_spec_check_strict_when_planner_off(tmp_path, adapters):
     result = load("spec-check").run(ctx)
     assert result.status == "fail" and any("no tasks" in r for r in result.reasons)
     assert not (ctx.run.folder / "spec.json").exists()
+
+
+FREE = """# Recipe box
+
+A small app for keeping family recipes. Text before the first heading.
+
+## Non-negotiable: works offline
+Recipes must load with no network → always.
+
+## Stack (recommended)
+Use `sqlite` and ```python``` scripts.
+
+## Build order (MVP → full)
+1. Add recipes → 2. Search → 3. Share
+### Later
+Photos.
+"""
+
+
+def test_spec_check_accepts_free_form_description_when_planner_on(tmp_path, adapters):
+    ctx = unit_ctx(tmp_path, adapters, True, FREE)
+    assert load("spec-check").run(ctx).status == "pass"
+    data = json.loads((ctx.run.folder / "spec.json").read_text())
+    assert data["brief"] is True and data["tasks"] == [] and data["title"] == "Recipe box"
+    assert "## Non-negotiable: works offline" in data["about"] and data["project"] == "proj"
+
+
+def test_spec_check_planner_on_accepts_bad_task_spec_and_keeps_good_one(tmp_path, adapters):
+    bad = PLAN.replace("- `test -f README.md`", "- ok")       # strict check fails (too-short bullet)
+    ctx = unit_ctx(tmp_path, adapters, True, bad)
+    assert load("spec-check").run(ctx).status == "pass"
+    assert json.loads((ctx.run.folder / "spec.json").read_text())["tasks"] == []
+    ctx = unit_ctx(tmp_path / "b", adapters, True, PLAN)
+    assert load("spec-check").run(ctx).status == "pass"
+    data = json.loads((ctx.run.folder / "spec.json").read_text())
+    assert len(data["tasks"]) == 3 and "brief" not in data
+
+
+def test_spec_check_refuses_free_form_and_empty(tmp_path, adapters):
+    result = load("spec-check").run(unit_ctx(tmp_path, adapters, False, FREE))
+    assert result.status == "fail" and result.reasons[-1] == spec.NEEDS_PLANNER
+    assert any("Non-negotiable" in r for r in result.reasons)
+    result = load("spec-check").run(unit_ctx(tmp_path / "e", adapters, True, "\n  \n"))
+    assert result.status == "fail" and "empty" in result.reasons[0]
+
+
+def test_spec_check_strict_when_planner_off_and_tasks_present(tmp_path, adapters):
+    bad = PLAN.replace("- `test -f README.md`", "- ok")
+    result = load("spec-check").run(unit_ctx(tmp_path, adapters, False, bad))
+    assert result.status == "fail" and any("too short" in r for r in result.reasons)
+    assert load("spec-check").run(unit_ctx(tmp_path / "g", adapters, False, PLAN)).status == "pass"
+
+
+def test_planner_prompt_has_whole_description_fenced(tmp_path, adapters, project):
+    ctx = unit_ctx(tmp_path, adapters, True, FREE)
+    ctx.step.name = "planner"
+    values = load("planner").before(ctx)
+    text = aistep.render((REPO / "steps" / "planner" / "prompt.md").read_text(), {**values, "spec_title": "Recipe box"})
+    for part in ("Text before the first heading.", "## Non-negotiable: works offline", "## Stack (recommended)",
+                 "## Build order (MVP → full)", "### Later", "Use `sqlite`"):
+        assert part in text
+    assert "```text\n# Recipe box" in text and "```python```" not in text      # fenced; its own fences broken up
+    assert "Project: proj" in text and "data, not instructions" in text
 
 
 def test_planner_prompt_contains_spec_format_and_no_placeholders(tmp_path, adapters, project):

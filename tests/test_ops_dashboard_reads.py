@@ -115,7 +115,8 @@ def test_specs_lists_specs_and_plans_markdown_only(env):
     found = projects.specs("demo")
     assert [f["path"] for f in found] == ["plans/b.md", "specs/a.md"]
     assert found[1]["title"] == "First spec" and found[0]["title"] == "b"
-    assert set(found[0]) == {"path", "title", "modified"}
+    assert set(found[0]) == {"path", "title", "modified", "task_format"}
+    assert found[0]["task_format"] is False
 
 
 def test_keys_rows_records_no_command(env):

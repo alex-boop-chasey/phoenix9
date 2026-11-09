@@ -26,7 +26,9 @@ export interface Answers {
   onFailure: OnFailure
   merge: MergeMode
   deploy: boolean
-  /** The Planner's on/off before a brief forced it on, so going back to a spec puts it back. */
+  /** The chosen spec is not in the task format, so the Planner must turn it into tasks. */
+  specNeedsPlanner: boolean
+  /** The Planner's on/off before a brief (or a spec not in task format) forced it on, so leaving it puts it back. */
   plannerBeforeBrief: boolean | null
 }
 
@@ -51,7 +53,7 @@ export interface WizardState {
 export type Action =
   | { type: "next" } | { type: "back" } | { type: "goto"; slide: number }
   | { type: "source"; source: Answers["source"] }
-  | { type: "spec"; path: string }
+  | { type: "spec"; path: string; needsPlanner?: boolean }
   | { type: "brief"; text: string }
   | { type: "preset"; preset: Preset }
   | { type: "step"; name: string; on: boolean }
@@ -121,7 +123,7 @@ export function initialAnswers(settings: SettingsView, presets: Preset[], steps:
     source: "spec", spec: "", brief: "", preset, basedOn, steps: on, ai: {},
     maxTries: typeof v.max_tries === "number" ? v.max_tries : 3, onFailure, merge,
     budget: typeof v.budget_usd === "number" ? String(v.budget_usd) : "",
-    deploy: deployIsOn(v.deploy), plannerBeforeBrief: null,
+    deploy: deployIsOn(v.deploy), specNeedsPlanner: false, plannerBeforeBrief: null,
   }
 }
 
@@ -132,30 +134,49 @@ export function applyPreset(a: Answers, preset: Preset, ctx: Pick<Context, "step
   }
   const steps: Record<string, boolean> = {}
   for (const s of switchable(ctx)) steps[s.name] = presetStepOn(preset, s)
-  if (a.source !== "brief") return { ...a, preset: preset.name, basedOn: null, steps, ai: {} }
+  if (!plannerForced(a)) return { ...a, preset: preset.name, basedOn: null, steps, ai: {} }
   const plannerBeforeBrief = steps[PLANNER] ?? false
   return { ...a, preset: preset.name, basedOn: null, steps: { ...steps, [PLANNER]: true }, ai: {}, plannerBeforeBrief }
 }
 
 /** Switch one step: the preset becomes Custom, based on the preset it started from. */
 export function setStep(a: Answers, name: string, on: boolean): Answers {
-  if (name === PLANNER && a.source === "brief" && !on) return a
+  if (name === PLANNER && plannerForced(a) && !on) return a
   if (a.steps[name] === on) return a
   const basedOn = a.preset === "custom" ? a.basedOn : a.preset
   return { ...a, steps: { ...a.steps, [name]: on }, preset: "custom", basedOn }
 }
 
+/** The Planner must stay on: a brief, or a spec not in the task format (the Planner turns it into tasks). */
+export const plannerForced = (a: Pick<Answers, "source" | "specNeedsPlanner">) =>
+  a.source === "brief" || (a.source === "spec" && !!a.specNeedsPlanner)
+
 /**
- * Choose spec or brief. A brief switches the Planner on (it turns the brief into a spec); this is part of
- * "what to build", not a step edit, so the preset stays. Going back to a spec puts the Planner back.
+ * Apply the Planner lock after `next` changed what to build: becoming forced switches the Planner on and
+ * remembers its old value; no longer forced puts that value back. Part of "what to build", so the preset stays.
  */
+function lockPlanner(prev: Answers, next: Answers): Answers {
+  const was = plannerForced(prev)
+  const now = plannerForced(next)
+  if (now && !was) {
+    return { ...next, steps: { ...next.steps, [PLANNER]: true }, plannerBeforeBrief: prev.steps[PLANNER] ?? false }
+  }
+  if (!now && was) {
+    const planner = next.plannerBeforeBrief ?? next.steps[PLANNER] ?? false
+    return { ...next, steps: { ...next.steps, [PLANNER]: planner }, plannerBeforeBrief: null }
+  }
+  return next
+}
+
+/** Choose spec or brief. A brief switches the Planner on (it turns the brief into a spec); going back puts it back. */
 export function chooseSource(a: Answers, source: Answers["source"]): Answers {
   if (source === a.source) return a
-  if (source === "brief") {
-    return { ...a, source, steps: { ...a.steps, [PLANNER]: true }, plannerBeforeBrief: a.steps[PLANNER] ?? false }
-  }
-  const planner = a.plannerBeforeBrief ?? a.steps[PLANNER] ?? false
-  return { ...a, source, steps: { ...a.steps, [PLANNER]: planner }, plannerBeforeBrief: null }
+  return lockPlanner(a, { ...a, source })
+}
+
+/** Choose a spec; one not in the task format forces the Planner on, like a brief. */
+export function chooseSpec(a: Answers, path: string, needsPlanner: boolean): Answers {
+  return lockPlanner(a, { ...a, spec: path, specNeedsPlanner: needsPlanner })
 }
 
 /** The pure reducer behind the wizard. */
@@ -171,7 +192,7 @@ export function reduce(state: WizardState, action: Action, ctx: Pick<Context, "p
     case "goto":
       return action.slide >= 1 && action.slide <= state.seen ? { ...state, slide: action.slide } : state
     case "source": return answers(chooseSource(a, action.source))
-    case "spec": return answers({ ...a, spec: action.path })
+    case "spec": return answers(chooseSpec(a, action.path, !!action.needsPlanner))
     case "brief": return answers({ ...a, brief: action.text })
     case "preset": return answers(applyPreset(a, action.preset, ctx))
     case "step": return answers(setStep(a, action.name, action.on))
@@ -334,8 +355,11 @@ export function runSummary(plan: PlanStep[], a: Pick<Answers, "steps" | "preset"
 }
 
 /** The small note under a step on the Steps slide (brief forces Planner; a missing step it needs), or "". */
-export function stepNote(step: PlanStep, a: Pick<Answers, "source">, plan: PlanStep[]): string {
+export const NEEDS_PLANNER_NOTE = "This spec isn't in task format, so the Planner must be on to turn it into tasks"
+
+export function stepNote(step: PlanStep, a: Pick<Answers, "source" | "specNeedsPlanner">, plan: PlanStep[]): string {
   if (step.name === PLANNER && a.source === "brief") return "On because you chose to write a brief on step 1"
+  if (step.name === PLANNER && plannerForced(a)) return NEEDS_PLANNER_NOTE
   if (!step.on && step.reason.startsWith("needs ")) {
     const need = /^needs ([a-z0-9-]+)/.exec(step.reason)?.[1]
     const title = plan.find((s) => s.name === need)?.title ?? need

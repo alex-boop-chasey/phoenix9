@@ -6,7 +6,7 @@ import { Tag } from "@/components/Tag"
 import { useLibrarySteps } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 
-import { GROUP_TITLES, planInOrder, presetLabel, shownOn, stepNote } from "./model"
+import { GROUP_TITLES, planInOrder, plannerForced, presetLabel, shownOn, stepNote } from "./model"
 import type { SlideProps } from "./Wizard"
 
 /** The editable step rail. */
@@ -54,7 +54,7 @@ export function SlideSteps({ state, dispatch, plan, presets }: SlideProps) {
             <h3 className="rail-h">{g.title}</h3>
             {g.steps.map((s) => {
               const forcedOff = !s.on && s.reason.startsWith("needs ")
-              const briefLock = s.name === "planner" && a.source === "brief"
+              const briefLock = s.name === "planner" && plannerForced(a)
               const on = shownOn(s, a)
               const note = stepNote(s, a, plan.steps)
               const id = `wz-step-${s.name}`

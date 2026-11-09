@@ -3,7 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
-from phoenix9 import pause as pause_core, runend, status as status_core
+from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -25,22 +25,26 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         text = Path(spec_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as err:
         raise OpsError(f"I cannot read the spec file {spec_path}: {err.strerror or err}.") from None
-    problems = spec.check(text)
-    if not spec.parse(text).tasks:   # a brief for the Planner has no tasks yet; Spec check decides if that is allowed
-        problems = [p for p in problems if not p.startswith("The spec has no tasks")]
+    parsed = spec.parse(text)
+    strict = spec.check(text)
+    description = bool(strict)   # not in the task format: only the Planner can turn it into tasks
+    problems = spec.check_description(text)
     if problems:
         raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in problems))
-    named = spec.parse(text).project
+    named = "" if description else parsed.project
     if named and named != project:
         raise OpsError(f"The spec is for project '{named}', not '{project}'.")
     problems = settings.check(folder)
     if problems:
         raise OpsError("The project's settings have problems:\n" + "\n".join(f"- {p}" for p in problems))
     overrides = dict(overrides or {})
-    if not overrides.get("preset") and spec.parse(text).preset:   # the spec's `Preset:` line, unless one was given
-        overrides["preset"] = spec.parse(text).preset
+    written = parsed.preset if not description or parsed.preset in settings.PRESETS else ""
+    if not overrides.get("preset") and written:   # the spec's `Preset:` line, unless one was given
+        overrides["preset"] = written
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+    if description and "planner" not in plan(project, overrides)["groups"].get("run-start", []):
+        raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in strict + [spec.NEEDS_PLANNER]))
     try:
         profile = settings.effective(folder, common.library(), overrides or None).get("profile")
     except settings.SettingsError as err:
@@ -117,7 +121,7 @@ def start_from_notes(project: str, spec: str | None = None, brief: str | None = 
         return start(project, _spec_inside_notes(folder, spec), overrides=overrides, who=who)
     if "planner" not in plan(project, overrides)["groups"].get("run-start", []):
         raise OpsError("A brief needs the Planner step on.")
-    first = brief.strip().splitlines()[0][:80]
+    first = spec_core.description_title(brief, project)
     cache = paths.cache()
     cache.mkdir(parents=True, exist_ok=True)
     temp = cache / f"brief-{secrets.token_hex(6)}.md"

@@ -188,3 +188,34 @@ def test_json_round_trip():
     assert spec.to_json(back) == d
     assert back.tasks[0].done_when[1].command == "pnpm test"
     assert back.tasks[1].for_you
+
+
+FREE = """# Recipe box
+
+A small app for keeping family recipes. Text before the first heading.
+
+## Non-negotiable: works offline
+Recipes must load with no network → always.
+
+## Stack (recommended)
+Use `sqlite` and ```python``` scripts.
+
+## Build order (MVP → full)
+1. Add recipes → 2. Search → 3. Share
+### Later
+Photos.
+"""
+
+
+def test_free_form_description_fails_strict_but_passes_description_check():
+    assert spec.check(FREE)                               # not in the task format
+    assert spec.check_description(FREE) == []
+    assert spec.description_title(FREE) == "Recipe box"
+    assert spec.description_title("\n\nJust one line, no heading\n") == "Just one line, no heading"
+    assert spec.description_title("", "fallback") == "fallback"
+
+
+def test_description_check_refuses_empty_and_too_big():
+    assert "empty" in spec.check_description("  \n\n")[0]
+    big = "# Big\n" + "x" * (spec.MAX_DESCRIPTION_BYTES + 1)
+    assert "200 KB" in spec.check_description(big)[0]

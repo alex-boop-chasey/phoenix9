@@ -292,6 +292,43 @@ def test_run_start_brief_with_planner_queues_run(api):
     assert not list(paths.cache().glob("brief-*"))
 
 
+FREE = """# Recipe box
+
+A small app for keeping family recipes. Text before the first heading.
+
+## Non-negotiable: works offline
+Recipes must load with no network → always.
+
+## Stack (recommended)
+Use `sqlite` and ```python``` scripts.
+
+## Build order (MVP → full)
+1. Add recipes → 2. Search → 3. Share
+### Later
+Photos.
+"""
+
+
+def test_run_start_free_form_spec_needs_planner(api):
+    folder = make_project("alpha")
+    rel = add_spec(folder, FREE, name="recipes.md")
+    status, body = post(api, "/api/projects/alpha/runs", {"spec": rel})
+    assert status == 400 and "Turn the Planner on" in body["message"]
+    status, body = post(api, "/api/projects/alpha/runs", {"spec": rel, "overrides": {"preset": "full"}})
+    assert status == 200
+    run_dir = runs_core.find_run(body["data"]["run_id"])
+    assert (run_dir / "spec.md").read_text() == FREE
+
+
+def test_run_start_brief_with_own_headings_queues_run(api):
+    make_project("alpha")
+    brief = FREE.replace("# Recipe box\n", "")
+    status, body = post(api, "/api/projects/alpha/runs", {"brief": brief, "overrides": {"preset": "full"}})
+    assert status == 200
+    text = (runs_core.find_run(body["data"]["run_id"]) / "spec.md").read_text()
+    assert "## Stack (recommended)" in text and text.startswith("# A small app for keeping family recipes.")
+
+
 def test_run_start_spec_and_brief_400(api):
     folder = make_project("alpha")
     rel = add_spec(folder)

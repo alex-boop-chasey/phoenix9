@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from phoenix9.settings import PRESETS
 
 MAX_TASKS = 60
+MAX_DESCRIPTION_BYTES = 200_000                         # any spec when the Planner is on (a description)
+NEEDS_PLANNER = ("This spec isn't in Phoenix's task format. Turn the Planner on so it can turn it into tasks, "
+                 "or write it as '## Task <n>: <title>' sections.")
 MIN_BULLET = 15
 VAGUE_ENDINGS = ("professional", "nice", "good", "clean", "modern", "works well")
 
@@ -334,6 +337,28 @@ def check(text: str) -> list[str]:
         errors.append("The tasks depend on each other in a cycle: "
                       + " -> ".join(f"task {n}" for n in cycle) + ". Break the loop in 'Depends on'.")
     return errors
+
+
+def check_description(text: str) -> list[str]:
+    """Problems with a spec when the Planner is on: any text is a description for it, so only empty or too big is wrong."""
+    if not text.strip():
+        return ["The description is empty. Say what should be built."]
+    size = len(text.encode("utf-8"))
+    if size > MAX_DESCRIPTION_BYTES:
+        return [f"The description is {size // 1000} KB; the most allowed is {MAX_DESCRIPTION_BYTES // 1000} KB. "
+                "Shorten it or split it into two."]
+    return []
+
+
+def description_title(text: str, fallback: str = "") -> str:
+    """A title for a free-form description: its `# title`, else its first heading or line (cut), else `fallback`."""
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            title = re.sub(r"^(?:#+\s*)?(?:Plan:\s*)?", "", line).strip()
+            if title:
+                return title[:80]
+    return fallback
 
 
 def order(spec: Spec) -> list[Task]:

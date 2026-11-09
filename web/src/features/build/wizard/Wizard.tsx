@@ -20,6 +20,7 @@ import { SlidePreset } from "./SlidePreset"
 import { SlideReview } from "./SlideReview"
 import { SlideSteps } from "./SlideSteps"
 import { SlideWhat } from "./SlideWhat"
+import { clearWizard, loadWizard, saveWizard } from "./saved"
 import { PLAN_DEBOUNCE_MS, useDebounced, usePlanFor, useWizardData } from "./useWizardData"
 
 /** What every slide gets: the state, a way to change it, and the loaded data. */
@@ -47,23 +48,35 @@ interface Props {
   onStarted: (runId: string) => void
 }
 
-/** Loads what the wizard needs, then shows it. */
+/** Loads what the wizard needs, then shows it (Start over remounts it fresh). */
 export function Wizard(props: Props) {
   const data = useWizardData(props.name)
+  const [round, setRound] = useState(0)
   if (data.error) return <ErrorState error={data.error} onRetry={data.retry} />
   if (!data.ready || !data.settings) return <Skeleton className="h-64 w-full" />
-  return <WizardForm {...props} settings={data.settings} presets={data.presets} steps={data.steps} specs={data.specs} />
+  return (
+    <WizardForm
+      key={round} {...props} settings={data.settings} presets={data.presets} steps={data.steps} specs={data.specs}
+      onRestart={() => setRound((r) => r + 1)}
+    />
+  )
 }
 
 function WizardForm({
-  name, startSlide = 1, onCancel, onStarted, settings, presets, steps, specs,
-}: Props & { settings: SettingsView; presets: Preset[]; steps: LibraryStep[]; specs: SpecFile[] }) {
+  name, startSlide = 1, onCancel, onStarted, onRestart, settings, presets, steps, specs,
+}: Props & { settings: SettingsView; presets: Preset[]; steps: LibraryStep[]; specs: SpecFile[]; onRestart: () => void }) {
   const base = useMemo(() => ({ project: name, steps }), [name, steps])
   const [state, dispatch] = useReducer(
     (s: WizardState, a: Action) => reduce(s, a, base),
     undefined,
-    () => ({ ...startState(initialAnswers(settings, presets, steps)), slide: startSlide, seen: startSlide }),
+    () => {
+      const kept = loadWizard(name, specs)       // answers kept from the last visit (a day at most)
+      if (kept) return { ...kept, error: "" }
+      return { ...startState(initialAnswers(settings, presets, steps)), slide: startSlide, seen: startSlide }
+    },
   )
+  // Keep the answers and slide for this project until a build starts, Cancel, or Start over.
+  useEffect(() => saveWizard(name, state), [name, state])
   const a = state.answers
   const basePreset = a.preset === "custom" ? (a.basedOn ?? "quick") : a.preset
   const baseline = usePlanFor(name, { preset: basePreset })
@@ -97,6 +110,7 @@ function WizardForm({
     try {
       if (state.remember) await saveDefaults.mutateAsync(final)
       const started = await startRun.mutateAsync(startBody(a, final))
+      clearWizard(name)
       onStarted(started.run_id)
     } catch (err) {
       dispatch({ type: "error", message: err instanceof Error && err.message ? err.message : "Something went wrong." })
@@ -154,7 +168,8 @@ function WizardForm({
         </div>
       </div>
       <div className="wdock">
-        <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+        <Button variant="ghost" onClick={() => { clearWizard(name); onCancel() }}>Cancel</Button>
+        <Button variant="link" size="sm" disabled={busy} onClick={() => { clearWizard(name); onRestart() }}>Start over</Button>
         <span className="prob" aria-live="polite">
           {showProblem && <><Icon name="info" size="sm" /><span role="status">{problems.join(" ")}</span></>}
         </span>

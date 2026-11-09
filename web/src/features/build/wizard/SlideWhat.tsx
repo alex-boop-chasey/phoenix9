@@ -3,6 +3,7 @@ import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 
 import { Choices } from "./Choice"
+import { NEEDS_PLANNER_NOTE } from "./model"
 import type { SlideProps } from "./Wizard"
 
 /** Spec or brief, then the spec list (from the real specs API) or the brief box. */
@@ -25,12 +26,14 @@ export function SlideWhat({ state, dispatch, specs }: SlideProps) {
           <>
             <span className="lbl" style={{ marginTop: 8 }}>Choose a spec</span>
             <Choices
-              name="wz-spec" label="Spec" value={a.spec} onChange={(path) => dispatch({ type: "spec", path })}
+              name="wz-spec" label="Spec" value={a.spec}
+              onChange={(path) => dispatch({ type: "spec", path, needsPlanner: sorted.find((s) => s.path === path)?.task_format === false })}
               options={sorted.map((s) => ({
                 value: s.path, label: s.title, icon: <Icon name="file-text" size="sm" />,
                 help: <span className="mono">{s.path} · {s.modified.slice(0, 10)}</span>,
               }))}
             />
+            {a.specNeedsPlanner && <span className="help">{NEEDS_PLANNER_NOTE}.</span>}
           </>
         ) : (
           <p className="small">No specs yet. Put one in the project's notes/specs folder, or write a brief instead.</p>

@@ -119,7 +119,7 @@ def _finish(plan_id: str, status: str, report: str, **fields) -> dict:
 def _read_regular(path: Path, what: str) -> str:
     """The text of a regular file, never following a link; PlanFailed when it is a link, missing or too big."""
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)    # a FIFO must not hang the runner
     except OSError:
         raise PlanFailed(f"{what} is missing or is a link.") from None
     with os.fdopen(fd, "rb") as f:
@@ -174,9 +174,23 @@ def _context_mounts(project: str) -> list:
     return mounts
 
 
+def _git_dir_inside(project: str) -> None:
+    """PlanFailed when code/.git is a link, or a `gitdir:` file pointing outside the project folder."""
+    root = (paths.projects() / project).resolve()
+    dot = paths.projects() / project / "code" / ".git"
+    if dot.is_symlink():
+        raise PlanFailed("The project's code/.git is a link, so Phoenix will not copy the repo.")
+    if dot.is_file():
+        line = dot.read_text(encoding="utf-8", errors="replace").strip()
+        target = Path(line.split(":", 1)[1].strip()) if line.startswith("gitdir:") else None
+        if target is None or not (dot.parent / target).resolve().is_relative_to(root):
+            raise PlanFailed("The project's code/.git points outside the project folder, so Phoenix will not copy it.")
+
+
 def _workspace(project: str, work: Path) -> Path:
     """A standalone copy of the project's repo (never the live code/ folder); an empty folder when there is none."""
     git.rmtree(work)
+    _git_dir_inside(project)
     code = paths.projects() / project / "code"
     dest = work / "code"
     if (code / ".git").exists() and not code.is_symlink():
@@ -195,9 +209,27 @@ def _spent(rec: dict) -> float:
 def _check_budget(plan_id: str) -> None:
     rec = plans.load(plan_id)
     cap = float(rec.get("budget_usd") or plans.plan_budget())
+    if int((rec.get("usage") or {}).get("unknown_cost_sessions") or 0):
+        raise PlanFailed("Spending unknown: a session of this plan ended without a cost Phoenix could read, so it "
+                         f"cannot keep it under its ${cap:.2f} spending cap (setting plan.budget_usd). Phoenix stopped it.")
     if _spent(rec) >= cap:
         raise PlanFailed(f"This planning session has used ${_spent(rec):.2f} of its ${cap:.2f} spending cap "
                          "(setting plan.budget_usd), so Phoenix stopped it.")
+
+
+def clean_spec(project: str, text: str) -> str:
+    """The spec text safe to file in notes/ (which may go to GitHub).
+
+    PlanFailed when it holds the Claude login token in any written form (a tricked session could read it from its
+    own environment); otherwise every other known secret value and secret shape is masked."""
+    claude_values = scrub.secrets_from([docker_mod.claude_env_file()])
+    if any(form in text for form in git.secret_forms(claude_values)):
+        raise PlanFailed("The spec the session wrote holds the Claude login token, so Phoenix did not file it "
+                         "(the session may have been tricked). Nothing was written to notes/.")
+    from phoenix9 import keys
+    env_files = sorted(paths.secrets().glob("*.env")) if paths.secrets().is_dir() else []
+    values = [*claude_values, *scrub.secrets_from(env_files), *scrub.known_secrets(), *keys.secret_values(project)]
+    return scrub.Scrubber(values).text(text)
 
 
 def run_job(adapters, rec: dict) -> dict:
@@ -255,6 +287,11 @@ def run_job(adapters, rec: dict) -> dict:
         else:
             shown = "; ".join(problems[:3]) + (" and more" if len(problems) > 3 else "")
             raise PlanFailed(f"The spec still has problems after {MAX_FIX_ROUNDS} rounds of fixes: {shown}"[:600])
+        try:
+            text = clean_spec(project, text)
+        except PlanFailed:
+            (out / "spec.md").unlink(missing_ok=True)        # never left where it could be picked up
+            raise
         target = spec_target(rec)
         atomic.write_text(target, text, mode=0o644)
         rel = plans.spec_name(plan_id)

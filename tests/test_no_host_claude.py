@@ -51,6 +51,44 @@ def _functions(tree) -> dict:
     return owner
 
 
+CLAUDE_IN_TEXT = re.compile(r"(^|[\s;&|(){}`'\"/=])claude($|[\s;&|(){}`'\"])")
+PROCESS_MODULES = {"subprocess", "os", "pty", "asyncio"}
+SPAWN_CALLS = re.compile(r"^(exec[lv]p?e?|spawn[lv]p?e?|posix_spawnp?|fork|forkpty|system|popen)$")
+
+
+def _call_path(func) -> tuple[str, str]:
+    """(module-ish prefix, name) of a call like subprocess.run / os.execv / asyncio.create_subprocess_exec."""
+    if isinstance(func, ast.Attribute):
+        base = func.value.id if isinstance(func.value, ast.Name) else ""
+        return base, func.attr
+    return "", getattr(func, "id", "")
+
+
+def process_offenders(path: Path, rel: str) -> list[str]:
+    """Process-starting calls with a `claude` word in any string argument (outside docker.py), and any
+    os.exec* / os.spawn* / posix_spawn* use at all in phoenix9/."""
+    if rel in ALLOWED_FILES:
+        return []
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=rel)
+    bad = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        base, name = _call_path(node.func)
+        if base == "os" and SPAWN_CALLS.match(name) and rel.startswith("phoenix9/"):
+            bad.append(f"{rel}:{node.lineno}: os.{name} (Phoenix starts programs only through the adapters)")
+            continue
+        starts = (base in PROCESS_MODULES and (name in CALLS or name.startswith("create_subprocess")
+                                                or SPAWN_CALLS.match(name))) or name in ("Popen", "run")
+        if not starts:
+            continue
+        for arg in [*node.args, *(k.value for k in node.keywords)]:
+            for inner in ast.walk(arg):
+                if isinstance(inner, ast.Constant) and isinstance(inner.value, str) and CLAUDE_IN_TEXT.search(inner.value):
+                    bad.append(f"{rel}:{node.lineno}: {base + '.' if base else ''}{name}(... 'claude' ...)")
+    return bad
+
+
 def offenders(path: Path, rel: str) -> list[str]:
     """Every claude command line in one file outside the allowed places."""
     if rel in ALLOWED_FILES:
@@ -79,6 +117,7 @@ def test_no_claude_command_line_outside_the_container_builder():
     for folder in FOLDERS:
         for path in sorted((ROOT / folder).rglob("*.py")):
             found += offenders(path, path.relative_to(ROOT).as_posix())
+            found += process_offenders(path, path.relative_to(ROOT).as_posix())
     assert found == [], "Claude may only start inside a step container:\n" + "\n".join(found)
 
 
@@ -114,3 +153,30 @@ def test_host_run_refuses_claude(argv):
 
 def test_host_run_still_runs_other_programs():
     assert adapters.Host().run(["true"])[0] == 0
+
+
+def test_the_process_walker_catches_claude_in_any_argument_and_exec(tmp_path):
+    bad = tmp_path / "bad.py"
+    bad.write_text("import os, subprocess\n"
+                   "def go(host, x):\n"
+                   "    subprocess.run(['bash', '-c', 'cd /x && claude -p ' + x])\n"
+                   "    subprocess.Popen(['env', 'A=1', '/usr/local/bin/claude'])\n"
+                   "    os.execvp('sh', ['sh', '-c', 'echo hi'])\n"
+                   "    os.posix_spawn('/bin/true', ['true'], {})\n"
+                   "    host.run(['systemctl', 'restart', 'claude-rc@home'])\n")
+    found = process_offenders(bad, "phoenix9/bad.py")
+    assert len(found) == 4 and not any(":7:" in f for f in found)
+
+
+@pytest.mark.parametrize("argv", [["/opt/x/claude"], ["git", "claude"], ["bash", "-c", "cd /srv && claude -p hi"],
+                                  ["xargs", "claude"], ["npx", "claude", "-p"], ["node", "/x/cli.js", "claude"],
+                                  ["sh", "-c", "exec claude"], ["timeout", "9", "sh", "-c", "(claude)"]])
+def test_host_run_refuses_claude_anywhere(argv):
+    with pytest.raises(adapters.ClaudeOnHost):
+        adapters.Host().run(argv)
+
+
+@pytest.mark.parametrize("argv", [["systemctl", "restart", "claude-rc@home"], ["du", "-sb", "/root/.claude"],
+                                  ["bash", "-c", "systemctl is-active claude-rc-chat@demo"]])
+def test_host_run_allows_claude_lookalikes(argv):
+    adapters.refuse_claude(argv)

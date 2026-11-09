@@ -220,9 +220,10 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
         out.append(f"A build is {busy[0]['status']} ({busy[0]['run_id']}). Stop it or let it finish first.")
     if chat_state == "working":
         out.append("The project's chat is working right now. Wait until it is done.")
-    planning = [p for p in _project_work(name)[1] if p.get("status") == "running"]
+    planning = [p for p in _project_work(name)[1] if p.get("status") in ("queued", "running")]
     if planning:
-        out.append(f"A planning session is running ({planning[0]['id']}). Wait until it is done.")
+        out.append(f"A planning session is {planning[0]['status']} ({planning[0]['id']}). Wait until it is done, "
+                   "or abandon it first.")
     inside = _working_inside(folder, adapters, name)
     if inside:
         shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")

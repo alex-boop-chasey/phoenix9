@@ -1084,9 +1084,11 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
    `stop_unit` (`systemctl disable --now`) and `stop_conversation` (`Host.stop_pid`, SIGTERM, only to the
    unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself.
    Planning sessions are no exception: they run in step containers (below). Enforced twice: `Host.run`
-   refuses any command whose program is `claude` (`adapters.refuse_claude`), and
+   refuses any command with an argument named `claude`, or a shell/wrapper (sh, bash, env, timeout, xargs, npx,
+   node...) with `claude` as a word in any argument (`adapters.refuse_claude`), and
    `tests/test_no_host_claude.py` walks phoenix9/ with `ast` and fails on a `claude` command line anywhere
-   but `claude.build_command` (the container's command), docker.py and the Claude adapter.
+   but `claude.build_command` (the container's command), docker.py and the Claude adapter, on a `claude` word in
+   any string passed to a process-starting call, and on any os.exec*/os.spawn*/posix_spawn* use in phoenix9/.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -1145,11 +1147,15 @@ then the step's fallback models. The session writes `/out/spec.md` (harness spec
 numbered, each with an `Answer:` line, and `## Decisions`; spec.py accepts both sections and runs ignore them).
 Phoenix runs `spec.check` on it itself; on problems it resumes the same session with the list, at most 2 rounds,
 then `failed`. A valid spec is written by Phoenix to `notes/specs/plan-<id>.md` (Phoenix picks the name; atomic
-write; refused when notes/, notes/specs/ or the file is a link). Phoenix counts the open questions from the file:
+write; refused when notes/, notes/specs/ or the file is a link). Before filing, a spec holding the Claude login
+(any value of claude.env, in any written form) is refused and the plan fails (the out file is removed); every other
+known secret value and secret shape is masked. /out/spec.md is opened with O_NOFOLLOW|O_NONBLOCK and must be a
+regular file; a code/.git `gitdir:` file pointing outside the project folder is refused. Phoenix counts the open questions from the file:
 `waiting` (questions open) or `done`. Each session's cost goes into the record (`claude.record_usage`); over the
-per-plan cap `plan.budget_usd` (default 5) the plan stops `failed` with a plain message. Refused: the agent's
-folder (`ops.projects.agent_name()`, and `home`) always, phoenix9 when the caller is a chat (`chat:*`). A chat may
-abandon only a plan it started itself. CLI: `phoenix plan start|status|continue|reply|abandon|list`.
+per-plan cap `plan.budget_usd` (default 5) the plan stops `failed` with a plain message; a session whose cost
+could not be read stops it too ("Spending unknown"). The model must be one prices.py knows (or its short alias).
+Refused (start, continue and reply): the agent's folder (`ops.projects.agent_name()`, and `home`) always, phoenix9
+when the caller is a chat (`chat:*`). A chat may continue, reply to or abandon only a plan it started itself. CLI: `phoenix plan start|status|continue|reply|abandon|list`.
 
 Quick edits (`phoenix9/edits.py`, `editfinish.py`; no Claude of their own, the Phoenix agent or its `editor` helper does the editing): `phoenix edit start <project> <title>`
 makes a worktree of the project's code/ on branch `edit/<id>` in `HOME/edits/<id>/`; it never touches the main branch, code/ itself or another

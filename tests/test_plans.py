@@ -102,7 +102,7 @@ def _types():
 
 
 def test_start_only_queues_and_runs_nothing(proj, ad):
-    rec = plans.new_record("demo", "plan a thing", "m1", "cli")
+    rec = plans.new_record("demo", "plan a thing", "claude-opus-5-5", "cli")
     assert rec["status"] == "queued" and rec["job"]["kind"] == "start" and rec["job"]["resume"] is None
     assert "plan a thing" in plans.prompt_file(rec["id"]).read_text()
     assert ad.docker.argvs == [] and ad.host.calls == []
@@ -110,7 +110,7 @@ def test_start_only_queues_and_runs_nothing(proj, ad):
 
 
 def test_runner_runs_it_sealed_and_files_the_spec(proj, ad):
-    rec = plans.new_record("demo", "plan a thing", "m1", "cli")
+    rec = plans.new_record("demo", "plan a thing", "claude-opus-5-5", "cli")
     ad.docker.script(GOOD)
     assert watch.run_plans(ad) == rec["id"]
     argv = ad.docker.argvs[0]
@@ -134,7 +134,7 @@ def test_runner_runs_it_sealed_and_files_the_spec(proj, ad):
     assert domains.read_text() == "api.anthropic.com\n"
     # the command: claude in the container, cwd /workspace, model from the record, never --bare
     assert "phoenix-claude" in argv and "/workspace" in argv and "--bare" not in argv
-    assert argv[argv.index("--model") + 1] == "m1" and "--resume" not in argv
+    assert argv[argv.index("--model") + 1] == "claude-opus-5-5" and "--resume" not in argv
     # Phoenix filed the spec itself, at the path it picked
     filed = proj / "notes" / "specs" / f"plan-{rec['id']}.md"
     assert filed.read_text() == GOOD
@@ -148,7 +148,7 @@ def test_runner_runs_it_sealed_and_files_the_spec(proj, ad):
 
 
 def test_queued_running_waiting_then_continue_resumes_same_session(proj, ad):
-    rec = plans.new_record("demo", "plan a thing", "m1", "cli")
+    rec = plans.new_record("demo", "plan a thing", "claude-opus-5-5", "cli")
     seen = []
     real_run = ad.docker.run
 
@@ -175,7 +175,7 @@ def test_queued_running_waiting_then_continue_resumes_same_session(proj, ad):
 
 
 def test_continue_seeds_out_with_the_filed_spec(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     ad.docker.script(GOOD)
     watch.run_plans(ad)
     filed = proj / "notes" / "specs" / f"plan-{rec['id']}.md"
@@ -188,7 +188,7 @@ def test_continue_seeds_out_with_the_filed_spec(proj, ad):
 
 
 def test_spec_problems_resume_the_same_session_then_pass(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     ad.docker.script("nothing useful\n")
     ad.docker.script(GOOD)
     watch.run_plans(ad)
@@ -200,7 +200,7 @@ def test_spec_problems_resume_the_same_session_then_pass(proj, ad):
 
 
 def test_spec_problems_three_times_fail(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     for _ in range(3):
         ad.docker.script("still bad\n")
     watch.run_plans(ad)
@@ -210,7 +210,7 @@ def test_spec_problems_three_times_fail(proj, ad):
 
 
 def test_session_error_fails_and_records_cost(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     ad.docker.script(None, kind="error", cost=0.25)
     ad.docker.script(None, kind="error", cost=0.25)
     ad.docker.script(None, kind="error", cost=0.25)
@@ -223,7 +223,7 @@ def test_session_error_fails_and_records_cost(proj, ad):
 def test_spending_cap_stops_the_plan(proj, ad):
     paths.config().mkdir(parents=True, exist_ok=True)
     (paths.config() / "global.toml").write_text("[plan]\nbudget_usd = 1\n")
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     for _ in range(3):
         ad.docker.script("bad\n", cost=0.75)
     watch.run_plans(ad)
@@ -232,7 +232,7 @@ def test_spending_cap_stops_the_plan(proj, ad):
 
 
 def test_spec_target_link_is_refused(proj, ad, tmp_path):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     elsewhere = tmp_path / "elsewhere.md"
     elsewhere.write_text("keep\n")
     (proj / "notes" / "specs" / f"plan-{rec['id']}.md").symlink_to(elsewhere)
@@ -244,7 +244,7 @@ def test_spec_target_link_is_refused(proj, ad, tmp_path):
 def test_out_spec_link_is_not_followed(proj, ad, tmp_path):
     secret = tmp_path / "outside.md"
     secret.write_text(GOOD)
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
 
     class LinkDocker(PlanDocker):
         def run(self, argv, *a, **k):
@@ -260,16 +260,16 @@ def test_out_spec_link_is_not_followed(proj, ad, tmp_path):
 
 
 def test_bad_session_id_is_never_resumed(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     plans.update(rec["id"], lambda r: r["job"].update(resume="--dangerous"))
     watch.run_plans(ad)
     assert ad.docker.argvs == [] and plans.load(rec["id"])["status"] == "failed"
 
 
 def test_one_plan_per_project_and_stale_running_is_requeued(proj, ad):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     with pytest.raises(plans.PlanError, match="already has"):
-        plans.new_record("demo", "again", "m", "cli")
+        plans.new_record("demo", "again", "sonnet", "cli")
     plans.update(rec["id"], lambda r: r.update(status="running"))
     assert watch.run_plans(ad) is None
     assert plansession.requeue_stale() == [rec["id"]]
@@ -280,25 +280,25 @@ def test_refusals_agent_folder_and_phoenix9_for_chats(proj, phoenix_env):
     for name in ("home", "phoenix9"):
         (phoenix_env["projects"] / name).mkdir()
     with pytest.raises(plans.PlanError, match="agent's folder"):
-        plans.new_record("home", "x", "m", "cli")
+        plans.new_record("home", "x", "sonnet", "cli")
     with pytest.raises(plans.PlanError, match="only Alex"):
-        plans.new_record("phoenix9", "x", "m", "chat:home")
-    assert plans.new_record("phoenix9", "x", "m", "cli")["status"] == "queued"
+        plans.new_record("phoenix9", "x", "sonnet", "chat:home")
+    assert plans.new_record("phoenix9", "x", "sonnet", "cli")["status"] == "queued"
 
 
 def test_chat_may_abandon_only_its_own(proj):
-    rec = plans.new_record("demo", "x", "m", "cli")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
     with pytest.raises(plans.PlanError, match="only Alex or that chat"):
         plans.abandon(rec["id"], "chat:home")
     assert plans.abandon(rec["id"], "cli")["status"] == "abandoned"
-    mine = plans.new_record("demo", "y", "m", "chat:home")
+    mine = plans.new_record("demo", "y", "sonnet", "chat:home")
     assert plans.abandon(mine["id"], "chat:home")["status"] == "abandoned"
 
 
 def test_model_and_budget_settings(proj):
     assert plans.plan_model() == "claude-fable-5-1" and plans.plan_budget() == 5.0
-    ai = plansession.step_ai("m1")
-    assert ai["model"] == "m1" and "m1" not in ai["fallback_models"] and ai["timeout"] == 40
+    ai = plansession.step_ai("claude-opus-5-5")
+    assert ai["model"] == "claude-opus-5-5" and "claude-opus-5-5" not in ai["fallback_models"] and ai["timeout"] == 40
 
 
 def test_count_open():
@@ -318,3 +318,103 @@ def test_cli_start_queues_status_list(proj, capsys, tmp_path):
     bad = tmp_path / "bad.md"
     bad.write_text("nothing\n")
     assert main(["spec", "check", str(bad)]) == 1
+
+
+LOGIN = "plan-session-login-value-for-test-only"     # not a real token shape
+OTHER = "another-stored-value-for-test-only-42"
+
+
+def _secrets(*lines):
+    paths.secrets().mkdir(parents=True, exist_ok=True)
+    (paths.secrets() / "claude.env").write_text(f"CLAUDE_CODE_OAUTH_TOKEN={LOGIN}\n")
+    (paths.secrets() / "github.env").write_text(f"GH_TOKEN={OTHER}\n")
+
+
+@pytest.mark.parametrize("form", [LOGIN, __import__("base64").b64encode(LOGIN.encode()).decode().rstrip("=")])
+def test_spec_with_the_claude_login_is_never_filed(proj, ad, form):
+    _secrets()
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+    ad.docker.script(GOOD.replace("What it is.", f"What it is. {form}"))
+    watch.run_plans(ad)
+    rec = plans.load(rec["id"])
+    assert rec["status"] == "failed" and "Claude login token" in rec["report"] and LOGIN not in rec["report"]
+    assert not list((proj / "notes" / "specs").iterdir())
+    assert not (plans.plan_folder(rec["id"]) / "out" / "spec.md").exists()
+
+
+def test_other_secrets_are_masked_before_filing(proj, ad):
+    _secrets()
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+    ad.docker.script(GOOD.replace("What it is.", f"What it is. {OTHER}"))
+    watch.run_plans(ad)
+    filed = (proj / "notes" / "specs" / f"plan-{rec['id']}.md").read_text()
+    assert OTHER not in filed and "[secret]" in filed and plans.load(rec["id"])["status"] == "waiting"
+
+
+def test_continue_and_reply_check_who(proj, ad, phoenix_env):
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+    ad.docker.script(GOOD)
+    watch.run_plans(ad)
+    with pytest.raises(plans.PlanError, match="only Alex or that chat can continue"):
+        plans.queue_continue(rec["id"], who="chat:home")
+    with pytest.raises(plans.PlanError, match="only Alex or that chat can reply to"):
+        plans.queue_continue(rec["id"], who="chat:home", answer="yes")
+    assert plans.queue_continue(rec["id"], who="dashboard")["status"] == "queued"
+    (phoenix_env["projects"] / "phoenix9").mkdir()
+    own = plans.new_record("phoenix9", "y", "sonnet", "cli")
+    own = plans.update(own["id"], lambda r: r.update(status="waiting", session_id=SID, who="chat:home"))
+    with pytest.raises(plans.PlanError, match="only Alex"):
+        plans.queue_continue(own["id"], who="chat:home")
+
+
+def test_unknown_cost_session_stops_the_plan(proj, ad):
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+
+    class NoCost(PlanDocker):
+        def run(self, argv, stdout_path, *a, **k):
+            rc = super().run(argv, stdout_path, *a, **k)
+            lines = Path(stdout_path).read_text().splitlines()
+            data = json.loads(lines[-1])
+            data.pop("total_cost_usd")
+            Path(stdout_path).write_text(lines[0] + "\n" + json.dumps(data) + "\n")
+            return rc
+    ad.docker = NoCost()
+    ad.docker.script("bad\n")
+    ad.docker.script(GOOD)
+    watch.run_plans(ad)
+    rec = plans.load(rec["id"])
+    assert len(ad.docker.argvs) == 1 and rec["status"] == "failed" and "Spending unknown" in rec["report"]
+
+
+def test_unknown_model_is_refused(proj, capsys):
+    with pytest.raises(plans.PlanError, match="not a model Phoenix knows"):
+        plans.new_record("demo", "x", "gpt-9", "cli")
+    assert main(["plan", "start", "demo", "--brief", "x", "--model", "nope"]) != 0
+    assert plans.list_plans("demo") == []
+
+
+def test_out_spec_fifo_does_not_hang(proj, ad):
+    import os
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+
+    class FifoDocker(PlanDocker):
+        def run(self, argv, *a, **k):
+            rc = super().run(argv, *a, **k)
+            out = Path(self.mount_src(argv, "/out"))
+            (out / "spec.md").unlink(missing_ok=True)
+            os.mkfifo(out / "spec.md")
+            return rc
+    ad.docker = FifoDocker()
+    watch.run_plans(ad)
+    assert plans.load(rec["id"])["status"] == "failed"
+
+
+def test_gitdir_file_pointing_outside_is_refused(proj, ad, tmp_path):
+    import shutil
+    outside = tmp_path / "elsewhere.git"
+    shutil.move(str(proj / "code" / ".git"), str(outside))
+    (proj / "code" / ".git").write_text(f"gitdir: {outside}\n")
+    rec = plans.new_record("demo", "x", "sonnet", "cli")
+    watch.run_plans(ad)
+    rec = plans.load(rec["id"])
+    assert rec["status"] == "failed" and "outside the project folder" in rec["report"] and ad.docker.argvs == []

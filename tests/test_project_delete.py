@@ -1274,12 +1274,13 @@ def test_delete_removes_the_projects_quick_edits_and_plans(env, unitdir):
         assert "edits/20261109-x/f.txt" in tar.getnames()
 
 
-def test_running_plan_refuses_delete(env, unitdir):
+@pytest.mark.parametrize("plan_status", ["running", "queued"])
+def test_running_or_queued_plan_refuses_delete(env, unitdir, plan_status):
     folder = _stuff(env)
     atomic.write_json(paths.home() / "plans" / "20261109-p.json",
-                      {"id": "20261109-p", "project": "alpha", "brief": "p", "status": "running",
+                      {"id": "20261109-p", "project": "alpha", "brief": "p", "status": plan_status,
                        "started": "2026-11-09T00:00:00+00:00"})
-    with pytest.raises(OpsError, match="planning session is running"):
+    with pytest.raises(OpsError, match=f"planning session is {plan_status}"):
         project_delete.delete("alpha", "alpha", "cli", env["fakes"])
     _all_there(folder)
 

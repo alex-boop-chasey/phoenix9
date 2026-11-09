@@ -127,11 +127,21 @@ def refuse_project(project: str, who: str) -> None:
         raise PlanError("phoenix9 is Phoenix itself: only Alex can start a planning session on it.")
 
 
-def may_abandon(rec: dict, who: str) -> None:
-    """PlanError when a chat (who chat:*) tries to abandon a planning session someone else started."""
+def may_abandon(rec: dict, who: str, what: str = "abandon") -> None:
+    """PlanError when a chat (who chat:*) tries to abandon, continue or reply to a planning session someone else
+    started (Alex, the dashboard and the command line may touch any)."""
     if is_chat(who) and rec.get("who") != who:
         raise PlanError(f"The planning session {rec['id']} was started by {rec.get('who')}; only Alex or that "
-                        "chat can abandon it.")
+                        f"chat can {what} it.")
+
+
+def check_model(model: str) -> str:
+    """The model if Phoenix knows it (prices.py names or their short aliases); PlanError otherwise."""
+    from . import prices
+    if model in prices.PRICES or model in prices.ALIASES:
+        return model
+    known = ", ".join([*prices.PRICES, *prices.ALIASES])
+    raise PlanError(f"'{model}' is not a model Phoenix knows. Use one of: {known}.")
 
 
 def _new_id(brief: str) -> str:
@@ -158,6 +168,7 @@ def new_record(project: str, brief: str, model: str, who: str) -> dict:
     if not VALID_ID.fullmatch(project or "") or not (paths.projects() / project).is_dir():
         raise PlanError(f"There is no project called '{project}'.")
     refuse_project(project, who)
+    check_model(model)
     with state.Lock(paths.project_lock(project), wait=10.0):
         cur = running(project)
         if cur:
@@ -175,6 +186,8 @@ def new_record(project: str, brief: str, model: str, who: str) -> dict:
 def queue_continue(plan_id: str, who: str = "cli", answer: str | None = None) -> dict:
     """Queue the same session again so it reads the answers (or Alex's reply text), updates the spec and records decisions."""
     rec = load(plan_id)
+    refuse_project(rec["project"], who)
+    may_abandon(rec, who, "reply to" if answer and answer.strip() else "continue")
     if rec["status"] in BUSY:
         raise PlanError(f"The planning session {plan_id} is already {rec['status']}.")
     if rec["status"] == "abandoned":

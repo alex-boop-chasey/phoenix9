@@ -1,6 +1,7 @@
 """Adapters: every outside tool (docker, claude, git, host, http, clock, notify, proxy) behind one object."""
 import ipaddress
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -42,15 +43,19 @@ class ClaudeOnHost(RuntimeError):
     """Something tried to start Claude on the host; Claude only runs inside step containers (rule 1)."""
 
 
+WRAPPERS = ("sh", "bash", "dash", "zsh", "ksh", "env", "timeout", "xargs", "npx", "node", "nice", "nohup",
+            "sudo", "stdbuf", "setsid", "su", "runuser", "script", "busybox")
+CLAUDE_WORD = re.compile(r"(^|[\s;&|(){}`'\"/=])claude($|[\s;&|(){}`'\"])")
+
+
 def refuse_claude(argv) -> None:
-    """Raise ClaudeOnHost when the command would start Claude (argv[0] named `claude`, or a shell/env wrapper
-    whose first word is `claude`)."""
+    """Raise ClaudeOnHost when the command could start Claude: any argument whose basename is `claude`, or a
+    shell/wrapper program (sh, bash, env, timeout, xargs, npx, node...) with `claude` as a word in any argument."""
     words = [str(a) for a in (argv or [])]
-    first = os.path.basename(words[0]) if words else ""
-    if first in ("env", "nice", "nohup", "sudo", "timeout", "stdbuf", "setsid"):
-        rest = [w for w in words[1:] if not w.startswith("-") and "=" not in w and not w.isdigit()]
-        first = os.path.basename(rest[0]) if rest else first
-    if first == "claude" or first.startswith("claude."):
+    named = any(w.rstrip("/").rsplit("/", 1)[-1] == "claude" for w in words)
+    first = words[0].rsplit("/", 1)[-1] if words else ""
+    wrapped = first in WRAPPERS and any(CLAUDE_WORD.search(w) for w in words[1:])
+    if named or wrapped:
         raise ClaudeOnHost("Phoenix never starts Claude on the host: Claude only runs inside a sealed step "
                            "container (docs/architecture.md section 11, rule 1).")
 

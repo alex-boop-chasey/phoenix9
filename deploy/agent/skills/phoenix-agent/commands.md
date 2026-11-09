@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 7d3596465d109b29 -->
+<!-- phoenix 9.1.0 inputs d2d602ea3b2c244f -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -397,6 +397,10 @@ go back to the previous version
 the updater log
 
 - `--lines LINES` (default 200)
+
+### `phoenix update after-install`
+
+refresh the agent's knowledge pack and rules, and grow Phoenix's safety list
 
 ### `phoenix update release`
 

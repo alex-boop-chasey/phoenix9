@@ -336,6 +336,15 @@ class _Update:
         self.log("post-install migration done" if rc == 0 else
                  f"post-install migration failed (exit {rc}): {_failing_lines(out, err)}")
 
+    def after_install(self) -> None:
+        """Run the NEW installed copy's `phoenix update after-install` (agent knowledge pack, agent rules, the
+        safety list); a failure is only a log line (the install stays)."""
+        inst = folders()["install"]
+        argv = [str(inst / "bin" / "phoenix"), "update", "after-install", "--json", "--who", "updater"]
+        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+        self.log("agent files refreshed" if rc == 0 else
+                 f"agent files refresh failed (exit {rc}): {_failing_lines(out, err)}")
+
     def wait_idle(self, why: str, timeout_min: int) -> tuple[bool, str]:
         """Hold the harness and wait (polling every 5 s) until no run is mid-task; False after the timeout."""
         hold.request_hold(why)
@@ -604,6 +613,7 @@ def _install(u: _Update, tag: str, idle_timeout_min: int) -> dict:
     ok, why = u.healthy()
     if ok:
         u.migrate()
+        u.after_install()
         hold.release_hold()
         u.end()
         events.emit("update.installed", project=None, tag=tag, previous=frm["tag"], who=u.who)

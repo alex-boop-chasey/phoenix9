@@ -25,6 +25,9 @@ def add(sub, common_args) -> None:
     p = group.add_parser("log", parents=[common_args], help="the updater log")
     p.add_argument("--lines", type=int, default=200)
     p.set_defaults(func=log)
+    p = group.add_parser("after-install", parents=[common_args],
+                         help="refresh the agent's knowledge pack and rules, and grow Phoenix's safety list")
+    p.set_defaults(func=after_install)
     p = group.add_parser("release", parents=[common_args], help="tag the current main as a new release")
     p.add_argument("--yes", action="store_true", help="go ahead")
     p.set_defaults(func=release)
@@ -116,3 +119,16 @@ def release(args) -> int:
     words = (f"Tagged {r['tag']} at {r['sha'][:10]}." if r["created"]
              else f"main is already tagged {r['tag']}; nothing to do.")
     return show(args, r, words)
+
+
+def after_install(args) -> int:
+    """Refresh the agent folder from the installed copy (run by the updater after an install)."""
+    r = ops.after_install(args.who)
+    words = ["Knowledge pack copied (%d files)." % r["skills"], "Agent rules: %s." % r["rules"]]
+    if r["restarted"]:
+        words.append("The agent was restarted.")
+    elif r["rules"] == "updated":
+        words.append("Agent rules updated; restart when idle.")
+    if r["safety_added"]:
+        words.append("Safety list grew by %d." % len(r["safety_added"]))
+    return show(args, r, " ".join(words))

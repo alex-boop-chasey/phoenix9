@@ -81,6 +81,7 @@ const detail = projects[0]!
 export const editedProject = { ...detail, changelog: [], gates: [] }
 
 export const baseRoutes = (name = "demo-site") => ({
+  [`GET /api/chat/${name}`]: { state: "off", bridge_session_id: null, web_url: null, app_url: null, last_active: null },
   [`GET /api/projects/${name}`]: { ...editedProject, name },
   [`GET /api/projects/${name}/settings`]: { ...settingsView, project: name },
   [`POST /api/projects/${name}/plan`]: planView,

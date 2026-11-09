@@ -220,7 +220,7 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
         out.append(f"A build is {busy[0]['status']} ({busy[0]['run_id']}). Stop it or let it finish first.")
     if chat_state == "working":
         out.append("The project's chat is working right now. Wait until it is done.")
-    inside = _working_inside(folder, adapters)
+    inside = _working_inside(folder, adapters, name)
     if inside:
         shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")
         out.append(f"Programs are working inside the project folder: {shown}. Close them first "
@@ -228,8 +228,26 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
     return out
 
 
-def _working_inside(folder: Path | None, adapters) -> list:
-    """Processes whose working folder is inside the project's real folder (not this process or its parent shell)."""
+def _own_chat_pids(name: str, host, procs: list) -> set:
+    """The project's own chat unit's main process and every listed process below it (the delete stops that unit itself)."""
+    try:
+        rc, out, _ = host.systemctl("show", "-p", "MainPID", "--value", f"claude-rc-chat@{name}")
+        main = int(out.strip()) if rc == 0 else 0
+    except Exception:
+        return set()
+    if not main:
+        return set()
+    own = {main}
+    for _ in range(len(procs)):         # grow the set until no process has a parent in it
+        more = {p["pid"] for p in procs if p.get("pid") not in own and host.parent_pid(p.get("pid")) in own}
+        if not more:
+            break
+        own |= more
+    return own
+
+
+def _working_inside(folder: Path | None, adapters, name: str | None = None) -> list:
+    """Processes whose working folder is inside the project's real folder (not this process, its parent shell or the project's own chat)."""
     if folder is None or adapters is None:
         return []
     real = os.path.realpath(folder)
@@ -238,8 +256,12 @@ def _working_inside(folder: Path | None, adapters) -> list:
         procs = adapters.host.process_cwds()
     except Exception:          # cannot tell: say nothing rather than block every delete
         return []
-    return [p for p in procs if p.get("pid") not in me and
-            (os.path.realpath(p.get("cwd") or "/") == real or os.path.realpath(p.get("cwd") or "/").startswith(real + os.sep))]
+    found = [p for p in procs if p.get("pid") not in me and
+             (os.path.realpath(p.get("cwd") or "/") == real or os.path.realpath(p.get("cwd") or "/").startswith(real + os.sep))]
+    if found and name:                  # only ask systemd when something is there to excuse
+        own = _own_chat_pids(name, adapters.host, procs)
+        found = [p for p in found if p.get("pid") not in own]
+    return found
 
 
 def plan(name: str, who: str, adapters) -> dict:

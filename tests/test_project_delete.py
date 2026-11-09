@@ -1216,6 +1216,37 @@ def test_process_inside_the_folder_refuses(env, unitdir):
     _all_there(folder)
 
 
+def _script_main_pid(env, pid):
+    env["host"].script(["systemctl", "show"], out=f"{pid}\n")
+
+
+def test_own_chat_process_does_not_refuse_and_unit_stops_first(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000)
+    env["host"].parents = {5001: 5000, 5002: 5001}
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)},
+                             {"pid": 5001, "name": "node", "cwd": str(folder / "code")},
+                             {"pid": 5002, "name": "git", "cwd": str(folder / "code")}]
+    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    sysc = [c[1] for c in env["host"].calls if c[0] == "systemctl"]
+    assert "stop" in sysc and not folder.exists()
+
+
+def test_other_process_beside_own_chat_refuses(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000)
+    env["host"].parents = {5001: 5000}
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)},
+                             {"pid": 5001, "name": "node", "cwd": str(folder)},
+                             {"pid": 6000, "name": "vim", "cwd": str(folder / "code")}]
+    refusals = project_delete.plan("alpha", "cli", env["fakes"])["refusals"]
+    assert len(refusals) == 1 and "vim (process 6000)" in refusals[0] and "claude" not in refusals[0]
+    with pytest.raises(OpsError, match="inside the project folder"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
 def test_process_next_door_or_self_does_not_refuse(env, unitdir):
     import os
     folder = _stuff(env)

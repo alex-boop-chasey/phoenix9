@@ -141,6 +141,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 plus the project's state, worked out ONCE by `phoenix9/status.py` `project_state` (every API route, CLI
 command and dashboard display reads these fields; nothing else works them out again):
 - `repo_url`: `https://github.com/<owner>/<name>` when `repo_owner` is set, else null.
+- `edit`: the open or stalled quick edit `{id, title, status}`, else null; `plan`: the running or waiting planning session `{id, title, status}`, else null (the sidebar's first group). The Phoenix agent's own folder is left out of the list unless asked for.
 - `needs_you`: number of open questions of the project; `questions`: their gate ids. A question is open only
   when it has no answer file, its run is not done/failed/stopped, and the run waits on it (`gates.is_open`).
 - `run`: the current build `{run_id, status, task, tasks, carrying_on, why, now, worker}`, else null. It is the run

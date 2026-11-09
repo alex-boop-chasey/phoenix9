@@ -139,8 +139,8 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
 | work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
-| edits | HOME/edits/<id>/ and <id>.json | | quick edits (`phoenix9/edits.py`): the worktree of the project's code/ on branch `edit/<id>` (id = `yyyymmdd-slug`), and its record `{id, project, title, branch, folder, started, who, status: open|finished|abandoned, last_activity}`; one open edit per project, none while a build runs on it |
-| plans | HOME/plans/<id>.json and <id>/session.jsonl | | planning sessions (`phoenix9/plans.py`): record `{id, project, brief, model, started, who, status: running|waiting|done|failed, session_id, spec, open_questions, report, last_activity}`; one running per project; the stream-json output of the headless claude |
+| edits | HOME/edits/<id>/ and <id>.json | | quick edits (`phoenix9/edits.py`): the worktree of the project's code/ on branch `edit/<id>` (id = `yyyymmdd-slug`), and its record `{id, project, title, branch, folder, started, who, status: open|stalled|finished|abandoned, last_activity}`; one open edit per project, none while a build runs on it |
+| plans | HOME/plans/<id>.json and <id>/session.jsonl | | planning sessions (`phoenix9/plans.py`): record `{id, project, brief, model, started, who, status: running|waiting|done|failed|abandoned, session_id, spec, open_questions, report, last_activity}`; one running per project; the stream-json output of the headless claude |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -1067,8 +1067,8 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 
-1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. There is no
-   exception: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
+1. No AI runs in Phoenix's own processes. Claude only runs inside step containers, with one exception: a
+   planning session (below, `chat.plan_start`). Apart from that: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
    (`agentlink.send`); the agent is a separate, already-running session that Phoenix never starts or drives.
    `phoenix9/chat.py` is the only place that restarts the Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
@@ -1076,7 +1076,7 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
    add only unit and process control through the Host adapter: `chat_unit` (`claude-rc-chat@<listed
    project>`), `unit_state` (`systemctl is-active`), `unit_main_pid`, `start_unit` (`systemctl enable --now`),
    `stop_unit` (`systemctl disable --now`) and `stop_conversation` (`Host.stop_pid`, SIGTERM, only to the
-   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself.
+   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself, except for planning sessions.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -1125,6 +1125,12 @@ adapter in `/srv/projects/<project>`, output kept in `HOME/plans/<id>/session.js
 `phoenix spec check <file>`, and keeps questions in the spec (`## Open questions`, numbered, each followed by an empty `Answer:` line).
 `phoenix plan continue <id>` resumes it (`--resume`) to read the answers and move them into `## Decisions`. Phoenix reads the open
 questions from the spec file itself, not from what the session says. CLI: `phoenix plan start|status|continue|list`.
+
+Quick edits (`phoenix9/edits.py`, `editfinish.py`; no Claude of their own, the Phoenix agent or its `editor` helper does the editing): `phoenix edit start <project> <title>`
+makes a worktree of the project's code/ on branch `edit/<id>` in `HOME/edits/<id>/`; it never touches the main branch, code/ itself or another
+project, and refuses while a build runs on the project. `phoenix edit finish <id>` runs the same checks as a build (project test command in a sealed
+container, diff denylist, secret scan, lockfile check), then commits, pushes and opens a merge request; Alex merges. `phoenix edit heartbeat|list|abandon`.
+Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning session (spinner), 2 build running, 3 paused or waiting for Alex, 4 the rest.
 
 ## 12. Deliberate simplifications (recorded so nobody "fixes" them)
 

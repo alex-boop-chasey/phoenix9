@@ -14,7 +14,7 @@ describe("messages", () => {
     expect(screen.getByText("from scout")).toBeTruthy()
     rerender(<UserBubble item={user()} />)
     expect(screen.queryByText("app")).toBeNull()
-    expect(screen.queryByText("queued")).toBeNull()
+    expect(screen.queryByText("waiting")).toBeNull()
   })
   it("AgentMessage shows markdown", () => {
     render(<AgentMessage markdown="**yes**" />)
@@ -36,9 +36,9 @@ describe("messages", () => {
   it("list shows a queued pill until a matching user item arrives", () => {
     const queued: AgentItem = { type: "queued", line: 1, text: "later", pending: true, at: "2026-11-07T14:00:00" }
     const { rerender } = render(<MessageList items={[queued]} state="queued" />)
-    expect(screen.getByText("queued")).toBeTruthy()
+    expect(screen.getByText("waiting")).toBeTruthy()
     rerender(<MessageList items={[queued, user({ line: 2, text: "later" })]} state="working" />)
-    expect(screen.queryByText("queued")).toBeNull()
+    expect(screen.queryByText("waiting")).toBeNull()
     expect(screen.getAllByText("later")).toHaveLength(1)
   })
   it("list shows session and date dividers, and the running action", () => {

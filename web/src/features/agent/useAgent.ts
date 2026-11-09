@@ -31,7 +31,7 @@ export interface ActionItem {
   status: ActionStatus; excerpt?: string; done_line?: number
 }
 export interface ThinkingItem { type: "thinking"; line: number; duration_s: number; at: string }
-export interface QueuedItem { type: "queued"; line: number; text: string; pending: boolean; at: string }
+export interface QueuedItem { type: "queued"; line: number; text: string; pending: boolean; origin?: string; at: string }
 export interface NoticeItem { type: "notice"; line: number; text: string }
 export interface SessionItem { type: "session"; line: number; session_id: string }
 

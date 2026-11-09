@@ -33,7 +33,7 @@ export function UserBubble({ item, queued = false }: { item: UserItem; queued?: 
         {(tag || queued) && (
           <div className="ag-meta">
             {tag && <span className="ag-tag">{tag}</span>}
-            {queued && <span className="pill">queued</span>}
+            {queued && <span className="pill">waiting</span>}
           </div>
         )}
         <div className="ag-text">{item.text}</div>
@@ -170,7 +170,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
       if (k) day = k
     }
     if (it.type === "user") rows.push(<UserBubble key={key} item={it} />)
-    else if (it.type === "queued") { if (pending.has(idx)) rows.push(<UserBubble key={key} queued item={{ type: "user", line: it.line, text: it.text, origin: "panel", at: it.at }} />) }
+    else if (it.type === "queued") { if (pending.has(idx)) rows.push(<UserBubble key={key} queued item={{ type: "user", line: it.line, text: it.text, origin: it.origin ?? "panel", at: it.at }} />) }
     else if (it.type === "agent") rows.push(<AgentMessage key={key} markdown={it.markdown} frozen={idx < lastDivider} at={it.at} later={laterUsers(items, idx)} />)
     else if (it.type === "notice") rows.push(<Notice key={key} item={it} />)
     else if (it.type === "session") rows.push(<Divider key={key} label={sessionLabel(items[idx + 1])} />)

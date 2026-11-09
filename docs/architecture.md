@@ -927,6 +927,9 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
   `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
   `phoenix agent restart --yes` restarts it by hand.
+  `phoenix agent new --yes` (`POST /api/agent/new`) starts a fresh conversation: it asks the agent to save its
+  notes (fixed text), waits until it is not working (at most `[chat] wrap_up_minutes`), then restarts the unit;
+  an asleep agent is just started. It does not hold the API write lock; one at a time (else 409).
 - **Registry**: the list of Claude sessions in `/root/.claude/sessions/<pid>.json` (see "Finding the session").
   Phoenix reads only those `.json` files and the transcripts, nothing else in Claude's home.
 - **Wire format**: `agentlink.wire_line()` builds one JSON line `{msgV: 1, msg_id, type: "user", message: {role:

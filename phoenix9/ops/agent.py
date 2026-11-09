@@ -1,5 +1,6 @@
 """Ops for the Phoenix agent chat: its state, panel messages, sending, and earlier conversations."""
 import json
+import threading
 from datetime import datetime, timezone
 
 from phoenix9 import __version__, agentlink, scrub, settings, transcript
@@ -61,6 +62,45 @@ def restart(who: str = "cli") -> dict:
     chat.agent_restart(common.make_adapters(), "asked by %s" % who)
     common.record_command(who, "agent restart")
     return {"restarted": True, "unit": unit}
+
+
+NEW_CONVERSATION_TEXT = ("A new conversation is about to start. Please save your notes now "
+                         "(notes/NOW.md and notes/sessions/) so nothing is lost.")
+_new_lock = threading.Lock()
+
+
+def _wait_idle(adapters, seconds: float) -> None:
+    """Wait on the adapter clock until the agent is no longer working, up to `seconds`."""
+    clock = adapters.clock
+    deadline = clock.now() + seconds
+    clock.sleep(2)
+    while clock.now() < deadline:
+        if agentlink.status(host=adapters.host)["state"] != "working":
+            return
+        clock.sleep(2)
+
+
+def new_conversation(who: str = "cli") -> dict:
+    """Ask the agent to save its notes, wait for it to settle, then restart it into a fresh conversation."""
+    from phoenix9 import chat
+    if not _new_lock.acquire(blocking=False):
+        raise common.Conflict("A new conversation is already being started.")
+    try:
+        adapters = common.make_adapters()
+        notes_asked, began = False, adapters.clock.now()
+        if agentlink.find(host=adapters.host) is not None:
+            try:
+                agentlink.send(NEW_CONVERSATION_TEXT, None, who, host=adapters.host)
+                notes_asked = True
+                _wait_idle(adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
+            except agentlink.SendError:
+                pass
+        chat.agent_restart(adapters, "a new conversation was asked for by %s" % who)
+        waited = max(0, int(adapters.clock.now() - began))
+    finally:
+        _new_lock.release()
+    common.record_command(who, "agent new")
+    return {"started": True, "notes_asked": notes_asked, "waited_seconds": waited}
 
 
 def _first_time(lines) -> str | None:

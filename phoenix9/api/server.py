@@ -1010,6 +1010,13 @@ def post_agent_restart(req):
         return ops_agent.restart(WHO)
 
 
+def post_agent_new(req):
+    """Start a fresh agent conversation (body {"confirm": true}, else 409); waits without the write lock."""
+    if req.body.get("confirm") is not True:
+        raise common.Conflict("A new conversation needs \"confirm\": true. Nothing was changed.")
+    return ops_agent.new_conversation(WHO)
+
+
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -1065,6 +1072,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/agent/send", post_agent_send),
     ("POST", r"/api/agent/restart", post_agent_restart),
+    ("POST", r"/api/agent/new", post_agent_new),
     ("POST", r"/api/ui/go", post_ui_go),
     ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),

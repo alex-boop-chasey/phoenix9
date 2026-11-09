@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 00511edc01e7ca5d -->
+<!-- phoenix 9.1.0 inputs 29ba855e627297d4 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -492,6 +492,12 @@ read the agent's conversation as plain lines
 ### `phoenix agent restart`
 
 restart the agent's service (needs --yes)
+
+- `--yes`: confirm that you mean it
+
+### `phoenix agent new`
+
+start a fresh conversation with the agent (needs --yes)
 
 - `--yes`: confirm that you mean it
 

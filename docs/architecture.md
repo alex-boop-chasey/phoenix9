@@ -139,6 +139,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | keys | HOME/keys (0700) | | per-project keys `<project>.toml`, 0600 (section 10) |
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
 | work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
+| edits | HOME/edits/<id>/ and <id>.json | | quick edits (`phoenix9/edits.py`): the worktree of the project's code/ on branch `edit/<id>` (id = `yyyymmdd-slug`), and its record `{id, project, title, branch, folder, started, who, status: open|finished|abandoned, last_activity}`; one open edit per project, none while a build runs on it |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -688,7 +689,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped command`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned command`.
+  `edit.started|finished|abandoned {edit, branch, who?, title?}` (project set, run null) come from `phoenix edit`.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.

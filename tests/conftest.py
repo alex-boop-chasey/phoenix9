@@ -18,6 +18,16 @@ def phoenix_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOENIX_SYSTEMD_DIR", str(tmp_path / "systemd"))
     from phoenix9 import agentlink
     agentlink.forget()                  # no agent session choice carries over from another test
+    from fakes import fake_adapters
+    from phoenix9.ops import common
+    made = []
+
+    def default_adapters():
+        """One fake set per test, so no test reaches the real Docker, host or network by accident."""
+        if not made:
+            made.append(fake_adapters(tmp_path))
+        return made[0]
+    monkeypatch.setattr(common, "make_adapters", default_adapters)
     return {"home": home, "projects": projects}
 
 

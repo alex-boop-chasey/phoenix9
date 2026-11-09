@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from phoenix9 import paths, scrub, suggest
+from phoenix9 import paths, scrub
 from phoenix9.api import stream
 from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
@@ -882,10 +882,9 @@ def get_suggest(req):
 
 def post_suggest(req, key, what):
     """Mark a suggestion shown, snoozed (optional {hours}) or dismissed."""
-    key = unquote(key)  # the route keeps %3A / %2B as sent; decoded once here, then it must be a plain key
-    try:
-        suggest.check_key(key)
-    except ValueError as e:
+    try:  # the route keeps %3A / %2B as sent; decoded once here, then it must be a plain key
+        key = ops_suggest.check_key(unquote(key))
+    except common.OpsError as e:
         raise BadRequest(str(e)) from None
     hours = req.body.get("hours", ops_suggest.SNOOZE_HOURS)
     if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= 24 * 365:

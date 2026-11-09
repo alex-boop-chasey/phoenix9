@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 AGENT = Path(__file__).resolve().parent.parent / "deploy" / "agent"
-HELPERS = ["navigator", "editor", "checker"]
+HELPERS = ["navigator", "editor", "checker", "fixer"]
 
 
 def test_files_exist():

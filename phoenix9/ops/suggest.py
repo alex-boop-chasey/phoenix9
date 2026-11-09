@@ -24,6 +24,14 @@ def list_(strip: bool = False, fresh: bool = True) -> dict:
     return {"mode": current, "notice": statusreport.NOTICE, "suggestions": suggest.pick(_report_text(fresh))}
 
 
+def check_key(key: str) -> str:
+    """The key when it looks like a suggestion id; OpsError with a plain message otherwise."""
+    try:
+        return suggest.check_key(key)
+    except ValueError as e:
+        raise common.OpsError(str(e)) from None
+
+
 def show(key: str) -> dict:
     """{key, text, section, attention, notice}: one report line by its key (the Agent panel's Ask button names only
     the key); OpsError when the key is not in the current report."""

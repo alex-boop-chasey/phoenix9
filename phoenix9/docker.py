@@ -366,13 +366,14 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
                workspace: Path, prompt_file: Path, cmd: list[str], env_files: list[Path] = (),
                domains_file: Path | None = None, spec_dir: Path | None = None, scrub_env: bool = False,
                pnpm_store: Path | None = None, mounts=(), workspace_ro: bool = False,
-               extra_env: dict | None = None) -> Run:
+               extra_env: dict | None = None, session_dir: Path | None = None) -> Run:
     """Describe the container for one Claude session (only the transcript folder is created).
 
     The spec folder, when given, is mounted read-only (hard rule 4); so is the workspace when `workspace_ro`.
-    `cmd` is the claude command line.
+    `cmd` is the claude command line. `session_dir` replaces the run's transcript folder (planning sessions
+    keep theirs in HOME/plans/<id>/claude/).
     """
-    tdir = transcript_dir(project, run_id, task, attempt, role)
+    tdir = Path(session_dir) if session_dir else transcript_dir(project, run_id, task, attempt, role)
     tdir.mkdir(parents=True, exist_ok=True)
     all_mounts = [Mount(Path(workspace), "/workspace", ro=workspace_ro), Mount(Path(prompt_file), PROMPT_MOUNT),
                   Mount(tdir, "/home/node/.claude/projects", ro=False)]
@@ -394,19 +395,22 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
                          timeout_min: float, *, env_files: list[Path] = (), domains_file: Path | None = None,
                          spec_dir: Path | None = None, scrub_env: bool = False, limits: dict | None = None,
                          pnpm_store: Path | None = None, mounts=(),
-                         workspace_ro: bool = False, extra_env: dict | None = None) -> tuple[int, Path]:
+                         workspace_ro: bool = False, extra_env: dict | None = None,
+                         session_dir: Path | None = None, log_file: Path | None = None) -> tuple[int, Path]:
     """Run one Claude session in a fresh firewalled container. Returns (exit code, log file).
 
-    The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl with secret values
-    scrubbed out afterwards. The claude port (step 9) builds `cmd` and reads the log.
+    The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl (or `log_file`) with secret
+    values scrubbed out afterwards. The claude port (step 9) builds `cmd` and reads the log.
+    A read-only workspace is not handed to the session user (it only has to be readable).
     """
     r = claude_run(project, run_id, task, attempt, role, image, workspace, prompt_file, cmd, env_files,
-                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env)
+                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env, session_dir)
     argv = build_argv(r, limits)
-    out = log_path(project, run_id, task, attempt, role, "jsonl")
+    out = Path(log_file) if log_file else log_path(project, run_id, task, attempt, role, "jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)
-    hand_to_agent(runner, Path(workspace))
-    hand_to_agent(runner, transcript_dir(project, run_id, task, attempt, role))
+    if not (workspace_ro and session_dir):
+        hand_to_agent(runner, Path(workspace))
+    hand_to_agent(runner, Path(session_dir) if session_dir else transcript_dir(project, run_id, task, attempt, role))
     runner.rm(r.name)                                  # a leftover with the same name would block the start
     try:
         rc = runner.run(argv, out, None, timeout_min * 60, r.name)

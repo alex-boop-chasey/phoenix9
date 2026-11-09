@@ -220,7 +220,11 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
         out.append(f"A build is {busy[0]['status']} ({busy[0]['run_id']}). Stop it or let it finish first.")
     if chat_state == "working":
         out.append("The project's chat is working right now. Wait until it is done.")
-    inside = _working_inside(folder, adapters)
+    planning = [p for p in _project_work(name)[1] if p.get("status") in ("queued", "running")]
+    if planning:
+        out.append(f"A planning session is {planning[0]['status']} ({planning[0]['id']}). Wait until it is done, "
+                   "or abandon it first.")
+    inside = _working_inside(folder, adapters, name)
     if inside:
         shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")
         out.append(f"Programs are working inside the project folder: {shown}. Close them first "
@@ -228,8 +232,62 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
     return out
 
 
-def _working_inside(folder: Path | None, adapters) -> list:
-    """Processes whose working folder is inside the project's real folder (not this process or its parent shell)."""
+def _own_chat_pids(name: str, host, procs: list) -> set:
+    """The project's own chat unit's main process and the listed processes below it that are also in that
+    unit's own cgroup (/proc/<pid>/cgroup is the unit's ControlGroup); the delete stops that unit itself."""
+    unit = f"claude-rc-chat@{name}"
+    try:
+        rc, out, _ = host.systemctl("show", "-p", "MainPID", "--value", unit)
+        main = int(out.strip()) if rc == 0 else 0
+        rc, out, _ = host.systemctl("show", "-p", "ControlGroup", "--value", unit)
+        group = out.strip() if rc == 0 else ""
+    except Exception:
+        return set()
+    if not main or not group.endswith(f"/{unit}.service"):
+        return set()
+    tree = {main}
+    for _ in range(len(procs)):         # grow the set until no process has a parent in it
+        more = {p["pid"] for p in procs if p.get("pid") not in tree and host.parent_pid(p.get("pid")) in tree}
+        if not more:
+            break
+        tree |= more
+    own = set()
+    for pid in tree:
+        try:
+            if host.cgroup(pid) == group:
+                own.add(pid)
+        except Exception:              # cannot read it: not excused
+            continue
+    return own
+
+
+def _project_work(name: str) -> tuple[list, list]:
+    """(quick edits, planning sessions) of the project, from their records (empty when unreadable)."""
+    from phoenix9 import edits, plans
+    try:
+        found_edits = edits.list_edits(name)
+    except Exception:
+        found_edits = []
+    try:
+        found_plans = plans.list_plans(name)
+    except Exception:
+        found_plans = []
+    return found_edits, found_plans
+
+
+def _work_folders(name: str) -> list:
+    """(arcname, path) of the project's quick-edit copies and planning-session folders (kept in the safety copy)."""
+    found_edits, found_plans = _project_work(name)
+    out = []
+    for e in found_edits:
+        out.append((Path("edits") / e["id"], paths.home() / "edits" / e["id"]))
+    for p in found_plans:
+        out.append((Path("plans") / p["id"], paths.home() / "plans" / p["id"]))
+    return [(arc, base) for arc, base in out if base.is_dir() and not base.is_symlink()]
+
+
+def _working_inside(folder: Path | None, adapters, name: str | None = None) -> list:
+    """Processes whose working folder is inside the project's real folder (not this process, its parent shell or the project's own chat)."""
     if folder is None or adapters is None:
         return []
     real = os.path.realpath(folder)
@@ -238,8 +296,12 @@ def _working_inside(folder: Path | None, adapters) -> list:
         procs = adapters.host.process_cwds()
     except Exception:          # cannot tell: say nothing rather than block every delete
         return []
-    return [p for p in procs if p.get("pid") not in me and
-            (os.path.realpath(p.get("cwd") or "/") == real or os.path.realpath(p.get("cwd") or "/").startswith(real + os.sep))]
+    found = [p for p in procs if p.get("pid") not in me and
+             (os.path.realpath(p.get("cwd") or "/") == real or os.path.realpath(p.get("cwd") or "/").startswith(real + os.sep))]
+    if found and name:                  # only ask systemd when something is there to excuse
+        own = _own_chat_pids(name, adapters.host, procs)
+        found = [p for p in found if p.get("pid") not in own]
+    return found
 
 
 def plan(name: str, who: str, adapters) -> dict:
@@ -344,7 +406,7 @@ def _write_tar(dest: Path, base: Path, rels: list) -> list:
 def _run_files(name: str) -> list:
     """(arcname, path) for each folder that goes in runs.tar.gz: Phoenix's run folders and any work folders."""
     return [(Path(kind) / name, base) for kind, base in (("runs", paths.runs(name)), ("work", paths.home() / "work" / name))
-            if base.is_dir()]
+            if base.is_dir()] + _work_folders(name)
 
 
 def _write_runs_tar(dest: Path, name: str) -> int:
@@ -400,7 +462,7 @@ def _restore_text(name: str, folder: str, repo: str | None, bundle: bool) -> str
               "(this brings back unsaved edits that were never committed, untracked files and nested repos)"]
     n += 1
     steps += [f"{n}. Optional: put the build history back: `tar -xzf runs.tar.gz -C <Phoenix home>` "
-              "(run folders go to runs/, work folders to work/)."]
+              "(run folders go to runs/, work folders to work/, quick-edit copies to edits/, planning sessions to plans/)."]
     n += 1
     where = repo or "<owner>/<name>"
     steps += [f"{n}. Recreate the GitHub repo and push: `gh repo create {where} --private --source {folder}/code --push`"
@@ -592,9 +654,23 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
     def records() -> str:
         host.remove_tree(paths.runs(name))
         host.remove_tree(paths.home() / "work" / name)
-        return "Removed Phoenix's records and runs for the project."
+        found_edits, found_plans = _project_work(name)
+        for e in found_edits:            # quick-edit copies (their edit/<id> branches go with code/)
+            host.remove_tree(paths.home() / "edits" / e["id"])
+            host.remove_tree(paths.home() / "work" / f"edit-{e['id']}")
+            host.remove_file(paths.home() / "edits" / f"{e['id']}.json")
+        for p in found_plans:            # planning sessions: record, folder, lock and repo copy
+            host.remove_tree(paths.home() / "plans" / p["id"])
+            host.remove_tree(paths.home() / "work" / f"plan-{p['id']}")
+            host.remove_file(paths.home() / "plans" / f"{p['id']}.json")
+            host.remove_file(paths.home() / "plans" / f"{p['id']}.lock")
+        return "Removed Phoenix's records, runs, quick edits and planning sessions for the project."
 
     def remove_folder() -> str:
+        inside = _working_inside(folder, adapters)      # the chat unit is stopped now: nothing may be excused
+        if inside:
+            shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3])
+            raise common.OpsError(f"Not removed: programs are still working inside {folder}: {shown}.")
         host.remove_tree(folder)
         if folder.exists():
             raise common.OpsError(f"Could not remove {folder}.")
@@ -608,12 +684,16 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
         untrust(host, folder)
         return "Removed Claude Code's folder trust entry."
 
-    _step(steps, who, name, "records and runs", records)
     _step(steps, who, name, "chat unit", lambda: _stop_chat(name, host))
-    _step(steps, who, name, "project folder", remove_folder)
-    _step(steps, who, name, "saved keys", remove_keys)
-    _step(steps, who, name, "folder trust", trust)
-    _step(steps, who, name, "removed list and INDEX.md", lambda: _forget(name))
+    if steps[-1]["ok"]:                 # the chat could still be working in the folder: never remove it then
+        _step(steps, who, name, "records and runs", records)
+        _step(steps, who, name, "project folder", remove_folder)
+        _step(steps, who, name, "saved keys", remove_keys)
+        _step(steps, who, name, "folder trust", trust)
+        _step(steps, who, name, "removed list and INDEX.md", lambda: _forget(name))
+    else:
+        steps[-1]["words"] += (" So nothing else was deleted: the project folder, its records and keys are all "
+                               "still there. Stop the chat unit, then delete again.")
     folder_gone = any(s["step"] == "project folder" and s["ok"] for s in steps) and not folder.exists()
     blocker = None if folder_gone else (f"GitHub repo {repo} not deleted: the project folder could not be removed, "
                                         "so its repo is kept. Remove the folder, then press Delete repo again.")

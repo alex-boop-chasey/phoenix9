@@ -1,7 +1,7 @@
 """The Phoenix agent's service restart, and each project's chat unit (architecture 8 and 11).
 
 No AI runs in Phoenix's own processes (rule 1): this file only starts, stops and looks at systemd units
-through the Host adapter. A build that runs out of tries is handed to the agent with a message
+through the Host adapter, and never starts Claude (planning sessions run in step containers, plansession.py). A build that runs out of tries is handed to the agent with a message
 (`failmodes.escalate` through `agentlink.send`), never with a session started here.
 """
 from __future__ import annotations

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, runs, service as ops_service, services, settings, ui as ops_ui, update
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, runs, service as ops_service, services, settings, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -204,7 +204,9 @@ def get_check_name(req):
 
 
 def get_project(req, name):
-    """Reply with one project's details."""
+    """Reply with one project's details (409 for the Phoenix agent's own folder, which is not a project)."""
+    if name == projects.agent_name():
+        raise common.Conflict(projects.AGENT_FOLDER_TEXT)
     row = projects.row(check_name(name))
     return {**projects.show(name), **{k: row[k] for k in ("repo_url", *projects.STATE_KEYS)}}
 
@@ -826,6 +828,22 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
+def post_edit_abandon(req, edit_id):
+    """Abandon a quick edit (the body must hold {"confirm": true})."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Abandoning a quick edit needs confirmation.")
+    with req.server.write_lock:
+        return ops_work.abandon_edit(edit_id, WHO)
+
+
+def post_plan_abandon(req, plan_id):
+    """Abandon a planning session (the body must hold {"confirm": true})."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Abandoning a planning session needs confirmation.")
+    with req.server.write_lock:
+        return ops_work.abandon_plan(plan_id, WHO)
+
+
 def post_run_pause(req, run_id):
     """Pause now: stop the running step's container and pause the run."""
     if req.body.get("now") is not True:
@@ -1038,6 +1056,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),
+    ("POST", r"/api/plans/(?P<plan_id>[^/]+)/abandon", post_plan_abandon),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/pause", post_run_pause),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),

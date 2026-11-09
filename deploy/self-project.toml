@@ -43,6 +43,28 @@ safety_files = [
   "phoenix9/project_delete.py",  # the delete-project plan and safety copy
   # Repairs
   "phoenix9/repair/*.py",  # repairs can change run state and unlock checks
+  # No Claude on the host; planning sessions and quick edits
+  "docs/architecture.md",  # the safety rules (section 11: Claude only in step containers)
+  "phoenix9/chat.py",  # agent restart and chat units; never starts Claude
+  "phoenix9/plans.py",  # planning-session records and queue
+  "phoenix9/plansession.py",  # runs planning sessions in sealed step containers
+  "phoenix9/claude.py",  # the only claude command line (for containers)
+  "steps/_plan-session/*",  # the planning session's tools and prompt
+  "phoenix9/edits.py",  # quick-edit branch copies
+  "phoenix9/editfinish.py",  # quick-edit checks before a merge request
+  "tests/test_no_host_claude.py",  # fails on any claude command run outside a container
+  # Projects, removal and the runner loop
+  "phoenix9/project_removal.py",  # what can never be removed or deleted
+  "phoenix9/watch.py",  # the runner loop: runs, plans, chats
+  "phoenix9/__main__.py",  # the command line entry point
+  "phoenix9/cli/project.py",  # project commands incl. delete
+  "phoenix9/ops/projects.py",  # project ops and the agent folder name
+  "phoenix9/pause.py",  # Claude session ids that may be resumed
+  "phoenix9/spec.py",  # the spec format every build and plan is checked against
+  "phoenix9/atomic.py",  # safe file writes
+  "deploy/agent/settings.json",  # the agent's Claude settings
+  "deploy/claude-rc-chat@.service",  # the project chat unit
+  "deploy/self-project.toml",  # this list itself
   # The checks themselves
   "check.sh",  # the check command
   "check-browser.sh",  # the browser check command

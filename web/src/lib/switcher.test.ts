@@ -19,3 +19,19 @@ describe("switcher", () => {
     expect(sortForSwitcher(rows).map((r) => r.name)).toEqual(["a1", "a2", "b", "c", "d"])
   })
 })
+
+describe("groups", () => {
+  it("puts a project in the first group that fits and hides empty groups", async () => {
+    const { groupForSwitcher } = await import("./switcher")
+    const run = (status: "running" | "waiting") => ({ run_id: "r", status, task: 1, tasks: 2 })
+    const rows = [
+      row({ name: "idle" }), row({ name: "wait", run: run("waiting"), activity: "need" }),
+      row({ name: "build", run: run("running"), activity: "run" }),
+      row({ name: "edit", run: run("running"), edit: { id: "e", title: "Fix typo", status: "open" } }),
+    ]
+    const groups = groupForSwitcher(rows)
+    expect(groups.map((g) => g.title)).toEqual(["Agent working", "Building", "Paused / needs you", "Projects"])
+    expect(groups.map((g) => g.rows.map((r) => r.name))).toEqual([["edit"], ["build"], ["wait"], ["idle"]])
+    expect(groupForSwitcher([row({ name: "x" })]).length).toBe(1)
+  })
+})

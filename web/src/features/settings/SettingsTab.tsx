@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router"
 import { Icon } from "@/components/Icon"
 import { BuildSection } from "@/features/settings/BuildSection"
 import { scrollToAndHighlight } from "@/lib/focus"
+import { ChatSection } from "@/features/settings/ChatSection"
 import { DangerZone } from "@/features/settings/DangerZone"
 import { ProjectSection } from "@/features/settings/ProjectSection"
 
@@ -74,6 +75,7 @@ export function SettingsTab({ name }: { name: string }) {
       <div className="stackg" style={{ gap: 32 }}>
         <ProjectSection name={name} />
         <BuildSection name={name} />
+        <ChatSection name={name} />
         <DangerZone name={name} />
       </div>
     </section>

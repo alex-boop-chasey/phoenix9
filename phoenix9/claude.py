@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 
 from phoenix9 import atomic, paths, pause, prices, state
 from phoenix9.docker import Mount
-from phoenix9.scrub import Scrubber, read_env_file, scrub
+from phoenix9.scrub import Scrubber, scrub
 
 # The Claude Code tools Phoenix supports in `ai.tools` / `ai.tools_denied` (passed as-is to
 # --allowedTools / --disallowedTools). Each is (name, plain label, one-line explanation).
@@ -413,15 +413,6 @@ def parse_resets_at(text: str, tz: str = "UTC", now: float | None = None) -> flo
 
 
 # ------------------------------------------------------------- running a session
-def start_local(cmd: list[str], cwd: Path, env_files: list[Path]) -> subprocess.Popen:
-    """Start the command on this machine with the env files' values added (used by tests)."""
-    env = dict(os.environ)
-    for path in env_files:
-        env.update(read_env_file(path))
-    return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-
-
 def _pump(stream, lines: queue.Queue) -> None:
     """Copy lines from a process pipe into a queue; put None at the end."""
     try:
@@ -483,15 +474,18 @@ def _save_stderr(stream, path: Path, scrubber: Scrubber) -> None:
 
 def run(cmd: list[str], cwd: Path, env_files: list[Path], log_path: Path,
         timeout_min: float, no_output_timeout_min: float,
-        start: Callable[[list[str], Path, list[Path]], subprocess.Popen] = start_local,
+        start: Callable[[list[str], Path, list[Path]], subprocess.Popen] = None,
         grace_s: float = KILL_GRACE_S, tz: str = "UTC", secrets: list[str] | None = None) -> Result:
     """Run one Claude session and return its Result.
 
     Every stdout line goes to `log_path` (values from the env files and `secrets` are replaced by
     [secret]); stderr goes to `<log_path>.stderr`. If no line arrives for `no_output_timeout_min`
     minutes the process is stopped (kind `no_output`); if it runs longer than `timeout_min` minutes
-    it is stopped (kind `timed_out`). `start(cmd, cwd, env_files)` starts the process with pipes.
+    it is stopped (kind `timed_out`). `start(cmd, cwd, env_files)` starts the process with pipes; there is
+    no default (Phoenix never starts Claude on the host, rule 1: only tests use this, with their own starter).
     """
+    if start is None:
+        raise ValueError("claude.run needs a starter; Phoenix itself runs Claude only through Claude.launch")
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
     stderr_path = log_path.with_name(log_path.name + ".stderr")
@@ -571,8 +565,10 @@ def wait_for_limit(result: Result, probe: Callable[[], Result], now: Callable[[]
 
 
 # ------------------------------------------------------------- usage records
-def record_usage(run_dir, result: Result, attempt_dir=None) -> None:
-    """Add one session to the run's state.json `usage` and, if given, write the attempt's result.json."""
+def record_usage(run_dir, result: Result, attempt_dir=None, update=None) -> None:
+    """Add one session to the run's state.json `usage` and, if given, write the attempt's result.json.
+
+    `update(fn)` replaces the state.json update (a planning session keeps its usage in its own record)."""
     known = getattr(result, "cost_known", True)
 
     def change(s):
@@ -583,7 +579,10 @@ def record_usage(run_dir, result: Result, attempt_dir=None) -> None:
             usage["estimated_sessions"] = int(usage.get("estimated_sessions") or 0) + 1
         if not known:           # the spending cap asks Alex instead of counting this session as $0
             usage["unknown_cost_sessions"] = int(usage.get("unknown_cost_sessions") or 0) + 1
-    state.update(Path(run_dir), change)
+    if update is not None:
+        update(change)
+    else:
+        state.update(Path(run_dir), change)
     if attempt_dir is not None:
         atomic.write_json(Path(attempt_dir) / "result.json", {
             "at": state.now(), "kind": result.kind, "model": result.model, "session_id": result.session_id,

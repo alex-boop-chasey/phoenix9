@@ -23,6 +23,15 @@ export default function ProjectPage() {
     return <Navigate to={`/p/${name}/overview`} replace />
   }
   const err = project.error
+  if (err instanceof ApiError && err.status === 409) {
+    return (
+      <EmptyState
+        icon={SearchX}
+        title="This is the Phoenix agent's folder, not a project"
+        action={<Button variant="outline" onClick={() => window.dispatchEvent(new Event("phoenix:open-agent"))}>Open the Agent panel</Button>}
+      />
+    )
+  }
   if (err instanceof ApiError && err.status === 404) {
     return (
       <EmptyState

@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import agentwatch, atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import project_delete, projectchat, settings
+from phoenix9 import plansession, project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
 
 MAX_CRASHES = 3          # a run that crashes the loop this many times in a row is failed
@@ -278,6 +278,14 @@ def catch_up() -> list[str]:
     return closed
 
 
+def mark_stalled_edits() -> None:
+    """Mark quick edits with no activity for 30 minutes as stalled; never raises."""
+    try:
+        edits.mark_stalled()
+    except Exception as err:  # noqa: BLE001 - a bad edit record must not stop the runner
+        print(f"phoenix runner: could not check quick edits: {type(err).__name__}: {err}", file=sys.stderr, flush=True)
+
+
 def prune_deleted_copies(adapters) -> None:
     """Remove old safety copies of deleted projects; never raises (a problem is one log line, the loop goes on)."""
     try:
@@ -287,21 +295,36 @@ def prune_deleted_copies(adapters) -> None:
               file=sys.stderr, flush=True)
 
 
+def run_plans(adapters) -> str | None:
+    """Run the oldest queued planning session (in a step container, between runs); never raises."""
+    try:
+        return plansession.run_next(adapters)
+    except Exception as err:  # noqa: BLE001 - a bad plan record must not stop the runner
+        print(f"phoenix runner: could not run a planning session: {type(err).__name__}: {err}", file=sys.stderr, flush=True)
+        return None
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     heartbeat.reset_progress()
     heartbeat.mark_progress()
     docker_mod.cleanup_orphans(adapters.docker)
     catch_up()
+    try:
+        plansession.requeue_stale()          # their containers were just removed: run them again
+    except Exception:  # noqa: BLE001 - a bad plan record must not stop the runner
+        pass
     stop = threading.Event()
     ticker = heartbeat.start_ticker(adapters.clock, stop=stop)    # beats while a container runs or the loop moves
     memory = Memory()
     try:
         while True:
             watch_once(adapters, runner, memory)
+            run_plans(adapters)                  # between runs: one planning session at a time
             check_agent(adapters, memory)
             check_chats(adapters, memory)
             prune_deleted_copies(adapters)
+            mark_stalled_edits()
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

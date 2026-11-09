@@ -34,6 +34,7 @@ class FakeHost:
         self.stopped: list[int] = []         # pids sent SIGTERM through stop_pid()
         self.programs: dict[str, list[int]] = {}  # program name -> uids of its running processes
         self.proc_cwds: list[dict] = []      # running processes as {pid, name, cwd} (process_cwds())
+        self.cgroups: dict[int, str] = {}    # pid -> cgroup path (cgroup())
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -44,8 +45,10 @@ class FakeHost:
         self.responses.append((list(prefix), [tuple(a) for a in answers]))
 
     def run(self, argv, timeout=60, cwd=None):
-        """Record the call and return the scripted answer (default: success, no output)."""
+        """Record the call and return the scripted answer (default: success, no output); refuses Claude like Host."""
         argv = list(argv)
+        from phoenix9.adapters import refuse_claude
+        refuse_claude(argv)
         self.calls.append(argv)
         self.cwds.append(str(cwd) if cwd else None)
         for prefix, answer in reversed(self.responses):
@@ -116,6 +119,10 @@ class FakeHost:
     def parent_pid(self, pid):
         """The parent from .parents (None when not set)."""
         return self.parents.get(pid)
+
+    def cgroup(self, pid):
+        """The cgroup from .cgroups ('' when not set)."""
+        return self.cgroups.get(pid, "")
 
     def realpath(self, path):
         """The path from .realpaths, else the path itself (no symlinks unless scripted)."""

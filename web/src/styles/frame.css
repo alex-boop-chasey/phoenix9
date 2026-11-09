@@ -172,3 +172,4 @@
 .ag-choice-answer{font-size:.9em}
 .ag-tile-danger{border-color:var(--destructive,#c62828); color:var(--destructive,#c62828)}
 .ag-nav{display:flex; flex-wrap:wrap; gap:6px}
+.sw-group{margin:8px 8px 2px; font-size:11px}

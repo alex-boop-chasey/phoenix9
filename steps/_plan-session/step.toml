@@ -1,0 +1,18 @@
+# The planning session (`phoenix plan start|continue|reply`). Not a run step: the folder name starts with
+# "_" so the step library never puts it into a run. The runner service runs it in a sealed step container
+# (phoenix9/plansession.py), exactly like the Planner step: read-only /workspace, only /out writable.
+name = "plan-session"
+title = "Planning session"
+description = "Writes or updates a spec with open questions for Alex; Phoenix checks it and files it."
+kind = "ai"
+
+[ai]
+model = "claude-fable-5-1"            # replaced by the setting plan.model when it is set
+fallback_models = ["claude-opus-5-5", "claude-sonnet-5-5"]
+tools = ["Read", "Glob", "Grep", "Write", "Edit"]
+tools_denied = ["Bash", "WebFetch", "WebSearch"]
+mcp_servers = []
+claude_md = "none"                    # the project's CLAUDE.md is mounted read-only at /project/CLAUDE.md
+skills = []
+max_turns = 80
+timeout = 40                          # minutes per session

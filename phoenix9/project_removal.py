@@ -8,8 +8,31 @@ from phoenix9 import atomic, events, git, paths, project, projectchat, settings,
 from phoenix9.ops import common
 from phoenix9.ops.common import Conflict, NotFound, OpsError
 
-PROTECTED = {"phoenix9": "phoenix9 is Phoenix itself, so it cannot be removed.",
-             project.HOME_PROJECT: "home is the front door, so it cannot be removed."}
+class _Protected(dict):
+    """Projects that can never be removed or deleted: phoenix9, "home" and the Phoenix agent's folder as the
+    agent settings name it now (`ops.projects.agent_name()`)."""
+
+    @staticmethod
+    def _agent() -> str:
+        from phoenix9.ops.projects import agent_name
+        try:
+            return agent_name()
+        except Exception:        # unreadable settings: "home" is still protected
+            return project.HOME_PROJECT
+
+    def __contains__(self, name) -> bool:
+        return dict.__contains__(self, name) or (isinstance(name, str) and name == self._agent())
+
+    def __getitem__(self, name) -> str:
+        if dict.__contains__(self, name):
+            return dict.__getitem__(self, name)
+        if isinstance(name, str) and name == self._agent():
+            return f"{name} is the Phoenix agent's folder, not a project, so it cannot be removed."
+        raise KeyError(name)
+
+
+PROTECTED = _Protected({"phoenix9": "phoenix9 is Phoenix itself, so it cannot be removed.",
+                        project.HOME_PROJECT: "home is the Phoenix agent's folder, not a project, so it cannot be removed."})
 
 
 def removed_list() -> list:

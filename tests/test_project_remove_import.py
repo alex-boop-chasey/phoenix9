@@ -49,7 +49,7 @@ def test_remove_refuses_phoenix9_and_home(env):
     for name in ("phoenix9", "home"):
         with pytest.raises(OpsError, match="cannot be removed"):
             projects.remove(name, "tester")
-        assert [x for x in projects.list_() if x["name"] == name]
+        assert [x for x in projects.list_(include_agent=True) if x["name"] == name]
     assert not calls(env["host"], "systemctl", "disable")
 
 

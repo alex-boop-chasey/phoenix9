@@ -419,7 +419,7 @@ def _all_there(folder):
 def test_delete_order_and_everything_gone(env, unitdir):
     folder = _stuff(env)
     res = project_delete.delete("alpha", "alpha", "dashboard", env["fakes"])
-    assert [s["step"] for s in res["steps"]] == ["records and runs", "chat unit", "project folder", "saved keys",
+    assert [s["step"] for s in res["steps"]] == ["chat unit", "records and runs", "project folder", "saved keys",
                                                  "folder trust", "removed list and INDEX.md", "GitHub repo"]
     assert all(s["ok"] for s in res["steps"]) and res["not_done"] == []
     assert not folder.exists() and not paths.runs("alpha").exists() and not (paths.keys() / "alpha.toml").exists()
@@ -516,9 +516,12 @@ def test_delete_chat_unit_failure_recorded(env, unitdir):
     folder = _stuff(env)
     env["host"].script(["systemctl", "disable"], rc=1, err="Access denied")
     res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
-    chat = res["steps"][1]
+    chat = res["steps"][0]
     assert chat["step"] == "chat unit" and not chat["ok"] and "Access denied" in chat["words"]
-    assert not folder.exists() and any(n["what"] == "chat unit" for n in res["not_done"])
+    assert "nothing else was deleted" in chat["words"]
+    assert [s["step"] for s in res["steps"]] == ["chat unit", "GitHub repo"]
+    _all_there(folder)                                      # the chat may still be working: nothing is removed
+    assert any(n["what"] == "chat unit" for n in res["not_done"])
 
 
 def test_delete_chat_unit_not_loaded_is_fine(env, unitdir):
@@ -636,11 +639,11 @@ def test_api_delete_refused_409(api):
     assert (paths.projects() / "alpha").is_dir()
 
 
-def test_api_delete_works_and_repo_retry(api):
+def test_api_delete_works_and_repo_retry(api, unitdir):
     from test_api_server import make_project
     folder = make_project("alpha")
     status, resp = api("/api/projects/alpha/delete", "POST", POST_HEADERS, {"confirm": "alpha"})
-    assert status == 200 and resp["data"]["steps"][-1]["step"] == "GitHub repo" and not folder.exists()
+    assert status == 200 and resp["data"]["steps"][-1]["step"] == "GitHub repo" and not folder.exists(), resp["data"]["steps"]
     status, resp = api("/api/projects/alpha/delete-repo", "POST", POST_HEADERS, {})
     assert status == 200 and resp["data"]["name"] == "alpha"
     assert api("/api/projects/ghost/delete-repo", "POST", POST_HEADERS, {})[0] == 404
@@ -1216,6 +1219,106 @@ def test_process_inside_the_folder_refuses(env, unitdir):
     _all_there(folder)
 
 
+CHAT_GROUP = "/system.slice/system-claude\\x2drc\\x2dchat.slice/claude-rc-chat@alpha.service"
+
+
+def _script_main_pid(env, pid, pids=(5000, 5001, 5002)):
+    env["host"].script(["systemctl", "show", "-p", "MainPID"], out=f"{pid}\n")
+    env["host"].script(["systemctl", "show", "-p", "ControlGroup"], out=CHAT_GROUP + "\n")
+    env["host"].cgroups.update({p: CHAT_GROUP for p in pids})
+
+
+def test_own_chat_child_outside_the_unit_cgroup_refuses(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000, pids=(5000,))
+    env["host"].parents = {5001: 5000}
+    env["host"].cgroups[5001] = "/user.slice/user-0.slice/session-3.scope"
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)},
+                             {"pid": 5001, "name": "bash", "cwd": str(folder / "code")}]
+    refusals = project_delete.plan("alpha", "cli", env["fakes"])["refusals"]
+    assert len(refusals) == 1 and "bash (process 5001)" in refusals[0]
+
+
+def test_folder_not_removed_when_something_still_works_inside_after_the_unit_stopped(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000)
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)}]
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])   # 5000 survived the unit stop
+    step = next(s for s in res["steps"] if s["step"] == "project folder")
+    assert not step["ok"] and "still working inside" in step["words"] and folder.is_dir()
+
+
+def test_delete_removes_the_projects_quick_edits_and_plans(env, unitdir):
+    folder = _stuff(env)
+    edit_dir = paths.home() / "edits" / "20261109-x"
+    edit_dir.mkdir(parents=True)
+    (edit_dir / "f.txt").write_text("work in progress\n")
+    atomic.write_json(paths.home() / "edits" / "20261109-x.json",
+                      {"id": "20261109-x", "project": "alpha", "title": "x", "branch": "edit/20261109-x",
+                       "folder": str(edit_dir), "started": "2026-11-09T00:00:00+00:00", "who": "cli",
+                       "status": "open", "last_activity": "2026-11-09T00:00:00+00:00"})
+    plan_dir = paths.home() / "plans" / "20261109-p"
+    (plan_dir / "out").mkdir(parents=True)
+    atomic.write_json(paths.home() / "plans" / "20261109-p.json",
+                      {"id": "20261109-p", "project": "alpha", "brief": "p", "status": "waiting",
+                       "started": "2026-11-09T00:00:00+00:00"})
+    other = paths.home() / "plans" / "20261109-q.json"
+    atomic.write_json(other, {"id": "20261109-q", "project": "beta", "brief": "q", "status": "done",
+                              "started": "2026-11-09T00:00:00+00:00"})
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert not folder.exists() and not edit_dir.exists() and not plan_dir.exists()
+    assert not (paths.home() / "edits" / "20261109-x.json").exists()
+    assert not (paths.home() / "plans" / "20261109-p.json").exists() and other.exists()
+    import tarfile
+    with tarfile.open(f"{res['backup']}/runs.tar.gz") as tar:
+        assert "edits/20261109-x/f.txt" in tar.getnames()
+
+
+@pytest.mark.parametrize("plan_status", ["running", "queued"])
+def test_running_or_queued_plan_refuses_delete(env, unitdir, plan_status):
+    folder = _stuff(env)
+    atomic.write_json(paths.home() / "plans" / "20261109-p.json",
+                      {"id": "20261109-p", "project": "alpha", "brief": "p", "status": plan_status,
+                       "started": "2026-11-09T00:00:00+00:00"})
+    with pytest.raises(OpsError, match=f"planning session is {plan_status}"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_own_chat_process_does_not_refuse_and_unit_stops_first(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000)
+    env["host"].parents = {5001: 5000, 5002: 5001}
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)},
+                             {"pid": 5001, "name": "node", "cwd": str(folder / "code")},
+                             {"pid": 5002, "name": "git", "cwd": str(folder / "code")}]
+    assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
+    real_run = env["host"].run
+
+    def run(argv, timeout=60, cwd=None):            # stopping the unit ends its processes
+        if argv[:2] == ["systemctl", "stop"]:
+            env["host"].proc_cwds = []
+        return real_run(argv, timeout, cwd)
+    env["host"].run = run
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    sysc = [c[1] for c in env["host"].calls if c[0] == "systemctl"]
+    assert "stop" in sysc and not folder.exists()
+
+
+def test_other_process_beside_own_chat_refuses(env, unitdir):
+    folder = _stuff(env)
+    _script_main_pid(env, 5000)
+    env["host"].parents = {5001: 5000}
+    env["host"].proc_cwds = [{"pid": 5000, "name": "claude", "cwd": str(folder)},
+                             {"pid": 5001, "name": "node", "cwd": str(folder)},
+                             {"pid": 6000, "name": "vim", "cwd": str(folder / "code")}]
+    refusals = project_delete.plan("alpha", "cli", env["fakes"])["refusals"]
+    assert len(refusals) == 1 and "vim (process 6000)" in refusals[0] and "claude" not in refusals[0]
+    with pytest.raises(OpsError, match="inside the project folder"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
 def test_process_next_door_or_self_does_not_refuse(env, unitdir):
     import os
     folder = _stuff(env)
@@ -1307,3 +1410,12 @@ def test_retry_checks_github_against_bundle_too(env, unitdir):
     env["host"].ls_remote = (0, "3333333333333333333333333333333333333333\trefs/heads/new-work\n", "")
     res = project_delete.delete_repo("alpha", "cli", env["fakes"])
     assert _gh_deletes(env) == [] and res["steps"][0]["kept"] and "new-work" in res["steps"][0]["words"]
+
+
+def test_delete_and_remove_refuse_home_plainly(env):
+    make(env, "home")
+    with pytest.raises(Conflict, match="agent's folder"):
+        project_delete.delete("home", "home", "cli", env["fakes"])
+    from phoenix9 import project_removal
+    with pytest.raises(Exception, match="agent's folder"):
+        project_removal.remove("home", "cli", env["fakes"])

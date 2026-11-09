@@ -491,8 +491,8 @@ def _layer(data: dict, specs: dict[str, Spec], where: str) -> dict[str, Any]:
 def no_profile_message(name: str) -> str:
     """The plain refusal for a build in a project that has no project type."""
     return (f"{name} has no project type yet, so Phoenix doesn't know which build tools to use. "
-            "Choose one (web, platform, mobile, desktop, python-script, research) with "
-            f"`phoenix settings set {name} profile <type>` or in the project's settings, "
+            f"Set one with `phoenix settings set {name} profile <type>` "
+            "(web, platform, mobile, desktop, python-script, research), "
             "then start the build again.")
 
 

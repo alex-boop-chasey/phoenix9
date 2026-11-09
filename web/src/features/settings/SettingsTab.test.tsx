@@ -40,7 +40,7 @@ test("repo change asks for confirmation and sends confirm", async () => {
   await userEvent.clear(repo)
   await userEvent.type(repo, "rebirth-wd/other")
   await userEvent.click(screen.getByRole("button", { name: "Save project" }))
-  expect(await screen.findByText("Change the repo/profile?", { selector: "h2" })).toBeInTheDocument()
+  expect(await screen.findByText("Change the repo?", { selector: "h2" })).toBeInTheDocument()
   expect(posts(calls)).toHaveLength(0)
   await userEvent.click(screen.getByRole("button", { name: "Change it" }))
   await waitFor(() => expect(posts(calls)).toHaveLength(1))
@@ -151,18 +151,6 @@ test("discard drops the unsaved changes", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Discard" }))
   expect(screen.queryByText("Unsaved changes")).toBeNull()
   expect((screen.getByLabelText("Description") as HTMLTextAreaElement).value).toBe(before)
-})
-
-test("profile Change opens choices and picking one marks the form changed", async () => {
-  const { calls } = await setup("demo-site", { "POST /api/projects/demo-site/edit": baseRoutes()["GET /api/projects/demo-site"] })
-  const row = screen.getByText("Profile", { selector: "span.lbl" }).closest(".srow") as HTMLElement
-  await userEvent.click(within(row).getByRole("button", { name: "Change" }))
-  await userEvent.click(within(row).getByRole("option", { name: /Python script/ }))
-  expect(screen.getByText("Unsaved changes")).toBeInTheDocument()
-  await userEvent.click(screen.getByRole("button", { name: "Save project" }))
-  await userEvent.click(await screen.findByRole("button", { name: "Change it" }))
-  await waitFor(() => expect(posts(calls)).toHaveLength(1))
-  expect(posts(calls)[0]!.body).toEqual({ profile: "python-script", confirm: true })
 })
 
 test("section index has jump links", async () => {

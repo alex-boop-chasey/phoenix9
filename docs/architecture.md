@@ -316,7 +316,9 @@ The profile's container image files live in `profiles/<name>/image/`.
 
 A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
 per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
-image never reaches docker.
+image never reaches docker. The refusal (`settings.no_profile_message`) points at `phoenix settings set <name> profile <type>`.
+
+Where the profile and template show up (the owner calls the profile "Type" and a template "Framework"): both are chosen only on the New project page (Type and Framework pickers). Afterwards the dashboard shows them read-only on the Overview's About card (`Type` = profile title, `Framework` = the template's title, or "None"). The Settings tab has no Type control; `phoenix settings set <project> profile <type>` and the edit API still accept a change. Projects with no type are left as they are.
 
 ### 4.6 Service folder: `services/<name>/service.toml`
 

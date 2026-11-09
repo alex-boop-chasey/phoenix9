@@ -140,6 +140,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
 | work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
 | edits | HOME/edits/<id>/ and <id>.json | | quick edits (`phoenix9/edits.py`): the worktree of the project's code/ on branch `edit/<id>` (id = `yyyymmdd-slug`), and its record `{id, project, title, branch, folder, started, who, status: open|finished|abandoned, last_activity}`; one open edit per project, none while a build runs on it |
+| plans | HOME/plans/<id>.json and <id>/session.jsonl | | planning sessions (`phoenix9/plans.py`): record `{id, project, brief, model, started, who, status: running|waiting|done|failed, session_id, spec, open_questions, report, last_activity}`; one running per project; the stream-json output of the headless claude |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -691,6 +692,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   task.finished gate.opened gate.answered project.created project.changed settings.changed
   update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled command`.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
+  `plan.started|continued|waiting|done|failed {plan, ...}` come from `phoenix plan`.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
@@ -1116,6 +1118,13 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
    `.claude/`, `.mcp.json`, locked check files. Everything else is allowed unless the project denies it.
 7. Never `claude --bare` (it ignores the OAuth token).
 8. Secrets scrubbed from every log line written to disk.
+
+Planning sessions (exception, `chat.plan_start` / `chat.plan_continue`, the only other place Claude starts on the host): a headless
+`claude -p --output-format stream-json --permission-mode bypassPermissions --model <plan.model, default claude-fable-5-1>` run through the Host
+adapter in `/srv/projects/<project>`, output kept in `HOME/plans/<id>/session.jsonl`. It writes a spec in notes/specs/, checks it with
+`phoenix spec check <file>`, and keeps questions in the spec (`## Open questions`, numbered, each followed by an empty `Answer:` line).
+`phoenix plan continue <id>` resumes it (`--resume`) to read the answers and move them into `## Decisions`. Phoenix reads the open
+questions from the spec file itself, not from what the session says. CLI: `phoenix plan start|status|continue|list`.
 
 ## 12. Deliberate simplifications (recorded so nobody "fixes" them)
 

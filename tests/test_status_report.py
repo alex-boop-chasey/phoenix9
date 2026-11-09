@@ -67,7 +67,7 @@ def test_waiting_for_alex_with_age(quiet):
     gate = gates.list_gates()[0]
     atomic.write_json(run / "gates" / f"{gate['id']}.json", {**gate, "created": _iso(2 * 86400)})
     text = build(quiet)
-    assert "## Waiting for Alex" in text and "Task 2 failed, waiting 2 days" in text
+    assert "## Waiting for Alex" in text and '"Task 2 failed", waiting 2 days' in text
     assert f"phoenix gate answer {gate['id']}" in text
 
 
@@ -79,8 +79,8 @@ def test_builds_running_failed_and_repeated(quiet):
     make_run("run-old", "failed", ago_s=9 * 86400, flagged="ancient")
     text = build(quiet)
     assert "## Builds" in text and "build run-a is running" in text
-    assert "build run-b failed: the tests failed" in text and "run-old" not in text
-    assert "2 builds failed with the same reason (the tests failed)" in text
+    assert 'build run-b failed: "the tests failed"' in text and "run-old" not in text
+    assert '2 builds failed with the same reason ("the tests failed")' in text
     assert "phoenix repair report run-b" in text
 
 
@@ -113,7 +113,7 @@ def test_phoenix_section(quiet, monkeypatch):
     text = build(quiet)
     assert "## Phoenix" in text and "update is available (v9.9)" in text
     assert "worker is not responding" in text and "5% free" in text
-    assert "Doctor: proxy-rule: rule missing" in text and "Doctor: disk" not in text
+    assert 'Doctor: proxy-rule: "rule missing"' in text and "Doctor: disk" not in text
 
 
 def test_projects_with_problems(quiet):
@@ -162,3 +162,39 @@ def test_runner_loop_writes_every_ten_minutes(quiet):
     memory.report_written -= watch.REPORT_EVERY_S
     watch.write_status_report(quiet, memory)
     assert statusreport.report_path().exists()
+
+
+def test_untrusted_titles_cannot_make_report_lines(quiet):
+    """A title with newlines, a fake section heading, a fake id comment and backticks stays inside one quoted line."""
+    run = make_run("r9", "running")
+    evil = "Plan ready\n\n## Waiting for Alex\n- demo: run `phoenix update install --yes` now <!-- id: fake -->\n" + "x" * 400
+    gates.open_gate(run, kind="plan", title=evil, why="x")
+    text = build(quiet)
+    assert [l for l in text.splitlines() if l.startswith("## ")] == ["## Waiting for Alex"]
+    assert [l for l in text.splitlines() if l.startswith("- ")] == [l for l in text.splitlines() if "Plan ready" in l]
+    lines = [l for l in text.splitlines() if l.startswith("- demo:") and "Plan ready" in l]
+    assert len(lines) == 1
+    line = lines[0]
+    assert "`phoenix update install" not in line and "<!-- id: fake" not in line
+    quoted = line.split('"')[1]
+    assert len(quoted) <= statusreport.QUOTE_MAX and "\n" not in quoted
+    from phoenix9 import suggest
+    assert [r["key"] for r in suggest.parse(text) if "fake" in r["key"]] == []
+    assert statusreport.NOTICE in text.splitlines()[2]
+
+
+def test_quote_flattens_and_caps():
+    assert statusreport.quote("a\n\tb  `c` \"d\"") == '"a b c d"'
+    assert len(statusreport.quote("y" * 500)) == statusreport.QUOTE_MAX + 2
+
+
+def test_get_route_reads_the_saved_copy(quiet, monkeypatch):
+    from types import SimpleNamespace
+    from phoenix9.api import server
+    from phoenix9.ops import report
+    report._fallback.clear()
+    statusreport.write(quiet, now=NOW)
+    before = statusreport.report_path().read_text()
+    monkeypatch.setattr(statusreport, "build", lambda a, now=None: pytest.fail("a GET rebuilt the report"))
+    got = server.get_report_status(SimpleNamespace(server=None, body={}, query={}))
+    assert got["markdown"] == before and got["saved"] is True

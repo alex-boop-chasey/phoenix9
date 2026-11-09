@@ -15,6 +15,9 @@ def add(sub, common_parser) -> None:
     p = group.add_parser("list", parents=[common_parser], help="list up to 3 suggestions (needs-attention first)")
     p.add_argument("--strip", action="store_true", help="the Agent panel strip's view (also shown when the setting is strip-only)")
     p.set_defaults(func=list_)
+    p = group.add_parser("show", parents=[common_parser], help="show one suggestion's report line by its key")
+    p.add_argument("key", help="the suggestion key (from `phoenix suggest list` or the panel's Ask message)")
+    p.set_defaults(func=show_one)
     for name, what, text in MARKS:
         p = group.add_parser(name, parents=[common_parser], help=text)
         p.add_argument("key", help="the suggestion key from `phoenix suggest list`")
@@ -29,7 +32,18 @@ def list_(args) -> int:
     rows = r["suggestions"]
     lines = [f"{row['key']}{' (already shown)' if row['shown'] else ''}\n  {row['text']}" for row in rows]
     text = "\n".join(lines) if lines else ("Suggestions are off." if r["mode"] == "off" else "Nothing to suggest.")
+    if lines:
+        text = r["notice"] + "\n" + text
     return show(args, r, text)
+
+
+def show_one(args) -> int:
+    """Show one suggestion's line."""
+    try:
+        r = suggest_ops.show(args.key)
+    except common.OpsError as e:
+        return problem(args, str(e))
+    return show(args, r, f"{r['notice']}\n{r['key']} ({r['section']})\n  {r['text']}")
 
 
 def mark(args) -> int:

@@ -345,6 +345,16 @@ def _prune(data: dict) -> dict:
     return out
 
 
+def prune(data: dict) -> dict:
+    """The settings as save_project writes them (empty tables dropped)."""
+    return _prune(data)
+
+
+def render_project(data: dict) -> str:
+    """The phoenix.toml text save_project would write for these settings."""
+    return tomlw.dumps(_prune(data), header=HEADER, key_order=KEY_ORDER)
+
+
 def save_project(project_dir, data: dict) -> None:
     """Write phoenix.toml with keys in the architecture 5.2 order."""
     tomlw.dump(project_file(project_dir), _prune(data), header=HEADER, key_order=KEY_ORDER)

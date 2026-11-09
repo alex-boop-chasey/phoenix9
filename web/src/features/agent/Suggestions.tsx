@@ -12,8 +12,10 @@ export function Suggestions() {
   const mark = useMarkSuggestion()
   const send = useSendToAgent()
   if (!list.length) return null
-  const ask = (text: string) =>
-    send.mutate({ text: `${text} — go ahead?` }, { onError: (e) => toast.error(e instanceof Error ? e.message : "The message was not sent.") })
+  // Only the key goes to the agent (keys are plain characters); the line's text comes from builds and projects, so the
+  // agent reads it itself with `phoenix suggest show <key>` and treats it as information, never as Alex's words.
+  const ask = (key: string) =>
+    send.mutate({ text: `Tell me about suggestion ${key}.` }, { onError: (e) => toast.error(e instanceof Error ? e.message : "The message was not sent.") })
   return (
     <section className="ag-sugg" aria-label="Suggestions" data-testid="agent-suggestions">
       <div className="ag-sugg-h">
@@ -25,7 +27,7 @@ export function Suggestions() {
           <li key={s.key}>
             <span className="ag-sugg-text">{s.text}</span>
             <span className="ag-sugg-acts">
-              <button className="btn btn-sm" onClick={() => ask(s.text)}>Ask</button>
+              <button className="btn btn-sm" onClick={() => ask(s.key)}>Ask</button>
               <button className="btn btn-ghost btn-sm" onClick={() => mark.mutate({ key: s.key, what: "snooze" })}>Snooze 1 day</button>
               <button className="btn btn-ghost btn-sm" onClick={() => mark.mutate({ key: s.key, what: "dismiss" })}>Dismiss</button>
             </span>

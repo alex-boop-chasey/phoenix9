@@ -868,16 +868,16 @@ def get_repair_report(req, run_id):
 
 
 def get_report_status(req):
-    """Write the daily status report and reply with it (markdown)."""
-    with req.server.write_lock:
-        done = ops_report.status()
-    return {"path": done["path"], "markdown": done["text"]}
+    """Reply with the status report the runner rewrites every 10 minutes (markdown); never writes a file
+    (when there is no saved copy yet it is built once, outside the write lock, and not saved)."""
+    done = ops_report.saved()
+    return {"path": done["path"], "markdown": done["text"], "saved": done["saved"]}
 
 
 def get_suggest(req):
-    """Reply with up to three suggestions for the Agent panel strip (empty when the setting is off)."""
-    with req.server.write_lock:
-        return ops_suggest.list_(strip=True)
+    """Reply with up to three suggestions for the Agent panel strip (empty when the setting is off), read from
+    the runner's saved report; never writes a file."""
+    return ops_suggest.list_(strip=True, fresh=False)
 
 
 def post_suggest(req, key, what):

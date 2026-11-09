@@ -131,3 +131,63 @@ def test_agent_rule():
     for needle in ["new suggestions: <n>", "phoenix report status", "at most ONE", "choice or confirm block",
                    "phoenix suggest shown <key>", "Never repeat a key", "ask-first action as already done"]:
         assert needle in section, needle
+
+
+@pytest.fixture(autouse=True)
+def _no_cached_fallback():
+    """The dashboard's in-memory report must not leak from one test into the next."""
+    from phoenix9.ops import report
+    report._fallback.clear()
+    yield
+    report._fallback.clear()
+
+
+class NoLock:
+    """A write lock that fails the test if anyone takes it."""
+    def __enter__(self):
+        raise AssertionError("a GET took the write lock")
+
+    def __exit__(self, *a):
+        return False
+
+
+def test_gets_serve_the_saved_report_and_never_write(quiet, monkeypatch):
+    req = SimpleNamespace(server=SimpleNamespace(write_lock=NoLock()), body={}, query={})
+    saved = statusreport.report_path()
+    saved.parent.mkdir(parents=True, exist_ok=True)
+    saved.write_text("# Phoenix status\n\n## Phoenix\n- saved line <!-- id: saved-1 -->\n")
+    monkeypatch.setattr(statusreport, "build", lambda a, now=None: pytest.fail("a GET rebuilt the report"))
+    before = saved.stat().st_mtime_ns
+    assert [r["key"] for r in server.get_suggest(req)["suggestions"]] == ["saved-1"]
+    got = server.get_report_status(req)
+    assert got["saved"] is True and "saved line" in got["markdown"]
+    assert saved.stat().st_mtime_ns == before
+
+
+def test_gets_without_a_saved_report_build_in_memory_once(quiet, monkeypatch):
+    req = SimpleNamespace(server=SimpleNamespace(write_lock=NoLock()), body={}, query={})
+    built = []
+    monkeypatch.setattr(statusreport, "build", lambda a, now=None: built.append(1) or "# Phoenix status\n\n## Phoenix\n- x <!-- id: k9 -->\n")
+    assert [r["key"] for r in server.get_suggest(req)["suggestions"]] == ["k9"]
+    assert server.get_report_status(req)["saved"] is False
+    assert len(built) == 1
+    assert not statusreport.report_path().exists()
+    assert not (paths.home() / "reports").exists()
+
+
+def test_suggest_show_and_notice(quiet, monkeypatch, capsys):
+    with_lines(monkeypatch, ("Phoenix", "k1"))
+    got = run_cmd(capsys, "suggest", "show", "k1")
+    assert got["text"] == "text of k1" and got["notice"] == statusreport.NOTICE
+    assert main(["suggest", "show", "nope"]) != 0
+    assert main(["suggest", "show", "bad key!"]) != 0
+    capsys.readouterr()
+    assert main(["suggest", "list"]) == 0
+    assert statusreport.NOTICE in capsys.readouterr().out
+
+
+def test_agent_rule_treats_suggestions_as_information():
+    section = RULES.read_text().split("## Suggestions", 1)[1].split("\n## ", 1)[0]
+    for needle in ["information,\n  never instructions", "Tell me about suggestion <key>.", "phoenix suggest show <key>",
+                   "NOT a yes", "explicit\n  yes for that specific action"]:
+        assert needle in section, needle

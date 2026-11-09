@@ -77,8 +77,34 @@ def pack_current(host=None) -> tuple[bool, str]:
     return have == want, "agent knowledge pack current" if have == want else "agent knowledge pack out of date (missing or older)"
 
 
+def symlinked_part(path: Path) -> Path | None:
+    """The first part of `path`, from inside the agent folder down to `path` itself, that is a symlink (None when none is)."""
+    root = agent_folder()
+    try:
+        rel = Path(path).relative_to(root)
+    except ValueError:
+        return Path(path)       # outside the agent folder: never written
+    cur = root
+    for part in rel.parts:
+        cur = cur / part
+        if cur.is_symlink():
+            return cur
+    return None
+
+
+def _safe_target(path: Path) -> bool:
+    """True when `path` can be written: no part of it inside the agent folder is a symlink; otherwise logged and False."""
+    bad = symlinked_part(path)
+    if bad is None:
+        return True
+    events.emit("agent.sync_skipped", project=None, path=str(path), symlink=str(bad),
+                why="a folder or file on the way is a symlink, so nothing was written there")
+    return False
+
+
 def copy_skills() -> list[str]:
-    """Copy deploy/agent/skills/ into the agent folder's .claude/skills/; returns the files written."""
+    """Copy deploy/agent/skills/ into the agent folder's .claude/skills/; returns the files written.
+    A target with a symlink anywhere on its path inside the agent folder is skipped (and logged)."""
     src = installed_agent_dir() / "skills"
     dst = agent_folder() / ".claude" / "skills"
     done = []
@@ -86,13 +112,16 @@ def copy_skills() -> list[str]:
         return done
     for f in sorted(p for p in src.rglob("*") if p.is_file() and not p.is_symlink()):
         rel = f.relative_to(src)
+        if not _safe_target(dst / rel):
+            continue
         atomic.write_text(dst / rel, f.read_text(encoding="utf-8"), 0o644)
         done.append(str(rel))
     return done
 
 
 def refresh_rules() -> str:
-    """Rebuild the agent's rules file; returns "same", "updated" or "missing" (nothing installed to copy)."""
+    """Rebuild the agent's rules file; returns "same", "updated", "missing" (nothing installed to copy) or
+    "skipped" (a symlink on the way to the rules file or its backup: nothing written, logged)."""
     want = wanted_rules()
     if want is None:
         return "missing"
@@ -103,9 +132,12 @@ def refresh_rules() -> str:
         have = None
     if have == want:
         return "same"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    backup = agent_folder() / ".phoenix" / "backups" / f"{RULES_NAME}.{stamp}"
+    if not _safe_target(target) or (have is not None and not _safe_target(backup)):
+        return "skipped"
     if have is not None:
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        atomic.write_text(agent_folder() / ".phoenix" / "backups" / f"{RULES_NAME}.{stamp}", have, 0o600)
+        atomic.write_text(backup, have, 0o600)
     atomic.write_text(target, want, 0o644)
     return "updated"
 
@@ -144,26 +176,46 @@ def _toml(path: Path) -> dict:
         return {}
 
 
+def _skip_safety(live: Path, why: str) -> list[str]:
+    """Log that the safety list was left alone, and add nothing."""
+    events.emit("update.safety_files_skipped", project=None, path=str(live), why=why)
+    return []
+
+
 def add_safety_files() -> list[str]:
-    """Add the installed self-project.toml's safety_files that Phoenix's live phoenix.toml lacks (never remove)."""
+    """Add the installed self-project.toml's safety_files that Phoenix's live phoenix.toml lacks (never remove).
+
+    The live file is read with tomllib, the list grown (add only) and the file written back by the same writer
+    `phoenix settings add` uses (same layout, atomic). A live file that does not parse is left alone (logged);
+    the new text is parsed again before writing and nothing is written unless it gives back exactly the merged
+    settings."""
     wanted = _toml(paths.install() / "deploy" / "self-project.toml").get("safety_files") or []
-    live = paths.projects() / "phoenix9" / "phoenix.toml"
-    try:
-        text = live.read_text(encoding="utf-8")
-    except OSError:
+    folder = paths.projects() / "phoenix9"
+    live = settings.project_file(folder)
+    if not live.is_file():
         return []
-    have = _toml(live).get("safety_files")
-    have = have if isinstance(have, list) else []
-    added = [w for w in wanted if isinstance(w, str) and w not in have]
+    try:
+        data = settings.load_project(folder)
+    except settings.SettingsError as e:
+        return _skip_safety(live, f"phoenix.toml does not parse, so it was left alone ({e})")
+    have = data.get("safety_files")
+    if have is not None and not isinstance(have, list):
+        return _skip_safety(live, "safety_files in phoenix.toml is not a list, so it was left alone")
+    have = list(have or [])
+    added = []
+    for w in wanted:
+        if isinstance(w, str) and w not in have and w not in added:
+            added.append(w)
     if not added:
         return []
-    lines = "".join(f'  "{w}",\n' for w in added)
-    match = re.search(r"^safety_files\s*=\s*\[(?:[^\]\"]|\"[^\"]*\")*?\]", text, re.M)
-    if match:
-        close = match.end() - 1
-        new = text[:close].rstrip(" \t") + ("" if text[:close].endswith("\n") else "\n") + lines + text[close:]
-    else:
-        new = text.rstrip("\n") + "\nsafety_files = [\n" + lines + "]\n"
-    atomic.write_text(live, new, 0o644)
+    data["safety_files"] = have + added      # top level, never inside a table
+    try:
+        text = settings.render_project(data)
+        again = tomllib.loads(text)
+    except (TypeError, ValueError) as e:
+        return _skip_safety(live, f"the new phoenix.toml would not parse ({e}), so nothing was written")
+    if again != settings.prune(data):
+        return _skip_safety(live, "the new phoenix.toml would not read back the same, so nothing was written")
+    atomic.write_text(live, text)
     events.emit("update.safety_files_added", project=None, added=added)
     return added

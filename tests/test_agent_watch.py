@@ -125,3 +125,29 @@ def test_doctor_says_the_agent_was_stopped_by_someone(ad):
     agentwatch.check_once(ad)
     ok, detail, fix = doctor.check_agent_unit(types.SimpleNamespace(ad=ad))
     assert not ok and "stopped by someone" in detail and "systemctl start" in fix
+
+
+def pending(tmp_path):
+    (tmp_path / "home" / "agent-rules-pending").write_text("agent rules updated; restart when idle\n")
+
+
+def test_pending_rules_restart_once_when_idle(ad, tmp_path):
+    from phoenix9 import agentsync, events, paths
+    healthy(ad.host)
+    pending(tmp_path)
+    assert agentwatch.check_once(ad) == "restarted-rules"
+    assert len(restarts(ad.host)) == 1 and not agentsync.pending_restart()
+    assert "agent.restarted_for_rules" in [e["type"] for e in events.read(paths.events())]
+    run(ad, 3)
+    assert len(restarts(ad.host)) == 1
+
+
+def test_pending_rules_wait_while_the_agent_works(ad, tmp_path):
+    from phoenix9 import agentsync
+    healthy(ad.host)
+    ad.host.files[CH + "/sessions/1.json"] = ad.host.files[CH + "/sessions/1.json"].replace('"idle"', '"busy"')
+    pending(tmp_path)
+    assert agentwatch.check_once(ad) == "ok"
+    assert not restarts(ad.host) and agentsync.pending_restart()
+    healthy(ad.host)
+    assert agentwatch.check_once(ad) == "restarted-rules" and not agentsync.pending_restart()

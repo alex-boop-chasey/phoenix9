@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 95a45f98141f1b80 -->
+<!-- phoenix 9.1.0 inputs 00511edc01e7ca5d -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -675,6 +675,12 @@ things worth doing, from the status report
 list up to 3 suggestions (needs-attention first)
 
 - `--strip`: the Agent panel strip's view (also shown when the setting is strip-only)
+
+### `phoenix suggest show`
+
+show one suggestion's report line by its key
+
+- `<key>`: the suggestion key (from `phoenix suggest list` or the panel's Ask message)
 
 ### `phoenix suggest shown`
 

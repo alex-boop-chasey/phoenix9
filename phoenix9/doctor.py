@@ -48,8 +48,7 @@ def _result(ok: bool, detail: str, fix: str = "") -> tuple[bool, str, str]:
 
 
 def _profile_image(name: str) -> str:
-    data, _ = read_toml(paths.library() / "profiles" / name / "profile.toml", name)
-    return str((data or {}).get("image") or "")
+    return settings.profile_image(paths.library(), name)
 
 
 def projects_profiles() -> list[str]:

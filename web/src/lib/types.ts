@@ -222,6 +222,8 @@ export interface SpecFile {
   path: string
   title: string
   modified: string
+  /** False when it is not in Phoenix's task format: only the Planner can turn it into tasks. */
+  task_format?: boolean
 }
 
 export interface Usage {

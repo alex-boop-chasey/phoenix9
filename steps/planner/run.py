@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from phoenix9 import atomic, runs, spec
-from phoenix9.aistep import profile_test
+from phoenix9.aistep import fence, profile_test
 from phoenix9.docker import Mount
 from phoenix9.stepctx import StepResult
 
@@ -17,8 +17,8 @@ def _out_dir(ctx) -> Path:
 
 
 def _brief(ctx) -> str:
-    """The run's spec.md text: the brief."""
-    return (ctx.run.folder / "spec.md").read_text(encoding="utf-8")
+    """The run's whole spec.md, word for word (every heading and section kept), fenced as data."""
+    return fence((ctx.run.folder / "spec.md").read_text(encoding="utf-8"))
 
 
 def _tree(ctx) -> str:
@@ -57,7 +57,7 @@ def _feedback(ctx) -> str:
 def before(ctx) -> dict:
     """Fill the planner prompt's placeholders."""
     test = profile_test(ctx)
-    return {"brief": _brief(ctx), "check_command": test.get("check_command", "") or test.get("cmd", ""),
+    return {"brief": _brief(ctx), "project": ctx.project.name, "check_command": test.get("check_command", "") or test.get("cmd", ""),
             "suite_command": test.get("cmd", ""), "project_claude_md": _claude_md(ctx),
             "repo_tree": _tree(ctx), "profile": _profile_text(ctx), "feedback": _feedback(ctx)}
 

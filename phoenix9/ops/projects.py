@@ -296,7 +296,10 @@ def changelog(name: str, limit: int = 20) -> list:
 
 
 def specs(name: str) -> list:
-    """Markdown files under notes/specs and notes/plans: [{path, title, modified}], newest first."""
+    """Markdown files under notes/specs and notes/plans: [{path, title, modified, task_format}], newest first.
+
+    `task_format` is True when the file passes the strict spec check (else only the Planner can build from it)."""
+    from phoenix9 import spec as spec_core
     from datetime import datetime, timezone
     notes = common.project_dir(name) / "notes"
     found = []
@@ -311,6 +314,7 @@ def specs(name: str) -> list:
             title = next((x[2:].strip() for x in text.splitlines() if x.startswith("# ")), path.stem)
             mtime = path.stat().st_mtime
             found.append({"path": str(path.relative_to(notes)), "title": title,
+                          "task_format": not spec_core.check(text),
                           "modified": datetime.fromtimestamp(mtime, timezone.utc).isoformat(timespec="seconds"),
                           "_t": mtime})
     found.sort(key=lambda f: (f["_t"], f["path"]), reverse=True)

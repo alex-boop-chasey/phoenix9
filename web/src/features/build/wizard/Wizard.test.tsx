@@ -259,6 +259,21 @@ test("a brief locks the Planner on with a note", async () => {
   expect(screen.getByText("On because you chose to write a brief on step 1")).toBeInTheDocument()
 })
 
+test("a spec not in task format locks the Planner on with a note", async () => {
+  const specs = [{ path: "specs/app.md", title: "Free app", modified: "2026-11-02T09:00:00Z", task_format: false }, ...wizardSpecs]
+  mockApi(routes({ [`GET /api/projects/${P}/specs`]: specs }))
+  show()
+  await screen.findByText("Step 1 of 7")
+  await userEvent.click(await screen.findByRole("radio", { name: "Free app" }))
+  const note = "This spec isn't in task format, so the Planner must be on to turn it into tasks"
+  expect(screen.getByText(`${note}.`)).toBeInTheDocument()
+  await next()
+  await next()
+  await waitFor(() => expect(sw("Planner")).toBeChecked())
+  expect(sw("Planner")).toBeDisabled()
+  expect(screen.getByText(note)).toBeInTheDocument()
+})
+
 test("failure modes explained", async () => {
   mockApi(routes())
   show()
@@ -426,4 +441,67 @@ test("preset slide shows each preset's title and description", async () => {
     expect(screen.getByRole("radio", { name: p.title })).toBeInTheDocument()
     expect(screen.getByText(p.description)).toBeInTheDocument()
   }
+})
+
+const KEPT = `phoenix9.wizard.${P}`
+
+test("leaving the wizard and coming back restores the slide and answers", async () => {
+  mockApi(routes())
+  const first = show()
+  await goTo(5)
+  const tries = screen.getByLabelText("Tries per task (1 to 10)")
+  await userEvent.clear(tries)
+  await userEvent.type(tries, "4")
+  first.unmount()
+  show()
+  await screen.findByText("Step 5 of 7")
+  expect(screen.getByLabelText("Tries per task (1 to 10)")).toHaveValue(4)
+  await userEvent.click(screen.getByRole("button", { name: /What to build/ }))
+  expect(screen.getByRole("radio", { name: "Reading plan" })).toBeChecked()
+})
+
+test("a kept spec that is gone opens the spec picker and keeps the rest", async () => {
+  mockApi(routes())
+  const first = show()
+  await goTo(5)
+  const tries = screen.getByLabelText("Tries per task (1 to 10)")
+  await userEvent.clear(tries)
+  await userEvent.type(tries, "4")
+  first.unmount()
+  mockApi(routes({ [`GET /api/projects/${P}/specs`]: wizardSpecs.slice(1) }))
+  show()
+  await screen.findByText("Step 1 of 7")
+  expect(screen.getByRole("radio", { name: "Older plan" })).not.toBeChecked()
+  expect(JSON.parse(localStorage.getItem(KEPT)!).state.answers.maxTries).toBe(4)
+})
+
+test("a successful start forgets the kept wizard", async () => {
+  mockApi(routes({
+    [`POST /api/projects/${P}/runs`]: { run_id: "r-new", project: P, status: "queued" },
+    [`GET /api/runs/${P}/r-new`]: runDetail({ run_id: "r-new", project: P, status: "queued", steps: [], gates: [] }),
+  }))
+  show()
+  await goTo(7)
+  expect(localStorage.getItem(KEPT)).not.toBeNull()
+  await userEvent.click(screen.getByRole("button", { name: "Start build" }))
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("run=r-new"))
+  expect(localStorage.getItem(KEPT)).toBeNull()
+})
+
+test("Cancel forgets the kept wizard; Start over begins again", async () => {
+  mockApi(routes())
+  const first = show()
+  await goTo(3)
+  await userEvent.click(screen.getByRole("button", { name: "Start over" }))
+  await screen.findByText("Step 1 of 7")
+  expect(screen.getByRole("radio", { name: "Reading plan" })).not.toBeChecked()
+  await pickSpec()
+  await next()
+  await screen.findByText("Step 2 of 7")
+  await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
+  await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("list=1"))
+  expect(localStorage.getItem(KEPT)).toBeNull()
+  first.unmount()
+  show()
+  await screen.findByText("Step 1 of 7")
 })

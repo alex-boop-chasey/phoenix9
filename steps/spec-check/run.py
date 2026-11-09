@@ -10,18 +10,24 @@ def planner_on(ctx) -> bool:
 
 
 def run(ctx):
-    """Fail with every problem found in spec.md; else write spec.json. With the Planner on, a brief (a title and no tasks) is fine."""
+    """Fail with every problem found in spec.md; else write spec.json.
+
+    The Planner switch alone decides. Planner off: the strict task format. Planner on: any non-empty text
+    (within the size limit) is a description it turns into tasks; the Planner's own output is checked strictly.
+    A spec that already passes the strict check keeps its tasks; any other is saved as a brief (no tasks)."""
     text = (ctx.run.folder / "spec.md").read_text(encoding="utf-8")
     parsed = spec.parse(text)
-    brief = planner_on(ctx) and not parsed.tasks     # a brief has no tasks yet; one with tasks is checked strictly
-    if brief:
-        problems = [] if parsed.title else ["Line 1: the spec must start with '# <title>'."]
+    strict = spec.check(text)
+    if not planner_on(ctx):
+        problems = strict + [spec.NEEDS_PLANNER] if strict else []
     else:
-        problems = spec.check(text)
+        problems = spec.check_description(text)
     if problems:
         return StepResult("fail", problems)
+    brief = bool(strict)
     data = spec.to_json(parsed)
     if brief:
-        data["brief"] = True
+        data.update({"brief": True, "tasks": [], "title": spec.description_title(text, ctx.run.id), "about": text.strip(),
+                     "project": ctx.project.name, "preset": parsed.preset if parsed.preset in spec.PRESETS else ""})
     atomic.write_json(ctx.run.folder / "spec.json", data)
     return StepResult("pass")

@@ -211,6 +211,19 @@ test("a brief forces the Planner on, shows a note, and cannot be switched off", 
   expect(back.steps.planner).toBe(false)
 })
 
+test("a spec not in task format forces the Planner on with a note; a task-format spec leaves it free", () => {
+  const a = run(start(), { type: "spec", path: "specs/app.md", needsPlanner: true }, { type: "step", name: "planner", on: false })
+  expect(a.steps.planner).toBe(true)
+  expect(a.preset).toBe("quick")
+  const planner = plan().find((s) => s.name === "planner")!
+  expect(stepNote(planner, a, plan())).toBe("This spec isn't in task format, so the Planner must be on to turn it into tasks")
+  expect(applyPreset(a, preset("simple"), ctx).steps.planner).toBe(true)
+  const tasks = run(a, { type: "spec", path: "specs/reading-plan.md", needsPlanner: false })
+  expect(tasks.steps.planner).toBe(false)
+  expect(stepNote(planner, tasks, plan())).toBe("")
+  expect(run(tasks, { type: "step", name: "planner", on: true }).steps.planner).toBe(true)
+})
+
 test("AI cards: only AI steps that are switched on", () => {
   const names = (a: Answers) => aiCards(plan(), a).map((s) => s.name)
   expect(names(start())).toEqual(["builder"])

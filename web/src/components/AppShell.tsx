@@ -51,8 +51,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         setSheet(false)
       } else if (e.key === "." && e.ctrlKey) setDrawer((d) => !d)
     }
+    const onOpen = () => setDrawer(true)
     document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
+    window.addEventListener("phoenix:open-agent", onOpen)
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      window.removeEventListener("phoenix:open-agent", onOpen)
+    }
   }, [])
 
   useEffect(() => writeOpen(drawer), [drawer])

@@ -9,7 +9,7 @@ from phoenix9.ops import common
 from phoenix9.ops.common import Conflict, NotFound, OpsError
 
 PROTECTED = {"phoenix9": "phoenix9 is Phoenix itself, so it cannot be removed.",
-             project.HOME_PROJECT: "home is the front door, so it cannot be removed."}
+             project.HOME_PROJECT: "home is the Phoenix agent's folder, not a project, so it cannot be removed."}
 
 
 def removed_list() -> list:

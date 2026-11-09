@@ -326,3 +326,21 @@ def test_run_start_without_a_project_type_is_refused(env):
 def test_run_start_with_a_project_type_proceeds(env):
     make(env)
     assert queue_run(env)
+
+
+def test_agent_folder_hidden_from_lists_unless_all(env):
+    make(env, "home")
+    make(env, "alpha")
+    assert [r["name"] for r in projects.rows()] == ["alpha"]
+    assert [r["name"] for r in projects.list_()] == ["alpha"]
+    assert sorted(r["name"] for r in projects.list_(include_agent=True)) == ["alpha", "home"]
+    assert [r["name"] for r in projects.query()["rest"]] == ["alpha"]
+    assert projects.query()["counts"]["all"] == 1
+
+
+def test_agent_folder_name_follows_agent_settings(env):
+    (env["home"] / "config").mkdir(exist_ok=True)
+    (env["home"] / "config" / "global.toml").write_text('[agent]\nfolder = "/srv/projects/helper"\n')
+    make(env, "home")
+    make(env, "helper")
+    assert [r["name"] for r in projects.rows()] == ["home"]

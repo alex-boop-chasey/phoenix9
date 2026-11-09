@@ -3,7 +3,7 @@ import { Route, Routes, useLocation } from "react-router"
 
 import ProjectPage from "@/pages/ProjectPage"
 import { projects } from "@/test/fixtures"
-import { mockApi } from "@/test/mockApi"
+import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -120,5 +120,14 @@ describe("ProjectPage", () => {
     await screen.findByRole("heading", { name: "notes-only" })
     const dock = within(screen.getByRole("group", { name: "Open project" }))
     expect(dock.getByRole("button", { name: "Repo" })).toBeDisabled()
+  })
+})
+
+describe("ProjectPage for the agent folder", () => {
+  it("shows a plain page with a way to the Agent panel", async () => {
+    mockApi({ "GET /api/projects/home": failure(409, "This is the Phoenix agent's folder, not a project.") })
+    renderAt("/p/home/overview")
+    expect(await screen.findByText("This is the Phoenix agent's folder, not a project")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Open the Agent panel" })).toBeInTheDocument()
   })
 })

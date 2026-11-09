@@ -204,7 +204,9 @@ def get_check_name(req):
 
 
 def get_project(req, name):
-    """Reply with one project's details."""
+    """Reply with one project's details (409 for the Phoenix agent's own folder, which is not a project)."""
+    if name == projects.agent_name():
+        raise common.Conflict(projects.AGENT_FOLDER_TEXT)
     row = projects.row(check_name(name))
     return {**projects.show(name), **{k: row[k] for k in ("repo_url", *projects.STATE_KEYS)}}
 

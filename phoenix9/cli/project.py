@@ -17,6 +17,7 @@ def add(sub, common) -> None:
     p.add_argument("--owner", default="all", help="all, none (no repo) or a GitHub owner")
     p.add_argument("--sort", default="name", help="name, active, size, created or modified")
     p.add_argument("--attention", action="store_true", help="put projects that need you first")
+    p.add_argument("--all", action="store_true", help="also list the Phoenix agent's own folder")
     p.set_defaults(func=list_)
     p = group.add_parser("show", parents=[common], help="show one project")
     p.add_argument("name")
@@ -88,10 +89,10 @@ def list_(args) -> int:
     """List projects."""
     filtered = (args.filter, args.status, args.owner, args.sort, args.attention) != ("", "all", "all", "name", False)
     if filtered:
-        r = projects.query(args.filter, args.status, args.owner, args.sort, args.attention)
+        r = projects.query(args.filter, args.status, args.owner, args.sort, args.attention, include_agent=args.all)
         found = r["top"] + r["rest"]
     else:
-        found = projects.list()
+        found = projects.list(include_agent=args.all)
     text = table([[p["name"], p["harness"], _size(p["size"]), p["last_used"]] for p in found],
                  ["project", "harness", "size", "last used"]) if found else ("No projects match." if filtered else "No projects yet.")
     return show(args, found if not filtered or not args.json else r, text)

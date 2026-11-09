@@ -4,9 +4,21 @@ from pathlib import Path
 from phoenix9 import paths
 from phoenix9.ops import common
 
-def list_(names: list | None = None) -> list:
-    """Every project (a folder with a CLAUDE.md), or just `names`, with its full info, by name."""
+AGENT_FOLDER_TEXT = "This is the Phoenix agent's folder, not a project."
+
+
+def agent_name() -> str:
+    """The folder name of the Phoenix agent's own folder (from the agent settings; 'home' by default)."""
+    from pathlib import PurePosixPath
+    from phoenix9 import settings
+    return PurePosixPath(settings.agent_settings()["folder"].rstrip("/")).name
+
+
+def list_(names: list | None = None, include_agent: bool = False) -> list:
+    """Every project (a folder with a CLAUDE.md) except the agent's folder unless include_agent, or just `names`."""
     from phoenix9 import project
+    if names is None:
+        names = [n for n in project.project_names() if include_agent or n != agent_name()]
     return project.list_projects(common.make_adapters(), names=names)
 
 
@@ -120,12 +132,12 @@ STATE_KEYS = ("needs_you", "questions", "run", "last_build_failed", "activity", 
               "worker")
 
 
-def rows(only: str | None = None) -> list:
+def rows(only: str | None = None, include_agent: bool = False) -> list:
     """The Projects page rows (just project `only` when given): every info field plus repo_url and the
     project's state from status.project_state (needs_you, questions, run, last_build_failed, activity,
     status_line, run_text, harness, worker)."""
     from phoenix9 import status
-    found = list_([only] if only else None)
+    found = list_([only] if only else None, include_agent)
     states = status.all_project_states([r["name"] for r in found], {r["name"]: r.get("last_used") or "" for r in found})
     adapters = common.make_adapters()
     out = []
@@ -220,7 +232,8 @@ def _sorted(found: list, sort: str) -> list:
     return sorted(found, key=lambda r: r["name"])
 
 
-def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "name", attention: bool = False) -> dict:
+def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "name", attention: bool = False,
+          include_agent: bool = False) -> dict:
     """Search, filter and sort the rows: {top, rest, total, counts}; counts ignore the status choice."""
     if status not in STATUSES:
         raise common.OpsError(f"'{status}' is not a status. Use one of: {', '.join(STATUSES)}.")
@@ -229,7 +242,7 @@ def query(q: str = "", status: str = "all", owner: str = "all", sort: str = "nam
     needle = (q or "").strip().lower()
     owner = owner or "all"
     matched = []
-    for r in rows():
+    for r in (rows(include_agent=True) if include_agent else rows()):
         if needle and needle not in f"{r['name']} {r['description']}".lower():
             continue
         if owner == "none" and r["repo"]:

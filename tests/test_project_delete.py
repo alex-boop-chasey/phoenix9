@@ -1338,3 +1338,12 @@ def test_retry_checks_github_against_bundle_too(env, unitdir):
     env["host"].ls_remote = (0, "3333333333333333333333333333333333333333\trefs/heads/new-work\n", "")
     res = project_delete.delete_repo("alpha", "cli", env["fakes"])
     assert _gh_deletes(env) == [] and res["steps"][0]["kept"] and "new-work" in res["steps"][0]["words"]
+
+
+def test_delete_and_remove_refuse_home_plainly(env):
+    make(env, "home")
+    with pytest.raises(Conflict, match="agent's folder"):
+        project_delete.delete("home", "home", "cli", env["fakes"])
+    from phoenix9 import project_removal
+    with pytest.raises(Exception, match="agent's folder"):
+        project_removal.remove("home", "cli", env["fakes"])

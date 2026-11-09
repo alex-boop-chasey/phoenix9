@@ -82,8 +82,8 @@ def list_edits(project: str | None = None, only_open: bool = False) -> list[dict
 
 
 def open_edit(project: str) -> dict | None:
-    """The open quick edit of a project, or None."""
-    found = list_edits(project, only_open=True)
+    """The open or stalled quick edit of a project, or None (a stalled one still blocks a second edit)."""
+    found = [r for r in list_edits(project) if r.get("status") in ("open", "stalled")]
     return found[0] if found else None
 
 
@@ -109,6 +109,9 @@ def start(project: str, title: str, who: str = "cli") -> dict:
     title = (title or "").strip()
     if not title:
         raise EditError("Say what the quick edit is for (--title).")
+    from .ops.projects import agent_name
+    if project in (agent_name(), "home"):
+        raise EditError(f"{project} is the Phoenix agent's folder, not a project, so it has no quick edits.")
     code = paths.projects() / project / "code"
     if not code.is_dir():
         raise EditError(f"The project '{project}' has no code/ folder to edit.")
@@ -155,16 +158,22 @@ def finish(edit_id: str, message: str | None = None, adapters=None, who: str = "
     rec = load(edit_id)
     if rec["status"] not in ("open", "stalled"):
         raise EditError(f"The quick edit {edit_id} is {rec['status']}, not open.")
-    problems, changes = editfinish.check(adapters, rec)
+    try:
+        sha = editfinish.commit_edit(rec, (message or "").strip() or rec["title"], who)
+    except git_mod.GitError as err:
+        raise EditError(f"I could not commit the edit: {err}") from None
+    if sha is None:
+        raise EditError("The quick edit is not ready:\n- The edit has no changes yet.", ["The edit has no changes yet."])
+    problems, changes = editfinish.check(adapters, rec, sha, who)
     if problems:
         raise EditError("The quick edit is not ready:\n" + "\n".join(f"- {p}" for p in problems), problems)
     try:
-        link = editfinish.publish(adapters, rec, (message or "").strip() or rec["title"], changes)
+        link = editfinish.publish(adapters, rec, sha, changes, who)
     except RuntimeError as err:
         raise EditError(str(err), [str(err)]) from None
     code = paths.projects() / rec["project"] / "code"
     git_mod.remove_worktree(code, Path(rec["folder"]))
-    rec.update(status="finished", pr=link, last_activity=_now())
+    rec.update(status="finished", pr=link, commit=sha, last_activity=_now())
     atomic.write_json(record_file(edit_id), rec)
     events.emit("edit.finished", project=rec["project"], edit=edit_id, branch=rec["branch"], pr=link, who=who)
     return rec
@@ -184,9 +193,11 @@ def mark_stalled(now: float | None = None) -> list[str]:
     return marked
 
 
-def abandon(edit_id: str) -> dict:
-    """Remove the quick edit's worktree and local branch, and mark it abandoned."""
+def abandon(edit_id: str, who: str = "cli") -> dict:
+    """Remove the quick edit's worktree and local branch, and mark it abandoned (a chat only its own edits)."""
     rec = load(edit_id)
+    if (who or "").startswith("chat:") and rec.get("who") != who:
+        raise EditError(f"The quick edit {edit_id} was started by {rec.get('who')}; only Alex or that chat can abandon it.")
     if rec["status"] == "abandoned":
         raise EditError(f"The quick edit {edit_id} is already abandoned.")
     code = paths.projects() / rec["project"] / "code"
@@ -194,5 +205,5 @@ def abandon(edit_id: str) -> dict:
     git_mod.run_git(code, "branch", "-D", "--", rec["branch"], check=False)
     rec.update(status="abandoned", last_activity=_now())
     atomic.write_json(record_file(edit_id), rec)
-    events.emit("edit.abandoned", project=rec["project"], edit=edit_id, branch=rec["branch"])
+    events.emit("edit.abandoned", project=rec["project"], edit=edit_id, branch=rec["branch"], who=who)
     return rec

@@ -1,5 +1,5 @@
 """The `phoenix plan` commands: start, status, continue and list planning sessions."""
-from phoenix9 import chat, plans
+from phoenix9 import plans
 from phoenix9.cli.output import problem, show, table
 from phoenix9.ops import common
 
@@ -8,7 +8,7 @@ def add(sub, common_parser) -> None:
     """Register the plan group."""
     p = sub.add_parser("plan", parents=[common_parser], help="planning sessions that write a spec for a project")
     cmds = p.add_subparsers(dest="plan_cmd", metavar="COMMAND", title="commands")
-    c = cmds.add_parser("start", parents=[common_parser], help="start a planning session (runs until it ends)")
+    c = cmds.add_parser("start", parents=[common_parser], help="queue a planning session (the runner service runs it; poll `phoenix plan status`)")
     c.add_argument("project")
     c.add_argument("--brief", required=True, help="what to plan")
     c.add_argument("--model", help="the model (default: setting plan.model)")
@@ -16,10 +16,10 @@ def add(sub, common_parser) -> None:
     c = cmds.add_parser("status", parents=[common_parser], help="show one planning session")
     c.add_argument("id")
     c.set_defaults(func=run_status)
-    c = cmds.add_parser("continue", parents=[common_parser], help="resume the session after the answers are filled in")
+    c = cmds.add_parser("continue", parents=[common_parser], help="queue the session again after the answers are filled in")
     c.add_argument("id")
     c.set_defaults(func=run_continue)
-    c = cmds.add_parser("reply", parents=[common_parser], help="send Alex's answer to a waiting session and resume it")
+    c = cmds.add_parser("reply", parents=[common_parser], help="queue Alex's answer for a waiting session")
     c.add_argument("id")
     c.add_argument("--text", required=True, help="the answer, word for word")
     c.set_defaults(func=run_reply)
@@ -34,7 +34,10 @@ def add(sub, common_parser) -> None:
 
 
 def _summary(rec: dict) -> str:
-    return f"{rec['id']}: {rec['status']}" + (f" - {rec['report']}" if rec.get("report") else "")
+    text = f"{rec['id']}: {rec['status']}" + (f" - {rec['report']}" if rec.get("report") else "")
+    if rec["status"] == "queued":
+        text += f"\nThe runner service runs it next; check with `phoenix plan status {rec['id']}`."
+    return text
 
 
 def run_start(args) -> int:
@@ -42,7 +45,7 @@ def run_start(args) -> int:
     common.project_dir(args.project)
     common.record_command(args.who, f"plan start {args.project}", args.project)
     try:
-        rec = chat.plan_start(args.project, args.brief, args.model, who=args.who)
+        rec = plans.new_record(args.project, args.brief, args.model or plans.plan_model(), args.who)
     except plans.PlanError as err:
         return problem(args, str(err))
     return show(args, rec, _summary(rec))
@@ -60,7 +63,7 @@ def run_status(args) -> int:
 def run_continue(args) -> int:
     """Resume a planning session."""
     try:
-        rec = chat.plan_continue(args.id, who=args.who)
+        rec = plans.queue_continue(args.id, who=args.who)
     except plans.PlanError as err:
         return problem(args, str(err))
     common.record_command(args.who, f"plan continue {args.id}", rec["project"])
@@ -80,7 +83,7 @@ def run_list(args) -> int:
 def run_reply(args) -> int:
     """Send an answer to a planning session and resume it."""
     try:
-        rec = chat.plan_continue(args.id, who=args.who, answer=args.text)
+        rec = plans.queue_continue(args.id, who=args.who, answer=args.text)
     except plans.PlanError as err:
         return problem(args, str(err))
     common.record_command(args.who, f"plan reply {args.id}", rec["project"])
@@ -92,7 +95,7 @@ def run_abandon(args) -> int:
     if not args.yes:
         return problem(args, f"This gives up the planning session {args.id}. Run again with --yes to do it.")
     try:
-        rec = plans.abandon(args.id)
+        rec = plans.abandon(args.id, args.who)
     except plans.PlanError as err:
         return problem(args, str(err))
     common.record_command(args.who, f"plan abandon {args.id}", rec["project"])

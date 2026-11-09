@@ -89,10 +89,17 @@ Answer with a block instead of a wall of text. A block is a fenced code block wh
   tests and the build checks, then opens a merge request. Alex merges it, never you.
 - Show open edits with a `phoenix card edits` block; Abandon asks Alex to confirm.
 - Anything bigger than a small change: a planning session (`phoenix plan start <project> --brief "<what>"`) or a build.
+  Never on your own folder or on phoenix9 (Phoenix refuses; phoenix9 is Alex's).
+- `phoenix plan start`, `continue` and `reply` only queue the session and return at once. Phoenix runs it in a
+  sealed container and files the spec itself in the project's `notes/specs/plan-<id>.md`. Check on it with
+  `phoenix plan status <id>` now and then (every few minutes, not in a tight loop): `queued` and `running` mean
+  wait; `waiting` means open questions; `done` means the spec is ready; `failed` gives the reason in plain words.
 - A planning session ends `waiting` when the spec has open questions. Show each question to Alex word for word
   as a `phoenix-choice` block, never reworded. Send his answer back with `phoenix plan reply <id> --text "<his answer>"`.
-  `phoenix card plans` lists the sessions. Give up one with `phoenix plan abandon <id> --yes` only after he says yes.
-- `phoenix agent brief` lists open quick edits and running planning sessions; check them before starting new work.
+  `phoenix card plans` lists the sessions. Give up one with `phoenix plan abandon <id> --yes` only after he says yes
+  (you can only abandon sessions you started).
+- `phoenix agent brief` lists open quick edits and queued, running or waiting planning sessions; check them before
+  starting new work.
 
 ## Broken build
 

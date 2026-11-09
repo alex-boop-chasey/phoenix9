@@ -158,7 +158,7 @@ def agent_work(names: list) -> dict:
         if e.get("project") in out and e.get("status") in ("open", "stalled") and not out[e["project"]]["edit"]:
             out[e["project"]]["edit"] = {"id": e["id"], "title": e.get("title", ""), "status": e["status"]}
     for p in plans.list_plans():
-        if p.get("project") in out and p.get("status") in ("running", "waiting") and not out[p["project"]]["plan"]:
+        if p.get("project") in out and p.get("status") in ("queued", "running", "waiting") and not out[p["project"]]["plan"]:
             brief = (p.get("brief") or "").strip().splitlines()
             out[p["project"]]["plan"] = {"id": p["id"], "title": brief[0][:80] if brief else "", "status": p["status"]}
     return out

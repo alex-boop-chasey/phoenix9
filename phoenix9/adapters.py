@@ -38,11 +38,31 @@ def _norm(addr):
 DEFAULT_NOTIFY_FILE = "/srv/phoenix-inbox/jobs/notify.msg"
 
 
+class ClaudeOnHost(RuntimeError):
+    """Something tried to start Claude on the host; Claude only runs inside step containers (rule 1)."""
+
+
+def refuse_claude(argv) -> None:
+    """Raise ClaudeOnHost when the command would start Claude (argv[0] named `claude`, or a shell/env wrapper
+    whose first word is `claude`)."""
+    words = [str(a) for a in (argv or [])]
+    first = os.path.basename(words[0]) if words else ""
+    if first in ("env", "nice", "nohup", "sudo", "timeout", "stdbuf", "setsid"):
+        rest = [w for w in words[1:] if not w.startswith("-") and "=" not in w and not w.isdigit()]
+        first = os.path.basename(rest[0]) if rest else first
+    if first == "claude" or first.startswith("claude."):
+        raise ClaudeOnHost("Phoenix never starts Claude on the host: Claude only runs inside a sealed step "
+                           "container (docs/architecture.md section 11, rule 1).")
+
+
 class Host:
     """The real host: systemctl, gh, du and plain commands."""
 
     def run(self, argv: list[str], timeout: float = 60, cwd=None) -> tuple[int, str, str]:
-        """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found."""
+        """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found.
+
+        Refuses to start Claude: Claude only ever runs inside a step container (architecture 11, rule 1)."""
+        refuse_claude(argv)
         try:
             p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
                                cwd=cwd)
@@ -171,6 +191,14 @@ class Host:
             found.append({"pid": int(entry.name), "name": name, "cwd": cwd})
         return found
 
+    def cgroup(self, pid) -> str:
+        """The process's cgroup v2 path from /proc/<pid>/cgroup (the `0::<path>` line), or '' when unreadable."""
+        try:
+            lines = Path(f"/proc/{int(pid)}/cgroup").read_text().splitlines()
+        except (OSError, ValueError):
+            return ""
+        return next((ln[3:].strip() for ln in lines if ln.startswith("0::")), "")
+
     def realpath(self, path) -> str:
         """The path with every symlink resolved (the path itself when it cannot be resolved)."""
         return os.path.realpath(path)
@@ -244,10 +272,11 @@ class Claude:
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
                domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None,
-               resume_session=None):
+               resume_session=None, session_dir=None, log_file=None):
         """Run one Claude session in a step container (trying fallback models) and return its Result.
 
-        `resume_session` continues that Claude session (`--resume <id>`) instead of starting a new one."""
+        `resume_session` continues that Claude session (`--resume <id>`) instead of starting a new one.
+        `session_dir` / `log_file` replace the run's transcript folder and log (planning sessions)."""
         from phoenix9 import claude as cl
         from phoenix9 import docker as dk
         mounts = [*cl.session_mounts(ai, step_dir, project_dir), *extra_mounts]
@@ -262,7 +291,8 @@ class Claude:
             rc, log = dk.run_claude_container(
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
-                spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env)
+                spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env,
+                session_dir=session_dir, log_file=log_file)
             return cl.parse(log, rc, model=model)
         return cl.run_with_fallback(ai, one)
 

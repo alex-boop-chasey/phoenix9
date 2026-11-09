@@ -107,8 +107,8 @@ export function useLiveEvents(project?: string, onEvent?: (ev: PhoenixEvent) => 
 }
 
 const EVENT_TYPES = [
-  "edit.started", "edit.finished", "edit.abandoned", "edit.stalled", "plan.started", "plan.continued",
-  "plan.waiting", "plan.done", "plan.failed", "run.queued", "run.started", "run.finished", "run.step.started", "run.step.finished", "task.started",
+  "edit.started", "edit.finished", "edit.abandoned", "edit.stalled", "plan.queued", "plan.started", "plan.continued",
+  "plan.waiting", "plan.done", "plan.failed", "plan.abandoned", "run.queued", "run.started", "run.finished", "run.step.started", "run.step.finished", "task.started",
   "task.finished", "gate.opened", "gate.answered", "project.created", "project.changed", "settings.changed",
   "update.started", "update.installed", "update.failed", "update.rolledback", "deploy.finished", "run.held",
   "command", "ui.go",

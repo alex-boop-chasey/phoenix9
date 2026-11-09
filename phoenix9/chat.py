@@ -1,7 +1,7 @@
 """The Phoenix agent's service restart, and each project's chat unit (architecture 8 and 11).
 
 No AI runs in Phoenix's own processes (rule 1): this file only starts, stops and looks at systemd units
-through the Host adapter. A build that runs out of tries is handed to the agent with a message
+through the Host adapter, and never starts Claude (planning sessions run in step containers, plansession.py). A build that runs out of tries is handed to the agent with a message
 (`failmodes.escalate` through `agentlink.send`), never with a session started here.
 """
 from __future__ import annotations
@@ -66,48 +66,3 @@ def stop_conversation(host, project: str, pid: int) -> None:
     if any(e["pid"] == pid for e in live):
         return host.stop_pid(pid)
     raise ValueError(f"process {pid} is not a conversation of project {project}")
-
-
-PLAN_TIMEOUT_S = 4 * 3600
-
-
-def _plan_run(adapters, rec: dict, prompt: str, resume: str | None) -> dict:
-    """Run the headless claude for a planning session in the project's folder and settle its record."""
-    from phoenix9 import paths, plans, scrub
-    out = plans.session_file(rec["id"])
-    out.parent.mkdir(parents=True, exist_ok=True)
-    argv = plans.build_argv(rec["model"], prompt, resume)
-    rc, stdout, _err = adapters.host.run(argv, timeout=PLAN_TIMEOUT_S, cwd=paths.projects() / rec["project"])
-    out.write_text(scrub.scrub(stdout or ""), encoding="utf-8")
-    return plans.settle(rec, rc)
-
-
-def plan_start(project: str, brief: str, model: str | None = None, adapters=None, who: str = "cli") -> dict:
-    """Start a planning session: headless claude in the project's folder writing a spec in notes/specs/."""
-    from phoenix9 import plans
-    if adapters is None:
-        from phoenix9.ops import common
-        adapters = common.make_adapters()
-    rec = plans.new_record(project, brief, model or plans.plan_model(), who)
-    return _plan_run(adapters, rec, plans.start_prompt(brief), None)
-
-
-def plan_continue(plan_id: str, adapters=None, who: str = "cli", answer: str | None = None) -> dict:
-    """Resume the same planning session so it reads the answers (or Alex's reply text), updates the spec and records decisions."""
-    from phoenix9 import events, plans
-    if adapters is None:
-        from phoenix9.ops import common
-        adapters = common.make_adapters()
-    rec = plans.load(plan_id)
-    if rec["status"] == "running":
-        raise plans.PlanError(f"The planning session {plan_id} is already running.")
-    if not rec.get("session_id"):
-        raise plans.PlanError(f"The planning session {plan_id} has no session to resume.")
-    other = plans.running(rec["project"])
-    if other:
-        raise plans.PlanError(f"{rec['project']} already has a planning session running ({other['id']}).")
-    rec.update(status="running", last_activity=plans._now())
-    plans.save(rec)
-    events.emit("plan.continued", project=rec["project"], plan=plan_id, who=who)
-    prompt = plans.reply_prompt(answer) if answer and answer.strip() else plans.CONTINUE_PROMPT
-    return _plan_run(adapters, rec, prompt, rec["session_id"])

@@ -110,7 +110,17 @@ def test_finish_pushes_and_opens_merge_request(proj, monkeypatch, tmp_path, caps
     assert not os.path.exists(rec["folder"])
     argvs = [c for c in ad.host.calls if c[0] in ("git", "gh")]
     assert any("push" in c for c in argvs) and any(c[:3] == ["gh", "pr", "create"] for c in argvs)
-    assert any("Quick edit by the Phoenix agent" in a for c in argvs for a in c)
+    assert any("Made by cli; Alex merges this." in a for c in argvs for a in c)
+    pr = next(c for c in argvs if c[:3] == ["gh", "pr", "create"])
+    assert pr[pr.index("--label") + 1] == "needs Alex"
+    assert any(c[:3] == ["gh", "label", "create"] and "needs Alex" in c for c in argvs)
+    push = next(c for c in argvs if "push" in c)
+    assert push[-1] == f"{done['commit']}:refs/heads/{rec['branch']}"
+    body = subprocess.run(["git", "log", "-1", "--format=%B", done["commit"]], cwd=proj, capture_output=True, text=True)
+    assert "Phoenix-Fix-By: cli" in body.stdout and f"Phoenix-Edit: {rec['id']}" in body.stdout
+    parent = subprocess.run(["git", "rev-parse", done["commit"] + "^"], cwd=proj, capture_output=True, text=True)
+    first = subprocess.run(["git", "rev-parse", "main"], cwd=proj, capture_output=True, text=True)
+    assert parent.stdout == first.stdout                    # one squashed commit on top of the base
     docker_cmds = [a for a in ad.docker.argvs[0] if "pytest" in a or "python" in a]
     assert docker_cmds
     log = subprocess.run(["git", "log", "-1", "--format=%s", rec["branch"]], cwd=proj, capture_output=True, text=True)
@@ -148,3 +158,86 @@ def test_stalled_after_thirty_minutes(proj):
 
 def test_unknown_project(proj):
     assert main(["edit", "start", "nope", "--title", "x"]) == 1
+
+
+def test_unknown_project_and_agent_folder(proj, phoenix_env):
+    (phoenix_env["projects"] / "home" / "code").mkdir(parents=True)
+    with pytest.raises(edits.EditError, match="agent's folder"):
+        edits.start("home", "x")
+
+
+def test_stalled_edit_still_blocks_a_second(proj):
+    rec = edits.start("demo", "one")
+    atomic.write_json(edits.record_file(rec["id"]), dict(rec, status="stalled"))
+    with pytest.raises(edits.EditError, match="open quick edit"):
+        edits.start("demo", "two")
+
+
+def test_chat_abandons_only_its_own(proj):
+    rec = edits.start("demo", "one")
+    with pytest.raises(edits.EditError, match="only Alex or that chat"):
+        edits.abandon(rec["id"], "chat:home")
+    assert edits.abandon(rec["id"], "cli")["status"] == "abandoned"
+    mine = edits.start("demo", "two", who="chat:home")
+    assert edits.abandon(mine["id"], "chat:home")["status"] == "abandoned"
+
+
+def test_chat_may_not_change_safety_files(proj, monkeypatch, tmp_path):
+    ad = _ready(proj, monkeypatch, tmp_path)
+    (proj.parent / "phoenix.toml").write_text('profile = "python-script"\nsafety_files = ["guard/*.py"]\n')
+    rec = edits.start("demo", "touch guard", who="chat:home")
+    os.makedirs(os.path.join(rec["folder"], "guard"))
+    (open(os.path.join(rec["folder"], "guard", "x.py"), "w")).write("x = 1\n")
+    with pytest.raises(edits.EditError) as err:
+        edits.finish(rec["id"], adapters=ad, who="chat:home")
+    assert any("guard/x.py is a safety file" in p for p in err.value.problems)
+    ad.host.script(["gh", "pr", "create"], 0, "https://github.com/o/r/pull/3\n")
+    assert edits.finish(rec["id"], adapters=ad, who="cli")["status"] == "finished"      # Alex may
+
+
+def test_checks_run_on_the_commit_and_a_later_change_is_refused(proj, monkeypatch, tmp_path):
+    from phoenix9 import editfinish
+    ad = _ready(proj, monkeypatch, tmp_path)
+    rec = edits.start("demo", "one")
+    (open(os.path.join(rec["folder"], "a.txt"), "w")).write("checked\n")
+    sha = editfinish.commit_edit(rec, "one", "cli")
+    seen = {}
+    real = editfinish._run_tests
+
+    def spy(adapters, rec_, ctx, checkout):
+        seen["text"] = open(os.path.join(checkout, "a.txt")).read()
+        (open(os.path.join(rec["folder"], "a.txt"), "w")).write("sneaked in after the checks\n")
+        return real(adapters, rec_, ctx, checkout)
+    monkeypatch.setattr(editfinish, "_run_tests", spy)
+    problems, changes = editfinish.check(ad, rec, sha, "cli")
+    assert problems == [] and seen["text"] == "checked\n"
+    with pytest.raises(RuntimeError, match="not checked"):
+        editfinish.publish(ad, rec, sha, changes, "cli")
+    (open(os.path.join(rec["folder"], "a.txt"), "w")).write("checked\n")
+    _git(rec["folder"], "commit", "-q", "--allow-empty", "-m", "moved")
+    with pytest.raises(RuntimeError, match="changed after the checks"):
+        editfinish.publish(ad, rec, sha, changes, "cli")
+    assert not [c for c in ad.host.calls if "push" in c]
+
+
+def test_label_failure_still_opens_the_merge_request(proj, monkeypatch, tmp_path):
+    ad = _ready(proj, monkeypatch, tmp_path)
+    ad.host.script(["gh", "label", "create"], 1, "", "HTTP 403")
+    ad.host.script(["gh", "pr", "create"], 0, "https://github.com/o/r/pull/4\n")
+    rec = edits.start("demo", "one")
+    (open(os.path.join(rec["folder"], "a.txt"), "w")).write("x\n")
+    assert edits.finish(rec["id"], adapters=ad)["pr"].endswith("/4")
+    pr = next(c for c in ad.host.calls if c[:3] == ["gh", "pr", "create"])
+    assert "--label" not in pr
+
+
+def test_agent_folder_from_settings_is_protected(proj, phoenix_env):
+    from phoenix9 import paths as p_
+    from phoenix9.project_removal import PROTECTED
+    p_.config().mkdir(parents=True, exist_ok=True)
+    (p_.config() / "global.toml").write_text('[agent]\nfolder = "/srv/projects/hq"\n')
+    assert "hq" in PROTECTED and "home" in PROTECTED and "phoenix9" in PROTECTED and "demo" not in PROTECTED
+    assert "agent's folder" in PROTECTED["hq"]
+    (phoenix_env["projects"] / "hq" / "code").mkdir(parents=True)
+    with pytest.raises(edits.EditError, match="agent's folder"):
+        edits.start("hq", "x")

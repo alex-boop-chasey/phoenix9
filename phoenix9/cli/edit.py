@@ -74,7 +74,7 @@ def run_abandon(args) -> int:
     if not args.yes:
         return problem(args, f"This throws away the quick edit {args.id}. Run again with --yes to do it.")
     try:
-        rec = edits.abandon(args.id)
+        rec = edits.abandon(args.id, args.who)
     except edits.EditError as err:
         return problem(args, str(err))
     common.record_command(args.who, f"edit abandon {args.id}", rec["project"])

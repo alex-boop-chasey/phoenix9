@@ -2,7 +2,7 @@
 from phoenix9 import plans
 
 schema = {"project": "str"}
-ABANDONABLE = ("waiting", "done", "failed")
+ABANDONABLE = plans.ABANDONABLE
 
 
 def _rows(project: str | None) -> list[dict]:

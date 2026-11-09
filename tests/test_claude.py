@@ -21,6 +21,18 @@ AI = {"model": "claude-fable-5-1", "fallback_models": ["claude-opus-5-5", "claud
       "advisor": {"on": False, "model": "claude-opus-5-5", "when": ["blocked"], "instructions": ""}}
 
 
+
+def _start_local(cmd, cwd, env_files):
+    """Start a test program on this machine with the env files' values added (tests only; never Claude)."""
+    import os
+    import subprocess
+    from phoenix9.scrub import read_env_file
+    env = dict(os.environ)
+    for path in env_files:
+        env.update(read_env_file(path))
+    return subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
 def _inner(cmd):
     return cmd[cmd.index("claude"):]
 
@@ -291,7 +303,7 @@ def _py(code: str) -> list[str]:
 def test_run_normal_session_logs_every_line(tmp_path):
     code = f"import sys; sys.stdout.write(open({str(DATA / 'normal.jsonl')!r}).read())"
     log = tmp_path / "logs" / "builder.jsonl"
-    r = claude.run(_py(code), tmp_path, [], log, timeout_min=1, no_output_timeout_min=1)
+    r = claude.run(_py(code), tmp_path, [], log, timeout_min=1, no_output_timeout_min=1, start=_start_local)
     assert r.kind == "ok"
     assert log.read_text() == (DATA / "normal.jsonl").read_text()
     assert r.raw_path == log
@@ -300,7 +312,7 @@ def test_run_normal_session_logs_every_line(tmp_path):
 def test_run_no_output_stops_quickly(tmp_path):
     code = "import time; print('{\"type\":\"system\"}', flush=True); time.sleep(60)"
     started = time.monotonic()
-    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", timeout_min=10, no_output_timeout_min=1 / 60)
+    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", timeout_min=10, no_output_timeout_min=1 / 60, start=_start_local)
     assert r.kind == "no_output"
     assert time.monotonic() - started < 5
     assert (tmp_path / "out.jsonl").read_text() == '{"type":"system"}\n'
@@ -308,7 +320,7 @@ def test_run_no_output_stops_quickly(tmp_path):
 
 def test_run_total_timeout(tmp_path):
     code = "import time\nwhile True:\n    print('tick', flush=True)\n    time.sleep(0.1)"
-    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", timeout_min=1 / 60, no_output_timeout_min=1)
+    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", timeout_min=1 / 60, no_output_timeout_min=1, start=_start_local)
     assert r.kind == "timed_out"
 
 
@@ -316,7 +328,7 @@ def test_run_kills_process_that_ignores_sigint(tmp_path):
     code = ("import signal, time; signal.signal(signal.SIGINT, signal.SIG_IGN); "
             "print('x', flush=True); time.sleep(60)")
     r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl",
-                   timeout_min=1, no_output_timeout_min=0.5 / 60, grace_s=0.5)
+                   timeout_min=1, no_output_timeout_min=0.5 / 60, grace_s=0.5, start=_start_local)
     assert r.kind == "no_output"
 
 
@@ -327,7 +339,7 @@ def test_run_uses_given_starter_and_redacts_secrets_in_saved_stream(tmp_path):
 
     def start(cmd, cwd, env_files):
         seen["env_files"] = env_files
-        return claude.start_local(cmd, cwd, env_files)
+        return _start_local(cmd, cwd, env_files)
 
     code = ("import json, os, sys; k = os.environ['STRIPE_KEY']; print(json.dumps({'type': 'assistant', 'm': k})); "
             "print(json.dumps({'type': 'result', 'is_error': False, 'result': 'key ' + k + ' abc ' + 'extra-secret-99'})); "
@@ -343,7 +355,7 @@ def test_run_uses_given_starter_and_redacts_secrets_in_saved_stream(tmp_path):
 
 def test_run_crashed_process_keeps_stderr(tmp_path):
     code = "import sys; sys.stderr.write('claude: not found'); sys.exit(127)"
-    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", 1, 1)
+    r = claude.run(_py(code), tmp_path, [], tmp_path / "out.jsonl", 1, 1, start=_start_local)
     assert r.kind == "crashed"
     assert r.text == "claude: not found"
 

@@ -98,8 +98,8 @@ export interface ProjectRow {
   chat?: ChatInfo | null
   /** The open or stalled quick edit (null or missing when none). */
   edit?: { id: string; title: string; status: "open" | "stalled" } | null
-  /** The running or waiting planning session (null or missing when none). */
-  plan?: { id: string; title: string; status: "running" | "waiting" } | null
+  /** The queued, running or waiting planning session (null or missing when none). */
+  plan?: { id: string; title: string; status: "queued" | "running" | "waiting" } | null
 }
 
 export interface ChangelogLine {

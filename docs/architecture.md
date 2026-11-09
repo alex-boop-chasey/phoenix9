@@ -140,7 +140,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
 | runs | HOME/runs/<project>/<run-id>/ | | run folders (section 7) |
 | work | HOME/work/<project>/<run-id>/ | | the run's git worktree of the project's code/ on branch `phoenix/<run-id>` (removed, with its branch, when the run is stopped; after a merge Phoenix made itself the branch is deleted too, see below) |
 | edits | HOME/edits/<id>/ and <id>.json | | quick edits (`phoenix9/edits.py`): the worktree of the project's code/ on branch `edit/<id>` (id = `yyyymmdd-slug`), and its record `{id, project, title, branch, folder, started, who, status: open|stalled|finished|abandoned, last_activity}`; one open edit per project, none while a build runs on it |
-| plans | HOME/plans/<id>.json and <id>/session.jsonl | | planning sessions (`phoenix9/plans.py`): record `{id, project, brief, model, started, who, status: running|waiting|done|failed|abandoned, session_id, spec, open_questions, report, last_activity}`; one running per project; the stream-json output of the headless claude |
+| plans | HOME/plans/<id>.json and <id>/ | | planning sessions (`phoenix9/plans.py`, `plansession.py`): record `{id, project, brief, model, started, who, status: queued|running|waiting|done|failed|abandoned, job, session_id, spec, open_questions, report, usage, budget_usd, last_activity}`; one queued or running per project; the folder holds `prompt.md`, `session-prompt.md`, `out/` (the container's /out), `claude/` (its session files), `session.jsonl` (stream-json, scrubbed); the session's copy of the repo is HOME/work/plan-<id>/code (removed after each job) |
 | logs | HOME/logs | | `commands.jsonl` (who ran what), `updater.log`, `api.log` |
 | cache | HOME/cache | | recomputable data, e.g. `sizes.json` (project folder sizes, refreshed in the background) |
 | events | HOME/events.jsonl | | global event stream (section 8) |
@@ -692,7 +692,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   task.finished gate.opened gate.answered project.created project.changed settings.changed
   update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled command`.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
-  `plan.started|continued|waiting|done|failed {plan, ...}` come from `phoenix plan`.
+  `plan.queued|continued|abandoned {plan, who}` come from `phoenix plan`; `plan.started|waiting|done|failed {plan, ...}` from the runner service.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
@@ -969,7 +969,7 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
 | `docker` | V8 docker.py port: run a step container with limits, firewall, mounts | records calls, returns scripted exit codes and files |
 | `claude` | V8 claude.py port: `claude -p` stream-json in the container, usage-limit and model-unavailable detection | scripted sessions: writes given files into the worktree, returns given result/usage |
 | `git` | V8 git.py port: clones, worktrees, safe flags, diffs | real git on temp repos (git is always available) |
-| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `process_cwds` ({pid, name, cwd} of every process, from /proc), `now`, `sleep`; deletes: `remove_tree(path)`, `remove_file(path)` (both quiet when the path is gone; used only by `project_delete.py`) | records calls, returns canned output |
+| `host` | systemctl, journalctl, `gh`, `du`, filesystem outside HOME; reads and checks used by the agent link: `read_lines`, `list_dir`, `exists`, `stat`, `realpath`, `pid_alive`, `parent_pid`, `process_cwds` ({pid, name, cwd} of every process, from /proc), `cgroup(pid)` (the `0::` line of /proc/<pid>/cgroup), `now`, `sleep`; deletes: `remove_tree(path)`, `remove_file(path)` (both quiet when the path is gone; used only by `project_delete.py`); `run` refuses any command whose program is `claude` (`ClaudeOnHost`, rule 1) | records calls, returns canned output |
 | `http` | urllib for service/deployer APIs | canned responses per (method, url) |
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
@@ -1008,8 +1008,12 @@ Only Alex can use it: the bottom of the project's Settings tab, or `phoenix proj
    import take it too (`common.project_lock`). Right after the safety copy and
    before the first delete, the refusals are checked again; if anything is busy now, the copy is removed and nothing
    is deleted.
-5. **Delete, in this order**, each step recorded in the result and as a `command` event: records and runs, the chat
-   unit `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed), the project folder, `HOME/keys/<name>.toml`,
+5. **Delete, in this order**, each step recorded in the result and as a `command` event: the chat unit
+   `claude-rc-chat@<name>` (stopped, disabled, drop-ins removed; when that fails NOTHING else is deleted, only the
+   GitHub step is recorded as not done), records and runs (with the project's quick-edit copies `HOME/edits/<id>/`
+   and records, and its planning sessions' records, folders and `HOME/work/plan-<id>/`; these folders are in
+   runs.tar.gz of the safety copy too), the project folder (right before it, the working-inside check runs again
+   with no own-chat exclusion: anything still inside keeps the folder), `HOME/keys/<name>.toml`,
    Claude Code's folder trust entry (`project_removal.untrust`), the `removed_projects` row and INDEX.md line, and
    last the GitHub repo (`gh repo delete <owner/name> --yes`).
    **Which GitHub repo** (`repo_verdict`): only one that is the project's own. Checked first: the repo is not the
@@ -1044,7 +1048,9 @@ not the real projects folder; a project with a build queued, running,
 waiting or paused; a project whose chat state is `working`;
 any program whose working folder is inside the project's real folder (`/proc/*/cwd`
 through the host adapter's `process_cwds()`: a grunt job, a desktop or terminal session; this process and its
-parent shell excepted); any caller other than `dashboard` or `cli` (the Phoenix
+parent shell excepted, and the project's own chat: the chat unit's MainPID and processes below it whose
+`/proc/<pid>/cgroup` (`Host.cgroup`) is that unit's `ControlGroup`, since the delete stops that unit itself); a
+planning session of the project that is running; any caller other than `dashboard` or `cli` (the Phoenix
 agent and every `chat:*` caller, whatever the project's permissions).
 
 **Host adapter** (section 9): systemctl, `gh` and the filesystem deletes `remove_tree(path)` and `remove_file(path)`
@@ -1067,8 +1073,8 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 
 ## 11. Fixed safety rules (always on; harness spec 8)
 
-1. No AI runs in Phoenix's own processes. Claude only runs inside step containers, with one exception: a
-   planning session (below, `chat.plan_start`). Apart from that: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
+1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. There is no
+   exception: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
    (`agentlink.send`); the agent is a separate, already-running session that Phoenix never starts or drives.
    `phoenix9/chat.py` is the only place that restarts the Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
@@ -1076,7 +1082,11 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
    add only unit and process control through the Host adapter: `chat_unit` (`claude-rc-chat@<listed
    project>`), `unit_state` (`systemctl is-active`), `unit_main_pid`, `start_unit` (`systemctl enable --now`),
    `stop_unit` (`systemctl disable --now`) and `stop_conversation` (`Host.stop_pid`, SIGTERM, only to the
-   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself, except for planning sessions.
+   unit's MainPID's direct child or a registry entry of the project). Phoenix never starts Claude itself.
+   Planning sessions are no exception: they run in step containers (below). Enforced twice: `Host.run`
+   refuses any command whose program is `claude` (`adapters.refuse_claude`), and
+   `tests/test_no_host_claude.py` walks phoenix9/ with `ast` and fails on a `claude` command line anywhere
+   but `claude.build_command` (the container's command), docker.py and the Claude adapter.
 2. Step containers never get the Docker socket, the GitHub token, SSH keys or account service keys.
    They get the Claude token, the project's secret keys as env vars, and the proxy address plus a
    per-step proxy token (phase 4; the token only identifies the step to the proxy, it is not a service key).
@@ -1119,17 +1129,37 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 7. Never `claude --bare` (it ignores the OAuth token).
 8. Secrets scrubbed from every log line written to disk.
 
-Planning sessions (exception, `chat.plan_start` / `chat.plan_continue`, the only other place Claude starts on the host): a headless
-`claude -p --output-format stream-json --permission-mode bypassPermissions --model <plan.model, default claude-fable-5-1>` run through the Host
-adapter in `/srv/projects/<project>`, output kept in `HOME/plans/<id>/session.jsonl`. It writes a spec in notes/specs/, checks it with
-`phoenix spec check <file>`, and keeps questions in the spec (`## Open questions`, numbered, each followed by an empty `Answer:` line).
-`phoenix plan continue <id>` resumes it (`--resume`) to read the answers and move them into `## Decisions`. Phoenix reads the open
-questions from the spec file itself, not from what the session says. CLI: `phoenix plan start|status|continue|list`.
+Planning sessions (`phoenix9/plans.py`, `phoenix9/plansession.py`, library step `steps/_plan-session/`; the
+leading `_` keeps it out of every run's step list). `phoenix plan start <project> --brief` / `continue <id>` /
+`reply <id> --text` only write the record (status `queued`) and its prompt file and return at once; callers poll
+`phoenix plan status <id>`. The runner service runs the oldest queued plan between runs (one at a time, not while
+an update holds the harness; a plan left `running` by a stopped runner is queued again at start) in a sealed step
+container exactly like the Planner step: firewall with only api.anthropic.com, no-new-privileges, the non-root
+session user, no Docker socket, no GitHub token, no project keys, no key proxy, env = the claude env file only.
+Mounts: `/workspace` read-only = a standalone clone of the project's default branch (`git.snapshot_clone`,
+HOME/work/plan-<id>/code; the live code/ folder is never mounted), `/project/CLAUDE.md` and `/project/notes`
+read-only (links are not mounted), `/out` writable = HOME/plans/<id>/out/ (on continue seeded with the filed spec),
+HOME/plans/<id>/claude/ as the session user's `~/.claude/projects`; cwd is always /workspace so `--resume <uuid>`
+(checked with `pause.valid_session_id`) finds the session. Model: setting `plan.model` (default claude-fable-5-1),
+then the step's fallback models. The session writes `/out/spec.md` (harness spec format plus `## Open questions`,
+numbered, each with an `Answer:` line, and `## Decisions`; spec.py accepts both sections and runs ignore them).
+Phoenix runs `spec.check` on it itself; on problems it resumes the same session with the list, at most 2 rounds,
+then `failed`. A valid spec is written by Phoenix to `notes/specs/plan-<id>.md` (Phoenix picks the name; atomic
+write; refused when notes/, notes/specs/ or the file is a link). Phoenix counts the open questions from the file:
+`waiting` (questions open) or `done`. Each session's cost goes into the record (`claude.record_usage`); over the
+per-plan cap `plan.budget_usd` (default 5) the plan stops `failed` with a plain message. Refused: the agent's
+folder (`ops.projects.agent_name()`, and `home`) always, phoenix9 when the caller is a chat (`chat:*`). A chat may
+abandon only a plan it started itself. CLI: `phoenix plan start|status|continue|reply|abandon|list`.
 
 Quick edits (`phoenix9/edits.py`, `editfinish.py`; no Claude of their own, the Phoenix agent or its `editor` helper does the editing): `phoenix edit start <project> <title>`
 makes a worktree of the project's code/ on branch `edit/<id>` in `HOME/edits/<id>/`; it never touches the main branch, code/ itself or another
-project, and refuses while a build runs on the project. `phoenix edit finish <id>` runs the same checks as a build (project test command in a sealed
-container, diff denylist, secret scan, lockfile check), then commits, pushes and opens a merge request; Alex merges. `phoenix edit heartbeat|list|abandon`.
+project or the agent's folder, and refuses while a build runs on the project or another edit of it is open or stalled. `phoenix edit finish <id>`
+first squashes the copy into ONE commit on top of its base (trailers `Phoenix-Edit: <id>`, `Phoenix-Fix-By: <who>`), then checks exactly that
+commit on a clean checkout of it (`git.commit_checkout`): diff denylist, the project's safety files when the caller is a chat (`chat:*`, the same
+rule as a repair's hand fix), secret scan, lockfile check, project test command in a sealed container. It pushes exactly that commit
+(`<sha>:refs/heads/edit/<id>`), refused when the copy's HEAD moved or it has uncommitted changes by then, and opens a merge request with the
+label `needs Alex` (created when missing; a label failure never loses the merge request) and the line "Made by <who>; Alex merges this.".
+Alex merges. `phoenix edit heartbeat|list|abandon`; a chat may abandon only an edit it started.
 Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning session (spinner), 2 build running, 3 paused or waiting for Alex, 4 the rest.
 
 ## 12. Deliberate simplifications (recorded so nobody "fixes" them)
@@ -1599,6 +1629,6 @@ Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `n
 - `edits` card (`project?`): rows `{id, project, title, status, last_activity, pr}`; actions link each merge request and give
   Abandon (`POST /api/edits/<id>/abandon` `{confirm: true}`, `confirm`, `danger`) on open or stalled edits.
 - `plans` card (`project?`): rows `{id, project, brief, status, spec, open_questions, last_activity}`; Abandon
-  (`POST /api/plans/<id>/abandon`) on waiting, done or failed sessions. A running session cannot be abandoned.
-- `phoenix plan reply <id> --text` resumes a waiting session with Alex's words; `phoenix plan abandon <id> --yes`.
-- `phoenix agent brief` also returns `work`: one line per open quick edit and running or waiting planning session.
+  (`POST /api/plans/<id>/abandon`) on queued, waiting, done or failed sessions. A running session cannot be abandoned.
+- `phoenix plan reply <id> --text` queues a waiting session again with Alex's words; `phoenix plan abandon <id> --yes`.
+- `phoenix agent brief` also returns `work`: one line per open quick edit and queued, running or waiting planning session.

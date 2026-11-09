@@ -186,6 +186,9 @@ def _parse_task(number: int, title: str, heading_line: int, body: list[tuple[int
     return task
 
 
+PLAN_SECTIONS = ("open questions", "decisions")
+
+
 def parse(text: str) -> Spec:
     """Read spec markdown into a Spec. Anything unreadable goes into Spec.problems."""
     spec = Spec(title="", project="", preset="", about="", tasks=[])
@@ -209,6 +212,12 @@ def parse(text: str) -> Spec:
             seen["about"] = number
             spec.has_about = True
             spec.about = "\n".join(line for _, line in body).strip()
+        elif heading.lower() in PLAN_SECTIONS:       # a planning session's questions and decisions (not used by runs)
+            key = heading.lower()
+            if key in seen:
+                spec.problems.append(f"Line {number}: '## {heading}' appears twice (first at line {seen[key]}).")
+                continue
+            seen[key] = number
         else:
             spec.problems.append(f"Line {number}: '## {heading}' is not a section Phoenix knows. "
                                  "Use '## About' or '## Task <n>: <title>'.")

@@ -153,7 +153,7 @@ def _work_lines() -> list[str]:
     out = ["quick edit %s · %s · %s · %s" % (e["id"], e["project"], e["status"], e["title"])
            for e in edits.list_edits(only_open=True)]
     out += ["planning session %s · %s · %s · %s" % (p["id"], p["project"], p["status"], p["brief"].splitlines()[0][:60])
-            for p in plans.list_plans() if p.get("status") in ("running", "waiting") and p.get("brief", "").strip()]
+            for p in plans.list_plans() if p.get("status") in ("queued", "running", "waiting") and p.get("brief", "").strip()]
     return [scrub.scrub(x.replace("\n", " "))[:LINE_MAX] for x in out][:10]
 
 

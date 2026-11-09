@@ -20,6 +20,7 @@ from urllib.parse import quote
 
 # ported from reference/v8/phoenix/git.py:35
 SAFE = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")   # hard rule 5
+SHA_RE = re.compile(r"[0-9a-f]{40}")
 IDENT = ("-c", "user.name=Phoenix", "-c", "user.email=phoenix@localhost")
 MAIN = "main"
 BRANCH_PREFIX = "phoenix/"
@@ -186,6 +187,26 @@ def fresh_checkout(worktree: Path, dest: Path) -> Path:
     git(worktree, "worktree", "add", "-q", "--detach", "--", str(dest), "HEAD")
     if patch.strip():
         git(dest, "apply", "--whitespace=nowarn", input=patch.encode())
+    return dest
+
+
+def commit_checkout(repo: Path, sha: str, dest: Path) -> Path:
+    """Make a clean detached checkout of exactly this commit at `dest` (nothing uncommitted comes with it)."""
+    if not SHA_RE.fullmatch(sha or ""):
+        raise GitError(f"not a full commit id: {sha!r}")
+    git(Path(repo), "worktree", "add", "-q", "--detach", "--", str(Path(dest)), sha)
+    return Path(dest)
+
+
+def snapshot_clone(code_dir: Path, dest: Path) -> Path:
+    """A standalone copy of the repo's default branch at `dest` (own .git, objects copied, no remote), so a
+    container can be handed it without anything of the live code/ folder being mounted."""
+    code_dir, dest = Path(code_dir), Path(dest)
+    branch = default_branch(code_dir)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    git(dest.parent, "clone", "-q", "--no-hardlinks", "--single-branch", "--branch", branch, "--",
+        str(code_dir.resolve()), str(dest))
+    git(dest, "remote", "remove", "origin")
     return dest
 
 

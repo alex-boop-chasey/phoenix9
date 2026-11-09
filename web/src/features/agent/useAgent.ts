@@ -51,7 +51,7 @@ export interface AgentMessages {
 
 export interface AgentSessionRow { session_id: string; started: string; lines: number }
 
-export interface AgentContext { page?: string; project?: string; run?: string }
+export interface AgentContext { page?: string; project?: string; run?: string; suggestions?: number }
 export interface AgentSendBody { text: string; context?: AgentContext }
 export interface AgentSendResult { sent: boolean; at: string; after_line: number }
 
@@ -253,5 +253,26 @@ export function useEarlierSession(session: string | null) {
 export function useRestartAgent() {
   return useMutation({
     mutationFn: () => post<{ restarted: boolean; unit: string }>("agent/restart", { confirm: true }),
+  })
+}
+
+/** One report line worth a mention, as `/api/suggest` lists it. */
+export interface Suggestion { key: string; text: string; section: string; attention: boolean; shown: boolean }
+
+/** The strip's suggestions (up to three), re-read every minute. */
+export function useSuggestions() {
+  return useQuery({
+    queryKey: ["agent", "suggest"] as const,
+    queryFn: () => get<{ mode: string; suggestions: Suggestion[] }>("suggest"),
+    refetchInterval: 60_000,
+  })
+}
+
+/** Snooze or dismiss one suggestion, then re-read the list. */
+export function useMarkSuggestion() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ key, what }: { key: string; what: "snooze" | "dismiss" }) => post(`suggest/${encodeURIComponent(key)}/${what}`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent", "suggest"] }),
   })
 }

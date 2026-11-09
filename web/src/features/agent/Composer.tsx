@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Icon } from "@/components/Icon"
 import { useNextContext } from "@/features/agent/ContextChip"
 import { rememberTold } from "@/features/agent/pageContext"
-import { useAgentMessages, useAgentStatus, useSendToAgent } from "@/features/agent/useAgent"
+import { useAgentMessages, useAgentStatus, useSendToAgent, useSuggestions } from "@/features/agent/useAgent"
 
 const MAX_LINES = 6
 const LINE_PX = 20
@@ -30,6 +30,8 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
   const items = useAgentMessages().data?.items ?? []
   const next = useNextContext()
   const send = useSendToAgent()
+  const fresh = !items.some((i) => i.type === "user")
+  const news = useSuggestions().data?.suggestions.filter((s) => !s.shown).length ?? 0
   const asleep = status?.state === "asleep" || offline
   const stillQueued = items.some((i) => i.type === "queued" && i.pending)
   const blank = !text.trim()
@@ -44,7 +46,8 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
 
   const go = () => {
     const sendsContext = contextOn && Object.keys(next.parts).length > 0
-    const body = sendsContext ? { text, context: next.parts } : { text }
+    const parts = fresh && news > 0 ? { ...next.parts, suggestions: news } : next.parts
+    const body = sendsContext || parts !== next.parts ? { text, context: parts } : { text }
     setAsk(false)
     send.mutate(body, {
       onSuccess: () => {

@@ -227,6 +227,9 @@ def clean_context(context) -> dict:
         if key == "project" and value not in project_mod.project_names():
             continue
         out[key] = value
+    count = context.get("suggestions")
+    if isinstance(count, int) and not isinstance(count, bool) and 0 <= count <= 99:
+        out["suggestions"] = count
     return out
 
 
@@ -267,6 +270,8 @@ def envelope(context: dict | None, who: str = "cli", panel: bool = False) -> str
         parts.append("folder: %s" % settings.agent_settings()["folder"])
     if run:
         parts.append("run: %s" % run)
+    if "suggestions" in context:
+        parts.append("new suggestions: %d" % context["suggestions"])
     if panel:
         return "[Phoenix panel · %s]" % " · ".join(parts) if parts else ""
     return "[%s]" % " · ".join(["Phoenix", clean_who(who)] + parts)

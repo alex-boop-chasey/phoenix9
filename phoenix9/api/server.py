@@ -12,7 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from phoenix9 import paths, scrub
+from phoenix9 import paths, scrub, suggest
 from phoenix9.api import stream
 from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
@@ -882,6 +882,11 @@ def get_suggest(req):
 
 def post_suggest(req, key, what):
     """Mark a suggestion shown, snoozed (optional {hours}) or dismissed."""
+    key = unquote(key)  # the route keeps %3A / %2B as sent; decoded once here, then it must be a plain key
+    try:
+        suggest.check_key(key)
+    except ValueError as e:
+        raise BadRequest(str(e)) from None
     hours = req.body.get("hours", ops_suggest.SNOOZE_HOURS)
     if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= 24 * 365:
         raise BadRequest("hours has to be a number above 0.")
@@ -1112,9 +1117,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/report/status", get_report_status),
     ("GET", r"/api/suggest", get_suggest),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/snooze", post_suggest_snooze),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/dismiss", post_suggest_dismiss),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/shown", post_suggest_shown),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/shown", post_suggest_shown),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),

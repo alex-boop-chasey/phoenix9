@@ -10,6 +10,8 @@ export interface FormValues {
   source: SourceKind
   repo: string
   template: string
+  /** A ready-made starter picked under Framework (only with an Empty source). */
+  framework: string
   path: string
   profile: string
   newRepo: boolean
@@ -18,7 +20,7 @@ export interface FormValues {
 }
 
 export const emptyForm: FormValues = {
-  name: "", description: "", source: "empty", repo: "", template: "", path: "", profile: "",
+  name: "", description: "", source: "empty", repo: "", template: "", framework: "", path: "", profile: "",
   newRepo: true, owner: "", services: [],
 }
 
@@ -45,6 +47,9 @@ export function rememberOwner(owner: string) {
   }
 }
 
+/** Whether the Framework picker is used: only an empty project scaffolds a starter. */
+export const frameworkApplies = (source: SourceKind) => source === "empty"
+
 /** Whether the source part of the form is filled in. */
 export function sourceComplete(v: FormValues): boolean {
   if (v.source === "repo") return !!v.repo
@@ -59,12 +64,16 @@ export const newRepoApplies = (source: SourceKind) => source === "empty" || sour
 /** Build the documented create body. */
 export function toCreateForm(v: FormValues, keys: KeyInput[], githubConnected: boolean): CreateForm {
   const source: CreateForm["source"] = { kind: v.source }
+  if (v.source === "empty" && v.framework) {
+    source.kind = "template"
+    source.template = v.framework
+  }
   if (v.source === "repo") source.repo = v.repo
   if (v.source === "template") source.template = v.template.trim()
   if (v.source === "code") source.path = v.path.trim()
   const on = githubConnected && newRepoApplies(v.source) && v.newRepo
   return {
-    name: v.name, description: v.description, source, ...(v.source === "template" && v.profile ? { profile: v.profile } : {}),
+    name: v.name, description: v.description, source, profile: v.profile,
     new_repo: on ? { on: true, owner: v.owner } : { on: false, owner: "" },
     services: v.services, keys,
   }

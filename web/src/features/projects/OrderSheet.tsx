@@ -1,22 +1,22 @@
 // The New project order sheet: six numbered steps made of open tiles.
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, type ReactNode } from "react"
 import { Link } from "react-router"
 
 import { Icon, type IconName } from "@/components/Icon"
 import { RepoPicker } from "@/features/projects/RepoPicker"
 import { useNameCheck } from "@/features/projects/useNameCheck"
 import {
-  newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
+  PROFILES, frameworkApplies, newRepoApplies, rememberOwner, rememberedOwner, type FormValues, type SourceKind,
 } from "@/features/projects/formModel"
 import { KeysForm, type RowsSummary, type WantedKey } from "@/features/keys/KeysForm"
-import { useGithubRepos, useInfo, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
+import { useGithubRepos, useInfo, useLibraryProfiles, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
 import type { KeyInput, ServiceKey } from "@/lib/types"
 
 
 const SOURCES: { value: SourceKind; label: string; hint: string; icon: IconName }[] = [
   { value: "empty", label: "Empty", hint: "Start with a blank folder.", icon: "file-text" },
   { value: "repo", label: "Existing GitHub repo", hint: "Copy a repo you already have.", icon: "github-logo" },
-  { value: "template", label: "Template", hint: "A ready-made starter.", icon: "cube" },
+  { value: "template", label: "GitHub template", hint: "A template repo on GitHub.", icon: "cube" },
   { value: "code", label: "On this server", hint: "Code already in a folder here.", icon: "folder-open" },
 ]
 
@@ -100,17 +100,7 @@ function NameSteps({ value, set, onNameOk }: Props) {
 /** Step 2: where the code comes from, with its follow-up. */
 function SourceStep({ value, set }: Props) {
   const github = useGithubRepos()
-  const templates = useLibraryTemplates()
   const connected = !!github.data?.connected
-  const templateNames = templates.data?.map((t) => t.name) ?? []
-  const [custom, setCustom] = useState(false)
-  const showCustom = custom || (!!value.template && !templateNames.includes(value.template))
-
-  function pickTemplate(name: string) {
-    const known = templates.data?.find((t) => t.name === name)
-    setCustom(false)
-    set({ template: name, profile: known?.profile ?? "" })
-  }
 
   return (
     <Step n={2} id="np-step-source">
@@ -120,7 +110,7 @@ function SourceStep({ value, set }: Props) {
           <Tile
             key={s.value} type="radio" name="src" title={s.label} hint={s.hint} icon={s.icon}
             checked={value.source === s.value}
-            onChange={() => set({ source: s.value, newRepo: newRepoApplies(s.value) })}
+            onChange={() => set({ source: s.value, newRepo: newRepoApplies(s.value), framework: frameworkApplies(s.value) ? value.framework : "" })}
           />
         ))}
       </div>
@@ -133,25 +123,13 @@ function SourceStep({ value, set }: Props) {
       )}
       {value.source === "template" && (
         <div className="follow">
-          <span className="lbl" id="tplL">Template</span>
-          <div className="tiles" role="radiogroup" aria-labelledby="tplL">
-            {templates.data?.map((t) => (
-              <Tile
-                key={t.name} type="radio" name="tpl" title={t.title} hint={PROFILE_LOOK[t.profile]?.title ?? t.profile}
-                checked={!showCustom && value.template === t.name} onChange={() => pickTemplate(t.name)}
-              />
-            ))}
-            <Tile
-              type="radio" name="tpl" title="Another GitHub template…" hint="Type owner/name" dashed
-              checked={showCustom} onChange={() => { setCustom(true); set({ template: "", profile: "" }) }}
+          <div className="field">
+            <label htmlFor="pf-template">GitHub template</label>
+            <input
+              className="input mono" id="pf-template" placeholder="owner/name" value={value.template}
+              onChange={(e) => set({ template: e.target.value })}
             />
           </div>
-          {showCustom && (
-            <input
-              className="input mono" aria-label="GitHub template" placeholder="owner/name" value={value.template}
-              onChange={(e) => set({ template: e.target.value, profile: "" })}
-            />
-          )}
         </div>
       )}
       {value.source === "code" && (
@@ -226,7 +204,59 @@ export function wantedKeys(
   return out
 }
 
-/** Step 5: services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
+/** The Type and Framework pickers shown above the service tiles. */
+function TypeFramework({ value, set }: Pick<Props, "value" | "set">) {
+  const profiles = useLibraryProfiles()
+  const templates = useLibraryTemplates()
+  const types = profiles.data?.profiles.length ? profiles.data.profiles.map((p) => p.name) : PROFILES
+  const starters = (templates.data ?? []).filter((t) => t.profile === value.profile)
+  const applies = frameworkApplies(value.source)
+  const pickType = (profile: string) =>
+    set({ profile, framework: starters.length && profile === value.profile ? value.framework : "" })
+  return (
+    <>
+      <span className="lbl" id="typeL">Type</span>
+      <div className="tiles" role="radiogroup" aria-labelledby="typeL">
+        {types.map((name) => (
+          <Tile
+            key={name} type="radio" name="type" title={PROFILE_LOOK[name]?.title ?? name} hint={PROFILE_LOOK[name]?.hint}
+            icon={PROFILE_LOOK[name]?.icon} checked={value.profile === name} onChange={() => pickType(name)}
+          />
+        ))}
+      </div>
+      {value.profile && (
+        <>
+          <span className="lbl" id="fwL">Framework</span>
+          {applies ? (
+            <div className="tiles" role="radiogroup" aria-labelledby="fwL">
+              <Tile
+                type="radio" name="fw" title="None" hint="Start empty" checked={!value.framework}
+                onChange={() => set({ framework: "" })}
+              />
+              {starters.map((t) => (
+                <Tile
+                  key={t.name} type="radio" name="fw" title={t.title} checked={value.framework === t.name}
+                  onChange={() => set({ framework: t.name })}
+                />
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="tiles" role="radiogroup" aria-labelledby="fwL" aria-disabled="true">
+                <fieldset disabled style={{ display: "contents" }}>
+                  <Tile type="radio" name="fw" title="None" hint="Start empty" checked onChange={() => {}} />
+                </fieldset>
+              </div>
+              <p className="small">The code you're bringing already has its framework.</p>
+            </>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+/** Step 4: type, framework, then services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
 function ServicesStep({ value, set }: Props) {
   const library = useLibraryServices()
   const status = useServices()
@@ -243,6 +273,7 @@ function ServicesStep({ value, set }: Props) {
   const rows = wantedKeys(library.data?.services, value.services).length
   return (
     <Step n={4} id="np-step-services">
+      <TypeFramework value={value} set={set} />
       <span className="lbl" id="svcL">Services</span>
       <div className="tiles" role="group" aria-labelledby="svcL">
         {library.data?.services.map((s) => {

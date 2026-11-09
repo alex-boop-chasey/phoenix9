@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, runs, service as ops_service, services, settings, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -867,6 +867,13 @@ def get_repair_report(req, run_id):
     return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
 
 
+def get_report_status(req):
+    """Write the daily status report and reply with it (markdown)."""
+    with req.server.write_lock:
+        done = ops_report.status()
+    return {"path": done["path"], "markdown": done["text"]}
+
+
 def post_repair_apply(req, run_id):
     """Save the posted repair note and apply it (or only show a dry run)."""
     run_id = check_run_id(run_id)
@@ -1062,6 +1069,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
+    ("GET", r"/api/report/status", get_report_status),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),

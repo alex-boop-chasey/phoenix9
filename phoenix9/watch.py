@@ -17,6 +17,7 @@ from phoenix9.stepctx import UsageLimit
 MAX_CRASHES = 3          # a run that crashes the loop this many times in a row is failed
 LIMIT_NOTICE_S = 3600    # tell Alex when a usage-limit wait is longer than this
 INTERVAL_S = 10
+REPORT_EVERY_S = 600     # the status report is rewritten every 10 minutes
 
 
 @dataclass
@@ -26,6 +27,7 @@ class Memory:
     crashes: dict = field(default_factory=dict)
     agent_checked: float | None = None    # when the agent watchdog last ran
     chats_checked: float | None = None    # when the chats were last checked for sleep/off
+    report_written: float | None = None   # when the status report was last written
 
 
 def all_states() -> list[dict]:
@@ -304,6 +306,19 @@ def run_plans(adapters) -> str | None:
         return None
 
 
+def write_status_report(adapters, memory: Memory) -> None:
+    """Rewrite HOME/reports/status.md when 10 minutes have passed; a failure never stops the loop."""
+    now = adapters.clock.now()
+    if memory.report_written is not None and now - memory.report_written < REPORT_EVERY_S:
+        return
+    memory.report_written = now
+    try:
+        from phoenix9 import statusreport
+        statusreport.write(adapters, now=now)
+    except Exception:  # noqa: BLE001 - the report is a view; the runner carries on without it
+        pass
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     heartbeat.reset_progress()
@@ -325,6 +340,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             check_chats(adapters, memory)
             prune_deleted_copies(adapters)
             mark_stalled_edits()
+            write_status_report(adapters, memory)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

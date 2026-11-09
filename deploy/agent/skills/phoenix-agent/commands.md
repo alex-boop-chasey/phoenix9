@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs d2d602ea3b2c244f -->
+<!-- phoenix 9.1.0 inputs 4116ec8438e2c318 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -655,6 +655,16 @@ let the runner carry on with a repaired run
 - `<run_id>`
 - `--project PROJECT`: the project of the run (the run id alone is enough)
 - `--yes`: confirm that you mean it
+
+## `phoenix report`
+
+plain-English reports
+
+### `phoenix report status`
+
+write and show the status report (what needs you)
+
+- `--out OUT`: write the report to this file instead of HOME/reports/status.md
 
 ## `phoenix edit`
 

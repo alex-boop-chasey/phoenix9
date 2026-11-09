@@ -129,6 +129,28 @@ class Host:
         except (ProcessLookupError, ValueError, OverflowError, TypeError):
             pass
 
+    def process_table(self) -> dict[int, tuple[int, str]]:
+        """Every running process as {pid: (parent pid, command line with spaces between words)} from /proc."""
+        table = {}
+        for name in self.list_dir("/proc"):
+            if not name.isdigit():
+                continue
+            try:
+                stat = Path(f"/proc/{name}/stat").read_text()
+                ppid = int(stat.rsplit(")", 1)[1].split()[1])
+                cmd = Path(f"/proc/{name}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+            except (OSError, ValueError, IndexError):
+                continue
+            table[int(name)] = (ppid, cmd.strip())
+        return table
+
+    def signal_pid(self, pid, sig) -> None:
+        """Send a signal to one process (quiet when it is gone or not ours)."""
+        try:
+            os.kill(int(pid), sig)
+        except (ProcessLookupError, PermissionError, ValueError, OverflowError, TypeError):
+            pass
+
     def socket_uid(self, local, remote, tables=TCP_TABLES) -> int | None:
         """The uid owning the TCP socket whose own end is `local` and far end is `remote` (address tuples),
         read from /proc/net/tcp and tcp6; None when there is no such socket or more than one owner."""

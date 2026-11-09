@@ -1015,6 +1015,11 @@ def post_agent_restart(req):
         return ops_agent.restart(WHO)
 
 
+def post_agent_stop(req):
+    """Stop the Phoenix agent's running command and tell it to stop (503 when it is asleep); no write lock."""
+    return ops_agent.stop(WHO)
+
+
 def post_agent_new(req):
     """Start a fresh agent conversation (body {"confirm": true}, else 409); waits without the write lock."""
     if req.body.get("confirm") is not True:
@@ -1077,6 +1082,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/agent/send", post_agent_send),
     ("POST", r"/api/agent/restart", post_agent_restart),
+    ("POST", r"/api/agent/stop", post_agent_stop),
     ("POST", r"/api/agent/new", post_agent_new),
     ("POST", r"/api/ui/go", post_ui_go),
     ("POST", r"/api/blocks/check", post_blocks_check),

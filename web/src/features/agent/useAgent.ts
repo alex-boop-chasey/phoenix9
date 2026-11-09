@@ -256,6 +256,15 @@ export function useRestartAgent() {
   })
 }
 
+/** Stop the agent: ends its running command and tells it to stop (no confirm needed). */
+export function useStopAgent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => post<{ stopped: number; sent: boolean }>("agent/stop", {}),
+    onSettled: () => void qc.invalidateQueries({ queryKey: agentKeys.status() }),
+  })
+}
+
 /** Save the agent's notes and start a new conversation (the caller has already asked Alex to confirm). */
 export function useNewConversation() {
   const qc = useQueryClient()

@@ -55,6 +55,19 @@ def send(text: str, context: dict | None = None, who: str = "cli", panel: bool =
     return result
 
 
+def stop(who: str = "cli") -> dict:
+    """End the command the agent is running and tell it to stop; {stopped, sent}. Refuses when it is not running."""
+    host = _host()
+    if agentlink.status(host=host)["state"] == "asleep":
+        raise common.Unavailable("The agent isn't running, so there is nothing to stop.")
+    try:
+        result = agentlink.interrupt(who, host=host)
+    except agentlink.SendError as e:
+        raise common.Unavailable(scrub.scrub(str(e)))
+    common.record_command(who, "agent stop")
+    return result
+
+
 def restart(who: str = "cli") -> dict:
     """Restart the agent's systemd service (the `agent.unit` setting) and tell Alex; {restarted, unit}."""
     from phoenix9 import chat

@@ -927,6 +927,12 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
   `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
   `phoenix agent restart --yes` restarts it by hand.
+  `phoenix agent stop` (`POST /api/agent/stop`, no confirm, no write lock) is the panel's Stop button: Phoenix
+  itself ends the command the agent is running (SIGTERM, then SIGKILL after 2 seconds, to each tool shell, the
+  process whose command line contains `/.claude/shell-snapshots/`, and everything under it; never the agent
+  process, never its helper processes such as MCP servers, never a pid outside the agent's own process tree,
+  re-checked before each signal), then posts one fixed message asking the agent to stop and say what was left
+  half-done. Returns `{stopped, sent}`; an asleep agent is refused. Recorded in the send log (who, time, no text).
   `phoenix agent new --yes` (`POST /api/agent/new`) starts a fresh conversation: it asks the agent to save its
   notes (fixed text), waits until it is not working (at most `[chat] wrap_up_minutes`), then restarts the unit;
   an asleep agent is just started. It does not hold the API write lock; one at a time (else 409).

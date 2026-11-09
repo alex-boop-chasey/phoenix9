@@ -55,7 +55,7 @@ counting zero.
 1. `phoenix repair report <run>`: what happened and the suggested fix lines.
 2. Write a repair note with the fewest steps, copying the report's fix lines.
 3. `phoenix repair apply <note> --dry-run` (see `commands.md`), then show it to Alex as a `repair` card.
-4. Apply it only when the project lets you answer that kind of question; otherwise wait for Alex.
+4. Hand it to the `fixer` helper only when the project lets you answer that kind of question; otherwise wait for Alex.
 5. `phoenix repair undo <run> --yes` takes it back; `phoenix repair resume <run> --yes` lets the build carry on.
 6. Never use `force` or rewrite the checks without Alex.
 

@@ -47,18 +47,20 @@ def step_ai(model: str) -> dict:
     return ai
 
 
-def image_for(project: str) -> str:
-    """The step image: the project's profile image, else the python-script profile's."""
+def profile_for(project: str) -> str:
+    """The profile (Type) whose image the project's planning uses: its own, else the python-script one."""
     from phoenix9.library import load_library
     try:
         values = settings.effective(paths.projects() / project, load_library(paths.library())).values
         name = values.get("profile") or ""
-        image = settings.load_profile(paths.library(), name).get("image") if name else ""
     except Exception:            # noqa: BLE001 - a broken phoenix.toml only means the fallback image
-        image = ""
-    if not image:
-        image = settings.load_profile(paths.library(), FALLBACK_PROFILE).get("image") or ""
-    return image
+        name = ""
+    return name if settings.profile_image(paths.library(), name) else FALLBACK_PROFILE
+
+
+def image_for(project: str) -> str:
+    """The step image: the project's profile image, else the python-script profile's."""
+    return settings.profile_image(paths.library(), profile_for(project))
 
 
 def next_queued() -> dict | None:
@@ -239,9 +241,10 @@ def run_job(adapters, rec: dict) -> dict:
     resume = job.get("resume")
     if resume is not None and not pause.valid_session_id(str(resume)):
         raise PlanFailed("The planning session's id is not a Claude session id, so it cannot be resumed.")
-    image = image_for(project)
+    profile = profile_for(project)
+    image = settings.profile_image(paths.library(), profile)
     if not image or not adapters.docker.image_exists(image):
-        raise PlanFailed(f"The step image {image or '(none)'} is not built. Run `phoenix images build --all`.")
+        raise PlanFailed(settings.missing_image_message(profile))
     folder = plans.plan_folder(plan_id)
     out, sessions = folder / "out", folder / "claude"
     sessions.mkdir(parents=True, exist_ok=True)

@@ -95,14 +95,50 @@ def waiting_for_alex(now: float) -> list[str]:
     return out
 
 
+NO_REASON = "no reason was recorded"
+
+
+def _first_line(text) -> str:
+    """The first non-empty line of some text, trimmed."""
+    lines = [x.strip() for x in str(text or "").splitlines() if x.strip()]
+    return lines[0] if lines else ""
+
+
 def _run_reason(folder: Path) -> str:
-    """Why a failed run failed: the flagged reason of its first failed task."""
+    """Why a failed run failed: the first failed task's flagged reason, else the failed run-start or run-finish
+    step (its name and note), else the run's own recorded error, else a plain "no reason was recorded"."""
     st = atomic.read_json(folder / "state.json", {}) or {}
     for n in sorted(st.get("tasks", {}), key=int):
         t = st["tasks"][n]
         if t.get("status") == "failed":
-            return str(t.get("flagged") or (t.get("failures") or ["it failed"])[-1]).splitlines()[0].strip()
-    return "it failed"
+            why = _first_line(t.get("flagged") or (t.get("failures") or [""])[-1])
+            if why:
+                return why
+    for line in st.get("steps") or []:
+        if line.get("status") == "failed" and line.get("group") in ("run-start", "run-finish"):
+            note = _first_line(line.get("note"))
+            return f"step {line.get('step')} failed: {note}" if note else f"step {line.get('step')} failed"
+    return _first_line(st.get("error")) or NO_REASON
+
+
+def _spec_name(r: dict) -> str:
+    """Which spec a run was built from: the title in its read-only spec copy."""
+    folder = runs.run_dir(r["project"], r["run_id"])
+    try:
+        text = (folder / "spec.md").read_text(encoding="utf-8")
+        return (runs.spec_mod.parse(text).title or "").strip().lower()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _redone(r: dict, found: list[dict]) -> bool:
+    """True when a later run in the same project for the same spec ended successfully."""
+    name = _spec_name(r)
+    if not name:
+        return False
+    key = (r["created"], r["run_id"])
+    return any(o["project"] == r["project"] and o["status"] == "done" and (o["created"], o["run_id"]) > key
+               and _spec_name(o) == name for o in found)
 
 
 def builds(now: float) -> list[str]:
@@ -114,7 +150,7 @@ def builds(now: float) -> list[str]:
     failed = []
     for r in found:
         age = _age(r["updated"], now)
-        if r["status"] == "failed" and age is not None and age <= FAILED_DAYS * DAY:
+        if r["status"] in ("failed", "stopped") and age is not None and age <= FAILED_DAYS * DAY and not _redone(r, found):
             failed.append((r, _run_reason(runs.run_dir(r["project"], r["run_id"]))))
     for r, why in failed:
         out.append(tag(f"- {r['project']}: build {r['run_id']} failed: {quote(why)}. Look at it with `phoenix repair report {r['run_id']}`.",
@@ -123,7 +159,7 @@ def builds(now: float) -> list[str]:
     for r, why in failed:
         by_reason.setdefault(why, []).append(r["run_id"])
     for why, ids in sorted(by_reason.items()):
-        if len(ids) > 1:
+        if len(ids) > 1 and why != NO_REASON:
             out.append(tag(f"- {len(ids)} builds failed with the same reason ({quote(why)}): {', '.join(ids)}. "
                            f"Fix the cause first: `phoenix repair report {ids[0]}`.", f"build-repeat:{'+'.join(sorted(ids))}"))
     return out

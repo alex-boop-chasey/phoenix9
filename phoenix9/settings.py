@@ -395,6 +395,31 @@ def load_profile(lib_root, name: str) -> dict:
     return _read_layer(Path(lib_root) / "profiles" / name / "profile.toml", f"profiles/{name}/profile.toml")
 
 
+def profile_image(lib_root, name: str) -> str:
+    """The Docker image tag of a profile ('' when it has none or its file cannot be read)."""
+    try:
+        return str(load_profile(lib_root, name).get("image") or "") if name else ""
+    except Exception:            # noqa: BLE001 - a broken profile file only means no image
+        return ""
+
+
+def missing_image_message(name: str) -> str:
+    """The plain sentence for a type whose toolbox image has not been built on this server."""
+    return (f"The {name} toolbox image isn't built on this server yet. Build it with "
+            f"`phoenix images build --profile {name}` (a few minutes), then start the build again.")
+
+
+def image_is_missing(docker, lib_root, name: str) -> bool:
+    """True only when Docker says the type's image is not there (False when Docker cannot be asked)."""
+    tag = profile_image(lib_root, name)
+    if not tag:
+        return False
+    try:
+        return not docker.image_exists(tag)
+    except Exception:            # noqa: BLE001 - Docker cannot be asked: do not block
+        return False
+
+
 PROFILE_REPORTS = ("pytest-junit", "vitest-json", "playwright-json", "exit-code")
 
 # Keys of a profile.toml outside [steps.*] (architecture 4.5).
@@ -491,8 +516,8 @@ def _layer(data: dict, specs: dict[str, Spec], where: str) -> dict[str, Any]:
 def no_profile_message(name: str) -> str:
     """The plain refusal for a build in a project that has no project type."""
     return (f"{name} has no project type yet, so Phoenix doesn't know which build tools to use. "
-            "Choose one (web, platform, mobile, desktop, python-script, research) with "
-            f"`phoenix settings set {name} profile <type>` or in the project's settings, "
+            f"Set one with `phoenix settings set {name} profile <type>` "
+            "(web, platform, mobile, desktop, python-script, research), "
             "then start the build again.")
 
 

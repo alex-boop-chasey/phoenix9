@@ -329,6 +329,37 @@ def test_run_start_with_a_project_type_proceeds(env):
     assert queue_run(env)
 
 
+def test_run_start_is_refused_when_the_toolbox_image_is_not_built(env):
+    folder = make(env)
+    del env["fakes"].docker.images["phoenix9-step-python:1"]
+    with pytest.raises(OpsError) as err:
+        queue_run(env)
+    assert str(err.value) == (
+        "The python-script toolbox image isn't built on this server yet. Build it with "
+        "`phoenix images build --profile python-script` (a few minutes), then start the build again.")
+    assert not list((folder / ".phoenix").glob("runs/*")) and not (folder / ".phoenix" / "last-used").exists()
+    env["fakes"].docker.images["phoenix9-step-python:1"] = {}
+    assert queue_run(env)
+
+
+def test_run_start_checks_the_image_of_a_per_run_type(env):
+    make(env)
+    del env["fakes"].docker.images["phoenix9-step-web:1"]
+    with pytest.raises(OpsError, match="The web toolbox image isn't built on this server yet"):
+        queue_run(env, overrides={"profile": "web"})
+    assert queue_run(env)                      # the project's own type is still fine
+
+
+def test_run_start_is_not_blocked_when_docker_cannot_be_asked(env):
+    make(env)
+
+    def broken(tag):
+        raise OSError("Cannot connect to the Docker daemon")
+    env["fakes"].docker.images.clear()
+    env["fakes"].docker.image_exists = broken
+    assert queue_run(env)
+
+
 def test_agent_folder_hidden_from_lists_unless_all(env):
     make(env, "home")
     make(env, "alpha")

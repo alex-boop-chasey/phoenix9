@@ -78,6 +78,8 @@ function renderPage() {
 const nameBox = () => screen.getByLabelText("Name", { selector: "#pf-name" })
 const createBtn = () => screen.getByRole("button", { name: "Create project" })
 
+const pickType = (name = "Web app") => userEvent.click(screen.getByRole("radio", { name }))
+
 async function fillName(name = "my-site") {
   await userEvent.type(nameBox(), name)
   await screen.findByText(/name is free|already exists/i)
@@ -176,16 +178,81 @@ test("repo search filters the dropdown", async () => {
   expect(screen.getByText("alex-boop-chasey/tiny-tool")).toBeInTheDocument()
 })
 
-test("template tiles prefill the kind (no question) and allow another GitHub template", async () => {
+test("type is required; framework tiles are filtered by type and a changed type clears a stale framework", async () => {
   mockApi(routes())
   renderPage()
-  await userEvent.click(screen.getByRole("radio", { name: "Template" }))
-  await userEvent.click(await screen.findByRole("radio", { name: "Python tool" }))
-  expect(screen.queryByText("What kind of project?")).not.toBeInTheDocument()
-  expect(screen.getAllByText("Python script").length).toBeGreaterThan(1)
-  await userEvent.click(screen.getByRole("radio", { name: "Another GitHub template…" }))
-  await userEvent.type(screen.getByLabelText("GitHub template"), "me/starter")
+  await fillName()
+  expect(createBtn()).toBeDisabled()
+  expect(await screen.findByRole("link", { name: "Choose a type" })).toBeInTheDocument()
+  expect(screen.queryByRole("radio", { name: "None" })).toBeNull()
+  await pickType("Web app")
+  expect(createBtn()).toBeEnabled()
+  expect(await screen.findByRole("radio", { name: "None" })).toBeChecked()
+  expect(screen.getByRole("radio", { name: "Next.js site" })).toBeInTheDocument()
+  expect(screen.queryByRole("radio", { name: "Python tool" })).toBeNull()
+  await userEvent.click(screen.getByRole("radio", { name: "Next.js site" }))
+  await pickType("Python script")
+  expect(screen.queryByRole("radio", { name: "Next.js site" })).toBeNull()
+  expect(screen.getByRole("radio", { name: "Python tool" })).not.toBeChecked()
+  expect(screen.getByRole("radio", { name: "None" })).toBeChecked()
+})
+
+test("framework is disabled with a note for a repo, a folder and a GitHub template", async () => {
+  mockApi(routes())
+  renderPage()
+  await pickType()
+  for (const source of ["Existing GitHub repo", "On this server", "GitHub template"]) {
+    await userEvent.click(screen.getByRole("radio", { name: source }))
+    expect(screen.getByRole("radio", { name: "None" })).toBeDisabled()
+    expect(screen.queryByRole("radio", { name: "Next.js site" })).toBeNull()
+    expect(screen.getByText("The code you're bringing already has its framework.")).toBeInTheDocument()
+  }
+  await userEvent.type(screen.getByRole("textbox", { name: "GitHub template" }), "me/starter")
   expect(screen.getByText("me/starter template")).toBeInTheDocument()
+  expect(screen.queryByRole("radio", { name: "Python tool" })).toBeNull()
+  await userEvent.click(screen.getByRole("radio", { name: "Empty" }))
+  expect(screen.getByRole("radio", { name: "None" })).toBeEnabled()
+})
+
+async function createBody(setup: () => Promise<void>) {
+  const { calls } = mockApi(routes({ "POST /api/projects": { job: "j1" }, "GET /api/jobs/j1": job({}) }))
+  renderPage()
+  await fillName("my-site")
+  await setup()
+  await userEvent.click(createBtn())
+  await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true))
+  return calls.find((c) => c.method === "POST")!.body as Record<string, unknown>
+}
+
+test("create body: type always sent; an Empty project with a framework goes as a template", async () => {
+  const none = await createBody(() => pickType("Python script"))
+  expect(none).toMatchObject({ profile: "python-script", source: { kind: "empty" } })
+})
+
+test("create body: framework becomes the old template source", async () => {
+  const body = await createBody(async () => {
+    await pickType("Web app")
+    await userEvent.click(await screen.findByRole("radio", { name: "Next.js site" }))
+  })
+  expect(body).toMatchObject({ profile: "web", source: { kind: "template", template: "next-site" } })
+})
+
+test("create body: GitHub template and folder keep their source and carry the type", async () => {
+  const gh = await createBody(async () => {
+    await pickType("Web app")
+    await userEvent.click(screen.getByRole("radio", { name: "GitHub template" }))
+    await userEvent.type(screen.getByRole("textbox", { name: "GitHub template" }), "me/starter")
+  })
+  expect(gh).toMatchObject({ profile: "web", source: { kind: "template", template: "me/starter" } })
+})
+
+test("create body: a folder keeps its source and carries the type", async () => {
+  const code = await createBody(async () => {
+    await pickType("Web app")
+    await userEvent.click(screen.getByRole("radio", { name: "On this server" }))
+    await userEvent.type(screen.getByLabelText("Folder on this server"), "/srv/old")
+  })
+  expect(code).toMatchObject({ profile: "web", source: { kind: "code", path: "/srv/old" } })
 })
 
 test("the folder path box shows for code on this server", async () => {
@@ -203,7 +270,7 @@ test("new repo on by default for empty and template, not for repo and folder", a
   expect(await toggle()).toBeChecked()
   await userEvent.click(screen.getByRole("radio", { name: "Existing GitHub repo" }))
   expect(screen.queryByRole("switch", { name: "New GitHub repo" })).toBeNull()
-  await userEvent.click(screen.getByRole("radio", { name: "Template" }))
+  await userEvent.click(screen.getByRole("radio", { name: "GitHub template" }))
   expect(await toggle()).toBeChecked()
   await userEvent.click(screen.getByRole("radio", { name: "On this server" }))
   expect(screen.queryByRole("switch", { name: "New GitHub repo" })).toBeNull()
@@ -227,6 +294,7 @@ test("the receipt follows the choices and the missing item jumps to its step", a
   expect(within(receipt).getByRole("link", { name: "Choose a name that is free." })).toBeInTheDocument()
   expect(createBtn()).toBeDisabled()
   await fillName("my-site")
+  await pickType()
   expect(within(receipt).getByText("/srv/projects/my-site")).toBeInTheDocument()
   expect(await within(receipt).findByText("rebirth-wd/my-site (new)")).toBeInTheDocument()
   expect(await within(receipt).findByText("Ready to create.")).toBeInTheDocument()
@@ -245,6 +313,7 @@ async function fillAndCreate(extra: Record<string, unknown>) {
   const api = mockApi(routes(extra))
   renderPage()
   await fillName("my-site")
+  await pickType()
   await userEvent.click(await screen.findByRole("checkbox", { name: "Supabase" }))
   await userEvent.click(screen.getByRole("button", { name: "Add" }))
   await userEvent.type(nameBoxes().at(-1)!, "API_TOKEN")
@@ -265,7 +334,7 @@ test("create posts the documented body including keys", async () => {
   await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true))
   const post = calls.find((c) => c.method === "POST")!
   expect(post.body).toEqual({
-    name: "my-site", description: "", source: { kind: "empty" },
+    name: "my-site", description: "", source: { kind: "empty" }, profile: "web",
     new_repo: { on: true, owner: "rebirth-wd" }, services: ["supabase"],
     keys: [{ name: "API_TOKEN", value: "tok-1", secret: true }],
   })
@@ -293,6 +362,7 @@ test("progress list updates from job polling", async () => {
   }))
   renderPage()
   await fillName()
+  await pickType()
   await userEvent.click(createBtn())
   expect(await screen.findByRole("heading", { name: "Creating my-site…" })).toBeInTheDocument()
   expect(await screen.findByText("Making the folder")).toBeInTheDocument()
@@ -308,6 +378,7 @@ test("done goes straight to the new project's Overview", async () => {
   }))
   renderPage()
   await fillName()
+  await pickType()
   await userEvent.click(createBtn())
   expect(await screen.findByText("elsewhere")).toBeInTheDocument()
   expect(screen.getByTestId("where")).toHaveTextContent("/p/my-site/overview")
@@ -320,6 +391,7 @@ test("failure shows message and back keeps values", async () => {
   }))
   renderPage()
   await fillName()
+  await pickType()
   await userEvent.click(createBtn())
   const alert = await screen.findByRole("alert")
   expect(within(alert).getByText("GitHub said no.")).toBeInTheDocument()

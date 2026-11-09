@@ -2,6 +2,7 @@
 import errno
 import json
 import re
+import signal
 import socket
 import time
 import uuid
@@ -359,3 +360,68 @@ def send(text: str, context: dict | None = None, who: str = "cli", timeout: floa
     if found is None:
         raise SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
     return send_to(found, text, context, who, timeout, host, panel)
+
+
+STOP_TEXT = ("Stop. Alex pressed Stop in the panel, and Phoenix ended the command you were running. "
+             "Start nothing new. Reply in a few lines: what was finished, what was cut off part-way, "
+             "and anything left in a half-done state.")
+TOOL_SHELL_MARK = "/.claude/shell-snapshots/"
+KILL_AFTER = 2.0
+
+
+def _below(table: dict, root: int, pid: int) -> bool:
+    """True when pid is a descendant of root, following its parent chain as it is right now."""
+    seen = set()
+    while pid in table and pid not in seen:
+        seen.add(pid)
+        pid = table[pid][0]
+        if pid == root:
+            return True
+    return False
+
+
+def _descendants(table: dict, root: int) -> list[int]:
+    """All processes under root, deepest first (children before their parents)."""
+    kids: dict = {}
+    for pid, (ppid, _) in table.items():
+        kids.setdefault(ppid, []).append(pid)
+    order, queue = [], [root]
+    while queue:
+        for kid in kids.get(queue.pop(0), []):
+            order.append(kid)
+            queue.append(kid)
+    return order[::-1]
+
+
+def _signal_all(host, agent_pid: int, pids: list[int], sig) -> None:
+    """Signal each pid, but only while it is still under the agent (never the agent itself)."""
+    for pid in pids:
+        table = host.process_table()
+        if pid != agent_pid and _below(table, agent_pid, pid):
+            host.signal_pid(pid, sig)
+
+
+def _end_commands(host, agent_pid: int) -> int:
+    """End every command the agent is running: each tool shell and all under it. Returns how many shells."""
+    table = host.process_table()
+    shells = [p for p in _descendants(table, agent_pid) if TOOL_SHELL_MARK in table[p][1]]
+    victims = []
+    for shell in shells:
+        victims += [p for p in _descendants(table, shell) + [shell] if p not in victims]
+    _signal_all(host, agent_pid, victims, signal.SIGTERM)
+    if victims:
+        time.sleep(KILL_AFTER)
+        alive = host.process_table()
+        _signal_all(host, agent_pid, [p for p in victims if p in alive], signal.SIGKILL)
+    return len([s for s in shells if not any(_below(table, o, s) for o in shells if o != s)])
+
+
+def interrupt(who: str = "cli", host=None) -> dict:
+    """End the command the agent is running, then tell it to stop; returns {stopped, sent}."""
+    host = host or Host()
+    found = find(host=host)
+    if found is None:
+        raise SendError("The agent isn't running, so there is nothing to stop.")
+    stopped = _end_commands(host, found["pid"])
+    send_to(found, STOP_TEXT, None, who, host=host, panel=True)
+    return {"stopped": stopped, "sent": True}

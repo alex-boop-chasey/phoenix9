@@ -79,5 +79,5 @@ Follow every block with one plain fallback line. `phoenix card|choice|confirm|na
 | Step | One small piece of a build, run as a script or in its own sealed container. |
 | Gate | A question a build asks Alex (merge, plan, escalation, budget, deploy ...). |
 | Quick edit | A small change made in a branch copy, never on main. |
-| Helper | A small sub-agent for a narrow job (navigator, editor, checker). |
+| Helper | A small sub-agent for a narrow job (navigator, editor, checker, fixer). |
 | Preset / profile | A named bundle of settings / the kind of container a project builds in. |

@@ -2,7 +2,9 @@
 import { Link } from "react-router"
 
 import { Chip } from "@/components/Tag"
+import { PROFILE_LOOK } from "@/features/projects/OrderSheet"
 import { formatBytes } from "@/lib/format"
+import { useLibraryProfiles, useLibraryTemplates } from "@/lib/queries"
 import type { Project, ProjectSetup } from "@/lib/types"
 
 /** Words for where a project started: its template, GitHub repo, local code or nothing. */
@@ -24,13 +26,20 @@ function Pair({ label, value, mono }: { label: string; value: string; mono?: boo
 export function AboutCard({ project }: { project: Project }) {
   const setup = project.setup
   const none = "Not set"
+  const profiles = useLibraryProfiles()
+  const templates = useLibraryTemplates()
+  const typeName = project.profile
+  const typeTitle = PROFILE_LOOK[typeName]?.title ?? profiles.data?.profiles.find((p) => p.name === typeName)?.title ?? typeName
+  const templateName = setup?.source === "template" ? setup.template : null
+  const framework = templateName ? (templates.data?.find((t) => t.name === templateName)?.title ?? templateName) : "None"
   return (
     <aside className="card about stackg" aria-labelledby="ov-ab">
       <h2 className="h2" id="ov-ab" style={{ fontSize: 22 }}>About</h2>
       <p className="small">{project.description || "No description."}</p>
       <p className="eyebrow">Chosen at setup</p>
       <dl className="kv" aria-label="Chosen at setup">
-        <Pair label="Kind" value={setup?.kind || project.profile || none} />
+        <Pair label="Type" value={typeName ? typeTitle : none} />
+        <Pair label="Framework" value={framework} />
         <Pair label="Started from" value={startedFrom(setup)} />
         <Pair label="Repo owner" value={project.repo_owner || "None"} mono={!!project.repo_owner} />
         <Pair label="Default build preset" value={setup?.preset ?? none} />

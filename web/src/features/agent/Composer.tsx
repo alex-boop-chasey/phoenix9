@@ -5,7 +5,7 @@ import { toast } from "sonner"
 import { Icon } from "@/components/Icon"
 import { useNextContext } from "@/features/agent/ContextChip"
 import { rememberTold } from "@/features/agent/pageContext"
-import { useAgentMessages, useAgentStatus, useSendToAgent, useSuggestions } from "@/features/agent/useAgent"
+import { useAgentMessages, useAgentStatus, useSendToAgent, useStopAgent, useSuggestions } from "@/features/agent/useAgent"
 
 const MAX_LINES = 6
 const LINE_PX = 20
@@ -22,7 +22,9 @@ function fit(el: HTMLTextAreaElement | null) {
 }
 
 /** The footer message box with its send button, hints and the still-queued question. */
-export function Composer({ contextOn = true, inputRef, offline = false }: { contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement>; offline?: boolean }) {
+export function Composer({ contextOn = true, inputRef, offline = false, busy = false, onNew }: {
+  contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement>; offline?: boolean; busy?: boolean; onNew?: () => void
+}) {
   const [text, setText] = useState("")
   const [ask, setAsk] = useState(false)
   const [el, setEl] = useState<HTMLTextAreaElement | null>(null)
@@ -30,11 +32,14 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
   const items = useAgentMessages().data?.items ?? []
   const next = useNextContext()
   const send = useSendToAgent()
+  const stopper = useStopAgent()
   const fresh = !items.some((i) => i.type === "user")
   const news = useSuggestions().data?.suggestions.filter((s) => !s.shown).length ?? 0
   const asleep = status?.state === "asleep" || offline
+  const locked = asleep || busy
   const stillQueued = items.some((i) => i.type === "queued" && i.pending)
   const blank = !text.trim()
+  const working = status?.state === "working" || status?.state === "queued"
 
   useLayoutEffect(() => fit(el), [el, text])
 
@@ -58,8 +63,20 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
     })
   }
 
+  const stop = () => {
+    if (stopper.isPending) return
+    stopper.mutate(undefined, {
+      onSuccess: (r) => toast.success(r.stopped > 0
+        ? `Stopped ${r.stopped} running command${r.stopped === 1 ? "" : "s"}.`
+        : "Nothing was running; the agent has been told to stop."),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "The agent was not stopped."),
+    })
+  }
+
   const trySend = () => {
-    if (asleep || blank || send.isPending) return
+    if (locked || blank || send.isPending) return
+    if (working && text.trim().toLowerCase() === "stop") { setText(""); return stop() }
+    if (onNew && ["/clear", "/new"].includes(text)) return onNew()
     if (stillQueued && !ask) return setAsk(true)
     go()
   }
@@ -90,13 +107,18 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
           id="agentIn"
           rows={1}
           value={text}
-          disabled={asleep}
+          disabled={locked}
           aria-describedby={asleep ? "agentWhy" : undefined}
           placeholder="Message the Phoenix agent"
           onChange={(e) => { setText(e.target.value); setAsk(false) }}
           onKeyDown={onKey}
         />
-        <button className="btn btn-primary btn-icon" aria-label="Send" title="Send (Enter)" disabled={asleep || blank || send.isPending} onClick={trySend}>
+        {working && !asleep && (
+          <button className="btn" disabled={stopper.isPending} onClick={stop}>
+            <Icon name="stop" />Stop
+          </button>
+        )}
+        <button className="btn btn-primary btn-icon" aria-label="Send" title="Send (Enter)" disabled={locked || blank || send.isPending} onClick={trySend}>
           <Icon name="paper-plane" />
         </button>
       </div>

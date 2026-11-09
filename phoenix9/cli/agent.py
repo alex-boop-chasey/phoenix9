@@ -4,6 +4,13 @@ from phoenix9.cli.output import problem, show
 from phoenix9.ops import agent, common
 
 
+def stop_words(stopped: int) -> str:
+    """The plain sentence for what Stop did."""
+    if stopped:
+        return "Stopped %d running command%s. The agent has been told to stop." % (stopped, "" if stopped == 1 else "s")
+    return "Nothing was running; the agent has been told to stop."
+
+
 def add(sub, common_parser) -> None:
     """Register the agent group."""
     p = sub.add_parser("agent", parents=[common_parser], help="the Phoenix agent chat: brief, status, send, read")
@@ -25,6 +32,11 @@ def add(sub, common_parser) -> None:
     x = cmds.add_parser("restart", parents=[common_parser], help="restart the agent's service (needs --yes)")
     x.add_argument("--yes", action="store_true", help="confirm that you mean it")
     x.set_defaults(func=run_restart)
+    t = cmds.add_parser("stop", parents=[common_parser], help="end the command the agent is running and tell it to stop")
+    t.set_defaults(func=run_stop)
+    n = cmds.add_parser("new", parents=[common_parser], help="start a fresh conversation with the agent (needs --yes)")
+    n.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    n.set_defaults(func=run_new)
     w = cmds.add_parser("watch", parents=[common_parser], help="check once that the agent is running; restart it if not")
     w.set_defaults(func=run_watch)
     p.set_defaults(func=lambda args: (p.print_help(), 0)[1])
@@ -87,3 +99,25 @@ def run_restart(args) -> int:
                              "Add --yes to go ahead.")
     data = agent.restart(args.who)
     return show(args, data, "Asked systemd to restart %s." % data["unit"])
+
+
+def run_stop(args) -> int:
+    """End the agent's running command and tell it to stop."""
+    try:
+        data = agent.stop(args.who)
+    except common.OpsError as err:
+        return problem(args, str(err))
+    return show(args, data, stop_words(data["stopped"]))
+
+
+def run_new(args) -> int:
+    """Ask the agent to save its notes, then start a fresh conversation."""
+    if not args.yes:
+        return problem(args, "This asks the agent to save its notes, waits for it to finish (a few minutes at most), "
+                             "then ends the current conversation and starts a new one. Add --yes to go ahead.")
+    try:
+        data = agent.new_conversation(args.who)
+    except common.OpsError as err:
+        return problem(args, str(err))
+    notes = "The agent was asked to save its notes first." if data["notes_asked"] else "The agent was off, so it was just started."
+    return show(args, data, "A new conversation has started. %s (Waited %d seconds.)" % (notes, data["waited_seconds"]))

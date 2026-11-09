@@ -51,6 +51,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         raise OpsError(f"The project's settings have problems: {err}") from None
     if not profile:
         raise OpsError(settings.no_profile_message(project))
+    if settings.image_is_missing(common.make_adapters().docker, paths.library(), profile):
+        raise OpsError(settings.missing_image_message(profile))
     lock = state.Lock(paths.project_lock(project), wait=PROJECT_LOCK_WAIT)
     try:
         lock.__enter__()

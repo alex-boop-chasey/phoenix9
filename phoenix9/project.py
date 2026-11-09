@@ -98,6 +98,9 @@ def validate(opts: dict, host) -> dict:
         if tpl is None and not REPO_RE.match(opts["template"]):
             names = ", ".join(t["name"] for t in templates.load_menu())
             raise OpsError(f"Unknown template '{opts['template']}'. Available: {names or 'none'}, or a GitHub OWNER/NAME.")
+    if tpl and opts.get("profile") and opts["profile"] != tpl["profile"]:
+        raise OpsError(f"The template '{tpl['name']}' is for the type '{tpl['profile']}', not '{opts['profile']}'. "
+                       "Choose the matching type or another template.")
     profile = _profile(opts, tpl)
     lib = services.load_library()
     unknown = [s for s in opts.get("services") or [] if s not in lib]

@@ -31,7 +31,7 @@ export interface ActionItem {
   status: ActionStatus; excerpt?: string; done_line?: number
 }
 export interface ThinkingItem { type: "thinking"; line: number; duration_s: number; at: string }
-export interface QueuedItem { type: "queued"; line: number; text: string; pending: boolean; at: string }
+export interface QueuedItem { type: "queued"; line: number; text: string; pending: boolean; origin?: string; at: string }
 export interface NoticeItem { type: "notice"; line: number; text: string }
 export interface SessionItem { type: "session"; line: number; session_id: string }
 
@@ -253,6 +253,30 @@ export function useEarlierSession(session: string | null) {
 export function useRestartAgent() {
   return useMutation({
     mutationFn: () => post<{ restarted: boolean; unit: string }>("agent/restart", { confirm: true }),
+  })
+}
+
+/** Stop the agent: ends its running command and tells it to stop (no confirm needed). */
+export function useStopAgent() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => post<{ stopped: number; sent: boolean }>("agent/stop", {}),
+    onSettled: () => void qc.invalidateQueries({ queryKey: agentKeys.status() }),
+  })
+}
+
+/** Save the agent's notes and start a new conversation (the caller has already asked Alex to confirm). */
+export function useNewConversation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => post<{ started: boolean }>("agent/new", { confirm: true }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: agentKeys.status() }),
+        qc.invalidateQueries({ queryKey: ["agent", "messages"] }),
+        qc.invalidateQueries({ queryKey: agentKeys.sessions() }),
+      ])
+    },
   })
 }
 

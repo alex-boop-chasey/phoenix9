@@ -919,6 +919,9 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     _save_session_id(ctx, session.session_id)
     ctx.log(f"session ended: {session.kind}")
+    if session.kind == "crashed" and settings.image_is_missing(
+            ctx.adapters.docker, paths.library(), ctx.project.settings.get("profile") or ""):
+        return StepResult("fail", [settings.missing_image_message(ctx.project.settings.get("profile"))])
     if session.kind == "rate_limited":
         raise UsageLimit(session)
     if code is not None and hasattr(code, "after"):

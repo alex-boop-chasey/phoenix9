@@ -34,12 +34,16 @@ test("safety badge on safety steps", async () => {
   expect(within(builder).queryByText("Safety")).toBeNull()
 })
 
-test("always-on steps locked", async () => {
-  await renderList()
+test("always-on steps show an Always on tag and no switch", async () => {
+  const onChange = await renderList()
   const builder = document.querySelector('[data-step="builder"]') as HTMLElement
-  expect(within(builder).getByText("always on")).toBeInTheDocument()
-  expect(within(builder).getByRole("switch")).toBeDisabled()
-  expect(within(builder).getByRole("switch")).toBeChecked()
+  expect(within(builder).getByText("Always on")).toBeInTheDocument()
+  expect(within(builder).queryByRole("switch")).toBeNull()
+  await userEvent.click(within(builder).getByText("Always on"))
+  expect(onChange).not.toHaveBeenCalled()
+  const reviewer = document.querySelector('[data-step="reviewer"]') as HTMLElement
+  expect(within(reviewer).queryByText("Always on")).toBeNull()
+  expect(within(reviewer).getByRole("switch")).toBeInTheDocument()
 })
 
 test("forced-off step shows reason and is disabled", async () => {

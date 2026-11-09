@@ -319,3 +319,22 @@ def test_edit_repo_forgets_phoenix_made(env):
     project.edit("demo", env["fakes"], "alex", repo="someone/else")
     meta = _meta(env, "demo")
     assert meta["repo"] == "someone/else" and "phoenix_made_repo" not in meta and "phoenix_made_repo_id" not in meta
+
+
+@pytest.mark.parametrize("extra", [{}, {"repo": "alex/thing"}, {"template": "alex/starter"}, {"template": "python-cli"}])
+def test_form_profile_saved_for_every_source(env, extra):
+    create(env, profile="python-script", **extra)
+    assert settings.load_project(env["projects"] / "demo")["profile"] == "python-script"
+
+
+def test_form_profile_saved_for_code_source(env, tmp_path):
+    existing = tmp_path / "old-code"
+    existing.mkdir()
+    create(env, code=str(existing), profile="research")
+    assert settings.load_project(env["projects"] / "demo")["profile"] == "research"
+
+
+def test_menu_template_with_different_profile_is_refused(env):
+    with pytest.raises(OpsError, match="python-cli.*python-script.*web"):
+        create(env, template="python-cli", profile="web")
+    assert not (env["projects"] / "demo").exists()

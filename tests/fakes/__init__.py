@@ -210,6 +210,21 @@ class FakeHttp:
         return self.responses.get((method.upper(), url), (404, {}, b""))
 
 
+def toolbox_images() -> list[str]:
+    """The image tag of every project type in the real library and in the tests' small library."""
+    from pathlib import Path
+
+    from phoenix9 import settings
+    here = Path(__file__).resolve().parent.parent
+    tags = []
+    for lib in (here.parent, here / "data" / "library"):
+        for folder in sorted((lib / "profiles").glob("*")):
+            tag = settings.profile_image(lib, folder.name)
+            if tag and tag not in tags:
+                tags.append(tag)
+    return tags
+
+
 class FakeDocker:
     """Fake docker runner: records argv, returns scripted exit codes, writes scripted output files."""
 
@@ -223,7 +238,9 @@ class FakeDocker:
         self.removed: list[str] = []
         self.stopped: list[str] = []
         self.volumes: list[str] = []
-        self.images: dict[str, dict] = {}        # tag -> labels (an image that "exists")
+        # tag -> labels (an image that "exists"). Every project type's toolbox image counts as built, as on a
+        # set-up server, so starting a build is not refused; a test about a missing image removes it here.
+        self.images: dict[str, dict] = {tag: {} for tag in toolbox_images()}
         self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
         self.ids: dict[str, str] = {}            # tag -> image id (default sha256:fake-<tag> for an image that exists)
 
@@ -480,7 +497,8 @@ class FakeProxyFactory:
 
 
 def fake_adapters(tmp_path) -> Adapters:
-    """Build the full fake set. Git is the real git adapter (real git runs on temp repos)."""
+    """Build the full fake set. Git is the real git adapter (real git runs on temp repos).
+"""
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=FakeHost(),
                     http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(),
                     proxy=FakeProxyFactory())

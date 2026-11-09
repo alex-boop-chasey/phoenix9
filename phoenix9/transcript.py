@@ -162,7 +162,12 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
     if _is_peer(obj):
         text = _unwrap(text)                # just what Alex typed: no wrapper or [Phoenix panel · ...] line
     _clear_delivered(state, [content, text])
-    _add(state, number, {"type": "user", "text": scrub.scrub(text), "origin": _origin(obj), "at": at})
+    text, found = _harness(text)
+    line = _command_line(found, text)
+    if line:
+        _add(state, number, {"type": "notice", "text": line, "at": at})
+    elif text:
+        _add(state, number, {"type": "user", "text": scrub.scrub(text), "origin": _origin(obj), "at": at})
 
 
 def _unwrap(text: str) -> str:
@@ -177,6 +182,46 @@ def _unwrap(text: str) -> str:
     if first.startswith("[Phoenix") and first.endswith("]"):
         text = rest
     return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()
+
+
+_HARNESS_TAGS = ("system-reminder", "local-command-stdout", "local-command-stderr", "local-command-caveat",
+                 "task-notification", "command-name", "command-message", "command-args")
+_LEAD = re.compile(r"\A\s*<(%s)\b[^>]*>(.*?)</\1>" % "|".join(_HARNESS_TAGS), re.S)
+_TRAIL = re.compile(r"<(%s)\b[^>]*>(.*?)</\1>\s*\Z" % "|".join(_HARNESS_TAGS), re.S)
+
+
+def _harness(text: str) -> tuple[str, dict]:
+    """Remove whole leading and trailing harness blocks (system reminders, command output, slash-command markup);
+    returns (what is left, the command name and args found). Tags inside the owner's own words stay."""
+    found = {}
+    for pattern in (_LEAD, _TRAIL):
+        while True:
+            match = pattern.search(text)
+            if not match:
+                break
+            found.setdefault(match.group(1), match.group(2).strip())
+            text = text[:match.start()] + text[match.end():] if pattern is _TRAIL else text[match.end():]
+    return text.strip(), found
+
+
+def _command_line(found: dict, text: str) -> str | None:
+    """The system line for a slash command run in the Claude app, or None when this was not one."""
+    name = found.get("command-name", "").strip()
+    if not name or text:
+        return None
+    name = name if name.startswith("/") else "/" + name
+    args = found.get("command-args", "")
+    return scrub.scrub("%s%s was run in the Claude app" % (name, " " + args if args else ""))
+
+
+_FROM_NAME = re.compile(r'<cross-session-message\b[^>]*\bfrom-name="([^"]*)"')
+
+
+def _queued_origin(text: str) -> str:
+    """Where a waiting message came from: panel (also when the wrapper is missing), app or peer:<name>."""
+    match = _FROM_NAME.search(text)
+    name = match.group(1).replace("&amp;", "&") if match else PANEL_NAME
+    return "panel" if name.startswith(PANEL_NAME) else "peer:" + name
 
 
 def _clear_delivered(state: dict, texts: list) -> None:
@@ -282,8 +327,11 @@ def _queued(state: dict, number: int, obj: dict, at) -> None:
     text = text if isinstance(text, str) else ""
     pending = state.setdefault("pending", [])
     if op == "enqueue":
-        item = {"type": "queued", "text": scrub.scrub(text), "pending": True, "at": at}
-        _add(state, number, item)
+        clean, _ = _harness(_unwrap(text))
+        item = {"type": "queued", "text": scrub.scrub(clean), "pending": True, "origin": _queued_origin(text),
+                "at": at}
+        if clean:
+            _add(state, number, item)       # harness-only text is left out (but still counted as pending)
         pending.append((text, item))
     elif op in ("dequeue", "remove"):
         if not pending:

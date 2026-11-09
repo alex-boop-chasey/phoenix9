@@ -316,7 +316,9 @@ The profile's container image files live in `profiles/<name>/image/`.
 
 A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
 per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
-image never reaches docker.
+image never reaches docker. The refusal (`settings.no_profile_message`) points at `phoenix settings set <name> profile <type>`.
+
+Where the profile and template show up (the owner calls the profile "Type" and a template "Framework"): both are chosen only on the New project page (Type and Framework pickers). Afterwards the dashboard shows them read-only on the Overview's About card (`Type` = profile title, `Framework` = the template's title, or "None"). The Settings tab has no Type control; `phoenix settings set <project> profile <type>` and the edit API still accept a change. Projects with no type are left as they are.
 
 ### 4.6 Service folder: `services/<name>/service.toml`
 
@@ -925,6 +927,15 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
   `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
   `phoenix agent restart --yes` restarts it by hand.
+  `phoenix agent stop` (`POST /api/agent/stop`, no confirm, no write lock) is the panel's Stop button: Phoenix
+  itself ends the command the agent is running (SIGTERM, then SIGKILL after 2 seconds, to each tool shell, the
+  process whose command line contains `/.claude/shell-snapshots/`, and everything under it; never the agent
+  process, never its helper processes such as MCP servers, never a pid outside the agent's own process tree,
+  re-checked before each signal), then posts one fixed message asking the agent to stop and say what was left
+  half-done. Returns `{stopped, sent}`; an asleep agent is refused. Recorded in the send log (who, time, no text).
+  `phoenix agent new --yes` (`POST /api/agent/new`) starts a fresh conversation: it asks the agent to save its
+  notes (fixed text), waits until it is not working (at most `[chat] wrap_up_minutes`), then restarts the unit;
+  an asleep agent is just started. It does not hold the API write lock; one at a time (else 409).
 - **Registry**: the list of Claude sessions in `/root/.claude/sessions/<pid>.json` (see "Finding the session").
   Phoenix reads only those `.json` files and the transcripts, nothing else in Claude's home.
 - **Wire format**: `agentlink.wire_line()` builds one JSON line `{msgV: 1, msg_id, type: "user", message: {role:

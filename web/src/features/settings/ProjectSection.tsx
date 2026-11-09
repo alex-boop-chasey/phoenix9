@@ -1,15 +1,15 @@
-// The Project half of the Settings tab: description, repo, profile, services and the project keys.
+// The Project half of the Settings tab: description, repo, services and the project keys.
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
-import { Icon, type IconName } from "@/components/Icon"
+import { Icon } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
 import { KeysForm } from "@/features/keys/KeysForm"
-import { PROFILE_LOOK, SERVICE_ICON } from "@/features/projects/OrderSheet"
-import { PROFILES, emptyForm, type FormValues } from "@/features/projects/formModel"
+import { SERVICE_ICON } from "@/features/projects/OrderSheet"
+import { emptyForm, type FormValues } from "@/features/projects/formModel"
 import { sameValue } from "@/features/settings/dotted"
-import { useEditProject, useLibraryProfiles, useLibraryServices, useProject } from "@/lib/queries"
+import { useEditProject, useLibraryServices, useProject } from "@/lib/queries"
 import type { EditBody, Project, SetUpService } from "@/lib/types"
 
 const fromProject = (p: Project): FormValues => ({
@@ -21,7 +21,6 @@ export function changedFields(p: Project, v: FormValues): EditBody {
   const body: EditBody = {}
   if (v.description !== p.description) body.description = v.description
   if (v.repo.trim() !== p.repo) body.repo = v.repo.trim()
-  if (v.profile !== p.profile) body.profile = v.profile
   if (!sameValue([...v.services].sort(), [...p.services].sort())) body.services = v.services
   return body
 }
@@ -60,21 +59,15 @@ export function SaveBar({ label, busy, onDiscard, onSave }: { label: string; bus
   )
 }
 
-function profileLook(name: string, title?: string) {
-  const look = PROFILE_LOOK[name]
-  return { title: look?.title ?? title ?? name, hint: look?.hint ?? "", icon: (look?.icon ?? "stack") as IconName }
-}
-
 /** Project fields, then the project keys; edits wait for the Save bar. */
 export function ProjectSection({ name }: { name: string }) {
   const project = useProject(name)
   const edit = useEditProject(name)
-  const profiles = useLibraryProfiles()
   const library = useLibraryServices()
   const [value, setValue] = useState<FormValues | null>(null)
   const [asking, setAsking] = useState(false)
   const [error, setError] = useState("")
-  const [open, setOpen] = useState<"repo" | "profile" | "services" | null>(null)
+  const [open, setOpen] = useState<"repo" | "services" | null>(null)
 
   useEffect(() => {
     if (project.data && !value) setValue(fromProject(project.data))
@@ -83,10 +76,10 @@ export function ProjectSection({ name }: { name: string }) {
   if (!project.data || !value) return null
   const saved = project.data
   const set = (patch: Partial<FormValues>) => setValue({ ...value, ...patch })
-  const toggle = (which: "repo" | "profile" | "services") => setOpen(open === which ? null : which)
+  const toggle = (which: "repo" | "services") => setOpen(open === which ? null : which)
   const body = changedFields(saved, value)
   const dirty = Object.keys(body).length > 0
-  const risky = body.repo !== undefined || body.profile !== undefined
+  const risky = body.repo !== undefined
 
   function save(confirm: boolean) {
     setError("")
@@ -96,9 +89,6 @@ export function ProjectSection({ name }: { name: string }) {
     })
   }
 
-  const profileNames = profiles.data?.profiles.map((p) => p.name) ?? [...PROFILES]
-  if (!profileNames.includes(value.profile)) profileNames.push(value.profile)
-  const now = profileLook(value.profile, profiles.data?.profiles.find((p) => p.name === value.profile)?.title)
   const serviceList = library.data?.services ?? []
   const titleOf = (n: string) => serviceList.find((s) => s.name === n)?.title ?? n
 
@@ -129,30 +119,6 @@ export function ProjectSection({ name }: { name: string }) {
             <div className="swap-panel">
               <input className="input mono" aria-label="GitHub repo" placeholder="owner/name" value={value.repo} autoComplete="off"
                 onChange={(e) => set({ repo: e.target.value })} />
-            </div>
-          )}
-        </div>
-      </SettingsRow>
-
-      <SettingsRow keys={["profile"]} label="Profile">
-        <div>
-          <div className="swap">
-            <span className="ico"><Icon name={now.icon} /></span>
-            <span className="t"><b>{now.title}</b><span>{now.hint}</span></span>
-            <button type="button" className="btn btn-secondary btn-sm" aria-expanded={open === "profile"} aria-controls="profile-panel" onClick={() => toggle("profile")}>Change</button>
-          </div>
-          {open === "profile" && (
-            <div className="swap-panel" id="profile-panel" role="listbox" aria-label="Profile">
-              {profileNames.map((n) => {
-                const look = profileLook(n, profiles.data?.profiles.find((p) => p.name === n)?.title)
-                return (
-                  <button key={n} type="button" className="mini" role="option" aria-selected={value.profile === n} onClick={() => set({ profile: n })}>
-                    <span className="ico"><Icon name={look.icon} /></span>
-                    <span className="t"><b>{look.title}</b><span>{look.hint}</span></span>
-                    <Icon name="check" className="tick" />
-                  </button>
-                )
-              })}
             </div>
           )}
         </div>
@@ -205,8 +171,8 @@ export function ProjectSection({ name }: { name: string }) {
         />
       )}
       <ConfirmDialog
-        open={asking} onOpenChange={setAsking} title="Change the repo/profile?"
-        body="Change the repo/profile? The next build uses the new one."
+        open={asking} onOpenChange={setAsking} title="Change the repo?"
+        body="Change the repo? The next build uses the new one."
         confirmLabel="Change it" onConfirm={() => save(true)}
       />
     </div>

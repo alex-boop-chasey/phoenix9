@@ -125,6 +125,20 @@ def test_api_handlers(quiet, monkeypatch):
     assert any(r[1].match("/api/suggest/k1/shown") for r in server.COMPILED)
 
 
+def test_api_key_is_decoded_once_then_checked(quiet, monkeypatch):
+    with_lines(monkeypatch, ("Phoenix", "run:a+b"))
+    lock = SimpleNamespace(write_lock=__import__("threading").RLock())
+    req = lambda: SimpleNamespace(server=lock, body={}, query={})
+    for sent in ("run%3Aa%2Bb", "run:a+b"):
+        assert server.post_suggest(req(), sent, "shown")["key"] == "run:a+b"
+    assert server.post_suggest(req(), "run%3Aa%2Bb", "dismissed")["dismissed"]
+    assert server.get_suggest(req())["suggestions"] == []
+    for bad in ("%2F", "a%2Fb", "%2E%2E%2Fx", "%00", "%253A", "k%20x"):
+        with pytest.raises(server.BadRequest, match="not a suggestion key"):
+            server.post_suggest(req(), bad, "dismissed")
+    assert set(suggest.load()) == {"run:a+b"}
+
+
 def test_agent_rule():
     text = RULES.read_text()
     section = text.split("## Suggestions", 1)[1].split("\n## ", 1)[0]

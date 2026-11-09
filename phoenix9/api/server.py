@@ -882,6 +882,10 @@ def get_suggest(req):
 
 def post_suggest(req, key, what):
     """Mark a suggestion shown, snoozed (optional {hours}) or dismissed."""
+    try:  # the route keeps %3A / %2B as sent; decoded once here, then it must be a plain key
+        key = ops_suggest.check_key(unquote(key))
+    except common.OpsError as e:
+        raise BadRequest(str(e)) from None
     hours = req.body.get("hours", ops_suggest.SNOOZE_HOURS)
     if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= 24 * 365:
         raise BadRequest("hours has to be a number above 0.")
@@ -1010,6 +1014,18 @@ def post_agent_restart(req):
         return ops_agent.restart(WHO)
 
 
+def post_agent_stop(req):
+    """Stop the Phoenix agent's running command and tell it to stop (503 when it is asleep); no write lock."""
+    return ops_agent.stop(WHO)
+
+
+def post_agent_new(req):
+    """Start a fresh agent conversation (body {"confirm": true}, else 409); waits without the write lock."""
+    if req.body.get("confirm") is not True:
+        raise common.Conflict("A new conversation needs \"confirm\": true. Nothing was changed.")
+    return ops_agent.new_conversation(WHO)
+
+
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -1065,6 +1081,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
     ("POST", r"/api/agent/send", post_agent_send),
     ("POST", r"/api/agent/restart", post_agent_restart),
+    ("POST", r"/api/agent/stop", post_agent_stop),
+    ("POST", r"/api/agent/new", post_agent_new),
     ("POST", r"/api/ui/go", post_ui_go),
     ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
@@ -1104,9 +1122,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/report/status", get_report_status),
     ("GET", r"/api/suggest", get_suggest),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/snooze", post_suggest_snooze),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/dismiss", post_suggest_dismiss),
-    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/shown", post_suggest_shown),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/shown", post_suggest_shown),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),

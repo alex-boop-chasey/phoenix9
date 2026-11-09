@@ -22,9 +22,10 @@ function missingOf(v: FormValues, nameOk: boolean, pending: boolean): Missing[] 
   const out: Missing[] = []
   if (!nameOk) out.push({ text: "Choose a name that is free.", target: "np-step-name", focus: "pf-name" })
   if (!sourceComplete(v)) {
-    const what = v.source === "repo" ? "Choose the GitHub repo." : v.source === "template" ? "Choose a template." : "Type the folder path."
+    const what = v.source === "repo" ? "Choose the GitHub repo." : v.source === "template" ? "Type the GitHub template, owner/name." : "Type the folder path."
     out.push({ text: what, target: "np-step-source", focus: v.source === "code" ? "pf-path" : "" })
   }
+  if (!v.profile) out.push({ text: "Choose a type", target: "np-step-services", focus: "" })
   if (pending) out.push({ text: "Press Save under Project keys before creating.", target: "np-step-keys", focus: "" })
   return out
 }
@@ -39,19 +40,20 @@ function jump(m: Missing) {
 function Receipt({ v, summary, github }: { v: FormValues; summary: RowsSummary; github: boolean }) {
   const templates = useLibraryTemplates()
   const profiles = useLibraryProfiles()
+  const framework = templates.data?.find((t) => t.name === v.framework)?.title ?? v.framework
   const code =
-    v.source === "empty" ? "A blank folder"
+    v.source === "empty" ? (v.framework ? `${framework} starter` : "A blank folder")
       : v.source === "repo" ? (v.repo ? `Copy of ${v.repo}` : "Copy of a GitHub repo")
-        : v.source === "template" ? `${templates.data?.find((t) => t.name === v.template)?.title ?? (v.template || "A template")} template`
+        : v.source === "template" ? `${v.template || "A GitHub"} template`
           : (v.path ? `Code in ${v.path}` : "Code already on this server")
-  const kind = v.profile ? (profiles.data?.profiles.find((p) => p.name === v.profile)?.title ?? v.profile) : "Worked out later"
+  const kind = v.profile ? (profiles.data?.profiles.find((p) => p.name === v.profile)?.title ?? v.profile) : "Not chosen yet"
   const newRepo = github && newRepoApplies(v.source) && v.newRepo
   const { total, needValue } = summary
   return (
     <dl>
       <dt>Folder</dt><dd className="mono">{v.name ? `/srv/projects/${v.name}` : "—"}</dd>
       <dt>Code</dt><dd>{code}</dd>
-      <dt>Kind</dt><dd>{kind}</dd>
+      <dt>Type</dt><dd>{kind}</dd>
       <dt>Repo</dt>
       <dd className="mono">{newRepo ? `${v.owner}/${v.name || "…"} (new)` : v.source === "repo" && v.repo ? v.repo : "none"}</dd>
       <dt>Services</dt><dd>{v.services.length ? v.services.join(", ") : "none"}</dd>

@@ -5,6 +5,7 @@ Every line ends with the command or page that deals with it; empty sections are 
 """
 from __future__ import annotations
 
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -50,6 +51,16 @@ def _age(stamp: str, now: float) -> float | None:
     return None if when is None else now - when
 
 
+def tag(line: str, key: str) -> str:
+    """The line with its stable suggestion id as a hidden comment at the end."""
+    return f"{line} <!-- id: {key} -->"
+
+
+def _part(text) -> str:
+    """A piece of a suggestion id: plain characters only, no spaces."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", str(text)).strip("-") or "x"
+
+
 def _safe(fn, *args):
     """The result of fn, or None when it fails: one broken source must not stop the whole report."""
     try:
@@ -65,8 +76,9 @@ def waiting_for_alex(now: float) -> list[str]:
     for g in gates.list_gates():
         age = _age(g.get("created", ""), now)
         waited = f", waiting {age_words(age)}" if age is not None else ""
-        out.append(f"- {g['project']}: {g['title']}{waited}. "
-                   f"Answer it on the Needs you page or with `phoenix gate answer {g['id']}`.")
+        out.append(tag(f"- {g['project']}: {g['title']}{waited}. "
+                       f"Answer it on the Needs you page or with `phoenix gate answer {g['id']}`.",
+                       f"{_part(g.get('kind', 'gate'))}-waiting:{g['project']}:{g['id']}"))
     return out
 
 
@@ -83,22 +95,24 @@ def _run_reason(folder: Path) -> str:
 def builds(now: float) -> list[str]:
     """Running builds, builds that failed in the last 7 days (with the reason) and reasons that repeat."""
     found = runs.list_runs()
-    out = [f"- {r['project']}: build {r['run_id']} is running (task {r['tasks_passed'] + 1} of {r['tasks_total']}). "
-           f"See it with `phoenix run status {r['run_id']}`." for r in found if r["status"] == "running"]
+    out = [tag(f"- {r['project']}: build {r['run_id']} is running (task {r['tasks_passed'] + 1} of {r['tasks_total']}). "
+               f"See it with `phoenix run status {r['run_id']}`.", f"build-running:{r['project']}:{r['run_id']}")
+           for r in found if r["status"] == "running"]
     failed = []
     for r in found:
         age = _age(r["updated"], now)
         if r["status"] == "failed" and age is not None and age <= FAILED_DAYS * DAY:
             failed.append((r, _run_reason(runs.run_dir(r["project"], r["run_id"]))))
     for r, why in failed:
-        out.append(f"- {r['project']}: build {r['run_id']} failed: {why}. Look at it with `phoenix repair report {r['run_id']}`.")
+        out.append(tag(f"- {r['project']}: build {r['run_id']} failed: {why}. Look at it with `phoenix repair report {r['run_id']}`.",
+                       f"build-failed:{r['project']}:{r['run_id']}"))
     by_reason: dict = {}
     for r, why in failed:
         by_reason.setdefault(why, []).append(r["run_id"])
     for why, ids in sorted(by_reason.items()):
         if len(ids) > 1:
-            out.append(f"- {len(ids)} builds failed with the same reason ({why}): {', '.join(ids)}. "
-                       f"Fix the cause first: `phoenix repair report {ids[0]}`.")
+            out.append(tag(f"- {len(ids)} builds failed with the same reason ({why}): {', '.join(ids)}. "
+                           f"Fix the cause first: `phoenix repair report {ids[0]}`.", f"build-repeat:{'+'.join(sorted(ids))}"))
     return out
 
 
@@ -122,14 +136,16 @@ def merge_requests(adapters, now: float) -> list[str]:
     for pr in _safe(_open_prs, adapters) or []:
         age = _age(pr["created"], now)
         if age is not None and age > MR_OLD_DAYS * DAY:
-            out.append(f"- {pr['project']}: merge request #{pr['number']} \"{pr['title']}\" has been open {age_words(age)}. "
-                       f"Merge or close it on the Merge page or with `phoenix github prs {pr['project']}`.")
+            out.append(tag(f"- {pr['project']}: merge request #{pr['number']} \"{pr['title']}\" has been open {age_words(age)}. "
+                           f"Merge or close it on the Merge page or with `phoenix github prs {pr['project']}`.",
+                           f"mr-old:{pr['project']}:{pr['number']}"))
     return out
 
 
 def quick_edits(now: float) -> list[str]:
     """Quick edits that stopped moving."""
-    return [f"- {e['project']}: quick edit \"{e['title']}\" has stalled. Carry on, or drop it with `phoenix edit abandon {e['id']}`."
+    return [tag(f"- {e['project']}: quick edit \"{e['title']}\" has stalled. Carry on, or drop it with `phoenix edit abandon {e['id']}`.",
+                f"edit-stalled:{e['project']}:{e['id']}")
             for e in edits.list_edits() if e.get("status") == "stalled"]
 
 
@@ -138,21 +154,24 @@ def phoenix_lines(adapters, now: float) -> list[str]:
     out = []
     up = _safe(updater.status, adapters) or {}
     if up.get("update_available"):
-        out.append(f"- A Phoenix update is available ({up.get('newest')}). Install it from the Update page or with `phoenix update install --yes`.")
+        out.append(tag(f"- A Phoenix update is available ({up.get('newest')}). Install it from the Update page or with `phoenix update install --yes`.",
+                       f"update-available:{_part(up.get('newest'))}"))
     states = status.all_project_states(sorted({r["project"] for r in runs.list_runs() if r["status"] == "running"}))
     if any(st["worker"] == status.NOT_RESPONDING for st in states.values()):
-        out.append("- The worker is not responding: a build says running but the runner has not checked in for over 2 minutes. "
-                   "Run `phoenix doctor`.")
+        out.append(tag("- The worker is not responding: a build says running but the runner has not checked in for over 2 minutes. "
+                       "Run `phoenix doctor`.", "worker-stuck"))
     try:
         use = shutil.disk_usage(paths.home())
         if use.free / use.total < DISK_MIN_FREE:
-            out.append(f"- The disk is {use.free / use.total:.0%} free, under 10 %. Free space (`docker system prune`, old runs); `phoenix doctor` shows more.")
+            out.append(tag(f"- The disk is {use.free / use.total:.0%} free, under 10 %. Free space (`docker system prune`, old runs); `phoenix doctor` shows more.",
+                           "disk-low"))
     except OSError:
         pass
     result = _safe(doctor.run_checks, adapters, "quick") or {"checks": []}
     for c in result["checks"]:
         if not c["ok"] and c["name"] != "disk":
-            out.append(f"- Doctor: {c['name']}: {c['detail']}. {c['fix'] or 'Run `phoenix doctor`.'}".replace("..", "."))
+            out.append(tag(f"- Doctor: {c['name']}: {c['detail']}. {c['fix'] or 'Run `phoenix doctor`.'}".replace("..", "."),
+                           f"doctor:{_part(c['name'])}"))
     return out
 
 
@@ -168,17 +187,20 @@ def project_problems(name: str) -> list[str]:
     out = []
     problems = _safe(settings.check, folder)
     if problems:
-        out.append(f"- {name}: phoenix.toml is not valid ({problems[0]}). Fix it with `phoenix settings check {name}`.")
+        out.append(tag(f"- {name}: phoenix.toml is not valid ({problems[0]}). Fix it with `phoenix settings check {name}`.",
+                       f"toml-invalid:{name}"))
         return out
     from phoenix9 import services
     chosen, lib = _safe(project_services.chosen, name) or [], _safe(services.load_library) or {}
     wanted = {k["name"] for s in chosen for k in (lib.get(s) or {}).get("project_keys", [])}
     empty = sorted(k["name"] for k in _safe(keys.list_keys, name) or [] if k["name"] in wanted and not k["has_value"])
     if empty:
-        out.append(f"- {name}: services are chosen but these keys are empty: {', '.join(empty)}. Fill them in on the project's Keys tab or with `phoenix project keys {name}`.")
+        out.append(tag(f"- {name}: services are chosen but these keys are empty: {', '.join(empty)}. Fill them in on the project's Keys tab or with `phoenix project keys {name}`.",
+                       f"keys-empty:{name}:{_part('+'.join(empty))}"))
     count = _safe(_unpushed, folder / "code") if (folder / "code" / ".git").exists() else 0
     if count:
-        out.append(f"- {name}: {count} commit{'' if count == 1 else 's'} not pushed to GitHub. Look at the project's Code tab; push from the project folder.")
+        out.append(tag(f"- {name}: {count} commit{'' if count == 1 else 's'} not pushed to GitHub. Look at the project's Code tab; push from the project folder.",
+                       f"unpushed:{name}:{count}"))
     return out
 
 

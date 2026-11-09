@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 4116ec8438e2c318 -->
+<!-- phoenix 9.1.0 inputs 95a45f98141f1b80 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -665,6 +665,35 @@ plain-English reports
 write and show the status report (what needs you)
 
 - `--out OUT`: write the report to this file instead of HOME/reports/status.md
+
+## `phoenix suggest`
+
+things worth doing, from the status report
+
+### `phoenix suggest list`
+
+list up to 3 suggestions (needs-attention first)
+
+- `--strip`: the Agent panel strip's view (also shown when the setting is strip-only)
+
+### `phoenix suggest shown`
+
+say that a suggestion was mentioned to Alex
+
+- `<key>`: the suggestion key from `phoenix suggest list`
+
+### `phoenix suggest snooze`
+
+hide a suggestion for a while (default 24 hours)
+
+- `<key>`: the suggestion key from `phoenix suggest list`
+- `--hours HOURS` (default 24.0): how long to hide it
+
+### `phoenix suggest dismiss`
+
+never suggest this again (until its state changes)
+
+- `<key>`: the suggestion key from `phoenix suggest list`
 
 ## `phoenix edit`
 

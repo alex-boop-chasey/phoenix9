@@ -233,6 +233,15 @@ def update_settings() -> dict:
     return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
 
 
+SUGGESTION_MODES = ("on", "strip-only", "off")
+
+
+def suggestion_mode() -> str:
+    """The global `suggestions` setting: on (agent and strip), strip-only or off; 'on' when missing or odd."""
+    value = read_global().get("suggestions")
+    return value if value in SUGGESTION_MODES else "on"
+
+
 AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
 
 

@@ -23,6 +23,11 @@ Read this file first, then only the file you need. Nothing here is a secret; all
 `phoenix docs generate`; never edit them by hand. If one looks wrong, run `phoenix docs generate --out <temp folder>`
 and compare, then tell Alex.
 
+## Suggestions
+
+`suggestions = "on" | "strip-only" | "off"` in `global.toml` (top level) decides who sees suggestions: the agent and the
+Agent panel strip, the strip only, or nobody. `phoenix suggest list|shown|snooze|dismiss` work on the report's line ids.
+
 ## Block formats (one example each)
 
 A block is a fenced code block holding ONE JSON object with `"v": 1`. Never add an `actions` key.

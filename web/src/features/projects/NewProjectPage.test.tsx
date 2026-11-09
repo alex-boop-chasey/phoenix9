@@ -183,7 +183,7 @@ test("type is required; framework tiles are filtered by type and a changed type 
   renderPage()
   await fillName()
   expect(createBtn()).toBeDisabled()
-  expect(screen.getByRole("link", { name: "Choose a type" })).toBeInTheDocument()
+  expect(await screen.findByRole("link", { name: "Choose a type" })).toBeInTheDocument()
   expect(screen.queryByRole("radio", { name: "None" })).toBeNull()
   await pickType("Web app")
   expect(createBtn()).toBeEnabled()

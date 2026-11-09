@@ -129,10 +129,26 @@ def rows(only: str | None = None) -> list:
     states = status.all_project_states([r["name"] for r in found], {r["name"]: r.get("last_used") or "" for r in found})
     adapters = common.make_adapters()
     out = []
+    agent = agent_work([r["name"] for r in found])
     for row in found:
         owner = row.get("repo_owner")
         out.append({**row, "repo_url": f"https://github.com/{owner}/{row['repo_name']}" if owner else None,
-                    **states[row["name"]], "chat": chat_or_none(row["name"], adapters)})
+                    **states[row["name"]], "chat": chat_or_none(row["name"], adapters),
+                    **agent[row["name"]]})
+    return out
+
+
+def agent_work(names: list) -> dict:
+    """For each project, its open or stalled quick edit and its running or waiting planning session (or None)."""
+    from phoenix9 import edits, plans
+    out = {n: {"edit": None, "plan": None} for n in names}
+    for e in edits.list_edits():
+        if e.get("project") in out and e.get("status") in ("open", "stalled") and not out[e["project"]]["edit"]:
+            out[e["project"]]["edit"] = {"id": e["id"], "title": e.get("title", ""), "status": e["status"]}
+    for p in plans.list_plans():
+        if p.get("project") in out and p.get("status") in ("running", "waiting") and not out[p["project"]]["plan"]:
+            brief = (p.get("brief") or "").strip().splitlines()
+            out[p["project"]]["plan"] = {"id": p["id"], "title": brief[0][:80] if brief else "", "status": p["status"]}
     return out
 
 

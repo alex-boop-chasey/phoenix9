@@ -57,12 +57,12 @@ test("settings link goes to /settings", async () => {
   expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/settings")
 })
 
-test("switcher sorts needs-you, running, idle and highlights the current project", async () => {
+test("switcher groups building, paused, then the rest and highlights the current project", async () => {
   setup({ route: "/p/tiny-tool/overview" })
   await within(switcher()).findByText("demo-site")
   const names = within(switcher()).getAllByRole("link").map((a) => a.textContent)
   const order = names.filter((n) => /^(demo-site|phoenix9|tiny-tool|notes-only)/.test(n ?? "")).map((n) => n!.split(/Needs|Building|Idle|1 q/)[0])
-  expect(order).toEqual(["demo-site", "phoenix9", "tiny-tool", "notes-only"])
+  expect(order).toEqual(["tiny-tool", "demo-site", "phoenix9", "notes-only"])
   const current = within(switcher()).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "true")
   expect(current).toHaveLength(1)
   expect(current[0]).toHaveTextContent("tiny-tool")

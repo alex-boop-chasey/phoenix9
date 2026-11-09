@@ -65,14 +65,23 @@ export function StepToggleList({
 function StepSwitch({
   step, on, readOnly, onChange,
 }: { step: PlanStep; on: boolean; readOnly: boolean; onChange: (name: string, on: boolean) => void }) {
-  const locked = step.default === "always"
+  if (step.default === "always") {
+    return (
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="flex min-h-11 min-w-11 items-center justify-center">
+          <Badge variant="outline" className="font-normal text-muted-foreground" aria-label={`${step.title}: always on`}>
+            Always on
+          </Badge>
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="flex shrink-0 items-center gap-2">
-      {locked && <span className="text-xs text-muted-foreground">always on</span>}
       <span className="flex min-h-11 min-w-11 items-center justify-center">
         <Switch
-          aria-label={step.title} checked={locked ? true : on}
-          disabled={readOnly || locked || forcedOff(step)}
+          aria-label={step.title} checked={on}
+          disabled={readOnly || forcedOff(step)}
           onCheckedChange={(v) => onChange(step.name, v)}
         />
       </span>

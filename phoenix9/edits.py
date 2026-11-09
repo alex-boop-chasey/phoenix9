@@ -10,8 +10,16 @@ BUSY_RUN = ("queued", "running", "waiting", "paused-limit", "paused")   # run st
 SKIP = {".git"}
 
 
+STALL_SECONDS = 30 * 60      # no activity for this long marks an open edit stalled
+
+
 class EditError(Exception):
     """A quick edit was refused or could not be done; the message is plain words."""
+
+    def __init__(self, message: str, problems: list[str] | None = None):
+        """Keep the message and, for a failed finish, the list of problems."""
+        super().__init__(message)
+        self.problems = problems or []
 
 
 def edits_dir() -> Path:
@@ -129,22 +137,51 @@ def start(project: str, title: str, who: str = "cli") -> dict:
 def heartbeat(edit_id: str) -> dict:
     """Record that work is going on in an open quick edit now."""
     rec = load(edit_id)
-    if rec["status"] != "open":
+    if rec["status"] not in ("open", "stalled"):
         raise EditError(f"The quick edit {edit_id} is {rec['status']}, not open.")
-    rec["last_activity"] = _now()
+    rec.update(status="open", last_activity=_now())
     atomic.write_json(record_file(edit_id), rec)
     return rec
 
 
-def finish(edit_id: str) -> dict:
-    """Mark an open quick edit finished (its branch and folder stay for the merge request)."""
+def finish(edit_id: str, message: str | None = None, adapters=None, who: str = "cli") -> dict:
+    """Check an open quick edit like a build does, then commit, push, open a merge request and remove its folder.
+
+    Any failed check raises EditError listing every problem; the edit stays open."""
+    from . import editfinish
+    if adapters is None:
+        from .ops import common
+        adapters = common.make_adapters()
     rec = load(edit_id)
-    if rec["status"] != "open":
+    if rec["status"] not in ("open", "stalled"):
         raise EditError(f"The quick edit {edit_id} is {rec['status']}, not open.")
-    rec.update(status="finished", last_activity=_now())
+    problems, changes = editfinish.check(adapters, rec)
+    if problems:
+        raise EditError("The quick edit is not ready:\n" + "\n".join(f"- {p}" for p in problems), problems)
+    try:
+        link = editfinish.publish(adapters, rec, (message or "").strip() or rec["title"], changes)
+    except RuntimeError as err:
+        raise EditError(str(err), [str(err)]) from None
+    code = paths.projects() / rec["project"] / "code"
+    git_mod.remove_worktree(code, Path(rec["folder"]))
+    rec.update(status="finished", pr=link, last_activity=_now())
     atomic.write_json(record_file(edit_id), rec)
-    events.emit("edit.finished", project=rec["project"], edit=edit_id, branch=rec["branch"])
+    events.emit("edit.finished", project=rec["project"], edit=edit_id, branch=rec["branch"], pr=link, who=who)
     return rec
+
+
+def mark_stalled(now: float | None = None) -> list[str]:
+    """Mark open quick edits with no activity for 30 minutes as stalled (nothing is deleted); return their ids."""
+    now = datetime.now(timezone.utc) if now is None else datetime.fromtimestamp(now, timezone.utc)
+    marked = []
+    for rec in list_edits(only_open=True):
+        last = datetime.fromisoformat(rec["last_activity"])
+        if (now - last).total_seconds() >= STALL_SECONDS:
+            rec.update(status="stalled")
+            atomic.write_json(record_file(rec["id"]), rec)
+            events.emit("edit.stalled", project=rec["project"], edit=rec["id"], branch=rec["branch"])
+            marked.append(rec["id"])
+    return marked
 
 
 def abandon(edit_id: str) -> dict:

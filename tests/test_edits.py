@@ -89,9 +89,62 @@ def test_abandon_needs_yes_and_removes_everything(proj):
     edits.start("demo", "again")       # the project is free again
 
 
-def test_finish_event_and_unknown_project(proj, capsys):
-    rec = edits.start("demo", "one")
-    edits.finish(rec["id"])
+def _ready(proj, monkeypatch, tmp_path):
+    """Give the project a profile, a fake adapter set and a bare 'origin'; return the adapters."""
+    from fakes import fake_adapters
+    from phoenix9.ops import common
+    (proj.parent / "phoenix.toml").write_text('profile = "python-script"\n')
+    ad = fake_adapters(tmp_path)
+    monkeypatch.setattr(common, "make_adapters", lambda: ad)
+    return ad
+
+
+def test_finish_pushes_and_opens_merge_request(proj, monkeypatch, tmp_path, capsys):
+    ad = _ready(proj, monkeypatch, tmp_path)
+    ad.host.script(["gh", "pr", "create"], 0, "https://github.com/o/r/pull/9\n")
+    rec = edits.start("demo", "Fix the typo")
+    (open(os.path.join(rec["folder"], "a.txt"), "w")).write("fixed\n")
+    assert main(["edit", "finish", rec["id"], "--message", "Fix typo"]) == 0
+    done = edits.load(rec["id"])
+    assert done["status"] == "finished" and done["pr"] == "https://github.com/o/r/pull/9"
+    assert not os.path.exists(rec["folder"])
+    argvs = [c for c in ad.host.calls if c[0] in ("git", "gh")]
+    assert any("push" in c for c in argvs) and any(c[:3] == ["gh", "pr", "create"] for c in argvs)
+    assert any("Quick edit by the Phoenix agent" in a for c in argvs for a in c)
+    docker_cmds = [a for a in ad.docker.argvs[0] if "pytest" in a or "python" in a]
+    assert docker_cmds
+    log = subprocess.run(["git", "log", "-1", "--format=%s", rec["branch"]], cwd=proj, capture_output=True, text=True)
+    assert log.stdout.strip() == "Fix typo"
     assert "edit.finished" in [e["type"] for e in events.read(paths.events())]
     edits.start("demo", "next")        # a finished edit no longer blocks
+
+
+def test_finish_failures_keep_the_edit_open(proj, monkeypatch, tmp_path):
+    ad = _ready(proj, monkeypatch, tmp_path)
+    rec = edits.start("demo", "one")
+    with pytest.raises(edits.EditError, match="no changes"):
+        edits.finish(rec["id"])
+    (open(os.path.join(rec["folder"], ".env"), "w")).write("A=1\n")
+    (open(os.path.join(rec["folder"], "pyproject.toml"), "w")).write('[project]\nname="x"\ndependencies=["y"]\n')
+    ad.docker.exit_codes.append(1)
+    with pytest.raises(edits.EditError) as err:
+        edits.finish(rec["id"], adapters=ad)
+    text = " ".join(err.value.problems)
+    assert ".env" in text and "lockfile" in text and "tests failed" in text
+    assert edits.load(rec["id"])["status"] == "open" and os.path.isdir(rec["folder"])
+    assert not [c for c in ad.host.calls if c[:1] == ["git"] or c[:1] == ["gh"]]
+
+
+def test_stalled_after_thirty_minutes(proj):
+    rec = edits.start("demo", "one")
+    atomic.write_json(edits.record_file(rec["id"]), dict(rec, last_activity="2020-01-01T00:00:00+00:00"))
+    os.utime(rec["folder"] + "/a.txt", (1577836800, 1577836800))
+    old = time.time() + 31 * 60
+    assert edits.mark_stalled(old) == [rec["id"]]
+    assert edits.load(rec["id"])["status"] == "stalled" and os.path.isdir(rec["folder"])
+    edits.heartbeat(rec["id"])
+    assert edits.load(rec["id"])["status"] == "open"
+
+
+def test_unknown_project(proj):
     assert main(["edit", "start", "nope", "--title", "x"]) == 1

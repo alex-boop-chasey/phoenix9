@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import agentwatch, atomic, docker as docker_mod, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
@@ -278,6 +278,14 @@ def catch_up() -> list[str]:
     return closed
 
 
+def mark_stalled_edits() -> None:
+    """Mark quick edits with no activity for 30 minutes as stalled; never raises."""
+    try:
+        edits.mark_stalled()
+    except Exception as err:  # noqa: BLE001 - a bad edit record must not stop the runner
+        print(f"phoenix runner: could not check quick edits: {type(err).__name__}: {err}", file=sys.stderr, flush=True)
+
+
 def prune_deleted_copies(adapters) -> None:
     """Remove old safety copies of deleted projects; never raises (a problem is one log line, the loop goes on)."""
     try:
@@ -302,6 +310,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             check_agent(adapters, memory)
             check_chats(adapters, memory)
             prune_deleted_copies(adapters)
+            mark_stalled_edits()
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

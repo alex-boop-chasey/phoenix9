@@ -689,8 +689,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned command`.
-  `edit.started|finished|abandoned {edit, branch, who?, title?}` (project set, run null) come from `phoenix edit`.
+  update.started update.installed update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled command`.
+  `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.

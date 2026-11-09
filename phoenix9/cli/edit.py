@@ -1,4 +1,4 @@
-"""The `phoenix edit` commands: start, list, heartbeat and abandon a quick edit."""
+"""The `phoenix edit` commands: start, list, heartbeat, finish and abandon a quick edit."""
 from phoenix9 import edits
 from phoenix9.cli.output import problem, show, table
 from phoenix9.ops import common
@@ -22,6 +22,10 @@ def add(sub, common_parser) -> None:
     c.add_argument("id")
     c.add_argument("--yes", action="store_true", help="confirm (this throws the work away)")
     c.set_defaults(func=run_abandon)
+    c = cmds.add_parser("finish", parents=[common_parser], help="check a quick edit, push it and open a merge request")
+    c.add_argument("id")
+    c.add_argument("--message", help="the commit message (default: the edit's title)")
+    c.set_defaults(func=run_finish)
     p.set_defaults(func=lambda args: (p.print_help(), 0)[1])
 
 
@@ -53,6 +57,16 @@ def run_heartbeat(args) -> int:
         return problem(args, str(err))
     common.record_command(args.who, f"edit heartbeat {args.id}", rec["project"])
     return show(args, rec, f"ok {rec['last_activity']}")
+
+
+def run_finish(args) -> int:
+    """Check, commit, push and open a merge request for a quick edit."""
+    try:
+        rec = edits.finish(args.id, args.message, who=args.who)
+    except edits.EditError as err:
+        return problem(args, str(err))
+    common.record_command(args.who, f"edit finish {args.id}", rec["project"])
+    return show(args, rec, f"Finished {args.id}. Merge request: {rec['pr']}")
 
 
 def run_abandon(args) -> int:

@@ -256,6 +256,21 @@ export function useRestartAgent() {
   })
 }
 
+/** Save the agent's notes and start a new conversation (the caller has already asked Alex to confirm). */
+export function useNewConversation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => post<{ started: boolean }>("agent/new", { confirm: true }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: agentKeys.status() }),
+        qc.invalidateQueries({ queryKey: ["agent", "messages"] }),
+        qc.invalidateQueries({ queryKey: agentKeys.sessions() }),
+      ])
+    },
+  })
+}
+
 /** One report line worth a mention, as `/api/suggest` lists it. */
 export interface Suggestion { key: string; text: string; section: string; attention: boolean; shown: boolean }
 

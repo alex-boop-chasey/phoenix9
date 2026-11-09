@@ -22,7 +22,9 @@ function fit(el: HTMLTextAreaElement | null) {
 }
 
 /** The footer message box with its send button, hints and the still-queued question. */
-export function Composer({ contextOn = true, inputRef, offline = false }: { contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement>; offline?: boolean }) {
+export function Composer({ contextOn = true, inputRef, offline = false, busy = false, onNew }: {
+  contextOn?: boolean; inputRef?: Ref<HTMLTextAreaElement>; offline?: boolean; busy?: boolean; onNew?: () => void
+}) {
   const [text, setText] = useState("")
   const [ask, setAsk] = useState(false)
   const [el, setEl] = useState<HTMLTextAreaElement | null>(null)
@@ -33,6 +35,7 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
   const fresh = !items.some((i) => i.type === "user")
   const news = useSuggestions().data?.suggestions.filter((s) => !s.shown).length ?? 0
   const asleep = status?.state === "asleep" || offline
+  const locked = asleep || busy
   const stillQueued = items.some((i) => i.type === "queued" && i.pending)
   const blank = !text.trim()
 
@@ -59,7 +62,8 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
   }
 
   const trySend = () => {
-    if (asleep || blank || send.isPending) return
+    if (locked || blank || send.isPending) return
+    if (onNew && ["/clear", "/new"].includes(text)) return onNew()
     if (stillQueued && !ask) return setAsk(true)
     go()
   }
@@ -90,13 +94,13 @@ export function Composer({ contextOn = true, inputRef, offline = false }: { cont
           id="agentIn"
           rows={1}
           value={text}
-          disabled={asleep}
+          disabled={locked}
           aria-describedby={asleep ? "agentWhy" : undefined}
           placeholder="Message the Phoenix agent"
           onChange={(e) => { setText(e.target.value); setAsk(false) }}
           onKeyDown={onKey}
         />
-        <button className="btn btn-primary btn-icon" aria-label="Send" title="Send (Enter)" disabled={asleep || blank || send.isPending} onClick={trySend}>
+        <button className="btn btn-primary btn-icon" aria-label="Send" title="Send (Enter)" disabled={locked || blank || send.isPending} onClick={trySend}>
           <Icon name="paper-plane" />
         </button>
       </div>

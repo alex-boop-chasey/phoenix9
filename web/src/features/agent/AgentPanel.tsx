@@ -1,10 +1,13 @@
 // The Agent panel: the slide-in on every dashboard page that shows the Phoenix agent's conversation.
 import { useEffect, useRef, useState, type RefObject } from "react"
 
+import { toast } from "sonner"
+
+import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Icon } from "@/components/Icon"
 import { AsleepCard } from "@/features/agent/AsleepCard"
 import { HistoryMenu } from "@/features/agent/HistoryMenu"
-import { useAgentMessages, useAgentStatus, useEarlierSession, type AgentState } from "@/features/agent/useAgent"
+import { useAgentMessages, useAgentStatus, useEarlierSession, useNewConversation, type AgentState } from "@/features/agent/useAgent"
 import { Composer } from "@/features/agent/Composer"
 import { Suggestions } from "@/features/agent/Suggestions"
 import { ContextChip } from "@/features/agent/ContextChip"
@@ -47,6 +50,17 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
   const [contextOn, setContextOn] = useState(true)
   const composer = useRef<HTMLTextAreaElement>(null)
   const wasOpen = useRef(open)
+  const [confirmNew, setConfirmNew] = useState(false)
+  const fresh = useNewConversation()
+  const starting = fresh.isPending
+
+  const startNew = () => {
+    setConfirmNew(false)
+    fresh.mutate(undefined, {
+      onSuccess: () => setTimeout(() => composer.current?.focus(), 0),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "A new conversation could not be started."),
+    })
+  }
 
   useEffect(() => {
     if (open) composer.current?.focus()
@@ -76,6 +90,11 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
               <Icon name="arrow-up-right" />
             </a>
           )}
+          {!offline && !asleep && (
+            <button className="btn btn-ghost btn-icon" aria-label="New conversation" title="New conversation" disabled={starting} onClick={() => setConfirmNew(true)}>
+              <Icon name="plus" />
+            </button>
+          )}
           <HistoryMenu current={status?.session_id} onPick={setViewing} />
           <button className="btn btn-ghost btn-icon dr-wide" aria-label="Wide" aria-pressed={wide} title="Wide" onClick={toggleWide}>
             <Icon name={wide ? "caret-right" : "caret-left"} />
@@ -103,12 +122,21 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
       {sendOnly && viewing === null && (
         <p className="ag-banner" role="status">The Phoenix agent's messages can't be read right now. You can still send it a message.</p>
       )}
+      {starting && <p className="ag-banner" role="status">Saving notes and starting a new conversation…</p>}
       <div className="dr-b">{body()}</div>
       {viewing === null && (
         <div className="dr-f">
-          <Composer contextOn={contextOn} inputRef={composer} offline={offline} />
+          <Composer contextOn={contextOn} inputRef={composer} offline={offline} busy={starting} onNew={() => setConfirmNew(true)} />
         </div>
       )}
+      <ConfirmDialog
+        open={confirmNew}
+        onOpenChange={setConfirmNew}
+        title="Start a new conversation?"
+        body="The agent saves its notes first, then starts fresh. Builds that are running are not affected. Earlier conversations stay in History."
+        confirmLabel="New conversation"
+        onConfirm={startNew}
+      />
     </aside>
   )
 

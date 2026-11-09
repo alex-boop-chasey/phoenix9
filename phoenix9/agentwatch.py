@@ -53,7 +53,8 @@ def _backing_off(mem: dict, now: float) -> bool:
 
 
 def check_once(adapters) -> str:
-    """One watchdog check; returns "off", "ok", "bad", "backoff", "restarted" or "stopped" (the unit was stopped
+    """One watchdog check; returns "off", "ok", "bad", "backoff", "restarted", "restarted-rules"
+    (healthy and idle, restarted once to load updated rules) or "stopped" (the unit was stopped
     on purpose: recorded and left alone until it runs again)."""
     cfg = settings.agent_settings()
     if not cfg["watchdog"]:
@@ -79,5 +80,22 @@ def check_once(adapters) -> str:
                 result = "restarted"
     else:
         mem["bad"], mem["stopped"] = 0, False
+        if restart_for_rules(adapters):
+            mem["last_restart"] = now
+            result = "restarted-rules"
     atomic.write_json(memory_path(), mem)
     return result
+
+
+def restart_for_rules(adapters) -> bool:
+    """When updated agent rules wait for a restart (HOME/agent-rules-pending) and the agent is idle, restart it
+    once, clear the note and record an event; True when it restarted."""
+    from phoenix9 import agentsync, events
+    if not agentsync.pending_restart():
+        return False
+    if agentlink.status(host=adapters.host)["state"] != "idle":
+        return False
+    chat.agent_restart(adapters, "its rules were updated")
+    agentsync.clear_pending()
+    events.emit("agent.restarted_for_rules", project=None, why="updated agent rules were waiting for an idle agent")
+    return True

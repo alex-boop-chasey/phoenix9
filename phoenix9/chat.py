@@ -12,6 +12,8 @@ def agent_restart(adapters, why: str) -> None:
     from phoenix9 import scrub, settings
     unit = settings.agent_settings()["unit"]
     adapters.host.systemctl("restart", unit)
+    from phoenix9 import agentsync
+    agentsync.clear_pending()
     adapters.notify.send(scrub.scrub(f"Phoenix agent restarted: {why}"))
 
 

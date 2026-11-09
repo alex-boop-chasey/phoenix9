@@ -173,3 +173,9 @@
 .ag-tile-danger{border-color:var(--destructive,#c62828); color:var(--destructive,#c62828)}
 .ag-nav{display:flex; flex-wrap:wrap; gap:6px}
 .sw-group{margin:8px 8px 2px; font-size:11px}
+.ag-sugg{padding:8px 20px; border-bottom:1px solid var(--line); font-size:12.5px; color:var(--text-2)}
+.ag-sugg-h{display:flex; justify-content:space-between; gap:8px}
+.ag-sugg ul{list-style:none; margin:4px 0 0; padding:0; display:grid; gap:6px}
+.ag-sugg li{display:flex; flex-wrap:wrap; gap:4px 8px; align-items:center}
+.ag-sugg-text{flex:1 1 100%}
+.ag-sugg-acts{display:flex; flex-wrap:wrap; gap:4px}

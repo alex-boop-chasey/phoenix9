@@ -124,8 +124,8 @@ def _resolve(project: str, id_: str) -> tuple[Path, str]:
     if not id_ or "\0" in id_:
         raise refuse
     home = paths.home().resolve()
-    if id_.startswith("logs/"):
-        base, target = (home / "logs").resolve(), (home / id_).resolve()
+    if id_.startswith(("logs/", "reports/")):
+        base, target = (home / id_.split("/", 1)[0]).resolve(), (home / id_).resolve()
         rel = ""
     else:
         base = (paths.runs(project)).resolve()
@@ -254,6 +254,8 @@ def read(project: str, id_: str) -> dict:
     info = _classify(rel, path) if rel else None
     if rel == "" and path.name == "commands.jsonl":
         info = {"kind": "command", "title": "commands run on this project"}
+    elif rel == "" and id_.startswith("reports/"):
+        info = {"kind": "report", "title": "status report"}
     elif rel == "":
         info = {"kind": "service", "title": f"{path.stem} log"}
     info = info or {"kind": "step", "title": path.name}

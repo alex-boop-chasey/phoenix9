@@ -233,6 +233,15 @@ def update_settings() -> dict:
     return {k: (table[k] if isinstance(table.get(k), str) and table[k] else d) for k, d in UPDATE_DEFAULTS.items()}
 
 
+SUGGESTION_MODES = ("on", "strip-only", "off")
+
+
+def suggestion_mode() -> str:
+    """The global `suggestions` setting: on (agent and strip), strip-only or off; 'on' when missing or odd."""
+    value = read_global().get("suggestions")
+    return value if value in SUGGESTION_MODES else "on"
+
+
 AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
 
 
@@ -334,6 +343,16 @@ def _prune(data: dict) -> dict:
                 continue
         out[key] = value
     return out
+
+
+def prune(data: dict) -> dict:
+    """The settings as save_project writes them (empty tables dropped)."""
+    return _prune(data)
+
+
+def render_project(data: dict) -> str:
+    """The phoenix.toml text save_project would write for these settings."""
+    return tomlw.dumps(_prune(data), header=HEADER, key_order=KEY_ORDER)
 
 
 def save_project(project_dir, data: dict) -> None:

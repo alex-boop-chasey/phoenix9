@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, runs, service as ops_service, services, settings, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -867,6 +867,46 @@ def get_repair_report(req, run_id):
     return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
 
 
+def get_report_status(req):
+    """Reply with the status report the runner rewrites every 10 minutes (markdown); never writes a file
+    (when there is no saved copy yet it is built once, outside the write lock, and not saved)."""
+    done = ops_report.saved()
+    return {"path": done["path"], "markdown": done["text"], "saved": done["saved"]}
+
+
+def get_suggest(req):
+    """Reply with up to three suggestions for the Agent panel strip (empty when the setting is off), read from
+    the runner's saved report; never writes a file."""
+    return ops_suggest.list_(strip=True, fresh=False)
+
+
+def post_suggest(req, key, what):
+    """Mark a suggestion shown, snoozed (optional {hours}) or dismissed."""
+    hours = req.body.get("hours", ops_suggest.SNOOZE_HOURS)
+    if isinstance(hours, bool) or not isinstance(hours, (int, float)) or not 0 < hours <= 24 * 365:
+        raise BadRequest("hours has to be a number above 0.")
+    with req.server.write_lock:
+        try:
+            return ops_suggest.mark(key, what, WHO, float(hours))
+        except common.OpsError as e:
+            raise BadRequest(str(e)) from None
+
+
+def post_suggest_snooze(req, key):
+    """Hide a suggestion for a while."""
+    return post_suggest(req, key, "snoozed")
+
+
+def post_suggest_dismiss(req, key):
+    """Never suggest this again."""
+    return post_suggest(req, key, "dismissed")
+
+
+def post_suggest_shown(req, key):
+    """Say the suggestion was mentioned to Alex."""
+    return post_suggest(req, key, "shown")
+
+
 def post_repair_apply(req, run_id):
     """Save the posted repair note and apply it (or only show a dry run)."""
     run_id = check_run_id(run_id)
@@ -1062,6 +1102,11 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
+    ("GET", r"/api/report/status", get_report_status),
+    ("GET", r"/api/suggest", get_suggest),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/snooze", post_suggest_snooze),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/dismiss", post_suggest_dismiss),
+    ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+-]+)/shown", post_suggest_shown),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),

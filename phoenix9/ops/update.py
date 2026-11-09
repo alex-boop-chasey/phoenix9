@@ -80,3 +80,12 @@ def release(who: str, yes: bool) -> dict:
 def history() -> list[dict]:
     """Past installs and roll-backs the updater recorded, newest first."""
     return updater.read_history()
+
+
+def after_install(who: str) -> dict:
+    """Copy the knowledge pack, rebuild the agent's rules (restarting the agent only if idle) and grow the
+    safety list; {skills, rules, restarted, safety_added}."""
+    from phoenix9 import agentsync
+    common.record_command(who, "update after-install")
+    ad = common.make_adapters()
+    return {**agentsync.refresh_agent(ad), "safety_added": agentsync.add_safety_files()}

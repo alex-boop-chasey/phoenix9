@@ -147,31 +147,43 @@ def _update_line() -> str:
     return "Phoenix %s%s" % (__version__, " · update available" if newer else "")
 
 
+def _work_lines() -> list[str]:
+    """One line per open quick edit and running or waiting planning session."""
+    from phoenix9 import edits, plans
+    out = ["quick edit %s · %s · %s · %s" % (e["id"], e["project"], e["status"], e["title"])
+           for e in edits.list_edits(only_open=True)]
+    out += ["planning session %s · %s · %s · %s" % (p["id"], p["project"], p["status"], p["brief"].splitlines()[0][:60])
+            for p in plans.list_plans() if p.get("status") in ("running", "waiting") and p.get("brief", "").strip()]
+    return [scrub.scrub(x.replace("\n", " "))[:LINE_MAX] for x in out][:10]
+
+
 def brief() -> dict:
     """The agent's start-up brief: {projects: [lines], now: [lines], version, text}."""
     host = _host()
     lines = [_project_line(r) for r in projects.rows()]
+    work = _work_lines()
     notes = _now_notes(host)
     version = _update_line()
-    text = _fit(lines, notes, version)
-    return {"projects": lines, "now": notes, "version": version, "text": text}
+    text = _fit(lines, notes, version, work)
+    return {"projects": lines, "work": work, "now": notes, "version": version, "text": text}
 
 
-def _join(lines, more: int, notes, version) -> str:
+def _join(lines, more: int, notes, version, work=()) -> str:
     tail = ["%d more projects (run `phoenix project list`)" % more] if more else []
-    return "\n".join(lines + tail + (["", "NOW.md:"] + notes if notes else []) + ["", version])
+    head = ["Open work:"] + list(work) + [""] if work else []
+    return "\n".join(head + lines + tail + (["", "NOW.md:"] + notes if notes else []) + ["", version])
 
 
-def _fit(lines, notes, version) -> str:
+def _fit(lines, notes, version, work=()) -> str:
     """The brief text within BRIEF_MAX characters: projects go first (from the end, replaced by a 'N more
     projects' line, since the agent can list them), then NOW.md lines (from the end); the version line stays."""
     notes = list(notes)
     keep = len(lines)
-    text = _join(lines, 0, notes, version)
+    text = _join(lines, 0, notes, version, work)
     while len(text) > BRIEF_MAX and keep > 0:
         keep -= 1
-        text = _join(lines[:keep], len(lines) - keep, notes, version)
+        text = _join(lines[:keep], len(lines) - keep, notes, version, work)
     while len(text) > BRIEF_MAX and notes:
         notes.pop()
-        text = _join(lines[:keep], len(lines) - keep, notes, version)
+        text = _join(lines[:keep], len(lines) - keep, notes, version, work)
     return text[:BRIEF_MAX]

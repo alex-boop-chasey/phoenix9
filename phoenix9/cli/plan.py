@@ -19,6 +19,14 @@ def add(sub, common_parser) -> None:
     c = cmds.add_parser("continue", parents=[common_parser], help="resume the session after the answers are filled in")
     c.add_argument("id")
     c.set_defaults(func=run_continue)
+    c = cmds.add_parser("reply", parents=[common_parser], help="send Alex's answer to a waiting session and resume it")
+    c.add_argument("id")
+    c.add_argument("--text", required=True, help="the answer, word for word")
+    c.set_defaults(func=run_reply)
+    c = cmds.add_parser("abandon", parents=[common_parser], help="give up a planning session that is not running")
+    c.add_argument("id")
+    c.add_argument("--yes", action="store_true", help="confirm")
+    c.set_defaults(func=run_abandon)
     c = cmds.add_parser("list", parents=[common_parser], help="list planning sessions")
     c.add_argument("--project", help="only this project")
     c.set_defaults(func=run_list)
@@ -67,3 +75,25 @@ def run_list(args) -> int:
              r["brief"][:50]] for r in found]
     text = table(rows, ["ID", "PROJECT", "STATUS", "OPEN", "BRIEF"]) if rows else "No planning sessions."
     return show(args, {"plans": found}, text)
+
+
+def run_reply(args) -> int:
+    """Send an answer to a planning session and resume it."""
+    try:
+        rec = chat.plan_continue(args.id, who=args.who, answer=args.text)
+    except plans.PlanError as err:
+        return problem(args, str(err))
+    common.record_command(args.who, f"plan reply {args.id}", rec["project"])
+    return show(args, rec, _summary(rec))
+
+
+def run_abandon(args) -> int:
+    """Mark a planning session abandoned (needs --yes)."""
+    if not args.yes:
+        return problem(args, f"This gives up the planning session {args.id}. Run again with --yes to do it.")
+    try:
+        rec = plans.abandon(args.id)
+    except plans.PlanError as err:
+        return problem(args, str(err))
+    common.record_command(args.who, f"plan abandon {args.id}", rec["project"])
+    return show(args, rec, f"Abandoned {args.id}.")

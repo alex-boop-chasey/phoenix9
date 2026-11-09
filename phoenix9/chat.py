@@ -92,8 +92,8 @@ def plan_start(project: str, brief: str, model: str | None = None, adapters=None
     return _plan_run(adapters, rec, plans.start_prompt(brief), None)
 
 
-def plan_continue(plan_id: str, adapters=None, who: str = "cli") -> dict:
-    """Resume the same planning session so it reads the answers, updates the spec and records decisions."""
+def plan_continue(plan_id: str, adapters=None, who: str = "cli", answer: str | None = None) -> dict:
+    """Resume the same planning session so it reads the answers (or Alex's reply text), updates the spec and records decisions."""
     from phoenix9 import events, plans
     if adapters is None:
         from phoenix9.ops import common
@@ -109,4 +109,5 @@ def plan_continue(plan_id: str, adapters=None, who: str = "cli") -> dict:
     rec.update(status="running", last_activity=plans._now())
     plans.save(rec)
     events.emit("plan.continued", project=rec["project"], plan=plan_id, who=who)
-    return _plan_run(adapters, rec, plans.CONTINUE_PROMPT, rec["session_id"])
+    prompt = plans.reply_prompt(answer) if answer and answer.strip() else plans.CONTINUE_PROMPT
+    return _plan_run(adapters, rec, prompt, rec["session_id"])

@@ -1588,3 +1588,11 @@ Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `n
 
 ### RunDocs (task 22)
 `web/src/features/docs/RunDocs.tsx` lists `docs/list?run=<id>` and shows View/Download only for `plan.md` and `summary.md` ids (LogsTab, RunningView and the run card body use it); it renders nothing when the list is empty or the request fails.
+
+### Edits and plans cards, agent wiring
+- `edits` card (`project?`): rows `{id, project, title, status, last_activity, pr}`; actions link each merge request and give
+  Abandon (`POST /api/edits/<id>/abandon` `{confirm: true}`, `confirm`, `danger`) on open or stalled edits.
+- `plans` card (`project?`): rows `{id, project, brief, status, spec, open_questions, last_activity}`; Abandon
+  (`POST /api/plans/<id>/abandon`) on waiting, done or failed sessions. A running session cannot be abandoned.
+- `phoenix plan reply <id> --text` resumes a waiting session with Alex's words; `phoenix plan abandon <id> --yes`.
+- `phoenix agent brief` also returns `work`: one line per open quick edit and running or waiting planning session.

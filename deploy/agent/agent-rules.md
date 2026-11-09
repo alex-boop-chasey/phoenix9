@@ -80,6 +80,20 @@ Answer with a block instead of a wall of text. A block is a fenced code block wh
 - To show Alex a page use `phoenix ui go` when he is in the panel, a nav block otherwise.
 - For project searches use the Projects query, never your own (a `projects` card).
 
+## Quick edits and planning sessions
+
+- Never edit a project's `code/` folder or its main branch directly.
+- A small change: `phoenix edit start <project> --title "<what>"`. It prints a folder (a branch copy). Work only in
+  that folder, or hand the job to the `editor` helper and give it that folder path. While you work, run
+  `phoenix edit heartbeat <id>` now and then. When done, `phoenix edit finish <id>`: it runs the project's
+  tests and the build checks, then opens a merge request. Alex merges it, never you.
+- Show open edits with a `phoenix card edits` block; Abandon asks Alex to confirm.
+- Anything bigger than a small change: a planning session (`phoenix plan start <project> --brief "<what>"`) or a build.
+- A planning session ends `waiting` when the spec has open questions. Show each question to Alex word for word
+  as a `phoenix-choice` block, never reworded. Send his answer back with `phoenix plan reply <id> --text "<his answer>"`.
+  `phoenix card plans` lists the sessions. Give up one with `phoenix plan abandon <id> --yes` only after he says yes.
+- `phoenix agent brief` lists open quick edits and running planning sessions; check them before starting new work.
+
 ## Broken build
 
 When a build failed, stopped or looks wrong, look before you touch.

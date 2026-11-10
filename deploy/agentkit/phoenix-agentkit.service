@@ -1,0 +1,29 @@
+# Phoenix agent service (agentkit). Install into /etc/systemd/system; deploy/agentkit/setup.sh prepares everything else.
+# It runs as its own user, never root. The API key is a file in its own folder, read by the program itself:
+# it is never put in Environment or EnvironmentFile. It has no shell tool and no file tools.
+[Unit]
+Description=Phoenix agent service (127.0.0.1:8097)
+After=network.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=phoenix-agentkit
+Group=phoenix-agentkit
+WorkingDirectory=/opt/phoenix9/agentkit
+ExecStart=/var/lib/phoenix9/agentkit/venv/bin/python -m agentkit.service --config /var/lib/phoenix9/agentkit/config.toml
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+# Only its own folder is writable; the code in /opt/phoenix9/agentkit stays read-only.
+ReadWritePaths=/var/lib/phoenix9/agentkit
+
+[Install]
+WantedBy=multi-user.target

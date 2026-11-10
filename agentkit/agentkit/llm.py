@@ -19,7 +19,10 @@ from pydantic_ai import (
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
 
+from pydantic import BaseModel, Field
+
 from . import tools
+from .pack import Pack
 
 
 def build_agent(model, instructions: str = "", read_tools=(), browser_tools=(), change_tools=()) -> Agent:
@@ -113,3 +116,74 @@ def no_key_model():
         yield "The agent has no access key yet, so it can't answer."
 
     return FunctionModel(stream_function=say)
+
+
+SUGGEST = "suggest_next_actions"
+CACHE_SETTINGS = {"anthropic_cache_instructions": True, "anthropic_cache_tool_definitions": True}
+
+
+class Suggestions(BaseModel):
+    """What suggest_next_actions takes: a few short follow-ups Alex could pick."""
+
+    actions: list[str] = Field(max_length=4, description="Short follow-up actions, in plain words.")
+
+
+def suggest_next_actions(actions: list[str]) -> dict:
+    """Offer Alex a few follow-up actions; it changes nothing."""
+    return tools.quoted("agent suggestions", {"actions": actions})
+
+
+def _quote_result(name: str, result):
+    """Wrap a tool result as quoted material unless it already is."""
+    if isinstance(result, dict) and "quoted_from" in result and "data" in result:
+        return result
+    return tools.quoted(name, result)
+
+
+def _pack_tool(tool) -> Tool:
+    """Turn one pack server tool into a Pydantic AI tool whose result is quoted; changes need approval."""
+
+    def run(**kwargs):
+        args = tool.inputs(**kwargs).model_dump()
+        return _quote_result(tool.name, tool.function(**args))
+
+    made = Tool.from_schema(
+        run,
+        name=tool.name,
+        description=tool.description,
+        json_schema=tool.inputs.model_json_schema(),
+    )
+    return made if tool.risk == "read" else _approved(made)
+
+
+def _approved(tool: Tool) -> Tool:
+    """Mark a tool as needing Alex's approval before it runs."""
+    tool.requires_approval = True
+    return tool
+
+
+def build_pack_agent(model, pack: Pack) -> Agent:
+    """Make the agent from a site pack: exactly its tools plus suggest_next_actions, with prompt caching on."""
+    function_tools = [_pack_tool(t) for t in pack.server_tools]
+    function_tools.append(
+        Tool.from_schema(
+            suggest_next_actions,
+            name=SUGGEST,
+            description="Offer Alex a few short follow-up actions he can pick from.",
+            json_schema=Suggestions.model_json_schema(),
+        )
+    )
+    toolsets = [FunctionToolset(function_tools)]
+    if pack.browser_tools:
+        defs = [
+            ToolDefinition(name=t.name, description=t.description, parameters_json_schema=t.inputs.model_json_schema())
+            for t in pack.browser_tools
+        ]
+        toolsets.append(ExternalToolset(defs))
+    return Agent(
+        model,
+        instructions=pack.instructions or None,
+        toolsets=toolsets,
+        output_type=[str, DeferredToolRequests],
+        model_settings=dict(CACHE_SETTINGS),
+    )

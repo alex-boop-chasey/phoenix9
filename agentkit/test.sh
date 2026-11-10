@@ -3,4 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 agentkit/venv.sh
+export PYTHONPATH="$PWD/agentkit${PYTHONPATH:+:$PYTHONPATH}"
 exec agentkit/.venv/bin/python -m pytest -q agentkit/tests "$@"

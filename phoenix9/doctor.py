@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import access, agentaccess, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import access, agentnext, agentaccess, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
 from phoenix9 import transcript
 from phoenix9.library import read_toml
 
@@ -24,11 +24,13 @@ PROBE_PROFILE = "python-script"
 CLAUDE_MODEL = "haiku"
 CLAUDE_MINUTES = 5
 CHECKS_BY_MODE = {
-    "quick": ("services", "service-home", "api", "origins", "upstream", "home", "secrets", "disk"),
+    "quick": ("services", "service-home", "api", "origins", "upstream", "home", "secrets", "disk",
+              "agentkit-service", "agentkit-key", "agentkit-spend"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files",
-             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-rules", "project-chats", "access"),
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-rules", "project-chats", "access",
+             "agentkit-service", "agentkit-key", "agentkit-spend"),
 }
 
 
@@ -579,6 +581,67 @@ def check_access(ctx):
     return _result(True, "the optional Cloudflare Access lock is off (the API still answers only allowed uids on this server)")
 
 
+AGENTKIT_UNIT = "phoenix-agentkit"
+NOT_SET_UP = "not set up yet"
+SPEND_WORDS = {"plenty": (True, "plenty left this month"), "low": (True, "getting low this month"),
+               "used_up": (False, "used up this month")}
+
+
+def _agentkit_status(ctx) -> tuple[dict | None, str]:
+    """(the agent's /status answer, "") or (None, plain reason); reason is NOT_SET_UP when [agent_next] is absent."""
+    if not isinstance(settings.read_global().get("agent_next"), dict):
+        return None, NOT_SET_UP
+    try:
+        return ctx.ad.agentnext.get_json("/status"), ""
+    except agentnext.AgentUnavailable as err:
+        return None, str(err)
+
+
+def check_agentkit_service(ctx):
+    """The new agent's service is active and answers /status."""
+    status, reason = _agentkit_status(ctx)
+    if reason == NOT_SET_UP:
+        return _result(True, f"the new agent is {NOT_SET_UP}")
+    rc, out, _ = ctx.ad.host.systemctl("is-active", AGENTKIT_UNIT)
+    state = out.split()[0] if out.split() else "unknown"
+    fix = f"Start it with `systemctl start {AGENTKIT_UNIT}`, then read `journalctl -u {AGENTKIT_UNIT}`."
+    if rc != 0 or state != "active":
+        return _result(False, f"{AGENTKIT_UNIT} is {state}", fix)
+    if status is None:
+        return _result(False, f"{AGENTKIT_UNIT} is active but does not answer: {reason}", fix)
+    return _result(True, f"{AGENTKIT_UNIT} is active and answering")
+
+
+def check_agentkit_key(ctx):
+    """The new agent has its API key (as it reports itself; the key file is never read here)."""
+    status, reason = _agentkit_status(ctx)
+    if reason == NOT_SET_UP:
+        return _result(True, f"the new agent is {NOT_SET_UP}")
+    if status is None:
+        return _result(False, f"cannot ask the new agent about its key: {reason}", "Fix the agentkit-service line first.")
+    present = status.get("key_present") is True
+    return _result(present, "the new agent has its API key" if present else "the new agent has no API key yet",
+                   "Put the key in the agent's key file (see deploy/agentkit/README.md).")
+
+
+def check_agentkit_spend(ctx):
+    """How much of this month's allowance the new agent has used, in words only."""
+    status, reason = _agentkit_status(ctx)
+    if reason == NOT_SET_UP:
+        return _result(True, f"the new agent is {NOT_SET_UP}")
+    if status is None:
+        return _result(False, f"cannot ask the new agent about its allowance: {reason}", "Fix the agentkit-service line first.")
+    try:
+        state = ctx.ad.agentnext.get_json("/spend").get("state")
+    except agentnext.AgentUnavailable as err:
+        return _result(False, f"cannot ask the new agent about its allowance: {err}", "Fix the agentkit-service line first.")
+    ok, words = SPEND_WORDS.get(state, (False, "unknown"))
+    detail = f"the new agent's allowance: {words}"
+    if state == "low":
+        detail = "Warning: " + detail
+    return _result(ok, detail, "Wait for next month, or ask Alex to raise the agent's monthly allowance.")
+
+
 CHECKS = {"python": check_python, "library": check_library, "services": check_services,
           "service-home": check_service_home, "api": check_api,
           "origins": check_origins, "upstream": check_upstream,
@@ -588,7 +651,8 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
           "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder,
           "agent-pack": check_agent_pack, "agent-rules": check_agent_rules,
-          "project-chats": check_project_chats, "access": check_access}
+          "project-chats": check_project_chats, "access": check_access,
+          "agentkit-service": check_agentkit_service, "agentkit-key": check_agentkit_key, "agentkit-spend": check_agentkit_spend}
 
 
 def run_checks(adapters, mode: str = "full") -> dict:

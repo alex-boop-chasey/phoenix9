@@ -204,7 +204,7 @@ def test_for_update_mode_runs_no_claude_session_and_checks_version(healthy):
 def test_quick_mode_subset(healthy):
     data = doctor.run_checks(healthy, "quick")
     assert [c["name"] for c in data["checks"]] == ["services", "service-home", "api", "origins", "upstream", "home",
-                                                     "secrets", "disk"]
+                                                     "secrets", "disk", "agentkit-service", "agentkit-key", "agentkit-spend"]
     assert healthy.docker.argvs == [] and healthy.proxy.started == []
 
 

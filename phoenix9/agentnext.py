@@ -1,4 +1,5 @@
 """The adapter for the new agent service: calls it with the shared token and hands back its reply as it arrives."""
+import json
 import urllib.error
 import urllib.request
 
@@ -44,6 +45,18 @@ class AgentNext:
         if not value:
             raise AgentUnavailable(NOT_SET_UP)
         return value
+
+    def get_json(self, path: str) -> dict:
+        """GET a path and return its JSON object; raises AgentUnavailable when the answer is not a good JSON object."""
+        reply = self.request("GET", path)
+        body = b"".join(reply.chunks)
+        try:
+            data = json.loads(body)
+        except ValueError:
+            data = None
+        if reply.status != 200 or not isinstance(data, dict):
+            raise AgentUnavailable("The new agent answered, but not in a way Phoenix understands.")
+        return data
 
     def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None) -> Reply:
         """Send one call (path includes any query) and return the reply; the body streams until it is read."""

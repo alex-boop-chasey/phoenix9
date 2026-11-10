@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import access, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
+from phoenix9 import access, agentaccess, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
 from phoenix9 import transcript
 from phoenix9.library import read_toml
 
@@ -209,6 +209,10 @@ def check_upstream(ctx):
     """The programs in front of the dashboard (cloudflared, code-server) run as a uid the API answers."""
     allowed = access.peer_uids()
     problem = access.peer_uids_problem()
+    agent_problem = agentaccess.uid_problem(allowed)
+    if agent_problem:
+        return _result(False, agent_problem, f"Set agent_next.uid in {paths.home()}/config/global.toml to the agent's "
+                       "own user (not 0, and not a uid in access.peer_uids).")
     found = {name: ctx.ad.host.program_uids(name) for name in UPSTREAM_PROGRAMS}
     parts, bad = [], []
     for name, uids in found.items():

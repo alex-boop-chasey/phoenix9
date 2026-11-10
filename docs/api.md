@@ -24,6 +24,11 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   8.5). The one exception to both is `GET /api/health`, open to any local program (doctor, the updater and
   `phoenix service restart` call it); it shows only the version, release tag and a digest of the allowed origins.
   The CLI never goes through the API (it calls ops directly).
+- The new agent is the caller who `agent`: a connection whose peer uid equals global.toml `[agent_next] uid` (never 0,
+  never in `peer_uids`). It needs `X-Phoenix: 1` but no Origin, and may use only the routes in
+  `phoenix9/agentaccess.py` (GET `/api/projects`, `/api/projects/<name>`, `/api/projects/<name>/runs`, `/api/routes`,
+  and POST `/api/projects/<name>/settings` for the single key `steps.notify.on`); anything else gets 403. Every
+  JSON reply to it goes through `scrub.scrub`, and its settings change is recorded with who `agent`.
 - POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
@@ -40,6 +45,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | Method | Path | Ops function | Request body | `data` | Errors |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/info` | `ops.app.info` | | Info | |
+| GET | `/api/routes` | `ops.agentaccess.pages` | | The dashboard pages (`routes.ROUTES`) as `[name, [params]]`; also on the agent's route list | |
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -93,15 +93,20 @@ OPEN_PATHS = ("/api/health",)   # answered for any local program, with no Access
                                 # `phoenix service restart` call it; it shows only the version, tag and an origins digest
 
 
-def peer_refusal(handler) -> str:
+def peer_uid_of(handler):
+    """The uid of the program at the far end of the connection (None when it cannot be told)."""
+    try:
+        return app.write_peer_uid(handler.client_address, handler.connection.getsockname())
+    except Exception:
+        api_log(traceback.format_exc())
+        return None
+
+
+def peer_refusal(handler, uid=None) -> str:
     """'' when the far end of the connection is a process run by an allowed uid (access.peer_uids, default root:
     cloudflared and code-server run as root); else the plain refusal. The owner is looked up through the host
     adapter (/proc/net/tcp on the real host)."""
-    try:
-        uid = app.write_peer_uid(handler.client_address, handler.connection.getsockname())
-    except Exception:
-        api_log(traceback.format_exc())
-        uid = None
+    uid = peer_uid_of(handler) if uid is None else uid
     if uid is None:
         return PEER_UNKNOWN
     try:
@@ -314,6 +319,11 @@ def get_logs(req):
 def get_logs_read(req):
     """Reply with one log's scrubbed text."""
     return logs.read(need_project(req), req.query.get("id") or "")
+
+
+def get_routes(req):
+    """Reply with the dashboard pages the agent may point at (routes.ROUTES)."""
+    return agentaccess.pages()
 
 
 def get_steps(req):
@@ -782,7 +792,7 @@ def post_settings(req, name):
     """Set project settings."""
     values = body_dict(req, "set")
     with req.server.write_lock:
-        settings.set_many(check_name(name), values, WHO)
+        settings.set_many(check_name(name), values, req.who)
     return settings.show(name)
 
 
@@ -1036,6 +1046,7 @@ def post_service_disconnect(req, name):
 NAME = r"(?P<name>[^/]+)"
 ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/info", get_info),
+    ("GET", r"/api/routes", get_routes),
     ("GET", r"/api/health", get_health),
     ("GET", r"/api/update", get_update),
     ("GET", r"/api/update/log", get_update_log),
@@ -1160,7 +1171,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def send_json(self, status, data):
-        self.send_raw(status, "application/json; charset=utf-8", json.dumps(data).encode())
+        raw = json.dumps(data)
+        if getattr(self, "is_agent", False):
+            raw = scrub.scrub(raw)   # every JSON reply to the agent is scrubbed
+        self.send_raw(status, "application/json; charset=utf-8", raw.encode())
+
+    def agent_refusal(self, method) -> str:
+        """'' when the agent's request has the Phoenix header and is on its route list; else the plain refusal."""
+        if self.headers.get("X-Phoenix") != "1":
+            return agentaccess.NEEDS_HEADER
+        if not agentaccess.route_allowed(method, self.path_only):
+            return agentaccess.NOT_ALLOWED
+        return ""
 
     def fail(self, status, message):
         self.send_json(status, {"ok": False, "message": message})
@@ -1205,18 +1227,38 @@ class Handler(BaseHTTPRequestHandler):
         """Write the one-line request record to api.log."""
         api_log(f"{method} {self.path_only} {self.status} {(time.monotonic() - started) * 1000:.0f}ms")
 
+    def agent_caller(self) -> bool:
+        """True when the far end is the agent's user ([agent_next] uid): it gets only the agentaccess routes."""
+        try:
+            return agentaccess.is_agent(peer_uid_of(self))
+        except Exception:
+            api_log(traceback.format_exc())
+            return False
+
     def dispatch(self, method):
-        if not (method == "GET" and self.path_only.rstrip("/") in OPEN_PATHS):
+        self.who = WHO
+        self.is_agent = self.agent_caller()
+        if self.is_agent:
+            self.who = agentaccess.WHO
+            why = self.agent_refusal(method)
+            if why:
+                self.close_connection = True  # don't read a body we refuse
+                return self.fail(403, why)
+        elif not (method == "GET" and self.path_only.rstrip("/") in OPEN_PATHS):
             why = peer_refusal(self) or access_refusal(self.headers)
             if why:
                 self.close_connection = True  # don't read a body we refuse
                 return self.fail(403, why)
         if method in WRITE_METHODS:
-            if not self.guard_ok():
+            if not self.is_agent and not self.guard_ok():
                 self.close_connection = True
                 return self.fail(403, refusal(self.headers))
             if self.read_body() is None:
                 return
+            if self.is_agent:
+                why = agentaccess.settings_refusal(method, self.path_only, self.body)
+                if why:
+                    return self.fail(403, why)
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":
             return stream.serve(self)
         if method == "GET" and self.path_only.rstrip("/") == "/api/agent/stream":

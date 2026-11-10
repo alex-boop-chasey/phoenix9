@@ -2,7 +2,7 @@
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
 
@@ -93,3 +93,67 @@ def make_tools(client: PhoenixClient) -> tuple[Callable, Callable, Callable]:
         return {"project": name, "runs": [run_card(name, r) for r in rows]}
 
     return list_projects, show_project, list_runs
+
+
+class SetNotifications(BaseModel):
+    """Which project, and whether to tell Alex when its builds end."""
+
+    name: str = Field(description="The project's name.")
+    on: bool = Field(description="True to notify Alex when a build ends, False to stop.")
+
+
+def make_change_tools(client: PhoenixClient) -> Callable:
+    """Build the change tool body around a Phoenix client; it only runs after Alex approves."""
+
+    def set_build_notifications(name: str, on: bool) -> dict:
+        """Switch 'notify me when a build ends' on or off for one project."""
+        try:
+            client.post(f"/api/projects/{name}/settings", {"set": {"steps.notify.on": on}})
+        except PhoenixError as err:
+            return {"error": str(err)}
+        return {"project": name, "build_notifications": on}
+
+    return set_build_notifications
+
+
+def route_table(client: PhoenixClient) -> dict[str, list[str]]:
+    """The dashboard pages from GET /api/routes as {page name: its params}."""
+    found = client.get("/api/routes")
+    rows = found.get("data", []) if isinstance(found, dict) else found
+    table = {}
+    for row in rows:
+        name, params = (row.get("name"), row.get("params")) if isinstance(row, dict) else (row[0], row[1])
+        table[name] = list(params or [])
+    return table
+
+
+def find_page(table: dict[str, list[str]], page: str) -> list[str] | None:
+    """The params allowed for a page such as 'p/test-site/build', or None when the page is unknown."""
+    parts = page.split("/")
+    generic = f"p/<name>/{parts[2]}" if len(parts) == 3 and parts[0] == "p" and parts[1] else page
+    return table.get(generic)
+
+
+def go_to_inputs(client: PhoenixClient) -> type[BaseModel]:
+    """A go_to input model that refuses unknown pages and params (so the run never pauses for them)."""
+
+    class GoTo(BaseModel):
+        """Which dashboard page to open, and its params."""
+
+        page: str = Field(description="A page from the dashboard's page list, e.g. 'projects' or 'p/<name>/build'.")
+        params: dict[str, str | int | bool] = Field(default_factory=dict, description="Optional page params.")
+
+        @model_validator(mode="after")
+        def known_page(self):
+            try:
+                allowed = find_page(route_table(client), self.page)
+            except PhoenixError as err:
+                raise ValueError(str(err)) from err
+            if allowed is None:
+                raise ValueError(f"there is no dashboard page called '{self.page}'")
+            extra = sorted(set(self.params) - set(allowed))
+            if extra:
+                raise ValueError(f"the page '{self.page}' has no setting called '{extra[0]}'")
+            return self
+
+    return GoTo

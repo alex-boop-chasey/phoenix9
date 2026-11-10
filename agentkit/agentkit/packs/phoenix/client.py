@@ -20,10 +20,18 @@ class PhoenixClient:
     def get(self, path: str, params: dict | None = None):
         """GET a path and return its JSON, or raise PhoenixError saying plainly what went wrong."""
         clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+        return self._answer(lambda: self.http.get(path, params=clean), "look that up")
+
+    def post(self, path: str, body: dict):
+        """POST a JSON body to a path and return the JSON reply, or raise PhoenixError saying plainly why not."""
+        return self._answer(lambda: self.http.post(path, json=body), "make that change")
+
+    def _answer(self, send, what: str):
+        """Send a request and return its JSON, turning every failure into a PhoenixError."""
         try:
-            reply = self.http.get(path, params=clean)
+            reply = send()
         except httpx.HTTPError as err:
-            raise PhoenixError("Phoenix could not be reached, so I could not look that up.") from err
+            raise PhoenixError(f"Phoenix could not be reached, so I could not {what}.") from err
         if reply.status_code >= 400:
             raise PhoenixError(_reason(reply))
         try:

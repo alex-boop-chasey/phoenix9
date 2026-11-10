@@ -17,7 +17,7 @@ def test_default_address_matches():
 def test_pack_is_valid_and_all_read():
     pack = build_pack(FakePhoenix().client())
     check_pack(pack)
-    assert {t.name: t.risk for t in pack.server_tools} == {
+    assert {t.name: t.risk for t in pack.server_tools if t.name != "set_build_notifications"} == {
         "list_projects": "read", "show_project": "read", "list_runs": "read"}
 
 

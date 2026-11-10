@@ -9,6 +9,7 @@ PROJECTS = [
     {"name": "beta", "activity": "run", "status_line": "Building", "last_used": "2026-11-09", "repo_owner": None,
      "description": "new shop"},
 ]
+ROUTES = [["projects", ["q", "status"]], ["new", []], ["p/<name>/build", ["run", "wizard"]], ["settings", ["section"]]]
 RUNS = [{"run_id": "20261109-1", "title": "First build", "status": "done", "started": "2026-11-09 10:00"}]
 
 
@@ -27,6 +28,10 @@ class FakePhoenix:
         if self.refuse:
             return httpx.Response(403, json={"error": "Refused: the agent isn't allowed to do that."})
         path, query = request.url.path, dict(request.url.params)
+        if path == "/api/routes":
+            return httpx.Response(200, json={"ok": True, "data": ROUTES})
+        if request.method == "POST" and path.endswith("/settings"):
+            return httpx.Response(200, json={"ok": True})
         if path == "/api/projects":
             if not query:
                 return httpx.Response(200, json=PROJECTS)

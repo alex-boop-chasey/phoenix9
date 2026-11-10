@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -35,6 +35,7 @@ DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 IMAGES_BUSY = "Images are being built already; try again when that has finished."
 RESTART_BUSY = "A restart is already waiting; try again when it has finished."
 WHO = "dashboard"
+AGENT_NEXT = "/api/agent-next"
 
 
 class BadRequest(Exception):
@@ -1220,6 +1221,8 @@ class Handler(BaseHTTPRequestHandler):
             return stream.serve(self)
         if method == "GET" and self.path_only.rstrip("/") == "/api/agent/stream":
             return stream.serve(self, stream.agent_stream)
+        if self.path_only == AGENT_NEXT or self.path_only.startswith(AGENT_NEXT + "/"):
+            return self.pass_to_agent(method)
         route = find_route(method, self.path_only)
         if route is None:
             if method == "GET" and not self.path_only.startswith("/api/"):
@@ -1247,6 +1250,46 @@ class Handler(BaseHTTPRequestHandler):
             self.fail(503, str(err))
         except common.OpsError as err:
             self.fail(400, str(err))
+
+    def pass_to_agent(self, method):
+        """Hand /api/agent-next/<path> to the agent service (its reply is passed on as it arrives)."""
+        rest = self.path_only[len(AGENT_NEXT):]
+        if method not in ("GET", "POST") or not rest.startswith("/") or ".." in rest.split("/") or "//" in rest:
+            return self.fail(404, "Not found.")
+        query = urlsplit(self.path).query
+        headers = {"Accept": self.headers.get("Accept") or "*/*"}
+        if self.headers.get("Last-Event-ID"):
+            headers["Last-Event-ID"] = self.headers["Last-Event-ID"]
+        data = None
+        if method == "POST":
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(self.body).encode()
+        try:
+            reply = ops_agentnext.call(method, rest + ("?" + query if query else ""), data, headers)
+        except common.Unavailable as err:
+            return self.fail(503, str(err))
+        if reply.content_type.startswith("text/event-stream"):
+            return self.relay_stream(reply)
+        raw = b"".join(reply.chunks)
+        self.send_raw(reply.status, reply.content_type, raw)
+
+    def relay_stream(self, reply):
+        """Send the agent's event stream on, chunk by chunk, until either side leaves."""
+        self.status = reply.status
+        self.send_response(reply.status)
+        for key, value in (("Content-Type", "text/event-stream"), ("Cache-Control", "no-store"),
+                           ("X-Accel-Buffering", "no"), ("Connection", "close")):
+            self.send_header(key, value)
+        self.end_headers()
+        self.close_connection = True
+        try:
+            for chunk in reply.chunks:
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        finally:
+            close = getattr(reply.chunks, "close", None)
+            if close:
+                close()
 
     def guard_ok(self):
         """True when the request carries the Phoenix header and an allowed Origin."""

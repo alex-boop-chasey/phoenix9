@@ -362,9 +362,11 @@ class Adapters:
     clock: Any
     notify: Any
     proxy: Any = None
+    agentnext: Any = None
 
 
 def real() -> Adapters:
     """Build the real adapters (nothing touches the system until a method is called)."""
+    from phoenix9.agentnext import AgentNext
     return Adapters(docker=DockerRunner(), claude=Claude(), git=Git(), host=Host(), http=Http(),
-                    clock=Clock(), notify=Notify(), proxy=Proxy())
+                    clock=Clock(), notify=Notify(), proxy=Proxy(), agentnext=AgentNext())

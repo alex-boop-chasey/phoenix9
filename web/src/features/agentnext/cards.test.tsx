@@ -4,8 +4,8 @@ import userEvent from "@testing-library/user-event"
 
 import { MiniProjectCard, ProjectCards, ToolCall } from "./components"
 
-const alpha = { name: "alpha", status: "idle", last_used: "2026-01-02", link: "#/projects/alpha" }
-const beta = { name: "beta", status: "run", last_used: "2026-11-09", link: "#/projects/beta" }
+const alpha = { name: "alpha", status: "idle", last_used: "2026-01-02", link: "#/p/alpha" }
+const beta = { name: "beta", status: "run", last_used: "2026-11-09", link: "#/p/beta" }
 
 test("a project card shows name, status and last used", () => {
   render(<MiniProjectCard project={alpha} />)
@@ -25,7 +25,7 @@ test("a list shows every project and a click opens that one", async () => {
 test("a click with no handler moves to the project's link", async () => {
   render(<MiniProjectCard project={alpha} />)
   await userEvent.click(screen.getByText("alpha"))
-  expect(window.location.hash).toBe("#/projects/alpha")
+  expect(window.location.hash).toBe("#/p/alpha")
 })
 
 test("a running tool shows a running state, a finished one its card", () => {

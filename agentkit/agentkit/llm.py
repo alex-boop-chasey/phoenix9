@@ -163,12 +163,26 @@ def _quote_result(name: str, result):
     return tools.quoted(name, result)
 
 
-def _pack_tool(tool) -> Tool:
+def _card_data(result):
+    """The typed data a card is drawn from; None when the tool failed or gave nothing to draw."""
+    if not isinstance(result, dict) or "error" in result:
+        return None
+    if isinstance(result.get("project"), dict) and "projects" not in result:
+        return {"projects": [result["project"]]}
+    return result
+
+
+def _pack_tool(tool, component: str | None = None) -> Tool:
     """Turn one pack server tool into a Pydantic AI tool whose result is quoted; changes need approval."""
 
     def run(**kwargs):
         args = tool.inputs(**kwargs).model_dump()
-        return _quote_result(tool.name, tool.function(**args))
+        result = tool.function(**args)
+        data = _card_data(result) if component else None
+        quoted = _quote_result(tool.name, result)
+        if data is None:
+            return quoted
+        return ToolReturn(return_value=quoted, metadata={"component": component, "data": data})
 
     made = Tool.from_schema(
         run,
@@ -187,7 +201,7 @@ def _approved(tool: Tool) -> Tool:
 
 def build_pack_agent(model, pack: Pack, link_schemes=("claude",)) -> Agent:
     """Make the agent from a site pack: exactly its tools plus suggest_next_actions, with prompt caching on."""
-    function_tools = [_pack_tool(t) for t in pack.server_tools]
+    function_tools = [_pack_tool(t, pack.components.get(t.name)) for t in pack.server_tools]
     function_tools.append(
         Tool.from_schema(
             make_suggest(link_schemes),

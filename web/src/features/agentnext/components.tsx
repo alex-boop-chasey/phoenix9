@@ -29,7 +29,7 @@ function openHash(link: string) {
 
 /** One project: name, status, last used; a click opens it. */
 export function MiniProjectCard({ project, onOpen }: { project: ProjectCardData; onOpen?: (p: ProjectCardData) => void }) {
-  const open = () => (onOpen ? onOpen(project) : openHash(project.link || `#/projects/${project.name}`))
+  const open = () => (onOpen ? onOpen(project) : openHash(project.link || `#/p/${project.name}`))
   return (
     <button type="button" className="card w-full text-left" data-testid="mini-project-card" onClick={open}>
       <strong>{project.name}</strong>

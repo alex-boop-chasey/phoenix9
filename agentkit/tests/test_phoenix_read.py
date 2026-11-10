@@ -25,7 +25,7 @@ def test_list_projects_gives_cards_and_sends_header():
     fake = FakePhoenix()
     out = tools_for(fake)["list_projects"].function()
     assert [p["name"] for p in out["projects"]] == ["alpha", "beta"]
-    assert out["projects"][0]["link"] == "#/projects/alpha"
+    assert out["projects"][0]["link"] == "#/p/alpha"
     assert set(out["projects"][0]) >= {"name", "status", "last_used", "link"}
     assert fake.requests[0].headers["X-Phoenix"] == "1"
 
@@ -42,7 +42,7 @@ def test_list_projects_passes_filters_through():
 def test_show_project():
     out = tools_for(FakePhoenix())["show_project"].function(name="beta")
     assert out["project"]["status"] == "run"
-    assert out["project"]["link"] == "#/projects/beta"
+    assert out["project"]["link"] == "#/p/beta"
 
 
 def test_list_runs():
@@ -60,3 +60,14 @@ def test_refusal_becomes_plain_error():
 def test_missing_project_is_plain_error():
     out = tools_for(FakePhoenix())["show_project"].function(name="nope")
     assert "no project" in out["error"]
+
+
+def test_the_pack_agent_hands_the_panel_a_card_for_read_tools():
+    from agentkit import llm
+
+    fake = FakePhoenix()
+    tool = tools_for(fake)["list_projects"]
+    made = llm._pack_tool(tool, "project_cards")
+    out = made.function()
+    assert out.metadata["component"] == "project_cards"
+    assert "projects" in out.metadata["data"]

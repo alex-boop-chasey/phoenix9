@@ -31,7 +31,7 @@ class ShowProject(BaseModel):
 
 def link_for(name: str) -> str:
     """The dashboard hash link to a project."""
-    return f"#/projects/{name}"
+    return f"#/p/{name}"
 
 
 def project_card(row: dict) -> dict:
@@ -52,7 +52,7 @@ def run_card(name: str, row: dict) -> dict:
         "title": row.get("title") or "",
         "status": row.get("status") or "",
         "last_used": row.get("finished") or row.get("started") or "",
-        "link": f"{link_for(name)}/builds/{row.get('run_id', '')}",
+        "link": f"{link_for(name)}/build",
     }
 
 

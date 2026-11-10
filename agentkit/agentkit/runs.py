@@ -7,6 +7,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from . import llm, tools, wire
+from .spend import SpendRefused
 from .store import Store
 
 BUSY = "A reply is already being written in this chat. Wait for it to finish or stop it first."
@@ -200,6 +201,8 @@ class Runs:
                 self._log(thread_id, wire.run_finished(thread_id, run_id))
         except asyncio.CancelledError:
             self._log_stop(thread_id, run_id)
+        except SpendRefused as refused:
+            self._log(thread_id, wire.run_error(str(refused)))
         except Exception:
             self._log(thread_id, wire.run_error(FAILED))
 

@@ -1,5 +1,6 @@
 """The thin layer over Pydantic AI: builds the agent, runs a turn and reports what happened."""
 import functools
+from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from pydantic_ai import (
@@ -21,8 +22,11 @@ from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
 
 from pydantic import BaseModel, Field
 
+from pydantic_ai.models.wrapper import WrapperModel
+
 from . import tools
 from .pack import Pack
+from .spend import Meter
 
 
 def build_agent(model, instructions: str = "", read_tools=(), browser_tools=(), change_tools=()) -> Agent:
@@ -201,3 +205,37 @@ def build_pack_agent(model, pack: Pack) -> Agent:
         output_type=[str, DeferredToolRequests],
         model_settings=dict(CACHE_SETTINGS),
     )
+
+
+class SpendModel(WrapperModel):
+    """A model wrapper that refuses calls once the allowance is gone and records every call's tokens."""
+
+    def __init__(self, wrapped, meter: Meter):
+        """Wrap a model with the meter that checks and records."""
+        super().__init__(wrapped)
+        self.meter = meter
+
+    def _record(self, usage) -> None:
+        """Save one call's token counts (pydantic-ai counts cache tokens inside input, so take them out)."""
+        cached = usage.cache_read_tokens + usage.cache_write_tokens
+        self.meter.record(self.model_name, max(0, usage.input_tokens - cached), usage.output_tokens,
+                          usage.cache_read_tokens, usage.cache_write_tokens)
+
+    async def request(self, messages, model_settings, model_request_parameters):
+        """Check the allowance, make the call, then record its usage."""
+        self.meter.check()
+        response = await self.wrapped.request(messages, model_settings, model_request_parameters)
+        self._record(response.usage)
+        return response
+
+    @asynccontextmanager
+    async def request_stream(self, messages, model_settings, model_request_parameters, run_context=None):
+        """Check the allowance, stream the call, and record what was used even if it is stopped early."""
+        self.meter.check()
+        async with self.wrapped.request_stream(
+            messages, model_settings, model_request_parameters, run_context
+        ) as response:
+            try:
+                yield response
+            finally:
+                self._record(response.usage)

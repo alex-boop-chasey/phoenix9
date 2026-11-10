@@ -74,3 +74,16 @@ def go_to_inputs(client: PhoenixClient) -> type[BaseModel]:
             return self
 
     return GoTo
+
+
+def ask_for_key_inputs() -> type[BaseModel]:
+    """The ask_for_key input model: project, key name and why; there is no field for a value."""
+
+    class AskForKey(BaseModel):
+        """Which key to ask Alex for, and why."""
+
+        project: str = Field(description="The project's name.")
+        name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", description="The key's name, e.g. STRIPE_KEY.")
+        why: str = Field(max_length=200, description="One short sentence saying why the key is needed.")
+
+    return AskForKey

@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SUFFIXES = {".py", ".sh", ".ts", ".tsx", ".toml", ".json"}
-SKIP_DIRS = {".git", "node_modules", "__pycache__", ".grunt", ".pytest_cache", "dist"}
+SKIP_DIRS = {".git", "node_modules", "__pycache__", ".grunt", ".pytest_cache", "dist", ".venv"}
 
 
 def _allowed(line: str) -> bool:

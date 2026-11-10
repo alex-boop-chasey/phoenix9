@@ -65,6 +65,20 @@ def resume_results(calls: dict, approvals: dict | None = None) -> DeferredToolRe
     return DeferredToolResults(calls=calls, approvals=approvals or {})
 
 
+def dump_messages(messages: list) -> str:
+    """Turn a message history into JSON text for the store."""
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    return ModelMessagesTypeAdapter.dump_json(messages).decode()
+
+
+def load_messages(text: str) -> list:
+    """Turn stored JSON text back into a message history."""
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    return ModelMessagesTypeAdapter.validate_json(text)
+
+
 def refusal(message: str) -> ToolDenied:
     """A refusal that tells the model why the tool did not run."""
     return ToolDenied(message)

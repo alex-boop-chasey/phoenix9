@@ -16,7 +16,10 @@ CREATE TABLE IF NOT EXISTS events (
     PRIMARY KEY (thread_id, seq));
 CREATE TABLE IF NOT EXISTS pauses (
     id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), kind TEXT NOT NULL,
-    tool TEXT NOT NULL, inputs TEXT NOT NULL, state TEXT NOT NULL, result TEXT, created REAL NOT NULL);
+    tool TEXT NOT NULL, inputs TEXT NOT NULL, state TEXT NOT NULL, result TEXT, created REAL NOT NULL,
+    call_id TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS histories (
+    thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, model TEXT NOT NULL,
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
@@ -36,6 +39,8 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(SCHEMA)
+        if "call_id" not in [r["name"] for r in self._db.execute("PRAGMA table_info(pauses)")]:
+            self._db.execute("ALTER TABLE pauses ADD COLUMN call_id TEXT NOT NULL DEFAULT ''")
 
     def close(self) -> None:
         """Close the database file."""
@@ -104,13 +109,13 @@ class Store:
         return [(r["seq"], json.loads(r["data"])) for r in rows]
 
     # pauses
-    def create_pause(self, thread_id: str, kind: str, tool: str, inputs: dict) -> str:
-        """Record a pending approval or browser result and return its id."""
+    def create_pause(self, thread_id: str, kind: str, tool: str, inputs: dict, call_id: str = "") -> str:
+        """Record a pending approval or browser result (for the model's tool call `call_id`) and return its id."""
         pid = uuid.uuid4().hex
         self._write(lambda db: db.execute(
-            "INSERT INTO pauses (id, thread_id, kind, tool, inputs, state, result, created) "
-            "VALUES (?,?,?,?,?,?,NULL,?)",
-            (pid, thread_id, kind, tool, json.dumps(inputs), "pending", time.time())))
+            "INSERT INTO pauses (id, thread_id, kind, tool, inputs, state, result, created, call_id) "
+            "VALUES (?,?,?,?,?,?,NULL,?,?)",
+            (pid, thread_id, kind, tool, json.dumps(inputs), "pending", time.time(), call_id)))
         return pid
 
     def get_pause(self, pause_id: str) -> dict | None:
@@ -133,6 +138,28 @@ class Store:
                 (state, json.dumps(result), pause_id))
             return cur.rowcount == 1
         return self._write(run)
+
+    def take_decided(self, thread_id: str, kind: str) -> list[dict]:
+        """Return this thread's answered pauses of a kind that no run has used yet, marking them used."""
+        def run(db):
+            rows = db.execute(
+                "SELECT * FROM pauses WHERE thread_id=? AND kind=? AND state IN ('approved','denied') "
+                "ORDER BY created, rowid", (thread_id, kind)).fetchall()
+            db.executemany("UPDATE pauses SET state='resumed' WHERE id=?", [(r["id"],) for r in rows])
+            return [self._pause(r) for r in rows]
+        return self._write(run)
+
+    # history
+    def save_history(self, thread_id: str, data: str) -> None:
+        """Keep the model's message history for a thread (so a paused run can resume after a restart)."""
+        self._write(lambda db: db.execute(
+            "INSERT INTO histories VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET data=excluded.data",
+            (thread_id, data)))
+
+    def load_history(self, thread_id: str) -> str | None:
+        """Return the saved message history, or None."""
+        rows = self._read("SELECT data FROM histories WHERE thread_id=?", (thread_id,))
+        return rows[0]["data"] if rows else None
 
     @staticmethod
     def _pause(row: sqlite3.Row) -> dict:

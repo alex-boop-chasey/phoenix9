@@ -102,3 +102,9 @@ def user_message(message_id: str, text: str) -> dict:
     """The CUSTOM event recording what Alex said, so a read of the thread shows the whole conversation."""
     value = {"id": message_id, "text": text}
     return _dump(CustomEvent(name="user_message", value=value, timestamp=_now()))
+
+
+def approval_decision(approval_id: str, decision: str) -> dict:
+    """The CUSTOM event logging that Alex approved or refused a change."""
+    value = {"approvalId": approval_id, "decision": decision}
+    return _dump(CustomEvent(name="approval_decision", value=value, timestamp=_now()))

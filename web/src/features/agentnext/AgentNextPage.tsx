@@ -8,8 +8,8 @@ import { History } from "./History"
 import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
 import { COMPONENTS, ToolCall } from "./components"
 import {
-  AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentGet, linesFromEvents, useAgentNextRuntime,
-  type Allowance, type CardItem, type ChatLine, type ThreadInfo,
+  AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentAvailable, agentGet, linesFromEvents, useAgentNextRuntime,
+  type Allowance, type CardItem, type ChatLine, type Frame, type ThreadInfo,
 } from "./runtime"
 
 /** The cards we can draw, chosen by name; anything else is not drawn. */
@@ -20,6 +20,8 @@ function Card({ card }: { card: CardItem }) {
   return Draw ? <>{Draw({ data: card.data, tool: card.component })}</> : null
 }
 
+const LAST_THREAD = "agent-next-thread"
+
 /** The agent's page: history and allowance beside one open conversation. */
 export default function AgentNextPage() {
   const [threads, setThreads] = useState<ThreadInfo[]>([])
@@ -27,6 +29,8 @@ export default function AgentNextPage() {
   const [current, setCurrent] = useState("")
   const [earlier, setEarlier] = useState<ChatLine[]>([])
   const [opened, setOpened] = useState(0)
+  const [follow, setFollow] = useState<{ frames: Frame[] } | undefined>(undefined)
+  const [problem, setProblem] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const list = await agentGet<{ threads: ThreadInfo[] }>("threads")
@@ -34,21 +38,41 @@ export default function AgentNextPage() {
     const spend = await agentGet<Allowance>("spend")
     if (spend) setAllowance(spend)
   }, [])
-  useEffect(() => { void refresh() }, [refresh])
-
-  const open = async (id: string) => {
-    const got = await agentGet<{ events: { event: Record<string, any> }[] }>(`threads/${id}`)
+  const open = useCallback(async (id: string) => {
+    const got = await agentGet<{ events: Frame[]; running?: boolean }>(`threads/${id}`)
     if (!got) return
-    setEarlier(linesFromEvents(got.events))
+    // A run still going is replayed and followed by the conversation itself, so only a finished one is shown here.
+    setEarlier(got.running ? [] : linesFromEvents(got.events))
+    setFollow(got.running ? { frames: got.events } : undefined)
     setCurrent(id)
+    localStorage.setItem(LAST_THREAD, id)
     setOpened((n) => n + 1)
-  }
+  }, [])
+  useEffect(() => {
+    void agentAvailable().then((got) => {
+      setProblem(got.ok ? null : got.message)
+      if (!got.ok) return
+      void refresh()
+      const last = localStorage.getItem(LAST_THREAD)
+      if (last) void open(last)
+    })
+  }, [refresh, open])
   const fresh = () => {
+    localStorage.removeItem(LAST_THREAD)
+    setFollow(undefined)
     setEarlier([])
     setCurrent("")
     setOpened((n) => n + 1)
   }
 
+  if (problem) {
+    return (
+      <div data-testid="agent-next" className="flex flex-col gap-2">
+        <h1>Agent</h1>
+        <p role="alert">{problem}</p>
+      </div>
+    )
+  }
   return (
     <div className="flex gap-4" data-testid="agent-next">
       <aside className="flex w-64 shrink-0 flex-col gap-4">
@@ -56,17 +80,17 @@ export default function AgentNextPage() {
         <AllowanceBar allowance={allowance} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} onRunEnd={refresh} />
+        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} follow={follow} onRunEnd={refresh} />
       </div>
     </div>
   )
 }
 
 /** One conversation: the chat, cards, approvals, Stop and the message box. */
-function Conversation({ thread, earlier, onRunEnd }: { thread: string; earlier: ChatLine[]; onRunEnd: () => void }) {
+function Conversation({ thread, earlier, follow, onRunEnd }: { thread: string; earlier: ChatLine[]; follow?: { frames: Frame[] }; onRunEnd: () => void }) {
   const navigate = useNavigate()
   const browserHandler = useMemo(() => makeGoTo((hash) => navigate(hash)), [navigate])
-  const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread)
+  const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread, follow)
 
   const [wasRunning, setWasRunning] = useState(false)
   useEffect(() => {
@@ -78,7 +102,7 @@ function Conversation({ thread, earlier, onRunEnd }: { thread: string; earlier: 
     <AssistantRuntimeProvider runtime={runtime}>
       <div className="flex flex-col gap-3">
         <h1>Agent</h1>
-        {earlier.map((l) => <p key={l.id} data-role={l.role}>{l.text}</p>)}
+        {[...earlier, ...(side.caught ?? [])].map((l) => <p key={l.id} data-role={l.role}>{l.text}</p>)}
         <ThreadPrimitive.Root>
           <ThreadPrimitive.Viewport className="flex flex-col gap-2">
             <ThreadPrimitive.Messages>

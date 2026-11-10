@@ -8,6 +8,8 @@ from . import llm, wire
 from .store import Store
 
 BUSY = "A reply is already being written in this chat. Wait for it to finish or stop it first."
+DEFAULT_TITLE = "New chat"
+TITLE_LENGTH = 60
 FAILED = "The agent could not finish this reply."
 
 
@@ -30,6 +32,8 @@ class Runs:
         if thread_id in self.active:
             raise RunBusy(BUSY)
         run_id = wire.new_id()
+        if (thread := self.store.get_thread(thread_id)) and thread["title"] == DEFAULT_TITLE:
+            self.store.set_title(thread_id, message.strip()[:TITLE_LENGTH])
         task = asyncio.create_task(self._drive(thread_id, run_id, message))
         self.active[thread_id] = task
         task.add_done_callback(lambda _t: self.active.pop(thread_id, None))
@@ -55,7 +59,7 @@ class Runs:
     async def _drive(self, thread_id: str, run_id: str, message: str) -> None:
         """Run one turn and log its events; always ends with RUN_FINISHED or RUN_ERROR (unless paused)."""
         msg_id, text_open, paused = wire.new_id(), False, False
-        self._log(thread_id, wire.run_started(thread_id, run_id))
+        self._log(thread_id, wire.run_started(thread_id, run_id), wire.user_message(wire.new_id(), message))
         try:
             async for item in llm.run_turn(self.agent, message, self.history.get(thread_id, [])):
                 if item[0] == "text":
@@ -165,3 +169,46 @@ def stream_route(runs: Runs, denied, poll: float = 0.02):
         return StreamingResponse(body, media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
     return stream
+
+
+def list_route(runs: Runs, denied):
+    """Make the GET /threads handler: every thread, newest used first."""
+
+    async def list_threads(request: Request):
+        """List threads with title, created and last used."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        rows = runs.store.list_threads()
+        return JSONResponse({"threads": [
+            {"id": t["id"], "title": t["title"], "created": t["created"], "last_used": t["last_used"]}
+            for t in rows]})
+
+    return list_threads
+
+
+def read_route(runs: Runs, denied):
+    """Make the GET /threads/{id} handler: the thread and its logged events."""
+
+    async def read_thread(request: Request):
+        """Return one thread with all its events, or 404 with a plain message."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        thread = runs.store.get_thread(request.path_params["id"])
+        if thread is None:
+            return JSONResponse({"error": "no such thread"}, status_code=404)
+        events = [{"number": n, "event": e} for n, e in runs.store.events_after(thread["id"])]
+        return JSONResponse({"thread": thread, "events": events, "running": runs.running(thread["id"])})
+
+    return read_thread
+
+
+def new_route(runs: Runs, denied):
+    """Make the POST /threads handler: a new empty thread; old ones stay."""
+
+    async def new_thread(request: Request):
+        """Create an empty thread and return it."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse(runs.store.create_thread(), status_code=201)
+
+    return new_thread

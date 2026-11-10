@@ -96,3 +96,9 @@ def approval_request(approval_id: str, call_id: str, tool_name: str, inputs) -> 
     """The CUSTOM event asking Alex to approve a change: its id, the tool and the exact inputs."""
     value = {"approvalId": approval_id, "toolCallId": call_id, "toolName": tool_name, "input": inputs}
     return _dump(CustomEvent(name="approval_request", value=value, timestamp=_now()))
+
+
+def user_message(message_id: str, text: str) -> dict:
+    """The CUSTOM event recording what Alex said, so a read of the thread shows the whole conversation."""
+    value = {"id": message_id, "text": text}
+    return _dump(CustomEvent(name="user_message", value=value, timestamp=_now()))

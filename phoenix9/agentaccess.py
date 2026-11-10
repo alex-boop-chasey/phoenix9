@@ -4,20 +4,31 @@ import re
 from phoenix9 import settings
 
 WHO = "agent"
-SETTINGS_KEY = "steps.notify.on"
-NAME = r"[a-z0-9][a-z0-9-]{0,40}"
-# (method, path pattern): everything else is refused with 403, whatever the agent does.
-ALLOWED = [
-    ("GET", "/api/projects"),
-    ("GET", f"/api/projects/{NAME}"),
-    ("GET", f"/api/projects/{NAME}/runs"),
-    ("GET", "/api/routes"),
-    ("POST", f"/api/projects/{NAME}/settings"),
-]
-_COMPILED = [(m, re.compile(rf"^{p}/?$")) for m, p in ALLOWED]
+NAME = r"[a-z0-9][a-z0-9-]{0,40}"   # the same safe patterns as phoenix9/api/server.py
+RUN_ID = r"\d{8}-\d{6}-[a-z0-9-]+"
+GATE_ID = RUN_ID + r"\.\d+"
+SAFE_PARTS = {"name": NAME, "project": NAME, "run_id": RUN_ID, "gate_id": GATE_ID}
 NOT_ALLOWED = "Refused: the agent isn't allowed to do that."
 NEEDS_HEADER = "Refused: this request didn't come from a Phoenix program."
-ONE_SETTING = f"Refused: the agent may only change one setting here: {SETTINGS_KEY}."
+SAFETY_SETTING = "Refused: that is a safety setting, and the agent may not change it. Change it in Settings yourself."
+NO_PRESET_IN_SET = "Refused: choose a preset with the preset control, not inside the settings."
+ONLY_SERVICES = "Refused: the agent may only change a project's services here, not its description, repo or profile."
+NEEDS_SETTINGS = "Refused: say which settings to change, like {\"set\": {\"setting name\": value}}."
+
+
+def _safe_pattern(route: str) -> str:
+    """The registry's route pattern with each named part swapped for its safe pattern."""
+    return re.sub(r"\(\?P<(\w+)>\[\^/\]\+\)", lambda m: SAFE_PARTS.get(m.group(1), r"[^/]+"), route)
+
+
+def allowed() -> list[tuple[str, str]]:
+    """The (method, route) pairs of every registry control the agent may use as a tool."""
+    from phoenix9.ops.controls import CONTROLS
+    return sorted({(c.method, c.route) for c in CONTROLS if c.agent == "tool"})
+
+
+ALLOWED = allowed()
+_COMPILED = [(m, re.compile(rf"^{_safe_pattern(p)}/?$")) for m, p in ALLOWED]
 
 
 def uid() -> int | None:
@@ -51,11 +62,43 @@ def route_allowed(method: str, path: str) -> bool:
     return any(m == method and rx.match(path) for m, rx in _COMPILED)
 
 
+def _safety_refusal(keys) -> str:
+    """The plain refusal when any of these setting keys is a safety key, else ''."""
+    from phoenix9.ops import settings as ops_settings
+    hit = sorted(k for k in keys if ops_settings.is_safety_key(str(k)))
+    return f"{SAFETY_SETTING} ({', '.join(hit)})" if hit else ""
+
+
+def _preset_refusal(name: str, preset) -> str:
+    """The plain refusal when the preset would change a safety setting, else ''."""
+    from phoenix9.ops import common, settings as ops_settings
+    try:
+        folder = common.project_dir(name)
+    except common.OpsError:
+        return ""   # the route itself answers "no such project"
+    try:
+        ops_settings._refuse_chat_preset(folder, str(preset), WHO)
+    except common.OpsError as err:
+        return f"Refused: {err}"
+    return ""
+
+
 def settings_refusal(method: str, path: str, body) -> str:
-    """'' unless this is a settings change that sets anything but steps.notify.on (then the plain refusal)."""
-    if method != "POST" or not path.rstrip("/").endswith("/settings"):
+    """The plain refusal for an agent write that would loosen its leash (safety keys, presets, wide edits), else ''."""
+    if method != "POST":
         return ""
-    values = body.get("set") if isinstance(body, dict) else None
-    if not isinstance(values, dict) or list(values) != [SETTINGS_KEY] or set(body) - {"set"}:
-        return ONE_SETTING
+    body = body if isinstance(body, dict) else {}
+    parts = path.rstrip("/").split("/")
+    last = parts[-1]
+    if last == "settings":
+        values = body.get("set")
+        if not isinstance(values, dict) or not values or set(body) - {"set"}:
+            return NEEDS_SETTINGS
+        if "preset" in values:
+            return NO_PRESET_IN_SET
+        return _safety_refusal(values)
+    if last == "preset" and len(parts) > 2 and parts[-2] == "settings":
+        return _preset_refusal(parts[-3], body.get("preset"))
+    if last == "edit" and set(body) - {"services"}:
+        return ONLY_SERVICES
     return ""

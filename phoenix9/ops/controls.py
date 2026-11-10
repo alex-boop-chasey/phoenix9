@@ -210,7 +210,8 @@ CONTROLS = (
          inputs=(_in("mode", "choice", description="How thorough to be.", choices=("quick", "full"), where="query"),)),
     # ---- other dashboard pages ----
     _get("info", "app.info", "/api/info", "later", DASH),
-    _get("routes", "agentaccess.pages", "/api/routes", "later", "The page list the agent's go_to uses; not a control."),
+    _get("routes", "agentaccess.pages", "/api/routes", "tool",
+         text="List the dashboard pages the agent can point Alex to.", card="routes_card"),
     _get("health", "", "/api/health", "later", "Answers the service check; not a control."),
     _get("job-status", "", "/api/jobs/(?P<job_id>[0-9a-f]+)", "later", "Progress of a background job; not a control."),
     _get("deploys-list", "deploy.status", rf"/api/projects/{NAME}/deploys", "later", LATER),

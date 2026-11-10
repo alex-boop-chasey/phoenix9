@@ -1489,16 +1489,16 @@
   },
   {
     "name": "routes",
-    "description": "The dashboard pages the agent may point at (routes.ROUTES).",
+    "description": "List the dashboard pages the agent can point Alex to.",
     "inputs": [],
     "risk": "read",
-    "agent": "later",
-    "why": "The page list the agent's go_to uses; not a control.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/routes",
     "fixed": {},
     "fixed_query": {},
-    "card": "",
+    "card": "routes_card",
     "confirm_with": ""
   },
   {

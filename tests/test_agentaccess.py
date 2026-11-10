@@ -38,7 +38,7 @@ def test_route_outside_the_list_is_refused(api):
     as_agent(api)
     status, body = api("/api/projects/x/delete", "POST", HEADERS, {"yes": True})
     assert status == 403 and "isn't allowed" in body["message"]
-    assert api("/api/projects/alpha/keys", headers=HEADERS)[0] == 403
+    assert api("/api/projects/alpha/keys/save", "POST", HEADERS, {})[0] == 403
     assert api("/api/projects", "POST", HEADERS, {})[0] == 403
     assert api("/api/info", headers=HEADERS)[0] == 403
 
@@ -48,12 +48,19 @@ def test_needs_the_phoenix_header(api):
     assert api("/api/projects", headers={})[0] == 403
 
 
-def test_other_settings_key_is_refused(api):
+def test_safety_settings_key_is_refused(api):
     make_project("alpha")
     as_agent(api)
-    for values in ({"merge": "ask"}, {"steps.notify.on": True, "merge": "ask"}, {}):
+    for values in ({"steps.verify.on": False}, {"steps.notify.on": True, "steps.verify.on": False}, {}):
         status, body = api("/api/projects/alpha/settings", "POST", HEADERS, {"set": values})
-        assert status == 403 and "steps.notify.on" in body["message"], values
+        assert status == 403 and "Refused" in body["message"], values
+
+
+def test_other_settings_key_is_allowed(api):
+    make_project("alpha")
+    as_agent(api)
+    status, body = api("/api/projects/alpha/settings", "POST", HEADERS, {"set": {"steps.notify.on": True}})
+    assert status == 200 and body["ok"]
 
 
 def test_command_record_says_agent(api):

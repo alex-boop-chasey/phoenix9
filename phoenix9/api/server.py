@@ -800,7 +800,7 @@ def post_preset(req, name):
     """Apply a preset to a project."""
     preset = body_text(req, "preset")
     with req.server.write_lock:
-        settings.preset(check_name(name), preset, who=WHO)
+        settings.preset(check_name(name), preset, who=req.who)
     return settings.show(name)
 
 

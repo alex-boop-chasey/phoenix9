@@ -1004,12 +1004,55 @@ its usual checks, adding the token. global.toml `[agent_next]` holds `url` (defa
 access is off). The Phoenix-side client is the adapter `phoenix9/agentnext.py`, with a fake in tests/fakes.
 
 **Who `agent`.** A connection whose peer uid equals `[agent_next] uid` is the caller who `agent`. It needs
-`X-Phoenix: 1` but no Origin, because it is not a browser. It may use only the routes listed in
-`phoenix9/agentaccess.py`: GET `/api/projects`, GET `/api/projects/{name}`, GET `/api/projects/{name}/runs`,
-GET `/api/routes`, and POST `/api/projects/{name}/settings` limited to the single key `steps.notify.on`. Everything
+`X-Phoenix: 1` but no Origin, because it is not a browser. It may use only the routes on the generated allowlist in
+`phoenix9/agentaccess.py` (see "The controls registry" below). Everything
 else is refused with 403, whatever the agent does. Every reply to the agent goes through the `phoenix9/scrub.py`
 rules, so no secret value enters a conversation. Changes the agent makes are recorded as `command` events with
 who `agent`. The uid must not be 0 or one of `[access] peer_uids` (the `upstream` doctor check tests this).
+
+**The controls registry.** `phoenix9/ops/controls.py` (part of the ops layer) is the single source of truth: one entry
+per dashboard control with `name`, `ops` (the `module.function` it calls), `method`, `route` (the same pattern as in
+`server.ROUTES`), `risk` (`read`, `change`, `destructive` or `alex-only`), `agent`, typed `inputs`, `fixed` body
+values, `card` (the result card) and, for destructive ones, `confirm_with`. Several controls may share one route
+(approve plan and send back plan both use the gate answer route). `agent` says what the agent may do with it:
+`tool` (an agent tool), `alex-only`, `key-card` (saved only through the masked key card), `secret` (would put a
+secret value through the model, so never a tool) or `later` (a later agent build), the last with a `why`. Each input
+has `name`, `type` (string, integer, boolean, choice, list or object), `required`, `description`, `choices` and
+`where` (path, query or body).
+
+**The description file.** `agentkit/agentkit/packs/phoenix/controls.json` is written by `phoenix9/controlsgen.py`
+from the registry: a JSON list with one object per control holding `name`, `description` (the registry text, else
+the first docstring line of the ops function), `inputs`, `risk`, `agent`, `why`, `method`, `route`, `fixed`,
+`fixed_query`, `card` and `confirm_with`. It is a data file, not code: the pack reads it at start-up and builds one
+server tool per `agent: tool` entry, so the pack never imports phoenix9. A test fails when the file differs from
+what the generator makes.
+
+**The allowlist.** `agentaccess.ALLOWED` is generated: exactly the (method, route) pairs of entries with
+`agent: tool`, so a control becomes reachable for the agent only by being marked `tool` in the registry. A test
+checks the allowlist against the description file.
+
+**The settings rule.** Every settings change still goes through an approval card. On the settings routes the agent
+may change any setting that is not a safety setting, sent as `{"set": {...}}`. `agentaccess.settings_refusal`
+refuses, with a plain message: any safety key (`is_safety_key`); a `preset` inside `set` (use the preset control);
+a preset that would change a safety setting; a body that is anything other than `{set}`; and an `/edit` body with
+anything but `services`.
+
+**Typed-name confirmation.** A destructive tool names an input in `confirm_with` (stopping a build: the run id;
+changing the dashboard addresses: the setting being changed). The approval card shows the exact change and keeps
+Approve off until Alex types that value exactly. The service checks it again on `POST /approvals/{id}`; the
+decision is made only there, never by a chat message.
+
+**Result fields.** A browser tool lists the result keys, and for each the values, the service may pass on
+(`result_fields`). Anything else the browser sends back is dropped before it reaches the model.
+
+**The key card.** The browser tool `ask_for_key` makes the panel draw a masked key card. Alex types the value into
+it and the dashboard posts it straight to `POST /api/projects/{name}/keys/save` (not through the agent user). The
+card answers the agent with only `{status: saved | cancelled}`, so the value never reaches the model, the thread
+or the logs. Revealing a key and connecting or testing a service with values are `secret` controls: never tools.
+
+**Alex-only controls.** Deleting a project (`POST /api/projects/{name}/delete`) and deleting a repo
+(`POST /api/projects/{name}/delete-repo`) are `alex-only` in the registry and the description file. They are not
+tools and have no route on the allowlist; the agent tells Alex to use the dashboard button.
 
 **The API key rule.** Only agentkit uses the Claude API key; everything else in Phoenix keeps using the Claude Max
 subscription. The key is read from the file named by the agentkit setting `api_key_file` and passed straight to the

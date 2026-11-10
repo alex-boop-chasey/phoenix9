@@ -2,7 +2,7 @@
 import asyncio
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 
 from . import llm, wire
 from .store import Store
@@ -112,3 +112,56 @@ def start_route(runs: Runs, denied):
         return JSONResponse({"run_id": run_id}, status_code=202)
 
     return start_run
+
+
+HEARTBEAT = ": heartbeat\n\n"
+HEARTBEAT_EVERY = 15.0  # seconds of quiet during a run before a keep-alive comment
+
+
+def start_number(request: Request) -> int:
+    """Where to resume: ?after=N, else the Last-Event-ID header, else 0 (everything)."""
+    raw = request.query_params.get("after") or request.headers.get("last-event-id") or "0"
+    return int(raw) if raw.isdigit() else 0
+
+
+def stream_route(runs: Runs, denied, poll: float = 0.02):
+    """Make the GET /threads/{id}/stream handler: replay logged events after N, then follow live."""
+
+    async def frames(thread_id: str, sent: int, request: Request):
+        """Yield logged events after `sent`, follow new ones, and end when the run does."""
+        quiet = 0.0
+        while True:
+            fresh = runs.store.events_after(thread_id, sent)
+            for number, event in fresh:
+                sent = number
+                quiet = 0.0
+                yield wire.to_sse(event, number)
+                if wire.is_final(event):
+                    return
+            if not fresh and not runs.running(thread_id):
+                # a run may have logged its last events just before it ended
+                if not runs.store.events_after(thread_id, sent):
+                    yield HEARTBEAT  # nothing going on: say we are alive, then let go
+                    return
+                continue
+            if fresh:
+                continue
+            if await request.is_disconnected():
+                return
+            await asyncio.sleep(poll)
+            quiet += poll
+            if quiet >= HEARTBEAT_EVERY:
+                quiet = 0.0
+                yield HEARTBEAT
+
+    async def stream(request: Request):
+        """Send the thread's events as SSE with ids, from after N, until the run ends."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        thread_id = request.path_params["id"]
+        if runs.store.get_thread(thread_id) is None:
+            return JSONResponse({"error": "no such thread"}, status_code=404)
+        body = frames(thread_id, start_number(request), request)
+        return StreamingResponse(body, media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+    return stream

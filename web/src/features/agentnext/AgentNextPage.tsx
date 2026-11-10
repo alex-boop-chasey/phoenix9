@@ -6,21 +6,18 @@ import { Button } from "@/components/ui/button"
 import { findRoute, routeHash } from "@/lib/routes"
 import { AllowanceBar } from "./Allowance"
 import { History } from "./History"
-import { ProjectCards } from "./ProjectCards"
+import { COMPONENTS, ToolCall } from "./components"
 import {
   AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentGet, linesFromEvents, useAgentNextRuntime,
   type Allowance, type ApprovalItem, type CardItem, type ChatLine, type ThreadInfo,
 } from "./runtime"
 
 /** The cards we can draw, chosen by name; anything else is not drawn. */
-const CARDS: Record<string, (props: { data: any }) => React.ReactNode> = {
-  project_cards: ({ data }) => <ProjectCards projects={data?.projects ?? []} />,
-}
 
 /** One typed card, drawn from its data. */
 function Card({ card }: { card: CardItem }) {
-  const Draw = CARDS[card.component]
-  return Draw ? <>{Draw({ data: card.data })}</> : null
+  const Draw = COMPONENTS[card.component]
+  return Draw ? <>{Draw({ data: card.data, tool: card.component })}</> : null
 }
 
 /** A change waiting for Alex: what it will do, with Approve and Deny. */
@@ -121,6 +118,7 @@ function Conversation({ thread, earlier, onRunEnd }: { thread: string; earlier: 
             </ThreadPrimitive.Messages>
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
+        {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
         {side.cards.map((c) => <Card key={c.toolCallId} card={c} />)}
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d) => agent.decide(a.approvalId, d)} />

@@ -7,6 +7,7 @@ import { Observable, type Subscriber } from "rxjs"
 import { useMemo, useSyncExternalStore } from "react"
 
 import { apiBase } from "@/lib/api"
+import type { ToolCallItem } from "./components"
 
 /** A typed card the agent asked the panel to draw, chosen by component name. */
 export interface CardItem { toolCallId: string; component: string; data: unknown }
@@ -18,7 +19,7 @@ export interface ApprovalItem { approvalId: string; toolName: string; input: unk
 export type BrowserAnswer = Record<string, unknown>
 
 /** The things beside the text that the page draws. */
-export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean }
+export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[] }
 
 type Frame = { number: number; event: Record<string, any> }
 type Wait = Promise<void>
@@ -189,7 +190,11 @@ export class AgentNextAgent extends AbstractAgent {
         continue
       }
       sub.next(event as BaseEvent)
-      if (event.type === "TOOL_CALL_START") names.set(event.toolCallId, event.toolCallName)
+      if (event.type === "TOOL_CALL_START") {
+        names.set(event.toolCallId, event.toolCallName)
+        this.setSide({ ...this.side, calls: [...(this.side.calls ?? []), { toolCallId: event.toolCallId, toolName: event.toolCallName, running: true }] })
+      }
+      if (event.type === "TOOL_CALL_RESULT") this.finishCall(event.toolCallId)
       if (event.type === "TOOL_CALL_ARGS") args.set(event.toolCallId, (args.get(event.toolCallId) ?? "") + event.delta)
       if (event.type === "TOOL_CALL_END" && event.toolCallId && names.get(event.toolCallId) === "go_to") {
         waits.push(this.runBrowserTool(id, event.toolCallId, "go_to", args.get(event.toolCallId) ?? "{}", sub))
@@ -201,7 +206,9 @@ export class AgentNextAgent extends AbstractAgent {
 
   private onCustom(name: string, value: any, waits: Wait[], threadId: string) {
     if (name === "component") {
-      this.setSide({ ...this.side, cards: [...this.side.cards, value as CardItem] })
+      const card = value as CardItem
+      const calls = (this.side.calls ?? []).map((c) => (c.toolCallId === card.toolCallId ? { ...c, running: false, component: card.component, data: card.data } : c))
+      this.setSide({ ...this.side, cards: [...this.side.cards, card], calls })
     } else if (name === "approval_request") {
       const item: ApprovalItem = { approvalId: value.approvalId, toolName: value.toolName, input: value.input, decision: "pending" }
       this.setSide({ ...this.side, approvals: [...this.side.approvals, item] })
@@ -214,6 +221,11 @@ export class AgentNextAgent extends AbstractAgent {
       }))
     }
     void threadId
+  }
+
+  private finishCall(toolCallId: string) {
+    const calls = (this.side.calls ?? []).map((c) => (c.toolCallId === toolCallId ? { ...c, running: false } : c))
+    this.setSide({ ...this.side, calls })
   }
 
   private markDecided(approvalId: string, decision: "approve" | "deny") {

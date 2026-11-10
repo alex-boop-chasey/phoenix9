@@ -39,6 +39,7 @@ def test_request_carries_the_text_to_type():
         tid = await paused(r, store)
         (req,) = requests_in(store, tid)
         assert req["confirm_text"] == "alpha" and done == []
+        assert req["description"] == "Remove."
 
     asyncio.run(go())
 

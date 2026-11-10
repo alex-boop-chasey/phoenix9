@@ -13,7 +13,7 @@ import type { ToolCallItem } from "./components"
 export interface CardItem { toolCallId: string; component: string; data: unknown }
 
 /** A change waiting for Alex's answer: the tool and its exact inputs. */
-export interface ApprovalItem { approvalId: string; toolName: string; input: unknown; decision: "pending" | "approve" | "deny" }
+export interface ApprovalItem { approvalId: string; toolName: string; input: unknown; description?: string; confirmText?: string; decision: "pending" | "approve" | "deny" }
 
 /** What the browser answers to a browser action such as go_to. */
 export type BrowserAnswer = Record<string, unknown>
@@ -119,7 +119,7 @@ export class AgentNextAgent extends AbstractAgent {
   private kept: Frame[] | null = null
   private side: SideState = { cards: [], approvals: [], running: false }
   private listeners = new Set<() => void>()
-  private deciders = new Map<string, (d: "approve" | "deny") => void>()
+  private deciders = new Map<string, (d: "approve" | "deny", confirm?: string) => void>()
   serviceThread: string
   private threadReady: Promise<string> | null = null
   browserHandler: (name: string, args: Record<string, unknown>) => Promise<BrowserAnswer> = async () => ({
@@ -152,8 +152,8 @@ export class AgentNextAgent extends AbstractAgent {
   }
 
   /** Record Alex's answer to a pending approval; the paused run carries on. */
-  decide(approvalId: string, decision: "approve" | "deny") {
-    this.deciders.get(approvalId)?.(decision)
+  decide(approvalId: string, decision: "approve" | "deny", confirm?: string) {
+    this.deciders.get(approvalId)?.(decision, confirm)
   }
 
   private async ensureThread(): Promise<string> {
@@ -272,13 +272,15 @@ export class AgentNextAgent extends AbstractAgent {
     } else if (name === "suggestions") {
       this.setSide({ ...this.side, suggestions: (value as { actions?: unknown })?.actions })
     } else if (name === "approval_request") {
-      const item: ApprovalItem = { approvalId: value.approvalId, toolName: value.toolName, input: value.input, decision: "pending" }
+      const item: ApprovalItem = { approvalId: value.approvalId, toolName: value.toolName, input: value.input,
+        description: typeof value.description === "string" ? value.description : undefined,
+        confirmText: typeof value.confirm_text === "string" ? value.confirm_text : undefined, decision: "pending" }
       this.setSide({ ...this.side, approvals: [...this.side.approvals, item] })
       waits.push(new Promise<void>((resolve) => {
-        this.deciders.set(item.approvalId, (decision) => {
+        this.deciders.set(item.approvalId, (decision, confirm) => {
           this.deciders.delete(item.approvalId)
           this.markDecided(item.approvalId, decision)
-          this.post(`approvals/${item.approvalId}`, { decision }).then(() => resolve(), () => resolve())
+          this.post(`approvals/${item.approvalId}`, confirm === undefined ? { decision } : { decision, confirm }).then(() => resolve(), () => resolve())
         })
       }))
     }

@@ -34,6 +34,41 @@ test("other tools list each input as label and value", () => {
   expect(screen.getByText("beta")).toBeInTheDocument()
 })
 
+test("the card shows the tool's plain description", () => {
+  render(<ApprovalCard item={{ ...item, description: "Change one project setting." }} onDecide={() => {}} />)
+  expect(screen.getByText("Change one project setting.")).toBeInTheDocument()
+})
+
+test("a change card has no typed field", () => {
+  render(<ApprovalCard item={{ ...item, toolName: "set_models", input: { model: "sonnet", count: 2 } }} onDecide={() => {}} />)
+  expect(screen.getByText("model:")).toBeInTheDocument()
+  expect(screen.getByText("count:")).toBeInTheDocument()
+  expect(screen.queryByRole("textbox")).toBeNull()
+  expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled()
+})
+
+test("a destructive card blocks Approve until the right text is typed and sends it", async () => {
+  const seen: [string, string | undefined][] = []
+  const big = { ...item, toolName: "stop-build", input: { name: "alpha" }, confirmText: "alpha" }
+  render(<ApprovalCard item={big} onDecide={(d, c) => seen.push([d, c])} />)
+  const approve = screen.getByRole("button", { name: "Approve" })
+  expect(approve).toBeDisabled()
+  const field = screen.getByLabelText("Type alpha to confirm")
+  await userEvent.type(field, "alph")
+  expect(approve).toBeDisabled()
+  await userEvent.type(field, "a")
+  expect(approve).toBeEnabled()
+  await userEvent.click(approve)
+  expect(seen).toEqual([["approve", "alpha"]])
+})
+
+test("Deny works on a destructive card without typing", async () => {
+  const seen: string[] = []
+  render(<ApprovalCard item={{ ...item, confirmText: "alpha" }} onDecide={(d) => seen.push(d)} />)
+  await userEvent.click(screen.getByRole("button", { name: "Deny" }))
+  expect(seen).toEqual(["deny"])
+})
+
 test("go_to moves to a known page and an unknown page is refused", async () => {
   const moved: string[] = []
   const goTo = makeGoTo((h) => moved.push(h))

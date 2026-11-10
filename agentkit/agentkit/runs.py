@@ -44,6 +44,7 @@ class Runs:
         self.browser_fields = {t.name: t.result_fields for t in pack.browser_tools} if pack else {}
         self.browser_inputs = {t.name: t.inputs for t in pack.browser_tools} if pack else {}
         self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
+        self.descriptions = {t.name: t.description for t in pack.server_tools} if pack else {}
         self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
@@ -211,7 +212,8 @@ class Runs:
                             thread_id, "approval", call.tool_name, inputs, call.tool_call_id)
                         self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
                         self._log(thread_id, wire.approval_request(
-                            pause_id, call.tool_call_id, call.tool_name, inputs, self.confirm_text(call.tool_name, inputs)))
+                            pause_id, call.tool_call_id, call.tool_name, inputs, self.confirm_text(call.tool_name, inputs),
+                            self.descriptions.get(call.tool_name)))
                         paused = True
                     for call in item[2]:
                         self._check_browser_call(thread_id, call)

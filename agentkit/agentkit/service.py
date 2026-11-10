@@ -20,12 +20,18 @@ class Thread:
         self.history: list = []
         self.waiting: dict[str, object] = {}  # browser tool calls the run is paused on
         self.answers: dict[str, object] = {}  # results that came back so far
+        self.approving: dict[str, object] = {}  # change calls waiting for Alex's decision
+        self.decisions: dict[str, object] = {}  # decisions that came back so far
 
 
-def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
-    """Build the service app for a model, the shared token and a project source."""
+def create_app(model, token: str, projects=tools.fake_projects, change_log=None) -> Starlette:
+    """Build the service app for a model, the shared token, a project source and a change log."""
+    change_log = change_log if change_log is not None else []
     agent = llm.build_agent(
-        model, read_tools=[tools.make_list_projects(projects)], browser_tools=[tools.GO_TO]
+        model,
+        read_tools=[tools.make_list_projects(projects)],
+        browser_tools=[tools.GO_TO],
+        change_tools=[tools.make_change(change_log)],
     )
     threads: dict[str, Thread] = {}
     tasks: set[asyncio.Task] = set()
@@ -44,7 +50,7 @@ def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
         run_id, msg_id = wire.new_id(), wire.new_id()
         events = thread.events
         events.append(wire.run_started(thread.id, run_id))
-        text_open, pending = False, []
+        text_open, pending, asking = False, [], []
         try:
             async for item in llm.run_turn(agent, message, thread.history, results):
                 if item[0] == "text":
@@ -59,10 +65,15 @@ def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
                         events.append(wire.component(call_id, card["component"], card["data"]))
                 elif item[0] == "done":
                     thread.history = item[1]
-                    pending = item[2]
+                    pending, asking = item[2], item[3]
             if text_open:
                 events.append(wire.text_end(msg_id))
-            if pending:
+            for call in asking:
+                thread.approving[call.tool_call_id] = call
+                args = call.args_as_dict()
+                events.extend(wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
+                events.append(wire.approval_request(call.tool_call_id, call.tool_call_id, call.tool_name, args))
+            if pending or asking:
                 for call in pending:
                     thread.waiting[call.tool_call_id] = call
                     events.extend(wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
@@ -91,9 +102,35 @@ def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
             return JSONResponse({"error": "result is required"}, status_code=400)
         thread.waiting.pop(call_id)
         thread.answers[call_id] = tools.quoted("the browser", body["result"])
-        if not thread.waiting:
-            answers, thread.answers = thread.answers, {}
-            launch(thread, None, llm.resume_results(answers))
+        resume(thread)
+        return JSONResponse({"accepted": True}, status_code=202)
+
+    def resume(thread: Thread):
+        """Continue the run once every paused call has an answer."""
+        if thread.waiting or thread.approving:
+            return
+        answers, thread.answers = thread.answers, {}
+        decisions, thread.decisions = thread.decisions, {}
+        launch(thread, None, llm.resume_results(answers, decisions))
+
+    async def approval(request: Request):
+        """Take Alex's decision on a paused change; only this route can let the tool run."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        call_id = request.path_params["id"]
+        thread = next((t for t in threads.values() if call_id in t.approving), None)
+        if thread is None:
+            return JSONResponse({"error": "no such pending approval"}, status_code=404)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        decision = body.get("decision") if isinstance(body, dict) else None
+        if decision not in ("approve", "deny"):
+            return JSONResponse({"error": "decision must be approve or deny"}, status_code=400)
+        thread.approving.pop(call_id)
+        thread.decisions[call_id] = True if decision == "approve" else llm.refusal("Alex refused this")
+        resume(thread)
         return JSONResponse({"accepted": True}, status_code=202)
 
     async def new_thread(request: Request):
@@ -141,7 +178,7 @@ def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
                     yield wire.to_sse(event, sent)
                     if wire.is_final(event):
                         return
-                if thread.waiting:
+                if thread.waiting or thread.approving:
                     return  # paused on the browser; it reconnects with ?after=N after answering
                 if await request.is_disconnected():
                     return
@@ -153,6 +190,7 @@ def create_app(model, token: str, projects=tools.fake_projects) -> Starlette:
         routes=[
             Route("/threads", new_thread, methods=["POST"]),
             Route("/threads/{id}/runs", start_run, methods=["POST"]),
+            Route("/approvals/{id}", approval, methods=["POST"]),
             Route("/browser-results/{id}", browser_result, methods=["POST"]),
             Route("/threads/{id}/stream", stream, methods=["GET"]),
         ]

@@ -107,4 +107,4 @@ def test_go_to_is_declared_by_the_server():
 
     with TestClient(create_app(FunctionModel(stream_function=script), TOKEN)) as client:
         start(client)
-    assert sorted(set(seen_tools)) == ["go_to", "list_projects"]
+    assert sorted(set(seen_tools)) == ["change", "go_to", "list_projects"]

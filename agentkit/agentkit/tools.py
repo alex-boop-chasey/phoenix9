@@ -46,3 +46,14 @@ def make_list_projects(source: Callable[[], list[dict]]) -> Callable[[], dict]:
         return quoted("phoenix projects", source())
 
     return list_projects
+
+
+def make_change(log: list) -> Callable[..., dict]:
+    """Build the change proof tool; it only runs after Alex approves, and records each run in log."""
+
+    def change(what: str, value: str) -> dict:
+        """Change one setting. Alex must approve every call first."""
+        log.append({"what": what, "value": value})
+        return quoted("phoenix change", {"changed": what, "to": value})
+
+    return change

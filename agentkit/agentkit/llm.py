@@ -12,6 +12,8 @@ from pydantic_ai import (
     PartStartEvent,
     TextPart,
     TextPartDelta,
+    Tool,
+    ToolDenied,
     ToolReturn,
 )
 from pydantic_ai.tools import ToolDefinition
@@ -20,11 +22,16 @@ from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
 from . import tools
 
 
-def build_agent(model, instructions: str = "", read_tools=(), browser_tools=()) -> Agent:
-    """Make a Pydantic AI agent; browser tools are external, so the run pauses when they are called."""
+def build_agent(model, instructions: str = "", read_tools=(), browser_tools=(), change_tools=()) -> Agent:
+    """Make a Pydantic AI agent; browser tools and change tools pause the run until answered."""
     toolsets = []
-    if read_tools:
-        toolsets.append(FunctionToolset([_with_card(fn) for fn in read_tools]))
+    if read_tools or change_tools:
+        toolsets.append(
+            FunctionToolset(
+                [_with_card(fn) for fn in read_tools]
+                + [Tool(fn, requires_approval=True) for fn in change_tools]
+            )
+        )
     if browser_tools:
         defs = [
             ToolDefinition(name=t["name"], description=t["description"], parameters_json_schema=t["parameters"])
@@ -50,13 +57,18 @@ def _with_card(fn):
     return wrapper
 
 
-def resume_results(calls: dict) -> DeferredToolResults:
-    """Browser results, keyed by tool call id, in the form the next run needs."""
-    return DeferredToolResults(calls=calls)
+def resume_results(calls: dict, approvals: dict | None = None) -> DeferredToolResults:
+    """Browser results and approval decisions (True or a refusal), keyed by tool call id."""
+    return DeferredToolResults(calls=calls, approvals=approvals or {})
+
+
+def refusal(message: str) -> ToolDenied:
+    """A refusal that tells the model why the tool did not run."""
+    return ToolDenied(message)
 
 
 async def run_turn(agent: Agent, message: str | None, history: list, results=None) -> AsyncIterator[tuple]:
-    """Run one turn and yield ("text", piece), ("card", call_id, card), then ("done", messages, pending_calls)."""
+    """Run one turn and yield ("text", piece), ("card", call_id, card), then ("done", messages, browser_calls, approval_calls)."""
     async with agent.run_stream_events(
         message, message_history=history, deferred_tool_results=results
     ) as events:
@@ -72,8 +84,10 @@ async def run_turn(agent: Agent, message: str | None, history: list, results=Non
                 yield "tool", part.tool_call_id, part.tool_name, card
             elif isinstance(event, AgentRunResultEvent):
                 output = event.result.output
-                pending = output.calls if isinstance(output, DeferredToolRequests) else []
-                yield "done", event.result.all_messages(), pending
+                asked = isinstance(output, DeferredToolRequests)
+                yield "done", event.result.all_messages(), (output.calls if asked else []), (
+                    output.approvals if asked else []
+                )
 
 
 async def stream_reply(agent: Agent, message: str) -> AsyncIterator[str]:

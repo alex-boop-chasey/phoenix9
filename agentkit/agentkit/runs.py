@@ -137,13 +137,24 @@ class Runs:
         """True while the thread has a run going."""
         return thread_id in self.active
 
-    def stop(self, thread_id: str) -> bool:
-        """Cancel the thread's run; False when none is going."""
+    async def stop(self, thread_id: str) -> bool:
+        """Stop the thread's run now (cancelling the model call) and close its pauses; False when nothing is going."""
         task = self.active.get(thread_id)
-        if task is None:
-            return False
-        task.cancel()
-        return True
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)  # _drive logs the stop as it unwinds
+            return True
+        if self.store.pending_pauses(thread_id):
+            self._log_stop(thread_id, wire.new_id())  # a run paused on an answer: nothing to cancel
+            return True
+        return False
+
+    def _log_stop(self, thread_id: str, run_id: str) -> None:
+        """Close every open pause as stopped, then log run_stopped and RUN_FINISHED."""
+        for pause in self.store.pending_pauses(thread_id):
+            self.store.resolve_pause(pause["id"], "stopped")
+        self.ready.discard(thread_id)
+        self._log(thread_id, wire.run_stopped(), wire.run_finished(thread_id, run_id))
 
     def _log(self, thread_id: str, *events: dict) -> None:
         """Append events to the thread's log."""
@@ -188,9 +199,29 @@ class Runs:
             if not paused:
                 self._log(thread_id, wire.run_finished(thread_id, run_id))
         except asyncio.CancelledError:
-            self._log(thread_id, wire.run_error("The reply was stopped."))
+            self._log_stop(thread_id, run_id)
         except Exception:
             self._log(thread_id, wire.run_error(FAILED))
+
+
+NOT_RUNNING = "Nothing is running in this chat, so there is nothing to stop."
+
+
+def stop_route(runs: Runs, denied):
+    """Make the POST /threads/{id}/stop handler: stops the run now, or says plainly that none is going."""
+
+    async def stop(request: Request):
+        """Stop the thread's run."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        thread_id = request.path_params["id"]
+        if runs.store.get_thread(thread_id) is None:
+            return JSONResponse({"error": "no such thread"}, status_code=404)
+        if not await runs.stop(thread_id):
+            return JSONResponse({"stopped": False, "message": NOT_RUNNING})
+        return JSONResponse({"stopped": True, "message": "Stopped."})
+
+    return stop
 
 
 def start_route(runs: Runs, denied):

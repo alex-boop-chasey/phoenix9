@@ -114,3 +114,8 @@ def browser_tool(browser_id: str, call_id: str, tool_name: str, inputs) -> dict:
     """The CUSTOM event asking the browser to carry out a tool: its id, the tool and the checked inputs."""
     value = {"browserId": browser_id, "toolCallId": call_id, "toolName": tool_name, "input": inputs}
     return _dump(CustomEvent(name="browser_tool", value=value, timestamp=_now()))
+
+
+def run_stopped() -> dict:
+    """The CUSTOM event logging that Alex stopped the run."""
+    return _dump(CustomEvent(name="run_stopped", value={}, timestamp=_now()))

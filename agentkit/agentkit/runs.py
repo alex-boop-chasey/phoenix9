@@ -164,7 +164,7 @@ class Runs:
 
     async def _drive(self, thread_id: str, run_id: str, message: str | None, results=None) -> None:
         """Run one turn and log its events; always ends with RUN_FINISHED or RUN_ERROR (unless paused)."""
-        msg_id, text_open, paused = wire.new_id(), False, False
+        msg_id, text_open, paused, offered = wire.new_id(), False, False, None
         self._log(thread_id, wire.run_started(thread_id, run_id))
         if message is not None:
             self._log(thread_id, wire.user_message(wire.new_id(), message))
@@ -178,7 +178,9 @@ class Runs:
                 elif item[0] == "tool":
                     _, call_id, name, card = item
                     self._log(thread_id, *wire.tool_call(call_id, name, "{}"))
-                    if card:
+                    if name == llm.SUGGEST:
+                        offered = card.get("suggestions") if isinstance(card, dict) else offered
+                    elif card:
                         self._log(thread_id, wire.component(call_id, card["component"], card["data"]))
                 elif item[0] == "done":
                     self.history[thread_id] = item[1]
@@ -197,6 +199,8 @@ class Runs:
                         self.ready.add(thread_id)  # go on at once if nothing is left to wait for
             if text_open:
                 self._log(thread_id, wire.text_end(msg_id))
+            if offered and not paused:
+                self._log(thread_id, wire.suggestions(offered))
             if not paused:
                 self._log(thread_id, wire.run_finished(thread_id, run_id))
         except asyncio.CancelledError:

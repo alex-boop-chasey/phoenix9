@@ -119,3 +119,8 @@ def browser_tool(browser_id: str, call_id: str, tool_name: str, inputs) -> dict:
 def run_stopped() -> dict:
     """The CUSTOM event logging that Alex stopped the run."""
     return _dump(CustomEvent(name="run_stopped", value={}, timestamp=_now()))
+
+
+def suggestions(actions: list[dict]) -> dict:
+    """The CUSTOM event with the checked follow-up actions, sent at the end of the turn."""
+    return _dump(CustomEvent(name="suggestions", value={"actions": actions}, timestamp=_now()))

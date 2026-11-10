@@ -13,6 +13,7 @@ from pydantic_ai import (
     PartStartEvent,
     TextPart,
     TextPartDelta,
+    ModelRetry,
     Tool,
     ToolDenied,
     ToolReturn,
@@ -20,11 +21,9 @@ from pydantic_ai import (
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
 
-from pydantic import BaseModel, Field
-
 from pydantic_ai.models.wrapper import WrapperModel
 
-from . import tools
+from . import suggest, tools
 from .pack import Pack
 from .spend import Meter
 
@@ -140,15 +139,21 @@ SUGGEST = "suggest_next_actions"
 CACHE_SETTINGS = {"anthropic_cache_instructions": True, "anthropic_cache_tool_definitions": True}
 
 
-class Suggestions(BaseModel):
-    """What suggest_next_actions takes: a few short follow-ups Alex could pick."""
+def make_suggest(schemes):
+    """Build suggest_next_actions: checks the items and hands the panel typed data (never text)."""
 
-    actions: list[str] = Field(max_length=4, description="Short follow-up actions, in plain words.")
+    def suggest_next_actions(actions: list) -> ToolReturn:
+        """Offer Alex up to three follow-up actions; it changes nothing."""
+        try:
+            checked = suggest.check_actions(actions, schemes)
+        except suggest.SuggestionError as err:
+            raise ModelRetry(str(err)) from err
+        return ToolReturn(
+            return_value=tools.quoted("agent suggestions", {"shown": len(checked)}),
+            metadata={"suggestions": checked},
+        )
 
-
-def suggest_next_actions(actions: list[str]) -> dict:
-    """Offer Alex a few follow-up actions; it changes nothing."""
-    return tools.quoted("agent suggestions", {"actions": actions})
+    return suggest_next_actions
 
 
 def _quote_result(name: str, result):
@@ -180,15 +185,18 @@ def _approved(tool: Tool) -> Tool:
     return tool
 
 
-def build_pack_agent(model, pack: Pack) -> Agent:
+def build_pack_agent(model, pack: Pack, link_schemes=("claude",)) -> Agent:
     """Make the agent from a site pack: exactly its tools plus suggest_next_actions, with prompt caching on."""
     function_tools = [_pack_tool(t) for t in pack.server_tools]
     function_tools.append(
         Tool.from_schema(
-            suggest_next_actions,
+            make_suggest(link_schemes),
             name=SUGGEST,
-            description="Offer Alex a few short follow-up actions he can pick from.",
-            json_schema=Suggestions.model_json_schema(),
+            description=(
+                "Offer Alex up to three follow-up buttons for the end of your reply. Each is a label plus "
+                "either a message to send or a link (a #/ dashboard page, an https URL or an allowed scheme)."
+            ),
+            json_schema=suggest.Suggestions.model_json_schema(),
         )
     )
     toolsets = [FunctionToolset(function_tools)]

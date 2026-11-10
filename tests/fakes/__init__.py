@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from phoenix9.adapters import Adapters, Git
+from phoenix9.agentnext import NOT_RUNNING, AgentNext, AgentUnavailable, Reply
 
 
 CANNED_PRS = [
@@ -496,9 +497,36 @@ class FakeProxyFactory:
         return [h.service for h in self.handles if not h.stopped]
 
 
+class FakeAgentNext(AgentNext):
+    """The agent service, scripted: records each call and answers with `status`, `content_type` and `chunks`."""
+
+    def __init__(self, folder):
+        """Use a token file in the folder; nothing leaves the process."""
+        token_file = Path(folder) / "agentnext-token"
+        token_file.write_text("fake-agent-token-0123456789\n")
+        super().__init__({"url": "http://agent.invalid", "token_file": str(token_file)})
+        self.calls: list[dict] = []
+        self.status, self.content_type, self.chunks = 200, "application/json", [b'{"ok": true}']
+        self.down = False   # True: the service does not answer
+        self.gate = None   # an optional callable run between chunks (tests use it to prove chunks arrive early)
+
+    def send(self, method, url, headers, body):
+        """Record the call and return the scripted reply."""
+        self.calls.append({"method": method, "url": url, "headers": dict(headers), "body": body})
+        if self.down:
+            raise AgentUnavailable(NOT_RUNNING)
+        return Reply(self.status, self.content_type, self._yield())
+
+    def _yield(self):
+        for i, chunk in enumerate(self.chunks):
+            if self.gate and i:
+                self.gate(i)
+            yield chunk
+
+
 def fake_adapters(tmp_path) -> Adapters:
     """Build the full fake set. Git is the real git adapter (real git runs on temp repos).
 """
     return Adapters(docker=FakeDocker(), claude=FakeClaude(), git=Git(), host=FakeHost(),
                     http=FakeHttp(), clock=FakeClock(), notify=FakeNotify(),
-                    proxy=FakeProxyFactory())
+                    proxy=FakeProxyFactory(), agentnext=FakeAgentNext(tmp_path))

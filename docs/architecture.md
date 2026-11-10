@@ -92,6 +92,8 @@ phoenix9/                      the Python package
                                and `access`, the optional Cloudflare Access lock; a missing or empty transcript is a problem)
   access.py                    who may use the API: allowed peer uids and the optional Cloudflare Access lock (section 8.5)
   agentlink.py transcript.py   the Phoenix agent link: find the session, parse its transcript (section 8.6)
+  agentnext.py                 adapter: the client for the new agent's service (section 8.7; fake in tests/fakes)
+  agentaccess.py               the caller who `agent`: its routes, its one settings key (section 8.7)
   images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
   stepproxy.py                 starts the key proxies a step's `proxy` key asks for (section 14)
   api/server.py                phoenix-api: JSON API + SSE + static web/dist (phase 3)
@@ -112,6 +114,7 @@ deploy/                        phoenix-api.service, phoenix-runner.service, phoe
                                PHOENIX_HOME, PHOENIX_INSTALL (and PYTHONUNBUFFERED for api/runner)
 web/                           React app (phase 3)
                                src/pages, src/features/<area>, src/components/ui (shadcn), src/lib (api client, types, theme), e2e/ (Playwright)
+agentkit/                      the new agent's core and site packs, its own package, venv and lock file (section 8.7)
 tests/                         pytest; tests/fakes/__init__.py holds every fake adapter; tests/helpers/ shared test helpers
 CLI groups (`phoenix <group> --help`; each writes a `command` event when it changes something):
   run gate settings steps profiles presets project doctor api   phases 1-3
@@ -865,7 +868,7 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
 
 ## 8.5 The API (phoenix-api, phase 3)
 
-- Stdlib `ThreadingHTTPServer` on 127.0.0.1 (port 8090 once installed). JSON under `/api/...`, the
+- Stdlib `ThreadingHTTPServer` on 127.0.0.1 (port 8095 once installed). JSON under `/api/...`, the
   event stream at `/api/events` (server-sent events; each event's id = its line number in
   HOME/events.jsonl, so `Last-Event-ID` resumes), everything else = static files from `web/dist`.
 - Writes (POST/PUT/DELETE/PATCH) need header `X-Phoenix: 1` and an `Origin` in the allowed origins
@@ -973,6 +976,56 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
   (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
   which never raises (a failure is one stderr line in the runner's journal).
+
+## 8.7 The new agent (agentkit) and the Phoenix pack
+
+Built beside the old agent (section 8.6), which stays as it is. Two layers:
+
+- **`agentkit/`** (Python package `agentkit`): the core, the same on every site. Agent loop (Pydantic AI,
+  behind `agentkit/llm.py`), typed tools with risk levels, the event stream (AG-UI over SSE, behind
+  `agentkit/wire.py`), approvals, conversations, the spending cap and the service. It knows nothing about Phoenix.
+- **`agentkit/packs/phoenix/`**: the Phoenix pack, kept thin: its tools, browser actions, cards and
+  instructions. It reaches Phoenix only through Phoenix's HTTP API (`http://127.0.0.1:8095`).
+
+The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`).
+
+**The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
+listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `config.toml`, `api-key` (mode 600,
+owned by the agent user, put there by Alex), `token` (the shared token, root:phoenix-agentkit, mode 640),
+`agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
+needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
+`POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
+`POST /browser-results/{id}`, `GET /spend`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+has no shell, no file tools and no way to run a `phoenix` command.
+
+**The passthrough.** phoenix-api passes the browser's calls at `/api/agent-next/<same path>` to the service, after
+its usual checks, adding the token. global.toml `[agent_next]` holds `url` (default `http://127.0.0.1:8097`),
+`token_file` (default `/var/lib/phoenix9/agentkit/token`) and `uid` (the agent user's uid; with no `uid`, agent
+access is off). The Phoenix-side client is the adapter `phoenix9/agentnext.py`, with a fake in tests/fakes.
+
+**Who `agent`.** A connection whose peer uid equals `[agent_next] uid` is the caller who `agent`. It needs
+`X-Phoenix: 1` but no Origin, because it is not a browser. It may use only the routes listed in
+`phoenix9/agentaccess.py`: GET `/api/projects`, GET `/api/projects/{name}`, GET `/api/projects/{name}/runs`,
+GET `/api/routes`, and POST `/api/projects/{name}/settings` limited to the single key `steps.notify.on`. Everything
+else is refused with 403, whatever the agent does. Every reply to the agent goes through the `phoenix9/scrub.py`
+rules, so no secret value enters a conversation. Changes the agent makes are recorded as `command` events with
+who `agent`. The uid must not be 0 or one of `[access] peer_uids` (the `upstream` doctor check tests this).
+
+**The API key rule.** Only agentkit uses the Claude API key; everything else in Phoenix keeps using the Claude Max
+subscription. The key is read from the file named by the agentkit setting `api_key_file` and passed straight to the
+Anthropic provider object. It is never put in the environment or in any file of builds, steps, project chats,
+phoenix-api or the runner, and no phoenix9 module reads that file or sets `ANTHROPIC_API_KEY`. Prices in
+`config.toml` are internal; while any price in use is not a number the service refuses model calls. Alex only
+ever sees spending as a share of the monthly allowance, in words.
+
+**Import boundaries.** `agentkit` imports nothing from `phoenix9`, and `phoenix9` imports nothing from `agentkit`
+(tests check both). The root `pyproject.toml` keeps `dependencies = []`; agentkit has its own
+`agentkit/pyproject.toml`, `agentkit/.venv/` (built by `agentkit/venv.sh`) and `agentkit/requirements.lock`.
+`./check.sh` also runs agentkit's tests through `agentkit/test.sh`; no test calls the real Claude API.
+
+**Doctor lines.** `agentkit-service` (the unit is active and answers `/status`), `agentkit-key` (the agent says
+its key is present; the key file is never read by the doctor) and `agentkit-spend` (the allowance in words:
+plenty left, getting low, or used up). Each passes with "not set up yet" when `[agent_next]` is absent.
 
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 

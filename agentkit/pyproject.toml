@@ -1,0 +1,17 @@
+[project]
+name = "agentkit"
+version = "0.1.0"
+description = "The core of the agent: loop, tools, events, approvals, conversations and spending cap."
+requires-python = ">=3.12"
+dependencies = [
+  "pydantic-ai-slim[anthropic,ag-ui]",
+  "starlette",
+  "uvicorn",
+  "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "anyio"]
+
+[tool.setuptools]
+packages = ["agentkit"]

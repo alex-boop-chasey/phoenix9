@@ -8,3 +8,4 @@ if [ -f web/package.json ]; then
   pnpm -C web test
   pnpm -C web build
 fi
+agentkit/test.sh

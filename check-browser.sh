@@ -11,8 +11,10 @@ fi
 
 TMP=$(mktemp -d)
 API_PID=""
+AGENT_PID=""
 cleanup() {
   [ -n "$API_PID" ] && kill "$API_PID" 2>/dev/null || true
+  [ -n "$AGENT_PID" ] && kill "$AGENT_PID" 2>/dev/null || true
   rm -rf "$TMP"
 }
 trap cleanup EXIT
@@ -21,6 +23,13 @@ trap cleanup EXIT
 pnpm -C web build
 
 python3 tests/seed_demo.py "$TMP/home" "$TMP/projects"
+
+agentkit/venv.sh
+python3 -c 'import secrets; print(secrets.token_hex(16))' >"$TMP/agent-token"
+AGENT_PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+agentkit/.venv/bin/python agentkit/demo.py --token-file "$TMP/agent-token" --port "$AGENT_PORT" >"$TMP/agent.out" 2>&1 &
+AGENT_PID=$!
+export PHOENIX_E2E_AGENT_URL="http://127.0.0.1:$AGENT_PORT" PHOENIX_E2E_AGENT_TOKEN_FILE="$TMP/agent-token"
 
 PORT=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 PHOENIX_API_ORIGINS="http://127.0.0.1:$PORT" python3 tests/demo_server.py "$TMP/home" "$TMP/projects" --port "$PORT" \

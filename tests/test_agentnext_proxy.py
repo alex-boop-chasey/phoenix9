@@ -19,7 +19,8 @@ def test_json_call_is_passed_through(api):
     fake = agent(api)
     fake.chunks = [b'{"running": true, "key_present": false}']
     status, resp, content = api("/api/agent-next/status?x=1", raw=True)
-    assert status == 200 and json.loads(content) == {"running": True, "key_present": False}
+    assert status == 200 and json.loads(content) == {"running": True, "key_present": False,
+                                       "message": "The new agent has no API key yet. See deploy/agentkit/README.md."}
     assert resp.headers["Content-Type"] == "application/json"
     call = fake.calls[0]
     assert call["method"] == "GET" and call["url"] == "http://agent.invalid/status?x=1"
@@ -99,3 +100,45 @@ def test_odd_paths_are_not_passed(api):
     assert api("/api/agent-nextx/status")[0] == 404
     assert api("/api/agent-next/a/../status")[0] == 404
     assert fake.calls == []
+
+
+ROUTES = [("GET", "/status"), ("GET", "/threads"), ("POST", "/threads"), ("GET", "/threads/t1"),
+          ("POST", "/threads/t1/runs"), ("GET", "/threads/t1/stream?after=3"), ("POST", "/threads/t1/stop"),
+          ("POST", "/approvals/a1"), ("POST", "/browser-results/b1"), ("GET", "/spend")]
+
+
+def test_every_agent_route_is_passed_through(api):
+    fake = agent(api)
+    for method, path in ROUTES:
+        fake.calls.clear()
+        fake.chunks = [b'{"ok": true}']
+        status, _ = api("/api/agent-next" + path, method, POST_HEADERS if method == "POST" else None,
+                        {"message": "hi"} if method == "POST" else None)
+        assert status == 200, path
+        assert fake.calls[0]["method"] == method and fake.calls[0]["url"] == "http://agent.invalid" + path
+
+
+def test_service_down_is_a_plain_503(api):
+    fake = agent(api)
+    fake.down = True
+    status, body = api("/api/agent-next/threads")
+    assert status == 503
+    assert body["message"] == "The new agent isn't running. Start phoenix-agentkit (see deploy/agentkit/README.md)."
+    assert TOKEN not in json.dumps(body)
+
+
+def test_no_key_message_is_added_to_status(api):
+    fake = agent(api)
+    fake.chunks = [b'{"running": true, "key_present": false, "pack": "phoenix", "model": "m"}']
+    status, body = api("/api/agent-next/status")
+    assert status == 200 and body["message"] == "The new agent has no API key yet. See deploy/agentkit/README.md."
+    fake.chunks = [b'{"running": true, "key_present": true}']
+    assert "message" not in api("/api/agent-next/status")[1]
+
+
+def test_token_is_not_in_any_log_line_even_when_down(api):
+    fake = agent(api)
+    fake.down = True
+    api("/api/agent-next/status")
+    log = paths.logs() / "api.log"
+    assert TOKEN not in (log.read_text() if log.exists() else "")

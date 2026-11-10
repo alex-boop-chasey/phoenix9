@@ -1313,6 +1313,8 @@ class Handler(BaseHTTPRequestHandler):
         if reply.content_type.startswith("text/event-stream"):
             return self.relay_stream(reply)
         raw = b"".join(reply.chunks)
+        if method == "GET" and rest == "/status":
+            raw = ops_agentnext.tell_no_key(raw)
         self.send_raw(reply.status, reply.content_type, raw)
 
     def relay_stream(self, reply):

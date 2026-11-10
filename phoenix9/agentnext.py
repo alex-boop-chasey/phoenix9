@@ -9,7 +9,8 @@ DEFAULT_TOKEN_FILE = "/var/lib/phoenix9/agentkit/token"
 CHUNK = 8192
 TIMEOUT = 30
 NOT_SET_UP = "The agent isn't set up yet: its token file can't be read."
-NOT_RUNNING = "The agent service isn't running."
+NOT_RUNNING = "The new agent isn't running. Start phoenix-agentkit (see deploy/agentkit/README.md)."
+NO_KEY = "The new agent has no API key yet. See deploy/agentkit/README.md."
 
 
 class AgentUnavailable(Exception):

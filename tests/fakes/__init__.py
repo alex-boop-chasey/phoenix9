@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 from phoenix9.adapters import Adapters, Git
-from phoenix9.agentnext import AgentNext, Reply
+from phoenix9.agentnext import NOT_RUNNING, AgentNext, AgentUnavailable, Reply
 
 
 CANNED_PRS = [
@@ -507,11 +507,14 @@ class FakeAgentNext(AgentNext):
         super().__init__({"url": "http://agent.invalid", "token_file": str(token_file)})
         self.calls: list[dict] = []
         self.status, self.content_type, self.chunks = 200, "application/json", [b'{"ok": true}']
+        self.down = False   # True: the service does not answer
         self.gate = None   # an optional callable run between chunks (tests use it to prove chunks arrive early)
 
     def send(self, method, url, headers, body):
         """Record the call and return the scripted reply."""
         self.calls.append({"method": method, "url": url, "headers": dict(headers), "body": body})
+        if self.down:
+            raise AgentUnavailable(NOT_RUNNING)
         return Reply(self.status, self.content_type, self._yield())
 
     def _yield(self):

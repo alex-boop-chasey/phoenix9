@@ -1,6 +1,8 @@
 // Maps a tool's component name to our React components; all text is drawn as plain text from typed data.
 import type { ReactNode } from "react"
 
+import { KeyInputCard, keyAskFrom } from "./keycard"
+
 /** Card data for one project, as the Phoenix pack sends it. */
 export interface ProjectCardData { name: string; status: string; last_used: string; link?: string }
 
@@ -54,10 +56,14 @@ function Fallback({ tool }: { tool: string }) {
 }
 
 /** The cards we can draw, chosen by component name. */
-export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; onOpen?: (p: ProjectCardData) => void }) => ReactNode> = {
+export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; callId?: string; onOpen?: (p: ProjectCardData) => void }) => ReactNode> = {
   project_cards: ({ data, tool, onOpen }) => {
     const projects = projectsFrom(data)
     return projects ? <ProjectCards projects={projects} onOpen={onOpen} /> : <Fallback tool={tool} />
+  },
+  KeyInputCard: ({ data, tool, callId }) => {
+    const ask = keyAskFrom(data)
+    return ask && callId ? <KeyInputCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
   },
 }
 
@@ -66,5 +72,5 @@ export function ToolCall({ call, onOpen }: { call: ToolCallItem; onOpen?: (p: Pr
   if (call.running) return <p data-testid="tool-running" aria-busy="true">Running {call.toolName}…</p>
   const Draw = call.component ? COMPONENTS[call.component] : undefined
   if (!Draw) return <p data-testid="tool-used">Used {call.toolName}</p>
-  return <>{Draw({ data: call.data, tool: call.toolName, onOpen })}</>
+  return <>{Draw({ data: call.data, tool: call.toolName, callId: call.toolCallId, onOpen })}</>
 }

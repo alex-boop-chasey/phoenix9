@@ -17,7 +17,7 @@ import {
 /** One typed card, drawn from its data. */
 function Card({ card }: { card: CardItem }) {
   const Draw = COMPONENTS[card.component]
-  return Draw ? <>{Draw({ data: card.data, tool: card.component })}</> : null
+  return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId })}</> : null
 }
 
 const LAST_THREAD = "agent-next-thread"

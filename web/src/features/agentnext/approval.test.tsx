@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event"
 
 import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
 
-const item = { approvalId: "a1", toolName: "set_build_notifications", input: { name: "alpha", on: true }, decision: "pending" as const }
+const item = { approvalId: "a1", toolName: "notifications-set", input: { name: "alpha", on: true }, decision: "pending" as const }
 
 test("the card says exactly what will change and Approve sends approve", async () => {
   const seen: string[] = []

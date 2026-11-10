@@ -14,7 +14,7 @@ RUNS = [{"run_id": "20261109-1", "title": "First build", "status": "done", "star
 
 
 class FakePhoenix:
-    """Answers the allowed read routes; `refuse` makes it answer 403 to everything."""
+    """Answers the allowed routes (any other /api path just says ok); `refuse` makes it answer 403 to everything."""
 
     def __init__(self, refuse: bool = False):
         self.requests: list[httpx.Request] = []
@@ -30,8 +30,12 @@ class FakePhoenix:
         path, query = request.url.path, dict(request.url.params)
         if path == "/api/routes":
             return httpx.Response(200, json={"ok": True, "data": ROUTES})
-        if request.method == "POST" and path.endswith("/settings"):
-            return httpx.Response(200, json={"ok": True})
+        if not path.startswith("/api/projects"):
+            return httpx.Response(200, json={"ok": True, "data": {"run_id": "20261109-1", "path": path}})
+        if request.method == "POST":
+            if path.split("/")[3:4] and path.split("/")[3] not in {p["name"] for p in PROJECTS}:
+                return httpx.Response(404, json={"error": "There is no project called that."})
+            return httpx.Response(200, json={"ok": True, "data": {}})
         if path == "/api/projects":
             if not query:
                 return httpx.Response(200, json=PROJECTS)
@@ -47,7 +51,7 @@ class FakePhoenix:
             return httpx.Response(200, json=found)
         if parts[3] == "runs":
             return httpx.Response(200, json=RUNS)
-        return httpx.Response(404, json={"error": "No such route."})
+        return httpx.Response(200, json={"ok": True, "data": {"path": path}})
 
     def transport(self) -> httpx.MockTransport:
         """The transport to give PhoenixClient."""

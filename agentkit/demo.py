@@ -74,7 +74,7 @@ async def script(messages, info: AgentInfo):
         name = part.tool_name if isinstance(part, ToolReturnPart) else ""
         if name == "go_to":
             yield "I opened that page for you."
-        elif name == "set_build_notifications":
+        elif name == "notifications-set":
             yield "Done. The change was made."
         elif name == "suggest_next_actions":
             yield "Here are some ideas."
@@ -87,9 +87,9 @@ async def script(messages, info: AgentInfo):
     if "go to" in text:
         yield call("go_to", '{"page": "projects"}')
     elif "projects" in text:
-        yield call("list_projects", "{}")
+        yield call("projects-list", "{}")
     elif "change" in text:
-        yield call("set_build_notifications", '{"name": "demo-site", "on": true}')
+        yield call("notifications-set", '{"name": "demo-site", "on": true}')
     elif "suggest" in text:
         yield call("suggest_next_actions", json.dumps(SUGGESTIONS))
     elif "slow" in text:

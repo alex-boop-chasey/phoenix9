@@ -6,7 +6,7 @@ import type { ApprovalItem } from "./runtime"
 /** One follow-up the agent offered: a message to send or a link to open. */
 export interface Suggestion { label: string; message?: string; link?: string }
 
-const TOOL_NAMES: Record<string, string> = { set_build_notifications: "Change build notifications" }
+const TOOL_NAMES: Record<string, string> = { "notifications-set": "Change build notifications" }
 
 function plainName(tool: string): string {
   return TOOL_NAMES[tool] ?? tool
@@ -27,7 +27,7 @@ function changeLines(item: ApprovalItem): { label: string; value: string }[] {
 /** A change waiting for Alex: what it will do, with Approve and Deny, then the decision. */
 export function ApprovalCard({ item, onDecide }: { item: ApprovalItem; onDecide: (d: "approve" | "deny") => void }) {
   const input = (item.input ?? {}) as Record<string, unknown>
-  const notify = item.toolName === "set_build_notifications" && typeof input.name === "string" && typeof input.on === "boolean"
+  const notify = item.toolName === "notifications-set" && typeof input.name === "string" && typeof input.on === "boolean"
   return (
     <section className="card" aria-label="Approval needed" data-testid="approval-card">
       <h3>The agent wants to make a change</h3>

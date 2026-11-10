@@ -18,10 +18,55 @@ export interface ApprovalItem { approvalId: string; toolName: string; input: unk
 export type BrowserAnswer = Record<string, unknown>
 
 /** The things beside the text that the page draws. */
-export interface SideState { cards: CardItem[]; approvals: ApprovalItem[] }
+export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean }
 
 type Frame = { number: number; event: Record<string, any> }
 type Wait = Promise<void>
+
+/** One earlier message of an opened conversation. */
+export interface ChatLine { id: string; role: "user" | "assistant"; text: string }
+
+/** A conversation in the history list. */
+export interface ThreadInfo { id: string; title: string; last_used: number }
+
+/** How much of the month's allowance is used, in words only. */
+export interface Allowance { used_share: number; state: "plenty" | "low" | "used_up" }
+
+/** Read from the agent service; null when it cannot answer. */
+export async function agentGet<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(agentUrl(path), { headers: { "X-Phoenix": "1" } })
+    return res.ok ? ((await res.json()) as T) : null
+  } catch {
+    return null
+  }
+}
+
+/** Start a new empty conversation on the service and return its id. */
+export async function newThread(): Promise<string | null> {
+  const res = await fetch(agentUrl("threads"), {
+    method: "POST", headers: { "X-Phoenix": "1", "Content-Type": "application/json" }, body: "{}",
+  })
+  return res.ok ? ((await res.json()) as { id: string }).id : null
+}
+
+/** Turn a stored conversation's events into plain chat lines. */
+export function linesFromEvents(events: { event: Record<string, any> }[]): ChatLine[] {
+  const lines: ChatLine[] = []
+  const open = new Map<string, ChatLine>()
+  for (const { event: e } of events) {
+    if (e.type === "CUSTOM" && e.name === "user_message") lines.push({ id: e.value.id, role: "user", text: e.value.text })
+    else if (e.type === "TEXT_MESSAGE_START") {
+      const line: ChatLine = { id: e.messageId, role: "assistant", text: "" }
+      open.set(e.messageId, line)
+      lines.push(line)
+    } else if (e.type === "TEXT_MESSAGE_CONTENT") {
+      const line = open.get(e.messageId)
+      if (line) line.text += e.delta
+    }
+  }
+  return lines
+}
 
 /** Where the agent service's calls go, under the dashboard's own address. */
 function agentUrl(path: string): string {
@@ -51,7 +96,7 @@ async function* readFrames(res: Response): AsyncGenerator<Frame> {
 /** Our agent: sends the message, follows the stream, answers browser actions and waits for approvals. */
 export class AgentNextAgent extends AbstractAgent {
   private seen = 0
-  private side: SideState = { cards: [], approvals: [] }
+  private side: SideState = { cards: [], approvals: [], running: false }
   private listeners = new Set<() => void>()
   private deciders = new Map<string, (d: "approve" | "deny") => void>()
   serviceThread: string
@@ -63,6 +108,12 @@ export class AgentNextAgent extends AbstractAgent {
   constructor(thread = "") {
     super()
     this.serviceThread = thread
+  }
+
+  /** Stop the reply that is going now. */
+  async stop() {
+    if (!this.serviceThread) return
+    await this.post(`threads/${this.serviceThread}/stop`, {})
   }
 
   /** The current cards and approvals (a new object whenever they change). */
@@ -110,14 +161,19 @@ export class AgentNextAgent extends AbstractAgent {
   private async drive(input: RunAgentInput, sub: Subscriber<BaseEvent>) {
     const last = [...input.messages].reverse().find((m) => m.role === "user")
     const text = typeof last?.content === "string" ? last.content : ""
-    const id = await this.ensureThread()
-    this.seen = 0
-    await this.post(`threads/${id}/runs`, { message: text })
-    for (;;) {
-      const waits: Wait[] = []
-      const final = await this.follow(id, sub, waits)
-      if (final) return sub.complete()
-      await Promise.all(waits)
+    this.setSide({ ...this.side, running: true })
+    try {
+      const id = await this.ensureThread()
+      this.seen = 0
+      await this.post(`threads/${id}/runs`, { message: text })
+      for (;;) {
+        const waits: Wait[] = []
+        const final = await this.follow(id, sub, waits)
+        if (final) return sub.complete()
+        await Promise.all(waits)
+      }
+    } finally {
+      this.setSide({ ...this.side, running: false })
     }
   }
 
@@ -175,8 +231,8 @@ export class AgentNextAgent extends AbstractAgent {
 }
 
 /** The chat runtime for the page (assistant-ui over our agent), plus the agent for cards and approvals. */
-export function useAgentNextRuntime(browserHandler: AgentNextAgent["browserHandler"]) {
-  const agent = useMemo(() => new AgentNextAgent(), [])
+export function useAgentNextRuntime(browserHandler: AgentNextAgent["browserHandler"], thread = "") {
+  const agent = useMemo(() => new AgentNextAgent(thread), [thread])
   agent.browserHandler = browserHandler
   const runtime = useAgUiRuntime({ agent })
   const side = useSyncExternalStore(agent.watch, agent.getSide)

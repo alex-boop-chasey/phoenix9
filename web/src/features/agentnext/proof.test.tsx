@@ -32,6 +32,7 @@ function mockService(streams: Ev[][]) {
       posts.push({ path, body })
       return new Response(JSON.stringify(path === "threads" ? { id: "t1" } : {}), { status: 200 })
     }
+    if (!url.pathname.endsWith("/stream")) return new Response(JSON.stringify({ threads: [] }), { status: 200 })
     const events = streams[streamCall++] ?? [finished]
     const body = events.map((e, i) => frame(i + 1 + (streamCall - 1) * 100, e)).join("")
     return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } })

@@ -1,0 +1,1927 @@
+[
+  {
+    "name": "agent-messages",
+    "description": "Panel items after a line number (at most limit) plus {unknown, last_line, session_id}; `session` reads an earlier one.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The old Phoenix agent's panel.",
+    "method": "GET",
+    "route": "/api/agent/messages",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-new",
+    "description": "Ask the agent to save its notes, wait for it to settle, then restart it into a fresh conversation.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "The old agent's panel.",
+    "method": "POST",
+    "route": "/api/agent/new",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-restart",
+    "description": "Restart the agent's systemd service (the `agent.unit` setting) and tell Alex; {restarted, unit}.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "The old agent's panel.",
+    "method": "POST",
+    "route": "/api/agent/restart",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-send",
+    "description": "Post a message to the agent and record who sent it; OpsError with the reason on failure.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "The old Phoenix agent's panel.",
+    "method": "POST",
+    "route": "/api/agent/send",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-sessions",
+    "description": "Earlier conversations in the agent folder's transcript directory, newest first.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The old Phoenix agent's panel.",
+    "method": "GET",
+    "route": "/api/agent/sessions",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-status",
+    "description": "The agent's {state, pid, session_id, name}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The old Phoenix agent's panel; not for the new agent.",
+    "method": "GET",
+    "route": "/api/agent",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "agent-stop",
+    "description": "End the command the agent is running and tell it to stop; {stopped, sent}. Refuses when it is not running.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "The old agent's panel.",
+    "method": "POST",
+    "route": "/api/agent/stop",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "blocks-check",
+    "description": "Check a {kind, json} block; return {ok, reason, resolved} (resolved is None when not ok).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "A dashboard editor helper; not a control.",
+    "method": "POST",
+    "route": "/api/blocks/check",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-discard",
+    "description": "Throw away a failed or stopped run's work: its worktree, local branch and GitHub branch (if pushed).",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-note",
+    "description": "Append a dated note under `## Fix notes` in a task's task.md; the next attempt's prompt carries it.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/runs/(?P<run_id>[^/]+)/note",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-pause",
+    "description": "Pause now: stop the running AI step's container (stop, not remove) and leave the run's worktree alone.",
+    "inputs": [
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<run_id>[^/]+)/pause",
+    "fixed": {
+      "now": true
+    },
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-plan",
+    "description": "The step plan for the project's settings plus these overrides (a wrong override is reported in `errors`).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/plan",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-resume",
+    "description": "Resume a paused run: `running` (the runner picks it up), or `queued` when another run is going.",
+    "inputs": [
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<run_id>[^/]+)/resume",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-start",
+    "description": "Start a run from a spec in the project's notes, or from a short brief (needs the Planner on).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "spec",
+        "type": "string",
+        "required": false,
+        "description": "The spec to build (the newest one if left out).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "brief",
+        "type": "string",
+        "required": false,
+        "description": "A short brief to build from instead of a spec.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "overrides",
+        "type": "object",
+        "required": false,
+        "description": "Settings to use for this build only.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/runs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "build-stop",
+    "description": "Stop a run the one clean way (`project`, when given, must own the run).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop",
+    "fixed": {
+      "confirm": true
+    },
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": "run_id"
+  },
+  {
+    "name": "builds-list",
+    "description": "List a project's builds, newest first.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/runs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "RunCards",
+    "confirm_with": ""
+  },
+  {
+    "name": "cards-build",
+    "description": "The ready card {type, title, data, actions, watch, inline}; a bad type or query is an OpsError.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The dashboard's card builder; not a control.",
+    "method": "GET",
+    "route": "/api/cards",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "chat-off",
+    "description": "Turn the project's chat off; returns {state, changed, message}.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/chat/(?P<name>[^/]+)/off",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "chat-open",
+    "description": "Open the project's chat and return {state, web_url, app_url, bridge_session_id, message}.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/chat/(?P<name>[^/]+)/open",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "chat-show",
+    "description": "The project's chat state {state, bridge_session_id, web_url, app_url, last_active}; the project must exist.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/chat/(?P<name>[^/]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "chat-sleep",
+    "description": "Put the project's chat to sleep; returns {state, changed, message}.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/chat/(?P<name>[^/]+)/sleep",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "deploy-start",
+    "description": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/deploy",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "deploys-list",
+    "description": "The deployer, the last few deploys, the live address and the last good commit.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/deploys",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "docs-download",
+    "description": "One document for download: {name, text} with a safe file name and the text scrubbed.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/docs/download",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "docs-list",
+    "description": "A run's documents as {id, title, size}, plan and summary first.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/docs/list",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "docs-show",
+    "description": "One document: {id, title, text}, the text scrubbed.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/docs/show",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "doctor-run",
+    "description": "Run the checks for a mode (full, for-update or quick); returns {ok, checks: [{name, ok, detail, fix}]}.",
+    "inputs": [
+      {
+        "name": "mode",
+        "type": "choice",
+        "required": false,
+        "description": "How thorough to be.",
+        "choices": [
+          "quick",
+          "full"
+        ],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/doctor",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "doctor_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "edit-abandon",
+    "description": "Throw away a quick edit's branch copy; OpsError in plain words when that is not possible.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/edits/(?P<edit_id>[^/]+)/abandon",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "events-recent",
+    "description": "Read recent events, newest last, for all projects or one.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": false,
+        "description": "Only this project's.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "after",
+        "type": "integer",
+        "required": false,
+        "description": "Only events after this number.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many events at most.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/events/recent",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "events_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "folders-list",
+    "description": "The sub-folders of a folder under the projects root: {path, parent, folders: [{name, path}]}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/folders",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "gate-answer",
+    "description": "Answer one of a build's questions.",
+    "inputs": [
+      {
+        "name": "gate_id",
+        "type": "string",
+        "required": true,
+        "description": "The question's id (from the list of open questions).",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "action",
+        "type": "choice",
+        "required": true,
+        "description": "Your answer.",
+        "choices": [
+          "approve",
+          "back",
+          "skip",
+          "acknowledged"
+        ],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "note",
+        "type": "string",
+        "required": false,
+        "description": "Your words to the build.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/gates/(?P<gate_id>[^/]+)/answer",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "gate_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "gate-review",
+    "description": "Everything Alex needs to read a merge request inside the build (merge gates only).",
+    "inputs": [
+      {
+        "name": "gate_id",
+        "type": "string",
+        "required": true,
+        "description": "The question's id (from the list of open questions).",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/gates/(?P<gate_id>[^/]+)/review",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "review_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "gates-list",
+    "description": "List a build's open and answered questions.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": false,
+        "description": "Only this project's.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/gates",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "gates_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "github-repos",
+    "description": "{connected, repos: [{full_name, owner, private}]} for each account the login can see.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/github/repos",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "global-addresses",
+    "description": "Change the dashboard addresses; changing the allowed origins restarts the Phoenix API.",
+    "inputs": [
+      {
+        "name": "dashboard_url",
+        "type": "string",
+        "required": false,
+        "description": "The dashboard's address.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "allowed_origins",
+        "type": "string",
+        "required": false,
+        "description": "The addresses allowed to use the API, separated by commas.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "vscode_url",
+        "type": "string",
+        "required": false,
+        "description": "The address of the code editor.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/global/addresses",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "global_card",
+    "confirm_with": "allowed_origins"
+  },
+  {
+    "name": "global-models",
+    "description": "Save Phoenix's default model (and up to two fallbacks) for AI steps into global.toml [models].",
+    "inputs": [
+      {
+        "name": "steps",
+        "type": "object",
+        "required": true,
+        "description": "{step: {model, fallback_models}} for each step to change.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/global/models",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "global_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "global-show",
+    "description": "Global settings (no secret values) and which parts are built yet.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/global",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "global_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "health",
+    "description": "Answers the service check; not a control.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Answers the service check; not a control.",
+    "method": "GET",
+    "route": "/api/health",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "images-build",
+    "description": "Which images to consider: the named ones, all of them, or the profiles existing projects use.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/images/build",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "import-candidates",
+    "description": "Projects that can be imported: removed ones, and folders Phoenix does not list yet.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/import/candidates",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "info",
+    "description": "Version, update support, GitHub login and feature flags for the dashboard.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Not part of the agent's job in this build; Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/info",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "job-status",
+    "description": "Progress of a background job; not a control.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Progress of a background job; not a control.",
+    "method": "GET",
+    "route": "/api/jobs/(?P<job_id>[0-9a-f]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "keys-audit",
+    "description": "Every secrets file and project key (names, modes, times) plus problems; never a value.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/keys/audit",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "keys-list",
+    "description": "List a project's key names and whether each is set; values are never shown.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/keys",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "keys_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "keys-remove",
+    "description": "Delete a key.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/remove",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "keys-reveal",
+    "description": "The one place a saved value leaves the server; the command record has the name only.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "secret",
+    "why": "Revealing a key would put its value through the model.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/reveal",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "keys-save",
+    "description": "Check every row, then store them; a row without a value keeps its saved value. Returns the masked rows.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "key-card",
+    "why": "Key values are typed into the masked key card, which posts them straight to Phoenix.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/save",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-presets",
+    "description": "The presets a project can choose, with their titles, one-line descriptions and the steps each switches on or off.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/presets",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-profiles",
+    "description": "Every profile with its title and image tag, plus problems.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/profiles",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-services",
+    "description": "Every service in the services library with the project keys it needs.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/services",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-steps",
+    "description": "Every working step, plus the problems found in broken ones.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/steps",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-templates",
+    "description": "The templates a new project can start from.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/templates",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "library-tools",
+    "description": "The Claude Code tools a step may be given or denied, each with a plain label and explanation.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/library/tools",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "logs-list",
+    "description": "The logs of a project, newest run first; filters narrow by run, task, step and kind.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/logs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "logs-read",
+    "description": "One log as readable, scrubbed text: {id, kind, title, text, truncated, is_diff}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/logs/read",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "merge-answer",
+    "description": "Answer a build's merge question: approve the merge, send it back or skip it.",
+    "inputs": [
+      {
+        "name": "gate_id",
+        "type": "string",
+        "required": true,
+        "description": "The question's id (from the list of open questions).",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "action",
+        "type": "choice",
+        "required": true,
+        "description": "Your answer.",
+        "choices": [
+          "approve",
+          "back",
+          "skip"
+        ],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "note",
+        "type": "string",
+        "required": false,
+        "description": "Your words to the build.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/gates/(?P<gate_id>[^/]+)/answer",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "gate_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "notifications-set",
+    "description": "Turn a project's build notifications on or off.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "on",
+        "type": "boolean",
+        "required": true,
+        "description": "True to turn notifications on, false to turn them off.",
+        "choices": [],
+        "where": "body",
+        "into": [
+          "set",
+          "steps.notify.on"
+        ]
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/settings",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "plan-abandon",
+    "description": "Give up a planning session that is not running; OpsError in plain words when that is not possible.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/plans/(?P<plan_id>[^/]+)/abandon",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "plan-approve",
+    "description": "Approve a build's plan.",
+    "inputs": [
+      {
+        "name": "gate_id",
+        "type": "string",
+        "required": true,
+        "description": "The question's id (from the list of open questions).",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/gates/(?P<gate_id>[^/]+)/answer",
+    "fixed": {
+      "action": "approve"
+    },
+    "fixed_query": {},
+    "card": "gate_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "plan-send-back",
+    "description": "Send a build's plan back with a note saying what to change.",
+    "inputs": [
+      {
+        "name": "gate_id",
+        "type": "string",
+        "required": true,
+        "description": "The question's id (from the list of open questions).",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "note",
+        "type": "string",
+        "required": true,
+        "description": "What to change in the plan.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/gates/(?P<gate_id>[^/]+)/answer",
+    "fixed": {
+      "action": "back"
+    },
+    "fixed_query": {},
+    "card": "gate_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-changelog",
+    "description": "The last `limit` changelog lines as [{date, who, text}], newest last.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/changelog",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-check-name",
+    "description": "Say whether a new project name is usable: {ok, message}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/projects/check-name",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-create",
+    "description": "Guided project creation is a later agent build.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Guided project creation is a later agent build.",
+    "method": "POST",
+    "route": "/api/projects",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-delete",
+    "description": "Delete a project entirely after a safety copy; returns the steps and what was not done.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "alex-only",
+    "agent": "alex-only",
+    "why": "Deleting a project is Alex's alone; point Alex to the Delete button on the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/delete",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-delete-plan",
+    "description": "The dry run for deleting a project entirely: what would go and what refuses it; changes nothing.",
+    "inputs": [],
+    "risk": "alex-only",
+    "agent": "alex-only",
+    "why": "Part of deleting a project, which only Alex does.",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/delete-plan",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-delete-repo",
+    "description": "Retry only the GitHub repo delete of an already deleted project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "alex-only",
+    "agent": "alex-only",
+    "why": "Deleting a repo is Alex's alone; point Alex to the Delete repo button on the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/delete-repo",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-edit",
+    "description": "Change a project's description, profile or repo.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Changing a project's description, repo or profile is a later agent build.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/edit",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-import",
+    "description": "Bring a removed project or an unlisted folder into Phoenix and add its missing workspace files.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/import",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-remove",
+    "description": "Remove a project from Phoenix's list; every file is kept.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/remove",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-services-set",
+    "description": "Choose a project's services (adds empty key rows and allowed hosts).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "services",
+        "type": "list",
+        "required": true,
+        "description": "The names of the services the project uses.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/edit",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "project_cards",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-show",
+    "description": "All info of one project, plus recent changelog lines and open gates.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "project_cards",
+    "confirm_with": ""
+  },
+  {
+    "name": "project-specs",
+    "description": "Markdown files under notes/specs and notes/plans: [{path, title, modified, task_format}], newest first.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/specs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "projects-list",
+    "description": "List projects, with search and filter options.",
+    "inputs": [
+      {
+        "name": "q",
+        "type": "string",
+        "required": false,
+        "description": "Search words.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "status",
+        "type": "string",
+        "required": false,
+        "description": "Only projects in this state.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "owner",
+        "type": "string",
+        "required": false,
+        "description": "Only projects with this owner.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "sort",
+        "type": "string",
+        "required": false,
+        "description": "Sort order.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "attention",
+        "type": "boolean",
+        "required": false,
+        "description": "Only projects that need Alex.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "project_cards",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-apply",
+    "description": "Save posted note text in the run's repairs/notes and apply it; unreadable notes are OpsError, refusals Conflict.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Repair and resume of failed builds is build 3.",
+    "method": "POST",
+    "route": "/api/repair/(?P<run_id>[^/]+)/apply",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-report",
+    "description": "Write and return the run report: {run_id, project, path, text}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Repair of failed builds is build 3.",
+    "method": "GET",
+    "route": "/api/repair/(?P<run_id>[^/]+)/report",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "report-status",
+    "description": "{path, text, saved}: the copy the runner rewrites every 10 minutes, read without writing anything. When",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The daily report is build 5.",
+    "method": "GET",
+    "route": "/api/report/status",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "routes",
+    "description": "List the dashboard pages the agent can point Alex to.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/routes",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "routes_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "run-show",
+    "description": "One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-connect",
+    "description": "Save a service's account keys and settings, then (unless check is False) try them; a failed check keeps them.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "secret",
+    "why": "Connecting a service sends key values, which must never go through the model.",
+    "method": "POST",
+    "route": "/api/services/(?P<name>[^/]+)/connect",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-disconnect",
+    "description": "Forget a service's account keys (needs yes); names projects that still use it.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/services/(?P<name>[^/]+)/disconnect",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-restart",
+    "description": "Ask systemd to restart phoenix-api without waiting (used from inside the API, which the restart stops).",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/service/(?P<name>[^/]+)/restart",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-test",
+    "description": "Try a service's key (a pasted one, else the saved one) saving the result only when it is the saved key; {ok, message}.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "secret",
+    "why": "Testing a service with values would put key values through the model.",
+    "method": "POST",
+    "route": "/api/services/(?P<name>[^/]+)/test",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "services-global",
+    "description": "The rows for Phoenix settings: Claude first, the library services, then Telegram.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/global/services",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "services-list",
+    "description": "List every service and whether it is connected.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/services",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "services_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-change",
+    "description": "Set several keys (typed values by dotted path) at once; nothing is written unless all are fine.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "set",
+        "type": "object",
+        "required": true,
+        "description": "The settings to change: {setting name: new value}.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/settings",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-check",
+    "description": "Every problem found in the project's settings (an empty list means fine).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/settings/check",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-defaults",
+    "description": "Save wizard settings as the project's defaults: the preset first, then the rest as dotted keys.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/defaults",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-explain",
+    "description": "The plain-English plan for the project's settings.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/explain",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-preset",
+    "description": "Choose a preset for the project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "preset",
+        "type": "string",
+        "required": true,
+        "description": "The preset's name.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/settings/preset",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "settings-show",
+    "description": "The effective settings with where each value came from.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/settings",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "settings_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "suggest-dismiss",
+    "description": "Mark a key shown, snoozed or dismissed and record the command.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Suggestions are build 5.",
+    "method": "POST",
+    "route": "/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "suggest-list",
+    "description": "{mode, notice, suggestions}: the report's lines worth a mention; the agent's view is empty unless the setting",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Suggestions are build 5.",
+    "method": "GET",
+    "route": "/api/suggest",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "suggest-shown",
+    "description": "Mark a key shown, snoozed or dismissed and record the command.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Suggestions are build 5.",
+    "method": "POST",
+    "route": "/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/shown",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "suggest-snooze",
+    "description": "Mark a key shown, snoozed or dismissed and record the command.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Suggestions are build 5.",
+    "method": "POST",
+    "route": "/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "ui-go",
+    "description": "Check the route, publish a ui.go event ({hash, label, by}) and return {hash, label}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "The agent's go_to tool has its own route (build 1).",
+    "method": "POST",
+    "route": "/api/ui/go",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "update-check",
+    "description": "Check whether a newer Phoenix is available.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/update",
+    "fixed": {},
+    "fixed_query": {
+      "refresh": "1"
+    },
+    "card": "update_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "update-history",
+    "description": "Past installs and roll-backs the updater recorded, newest first.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/update/history",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "update-install",
+    "description": "Ask Phoenix to install a newer version (the newest when no version is given).",
+    "inputs": [
+      {
+        "name": "tag",
+        "type": "string",
+        "required": false,
+        "description": "The version to install.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/update/install",
+    "fixed": {
+      "yes": true
+    },
+    "fixed_query": {},
+    "card": "update_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "update-log",
+    "description": "The tail of the updater log and the name of the last checks file.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/update/log",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "update-rollback",
+    "description": "Queue a rollback to the previous version; needs yes.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/update/rollback",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  }
+]

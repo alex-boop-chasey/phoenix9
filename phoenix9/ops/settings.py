@@ -27,7 +27,7 @@ def show(project: str) -> dict:
 
 
 def _is_chat(who) -> bool:
-    return str(who or "").startswith("chat:")
+    return str(who or "").startswith("chat:") or who == "agent"
 
 
 def _refuse_chat_safety(who, keys, lib=None) -> None:

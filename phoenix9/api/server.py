@@ -651,7 +651,7 @@ def post_service_restart(req, name):
 def post_update_install(req):
     """Queue an install of the given (or newest) tag; the updater runs as its own unit."""
     tag = body_text(req, "tag", False)
-    out = update.install(tag, WHO, req.body.get("yes") is True)
+    out = update.install(tag, req.who, req.body.get("yes") is True)
     return {"ok": True, "queued": bool(out.get("queued")), "tag": out.get("tag")}
 
 
@@ -686,10 +686,10 @@ def post_edit(req, name):
         raise NeedsConfirm()
     with req.server.write_lock:
         if fields or services is None:
-            projects.edit(name, WHO, description=fields.get("description"), profile=fields.get("profile"),
+            projects.edit(name, req.who, description=fields.get("description"), profile=fields.get("profile"),
                           repo=fields.get("repo"))
         if services is not None:
-            projects.set_services(name, services, WHO)
+            projects.set_services(name, services, req.who)
     return get_project(req, name)
 
 
@@ -800,7 +800,7 @@ def post_preset(req, name):
     """Apply a preset to a project."""
     preset = body_text(req, "preset")
     with req.server.write_lock:
-        settings.preset(check_name(name), preset, who=WHO)
+        settings.preset(check_name(name), preset, who=req.who)
     return settings.show(name)
 
 
@@ -827,7 +827,7 @@ def post_run_start(req, name):
     spec, brief = body_text(req, "spec", False), body_text(req, "brief", False)
     overrides = body_dict(req, "overrides")
     with req.server.write_lock:
-        started = runs.start_from_notes(check_name(name), spec=spec, brief=brief, overrides=overrides, who=WHO)
+        started = runs.start_from_notes(check_name(name), spec=spec, brief=brief, overrides=overrides, who=req.who)
     return {k: started[k] for k in ("run_id", "project", "status")}
 
 
@@ -836,7 +836,7 @@ def post_run_stop(req, project, run_id):
     if req.body.get("confirm") is not True:
         raise BadRequest("Stopping a run needs confirmation.")
     with req.server.write_lock:
-        return runs.stop(check_run_id(run_id), who=WHO, project=check_name(project))
+        return runs.stop(check_run_id(run_id), who=req.who, project=check_name(project))
 
 
 def post_edit_abandon(req, edit_id):
@@ -860,13 +860,13 @@ def post_run_pause(req, run_id):
     if req.body.get("now") is not True:
         raise BadRequest("Pausing needs {\"now\": true}.")
     with req.server.write_lock:
-        return runs.pause(check_run_id(run_id), now=True, who=WHO)
+        return runs.pause(check_run_id(run_id), now=True, who=req.who)
 
 
 def post_run_resume(req, run_id):
     """Resume a paused run."""
     with req.server.write_lock:
-        return runs.resume(check_run_id(run_id), who=WHO)
+        return runs.resume(check_run_id(run_id), who=req.who)
 
 
 def get_repair_report(req, run_id):
@@ -969,7 +969,7 @@ def post_gate_answer(req, gate_id):
     action = body_text(req, "action")
     note = body_text(req, "note", False) or ""
     with req.server.write_lock:
-        return gates.answer(gate_id, action, note, who=WHO, by=req.body.get("by"))
+        return gates.answer(gate_id, action, note, who=req.who, by=req.body.get("by"))
 
 
 def post_service_connect(req, name):
@@ -1002,14 +1002,14 @@ def post_global_addresses(req):
     if unknown:
         raise BadRequest(f"'{unknown[0]}' is not a dashboard address setting.")
     with req.server.write_lock:
-        return app.set_addresses(changes, who=WHO, own_origin=req.headers.get("Origin"))
+        return app.set_addresses(changes, who=req.who, own_origin=req.headers.get("Origin"))
 
 
 def post_global_models(req):
     """Save Phoenix's default models: {steps: {step: {model, fallback_models}}}."""
     steps = body_dict(req, "steps")
     with req.server.write_lock:
-        return app.set_default_models(steps, who=WHO)
+        return app.set_default_models(steps, who=req.who)
 
 
 def post_agent_send(req):

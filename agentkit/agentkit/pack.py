@@ -23,6 +23,7 @@ class ServerTool:
     inputs: type[BaseModel]
     risk: Risk
     function: Callable[..., Any]
+    confirm_field: str | None = None  # the input whose value Alex must type to approve (destructive tools)
 
 
 @dataclass(frozen=True)
@@ -32,6 +33,7 @@ class BrowserTool:
     name: str
     description: str
     inputs: type[BaseModel]
+    result_fields: dict[str, tuple] | None = None  # allowed result keys, each with its allowed values; None keeps all
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,11 @@ def check_pack(pack: Pack) -> Pack:
     for tool in pack.server_tools:
         if tool.risk not in RISKS:
             raise PackError(f"Pack '{pack.name}': tool '{tool.name}' has unknown risk '{tool.risk}'.")
+        if tool.risk == "destructive" and not tool.confirm_field:
+            raise PackError(f"Pack '{pack.name}': destructive tool '{tool.name}' needs a confirm_field.")
+        if tool.confirm_field and tool.confirm_field not in tool.inputs.model_fields:
+            raise PackError(
+                f"Pack '{pack.name}': tool '{tool.name}' confirms with '{tool.confirm_field}', which is not one of its inputs.")
     for tool_name, component in pack.components.items():
         if tool_name not in names:
             raise PackError(f"Pack '{pack.name}': a card is named for '{tool_name}', which is not a tool.")

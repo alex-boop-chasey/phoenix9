@@ -17,7 +17,7 @@ import {
 /** One typed card, drawn from its data. */
 function Card({ card }: { card: CardItem }) {
   const Draw = COMPONENTS[card.component]
-  return Draw ? <>{Draw({ data: card.data, tool: card.component })}</> : null
+  return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId })}</> : null
 }
 
 const LAST_THREAD = "agent-next-thread"
@@ -117,7 +117,7 @@ function Conversation({ thread, earlier, follow, onRunEnd }: { thread: string; e
         {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
         {side.cards.map((c) => <Card key={c.toolCallId} card={c} />)}
         {side.approvals.map((a) => (
-          <ApprovalCard key={a.approvalId} item={a} onDecide={(d) => agent.decide(a.approvalId, d)} />
+          <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
         ))}
         <SuggestionChips actions={side.suggestions} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />
         <ComposerPrimitive.Root className="flex gap-2">

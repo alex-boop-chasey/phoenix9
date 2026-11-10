@@ -113,4 +113,18 @@ describe("agent-next proof", () => {
     await waitFor(() => expect(posts.find((p) => p.path === "approvals/a1")?.body).toEqual({ decision }))
     expect(await screen.findByText("Done.")).toBeInTheDocument()
   })
+
+  it("an approval_request with a description and typed text shows both and posts confirm", async () => {
+    const posts = mockService([
+      [started, { type: "CUSTOM", name: "approval_request", value: { approvalId: "a2", toolCallId: "t8", toolName: "stop-build", description: "Stop the running build.", input: { name: "alpha" }, confirm_text: "alpha" } }],
+      [...text("m5", "Stopped."), finished],
+    ])
+    setup()
+    await say("stop it")
+    expect(await screen.findByText("Stop the running build.")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Approve" })).toBeDisabled()
+    await userEvent.type(screen.getByLabelText("Type alpha to confirm"), "alpha")
+    await userEvent.click(screen.getByRole("button", { name: "Approve" }))
+    await waitFor(() => expect(posts.find((p) => p.path === "approvals/a2")?.body).toEqual({ decision: "approve", confirm: "alpha" }))
+  })
 })

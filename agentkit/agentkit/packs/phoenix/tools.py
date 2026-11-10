@@ -1,32 +1,11 @@
-"""The Phoenix pack's read tools: list_projects, show_project and list_runs, each giving typed card data."""
-from collections.abc import Callable
-from typing import Literal
+"""The Phoenix pack's card helpers (project and run cards) and the go_to tool's page checks."""
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
 
 SOURCE = "phoenix"
-
-
-class ListProjects(BaseModel):
-    """The same filters as the Projects page."""
-
-    q: str = Field("", description="Words to look for in project names and descriptions.")
-    status: Literal["all", "run", "fail", "idle", "need"] = Field(
-        "all", description="Only projects in this state: run (building), fail, idle, or need (needs Alex)."
-    )
-    owner: str = Field("all", description="A GitHub owner, 'none' for projects without a repo, or 'all'.")
-    sort: Literal["name", "active", "size", "created", "modified"] = Field(
-        "name", description="Order of the list; 'modified' puts the most recently changed first."
-    )
-    attention: bool = Field(False, description="Put projects that need Alex first.")
-
-
-class ShowProject(BaseModel):
-    """Which project to show."""
-
-    name: str = Field(description="The project's name.")
 
 
 def link_for(name: str) -> str:
@@ -45,75 +24,53 @@ def project_card(row: dict) -> dict:
     }
 
 
+def _task_rows(row: dict) -> list[dict]:
+    """The tasks of a run as [{number, title, status}], from a state's task map (empty when it has none)."""
+    tasks = row.get("tasks")
+    if not isinstance(tasks, dict):
+        return []
+    out = []
+    for key, task in tasks.items():
+        task = task if isinstance(task, dict) else {}
+        out.append({"number": int(key) if str(key).isdigit() else 0, "title": str(task.get("title") or ""),
+                    "status": str(task.get("status") or "")})
+    return sorted(out, key=lambda t: t["number"])
+
+
 def run_card(name: str, row: dict) -> dict:
-    """Card data for one build run: id, title, status, when and link hash."""
+    """Card data for one build run: id, title, status, current step, tasks done of total, when and link hash."""
+    rows = _task_rows(row)
+    current = row.get("current") if isinstance(row.get("current"), dict) else {}
+    done = row.get("tasks_passed") if rows == [] else sum(1 for t in rows if t["status"] == "passed")
+    total = row.get("tasks_total") if rows == [] else len(rows)
+    step = current.get("step") or row.get("step") or ""
     return {
         "run_id": row.get("run_id", ""),
         "title": row.get("title") or "",
         "status": row.get("status") or "",
-        "last_used": row.get("finished") or row.get("started") or "",
+        "current_step": str(step),
+        "tasks_done": done if isinstance(done, int) else 0,
+        "tasks_total": total if isinstance(total, int) else 0,
+        "started": row.get("started") or row.get("created") or "",
+        "last_used": row.get("finished") or row.get("started") or row.get("created") or "",
         "link": f"{link_for(name)}/build",
     }
 
 
-def make_tools(client: PhoenixClient) -> tuple[Callable, Callable, Callable]:
-    """Build the three read tool bodies around a Phoenix client."""
-
-    def failed(err: PhoenixError) -> dict:
-        return {"error": str(err)}
-
-    def list_projects(q: str = "", status: str = "all", owner: str = "all", sort: str = "name",
-                      attention: bool = False) -> dict:
-        """List projects with the Projects page filters; each is a card."""
-        params = {"q": q, "status": None if status == "all" else status,
-                  "owner": None if owner == "all" else owner,
-                  "sort": None if sort == "name" else sort, "attention": "1" if attention else None}
-        if not any(params.values()):
-            params = {"sort": "name"}
-        try:
-            found = client.get("/api/projects", params)
-        except PhoenixError as err:
-            return failed(err)
-        rows = found if isinstance(found, list) else found.get("top", []) + found.get("rest", [])
-        return {"projects": [project_card(r) for r in rows]}
-
-    def show_project(name: str) -> dict:
-        """Show one project as a card."""
-        try:
-            return {"project": project_card(client.get(f"/api/projects/{name}"))}
-        except PhoenixError as err:
-            return failed(err)
-
-    def list_runs(name: str) -> dict:
-        """List a project's build runs, newest first."""
-        try:
-            rows = client.get(f"/api/projects/{name}/runs")
-        except PhoenixError as err:
-            return failed(err)
-        return {"project": name, "runs": [run_card(name, r) for r in rows]}
-
-    return list_projects, show_project, list_runs
+def build_card(name: str, row: dict) -> dict:
+    """Card data for a build you started or changed: project, run id, status, started and link hash."""
+    return {
+        "project": name,
+        "run_id": row.get("run_id", ""),
+        "status": row.get("status") or "",
+        "started": row.get("started") or row.get("created") or "",
+        "link": f"{link_for(name)}/build",
+    }
 
 
-class SetNotifications(BaseModel):
-    """Which project, and whether to tell Alex when its builds end."""
-
-    name: str = Field(description="The project's name.")
-    on: bool = Field(description="True to notify Alex when a build ends, False to stop.")
-
-
-def make_change_tools(client: PhoenixClient) -> Callable:
-    """Build the change tool body around a Phoenix client; it only runs after Alex approves."""
-
-    def set_build_notifications(name: str, on: bool) -> dict:
-        """Switch 'notify me when a build ends' on or off for one project."""
-        try:
-            client.post(f"/api/projects/{name}/settings", {"set": {"steps.notify.on": on}})
-        except PhoenixError as err:
-            return {"error": str(err)}
-        return {"project": name, "build_notifications": on}
-
-    return set_build_notifications
+def task_list(row: dict) -> list[dict]:
+    """Card data for a run's task list: number, title and status per task."""
+    return _task_rows(row)
 
 
 def route_table(client: PhoenixClient) -> dict[str, list[str]]:
@@ -157,3 +114,62 @@ def go_to_inputs(client: PhoenixClient) -> type[BaseModel]:
             return self
 
     return GoTo
+
+
+def ask_for_key_inputs() -> type[BaseModel]:
+    """The ask_for_key input model: project, key name and why; there is no field for a value."""
+
+    class AskForKey(BaseModel):
+        """Which key to ask Alex for, and why."""
+
+        project: str = Field(description="The project's name.")
+        name: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$", description="The key's name, e.g. STRIPE_KEY.")
+        why: str = Field(max_length=200, description="One short sentence saying why the key is needed.")
+
+    return AskForKey
+
+
+def _flat(values: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    """Nested settings as (dotted name, value) pairs."""
+    if not isinstance(values, dict):
+        return [(prefix, values)]
+    out: list[tuple[str, Any]] = []
+    for key, value in values.items():
+        out += _flat(value, f"{prefix}.{key}" if prefix else str(key))
+    return out
+
+
+def settings_card(name: str, data: Any, check: bool = False) -> dict:
+    """Card data for settings: name/value rows, the plain explanation if given, and problems only if the answer lists them."""
+    data = data if isinstance(data, dict) else {}
+    rows = [{"name": k, "value": "" if v is None else str(v)} for k, v in _flat(data.get("values", {}))] \
+        if isinstance(data.get("values"), dict) else []
+    card: dict = {"project": name or str(data.get("project") or ""), "rows": rows,
+                  "explanation": str(data.get("text") or ""), "link": f"{link_for(name)}/settings"}
+    if isinstance(data.get("problems"), list):
+        card["problems"] = [str(p) for p in data["problems"]]
+        card["note"] = "Check: fine." if not card["problems"] else "Check: problems found."
+    elif check:
+        card["note"] = "The check result is not known."
+    return card
+
+
+def keys_card(name: str, data: Any) -> dict:
+    """Card data for a project's keys: names and set/missing only, never a value."""
+    rows = data if isinstance(data, list) else []
+    return {"project": name, "keys": [{"name": str(r.get("name", "")), "status": "set" if r.get("has_value") else "missing"}
+                                      for r in rows if isinstance(r, dict)],
+            "link": f"{link_for(name)}/settings"}
+
+
+def _version(value: Any) -> str:
+    """A version as text from a tag string or a {tag} dict."""
+    return str(value.get("tag") or "") if isinstance(value, dict) else str(value or "")
+
+
+def update_card(data: Any) -> dict:
+    """Card data for the updater: installed version, newest version, and whether an install is queued."""
+    data = data if isinstance(data, dict) else {}
+    queued = data.get("queued") is True or data.get("running") is True
+    return {"installed": _version(data.get("installed")), "newest": _version(data.get("newest") or data.get("tag")),
+            "queued": queued, "link": "#/settings?section=updates"}

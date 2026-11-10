@@ -86,7 +86,7 @@ def test_new_from_python_cli_template_runs_offline(env):
 def test_new_from_recipe_template_calls_host_with_pinned_command(env):
     create(env, template="astro-tailwind")
     host = env["host"]
-    i = next(i for i, c in enumerate(host.calls) if c[:3] == ["pnpm", "create", "astro@5.1.1"])
+    i = next(i for i, c in enumerate(host.calls) if c[:3] == ["pnpm", "create", "astro@5.1.0"])
     assert host.cwds[i] == str(env["projects"] / "demo" / "code")
     assert settings.load_project(env["projects"] / "demo")["profile"] == "web"
 

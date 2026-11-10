@@ -26,6 +26,10 @@ class Unknown(Exception):
     """Raised when an approval id is not one the store has."""
 
 
+class WrongConfirm(Exception):
+    """Raised when a destructive approval comes without the exact text to type."""
+
+
 class AlreadyAnswered(Exception):
     """Raised when an approval already has an answer."""
 
@@ -37,7 +41,11 @@ class Runs:
         """Keep the store (the event log), the agent that answers and the pack whose browser inputs get checked."""
         self.store = store
         self.agent = agent
+        self.browser_fields = {t.name: t.result_fields for t in pack.browser_tools} if pack else {}
         self.browser_inputs = {t.name: t.inputs for t in pack.browser_tools} if pack else {}
+        self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
+        self.descriptions = {t.name: t.description for t in pack.server_tools} if pack else {}
+        self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
         self.history: dict[str, list] = {}
@@ -89,6 +97,7 @@ class Runs:
         pause = self.store.get_pause(pause_id)
         if pause is None or pause["kind"] != "browser":
             raise Unknown(pause_id)
+        result = limit_result(self.browser_fields.get(pause["tool"]), result)
         if not self.store.resolve_pause(pause_id, "answered", tools.quoted("the browser", result)):
             raise AlreadyAnswered(pause_id)
         thread_id = pause["thread_id"]
@@ -119,11 +128,22 @@ class Runs:
         error = tools.quoted("browser tool check", {"error": f"The inputs for {call.tool_name} were not valid: {problem}"})
         self.store.resolve_pause(pause_id, "answered", error)
 
-    async def decide(self, approval_id: str, decision: str) -> None:
+    def confirm_text(self, tool_name: str, inputs) -> str | None:
+        """The text Alex must type to approve this call, or None when the tool needs none."""
+        field = self.confirm_fields.get(tool_name)
+        if field is None or not isinstance(inputs, dict):
+            return None
+        return str(inputs.get(field, ""))
+
+    async def decide(self, approval_id: str, decision: str, confirm: str | None = None) -> None:
         """Record Alex's answer to a paused change once, log it, and resume the run when all are answered."""
         pause = self.store.get_pause(approval_id)
         if pause is None or pause["kind"] != "approval":
             raise Unknown(approval_id)
+        if decision == "approve" and pause["state"] == "pending" and pause["tool"] in self.destructive:
+            wanted = self.confirm_text(pause["tool"], pause["inputs"])
+            if not wanted or confirm != wanted:
+                raise WrongConfirm(wanted or "")
         state = "approved" if decision == "approve" else "denied"
         if not self.store.resolve_pause(approval_id, state, {"decision": decision}):
             raise AlreadyAnswered(approval_id)
@@ -191,7 +211,9 @@ class Runs:
                         pause_id = self.store.create_pause(
                             thread_id, "approval", call.tool_name, inputs, call.tool_call_id)
                         self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
-                        self._log(thread_id, wire.approval_request(pause_id, call.tool_call_id, call.tool_name, inputs))
+                        self._log(thread_id, wire.approval_request(
+                            pause_id, call.tool_call_id, call.tool_name, inputs, self.confirm_text(call.tool_name, inputs),
+                            self.descriptions.get(call.tool_name)))
                         paused = True
                     for call in item[2]:
                         self._check_browser_call(thread_id, call)
@@ -368,8 +390,12 @@ def approval_route(runs: Runs, denied):
         decision = body.get("decision") if isinstance(body, dict) else None
         if decision not in ("approve", "deny"):
             return JSONResponse({"error": "decision must be approve or deny"}, status_code=400)
+        confirm = body.get("confirm") if isinstance(body.get("confirm"), str) else None
         try:
-            await runs.decide(request.path_params["id"], decision)
+            await runs.decide(request.path_params["id"], decision, confirm)
+        except WrongConfirm:
+            return JSONResponse(
+                {"error": "this change needs the exact confirmation text typed; nothing was changed"}, status_code=400)
         except Unknown:
             return JSONResponse({"error": "no such pending approval"}, status_code=404)
         except AlreadyAnswered:
@@ -377,6 +403,16 @@ def approval_route(runs: Runs, denied):
         return JSONResponse({"accepted": True}, status_code=202)
 
     return answer
+
+
+def limit_result(fields, result):
+    """Keep only the declared keys and values of a browser result (all of it when the tool declares none)."""
+    if fields is None:
+        return result
+    if not isinstance(result, dict):
+        return {}
+    return {k: v for k, v in result.items()
+            if k in fields and isinstance(v, (str, int, float, bool, type(None))) and v in fields[k]}
 
 
 def browser_route(runs: Runs, denied):

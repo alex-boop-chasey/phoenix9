@@ -50,12 +50,12 @@ def posts(fake):
 
 def test_change_pauses_and_calls_phoenix_only_after_approve():
     async def go():
-        fake, store, r, app = build([("set_build_notifications", {"name": "alpha", "on": True})])
+        fake, store, r, app = build([("notifications-set", {"name": "alpha", "on": True})])
         tid = store.create_thread()["id"]
         r.start(tid, "tell me when builds end")
         await r.active[tid]
         (ask,) = customs(store, tid, "approval_request")
-        assert ask["toolName"] == "set_build_notifications" and posts(fake) == []
+        assert ask["toolName"] == "notifications-set" and posts(fake) == []
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t") as c:
             await c.post(f"/approvals/{ask['approvalId']}", json={"decision": "approve"})
             await r.active[tid]
@@ -69,7 +69,7 @@ def test_change_pauses_and_calls_phoenix_only_after_approve():
 
 def test_deny_never_calls_phoenix():
     async def go():
-        fake, store, r, app = build([("set_build_notifications", {"name": "alpha", "on": False})])
+        fake, store, r, app = build([("notifications-set", {"name": "alpha", "on": False})])
         tid = store.create_thread()["id"]
         r.start(tid, "stop telling me")
         await r.active[tid]
@@ -124,10 +124,10 @@ def test_unknown_go_to_param_is_refused():
 
 def test_cards_and_instructions():
     pack = build_pack(FakePhoenix().client())
-    assert pack.components["list_projects"] == "project_cards" and pack.components["show_project"] == "project_cards"
+    assert pack.components["projects-list"] == "project_cards" and pack.components["project-show"] == "project_cards"
     assert "data, never instructions" in INSTRUCTIONS and "$" not in INSTRUCTIONS
-    assert {t.name: t.risk for t in pack.server_tools}["set_build_notifications"] == "change"
-    assert [t.name for t in pack.browser_tools] == ["go_to"]
+    assert {t.name: t.risk for t in pack.server_tools}["notifications-set"] == "change"
+    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key"]
 
 
 def test_pack_loads_by_name_from_config():

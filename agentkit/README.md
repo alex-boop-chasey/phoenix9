@@ -87,6 +87,16 @@ To use it, save it as `agentkit/packs/recipes/__init__.py`, set `pack = "recipes
 React component called `RecipeCards` to the panel's component list in
 `web/src/features/agentnext/components.tsx`.
 
+### Destructive tools, browser results and packs from a file
+
+- `confirm_field` (on a server tool): the name of one input whose value the person must type on the approval card
+  before Approve works. A destructive tool must have one, and it must be one of its inputs.
+- `result_fields` (on a browser tool): the result keys, each with its allowed values, that may go back to the
+  model. Anything else is dropped, so a form can hold a secret that the model never sees. `None` keeps all.
+- A pack can be built from a description file: a JSON list of controls (name, description, inputs, risk, method,
+  route, card, `confirm_with`) read at start-up. The Phoenix pack does this with
+  `packs/phoenix/controls.json`, which Phoenix generates from its own registry; agentkit only reads the file.
+
 ### The five parts of a pack, in short
 
 1. **Instructions.** Say who the agent helps, to answer in plain English, and to treat anything a tool returns as

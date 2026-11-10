@@ -1,4 +1,6 @@
 // The approval card, the go_to page move and the suggestion chips; all drawn from typed data, never from markup.
+import { useState } from "react"
+
 import { Button } from "@/components/ui/button"
 import { findRoute, routeHash } from "@/lib/routes"
 import type { ApprovalItem } from "./runtime"
@@ -6,7 +8,7 @@ import type { ApprovalItem } from "./runtime"
 /** One follow-up the agent offered: a message to send or a link to open. */
 export interface Suggestion { label: string; message?: string; link?: string }
 
-const TOOL_NAMES: Record<string, string> = { set_build_notifications: "Change build notifications" }
+const TOOL_NAMES: Record<string, string> = { "notifications-set": "Change build notifications" }
 
 function plainName(tool: string): string {
   return TOOL_NAMES[tool] ?? tool
@@ -24,14 +26,20 @@ function changeLines(item: ApprovalItem): { label: string; value: string }[] {
   return Object.entries(input).map(([label, value]) => ({ label: label.replace(/_/g, " "), value: words(value) }))
 }
 
-/** A change waiting for Alex: what it will do, with Approve and Deny, then the decision. */
-export function ApprovalCard({ item, onDecide }: { item: ApprovalItem; onDecide: (d: "approve" | "deny") => void }) {
+/** A change waiting for Alex: what it does and the exact inputs, with Approve (typed check if destructive) and Deny. */
+export function ApprovalCard({ item, onDecide }: {
+  item: ApprovalItem; onDecide: (d: "approve" | "deny", confirm?: string) => void
+}) {
+  const [typed, setTyped] = useState("")
   const input = (item.input ?? {}) as Record<string, unknown>
-  const notify = item.toolName === "set_build_notifications" && typeof input.name === "string" && typeof input.on === "boolean"
+  const notify = item.toolName === "notifications-set" && typeof input.name === "string" && typeof input.on === "boolean"
+  const needsText = typeof item.confirmText === "string" && item.confirmText !== ""
+  const allowed = !needsText || typed === item.confirmText
   return (
     <section className="card" aria-label="Approval needed" data-testid="approval-card">
       <h3>The agent wants to make a change</h3>
       <p><strong>{plainName(item.toolName)}</strong></p>
+      {item.description ? <p data-testid="approval-description">{item.description}</p> : null}
       {notify ? (
         <p data-testid="approval-change">Build notifications for {String(input.name)}: {input.on ? "off → on" : "on → off"}</p>
       ) : (
@@ -42,10 +50,20 @@ export function ApprovalCard({ item, onDecide }: { item: ApprovalItem; onDecide:
         </dl>
       )}
       {item.decision === "pending" ? (
-        <div className="flex gap-2">
-          <Button variant="primary" onClick={() => onDecide("approve")}>Approve</Button>
-          <Button variant="secondary" onClick={() => onDecide("deny")}>Deny</Button>
-        </div>
+        <>
+          {needsText ? (
+            <label className="block">
+              Type {item.confirmText} to confirm
+              <input className="block border rounded px-2 py-1" value={typed} autoComplete="off"
+                onChange={(e) => setTyped(e.target.value)} />
+            </label>
+          ) : null}
+          <div className="flex gap-2">
+            <Button variant="primary" disabled={!allowed}
+              onClick={() => onDecide("approve", needsText ? typed : undefined)}>Approve</Button>
+            <Button variant="secondary" onClick={() => onDecide("deny")}>Deny</Button>
+          </div>
+        </>
       ) : (
         <p>{item.decision === "approve" ? "Approved." : "Denied."}</p>
       )}

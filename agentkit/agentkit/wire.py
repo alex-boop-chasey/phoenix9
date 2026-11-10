@@ -92,9 +92,14 @@ def to_sse(event: dict, number: int) -> str:
     return f"id: {number}\ndata: {json.dumps(event, separators=(',', ':'))}\n\n"
 
 
-def approval_request(approval_id: str, call_id: str, tool_name: str, inputs) -> dict:
-    """The CUSTOM event asking Alex to approve a change: its id, the tool and the exact inputs."""
+def approval_request(approval_id: str, call_id: str, tool_name: str, inputs, confirm_text: str | None = None,
+                     description: str | None = None) -> dict:
+    """The CUSTOM event asking Alex to approve a change: its id, the tool, its plain description, the exact inputs and any text to type."""
     value = {"approvalId": approval_id, "toolCallId": call_id, "toolName": tool_name, "input": inputs}
+    if description:
+        value["description"] = description
+    if confirm_text is not None:
+        value["confirm_text"] = confirm_text
     return _dump(CustomEvent(name="approval_request", value=value, timestamp=_now()))
 
 

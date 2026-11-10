@@ -87,6 +87,7 @@ def set_key(project: str, name: str, value: str, secret: bool = True) -> None:
     if "\n" in value or "\r" in value:
         raise KeyError_(f"The value for {name} has a line break, which an env file cannot hold.")
     _put(project, name, value, secret)
+    scrub.add_secrets([value])   # from now on every log and agent reply masks it
     _changed(project, "key set", name)
 
 

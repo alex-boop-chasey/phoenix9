@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
-import { MiniProjectCard, ProjectCards, ToolCall } from "./components"
+import { BuildCard, MiniProjectCard, RunCard, TaskListCard, ProjectCards, ToolCall } from "./components"
 
 const alpha = { name: "alpha", status: "idle", last_used: "2026-01-02", link: "#/p/alpha" }
 const beta = { name: "beta", status: "run", last_used: "2026-11-09", link: "#/p/beta" }
@@ -52,4 +52,49 @@ test("HTML in model text stays plain text", () => {
   expect(container.querySelector("img, b, script")).toBeNull()
   expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument()
   expect(screen.getByText("<b>bold</b>")).toBeInTheDocument()
+})
+
+const build = { project: "alpha", run_id: "r1", status: "running", started: "2026-11-10 09:00", link: "#/p/alpha/build" }
+const run = { run_id: "r1", title: "First build", status: "running", current_step: "build", tasks_done: 1, tasks_total: 3, link: "#/p/alpha/build" }
+const tasks = [{ number: 1, title: "One", status: "passed" }, { number: 2, title: "Two", status: "pending" }]
+
+test("a build card shows project, run, status and started, and a click opens it", async () => {
+  render(<BuildCard build={build} />)
+  expect(screen.getByText(/Build r1: running/)).toBeInTheDocument()
+  expect(screen.getByText(/2026-11-10 09:00/)).toBeInTheDocument()
+  await userEvent.click(screen.getByTestId("build-card"))
+  expect(window.location.hash).toBe("#/p/alpha/build")
+})
+
+test("a run card shows title, status, step and tasks done of total", () => {
+  render(<RunCard run={run} />)
+  expect(screen.getByText("First build")).toBeInTheDocument()
+  expect(screen.getByText(/Now: build/)).toBeInTheDocument()
+  expect(screen.getByText(/1 of 3 tasks done/)).toBeInTheDocument()
+})
+
+test("a task list shows each task's number, title and status", () => {
+  render(<TaskListCard tasks={tasks} />)
+  expect(screen.getByText("Task 2: Two - pending")).toBeInTheDocument()
+})
+
+test("tool results draw the build, run and task cards by registry name", () => {
+  const call = (component: string, data: unknown) => ({ toolCallId: "c", toolName: "t", running: false, component, data })
+  const { rerender } = render(<ToolCall call={call("run_card", { build })} />)
+  expect(screen.getByTestId("build-card")).toBeInTheDocument()
+  rerender(<ToolCall call={call("run_card", { run, tasks })} />)
+  expect(screen.getByTestId("run-card")).toBeInTheDocument()
+  expect(screen.getByTestId("task-list-card")).toBeInTheDocument()
+  rerender(<ToolCall call={call("RunCards", { runs: [run, { ...run, run_id: "r2" }] })} />)
+  expect(screen.getAllByTestId("run-card")).toHaveLength(2)
+  rerender(<ToolCall call={call("TaskListCard", { tasks })} />)
+  expect(screen.getByTestId("task-list-card")).toBeInTheDocument()
+})
+
+test("card data that does not fit shows the fallback", () => {
+  for (const [component, data] of [["BuildCard", { build: { project: 3 } }], ["run_card", { run: "x" }], ["RunCards", { runs: [{}] }], ["TaskListCard", { tasks: [{ number: "1" }] }]] as const) {
+    const { unmount } = render(<ToolCall call={{ toolCallId: "c", toolName: "t", running: false, component, data }} />)
+    expect(screen.getByTestId("card-fallback")).toBeInTheDocument()
+    unmount()
+  }
 })

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, create_model
 
 from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
-from agentkit.packs.phoenix.tools import project_card, run_card
+from agentkit.packs.phoenix.tools import build_card, project_card, run_card, task_list
 
 CONTROLS_FILE = Path(__file__).with_name("controls.json")
 PLAIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -76,8 +76,12 @@ def _card_data(entry: dict, data: Any, values: dict) -> dict:
         return {"project": project_card(data)}
     if entry["name"] == "builds-list":
         return {"project": project, "runs": [run_card(project, r) for r in data]}
+    if not project and isinstance(data, dict):
+        project = str(data.get("project") or "")
+    if entry["name"] == "run-show" and isinstance(data, dict):
+        return {"run": run_card(project, data), "tasks": task_list(data), "result": data}
     if card == "run_card" and isinstance(data, dict):
-        return {"run": run_card(project, data), "result": data}
+        return {"build": build_card(project, data), "result": data}
     return {"result": data}
 
 

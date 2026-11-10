@@ -118,3 +118,31 @@ def test_cards_use_the_pack_card_names():
     pack = build_pack(FakePhoenix().client())
     assert pack.components["builds-list"] == "RunCards" and pack.components["projects-list"] == "project_cards"
     assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key"]
+
+
+def test_build_tools_return_build_card_data():
+    fake, made = tools()
+    out = made["build-start"].function(name="alpha")
+    assert set(out["build"]) == {"project", "run_id", "status", "started", "link"}
+    assert out["build"]["project"] == "alpha" and out["build"]["link"] == "#/p/alpha/build"
+    paused = made["build-pause"].function(run_id="20261109-1")
+    assert paused["build"]["run_id"] == "20261109-1"
+
+
+def test_run_show_returns_run_and_task_list_card_data():
+    from agentkit.packs.phoenix.tools import run_card, task_list
+    state = {"run_id": "r1", "status": "running", "created": "2026-11-10 09:00", "current": {"step": "build"},
+             "tasks": {"2": {"title": "Two", "status": "pending"}, "1": {"title": "One", "status": "passed"}}}
+    card = run_card("alpha", {**state, "title": "T"})
+    assert card["current_step"] == "build" and (card["tasks_done"], card["tasks_total"]) == (1, 2)
+    assert card["started"] == "2026-11-10 09:00" and card["link"] == "#/p/alpha/build"
+    assert task_list(state) == [{"number": 1, "title": "One", "status": "passed"},
+                                {"number": 2, "title": "Two", "status": "pending"}]
+    assert task_list({}) == []
+
+
+def test_builds_list_rows_carry_progress_and_no_dollars():
+    from agentkit.packs.phoenix.tools import run_card
+    card = run_card("alpha", {"run_id": "r", "status": "done", "tasks_total": 4, "tasks_passed": 3, "cost": "$1.00"})
+    assert (card["tasks_done"], card["tasks_total"]) == (3, 4)
+    assert "$" not in json.dumps(card)

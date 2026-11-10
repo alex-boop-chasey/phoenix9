@@ -22,15 +22,53 @@ def project_card(row: dict) -> dict:
     }
 
 
+def _task_rows(row: dict) -> list[dict]:
+    """The tasks of a run as [{number, title, status}], from a state's task map (empty when it has none)."""
+    tasks = row.get("tasks")
+    if not isinstance(tasks, dict):
+        return []
+    out = []
+    for key, task in tasks.items():
+        task = task if isinstance(task, dict) else {}
+        out.append({"number": int(key) if str(key).isdigit() else 0, "title": str(task.get("title") or ""),
+                    "status": str(task.get("status") or "")})
+    return sorted(out, key=lambda t: t["number"])
+
+
 def run_card(name: str, row: dict) -> dict:
-    """Card data for one build run: id, title, status, when and link hash."""
+    """Card data for one build run: id, title, status, current step, tasks done of total, when and link hash."""
+    rows = _task_rows(row)
+    current = row.get("current") if isinstance(row.get("current"), dict) else {}
+    done = row.get("tasks_passed") if rows == [] else sum(1 for t in rows if t["status"] == "passed")
+    total = row.get("tasks_total") if rows == [] else len(rows)
+    step = current.get("step") or row.get("step") or ""
     return {
         "run_id": row.get("run_id", ""),
         "title": row.get("title") or "",
         "status": row.get("status") or "",
-        "last_used": row.get("finished") or row.get("started") or "",
+        "current_step": str(step),
+        "tasks_done": done if isinstance(done, int) else 0,
+        "tasks_total": total if isinstance(total, int) else 0,
+        "started": row.get("started") or row.get("created") or "",
+        "last_used": row.get("finished") or row.get("started") or row.get("created") or "",
         "link": f"{link_for(name)}/build",
     }
+
+
+def build_card(name: str, row: dict) -> dict:
+    """Card data for a build you started or changed: project, run id, status, started and link hash."""
+    return {
+        "project": name,
+        "run_id": row.get("run_id", ""),
+        "status": row.get("status") or "",
+        "started": row.get("started") or row.get("created") or "",
+        "link": f"{link_for(name)}/build",
+    }
+
+
+def task_list(row: dict) -> list[dict]:
+    """Card data for a run's task list: number, title and status per task."""
+    return _task_rows(row)
 
 
 def route_table(client: PhoenixClient) -> dict[str, list[str]]:

@@ -50,6 +50,74 @@ export function ProjectCards({ projects, onOpen }: { projects: ProjectCardData[]
   )
 }
 
+/** Card data for a build that was started or changed. */
+export interface BuildCardData { project: string; run_id: string; status: string; started: string; link?: string }
+/** Card data for one run. */
+export interface RunCardData { run_id: string; title: string; status: string; current_step: string; tasks_done: number; tasks_total: number; link?: string }
+/** One task of a run. */
+export interface TaskRow { number: number; title: string; status: string }
+
+function isObject(v: unknown): v is Record<string, unknown> { return !!v && typeof v === "object" && !Array.isArray(v) }
+function count(v: unknown): number { return typeof v === "number" && Number.isFinite(v) ? v : 0 }
+
+/** The build card data when it fits (project and run id are text), else null. */
+export function buildFrom(data: unknown): BuildCardData | null {
+  const b = isObject(data) ? data.build : null
+  if (!isObject(b) || !isText(b.project) || !isText(b.run_id)) return null
+  return { project: b.project, run_id: b.run_id, status: isText(b.status) ? b.status : "", started: isText(b.started) ? b.started : "", link: isText(b.link) ? b.link : undefined }
+}
+
+/** One run's card data when it fits (a run id is text), else null. */
+export function runFrom(r: unknown): RunCardData | null {
+  if (!isObject(r) || !isText(r.run_id)) return null
+  const t = (v: unknown) => (isText(v) ? v : "")
+  return { run_id: r.run_id, title: t(r.title), status: t(r.status), current_step: t(r.current_step), tasks_done: count(r.tasks_done), tasks_total: count(r.tasks_total), link: isText(r.link) ? r.link : undefined }
+}
+
+/** The task rows when every one fits (a number and a title), else null. */
+export function tasksFrom(data: unknown): TaskRow[] | null {
+  const list = isObject(data) ? data.tasks : null
+  if (!Array.isArray(list)) return null
+  const out: TaskRow[] = []
+  for (const t of list) {
+    if (!isObject(t) || typeof t.number !== "number" || !isText(t.title)) return null
+    out.push({ number: t.number, title: t.title, status: isText(t.status) ? t.status : "" })
+  }
+  return out
+}
+
+/** A build that was started or changed: project, run, status, started; a click opens it. */
+export function BuildCard({ build }: { build: BuildCardData }) {
+  return (
+    <button type="button" className="card w-full text-left" data-testid="build-card" onClick={() => openHash(build.link || `#/p/${build.project}/build`)}>
+      <strong>{build.project}</strong>
+      <span className="block text-sm">Build {build.run_id}: {build.status || "unknown"}</span>
+      <span className="block text-xs text-muted-foreground">Started: {build.started || "not yet"}</span>
+    </button>
+  )
+}
+
+/** One run: title, status, current step, tasks done of total; a click opens it. */
+export function RunCard({ run }: { run: RunCardData }) {
+  return (
+    <button type="button" className="card w-full text-left" data-testid="run-card" onClick={() => run.link && openHash(run.link)}>
+      <strong>{run.title || run.run_id}</strong>
+      <span className="block text-sm">{run.status || "unknown"}</span>
+      {run.current_step ? <span className="block text-xs">Now: {run.current_step}</span> : null}
+      <span className="block text-xs text-muted-foreground">{run.tasks_done} of {run.tasks_total} tasks done</span>
+    </button>
+  )
+}
+
+/** A run's tasks: number, title and status each. */
+export function TaskListCard({ tasks }: { tasks: TaskRow[] }) {
+  return (
+    <ol className="flex flex-col gap-1" aria-label="Tasks" data-testid="task-list-card">
+      {tasks.map((t) => <li key={t.number}>Task {t.number}: {t.title} - {t.status || "unknown"}</li>)}
+    </ol>
+  )
+}
+
 /** What shows when a card's data does not fit its shape. */
 function Fallback({ tool }: { tool: string }) {
   return <p data-testid="card-fallback">Used {tool}, but the result could not be shown.</p>
@@ -61,6 +129,28 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
     const projects = projectsFrom(data)
     return projects ? <ProjectCards projects={projects} onOpen={onOpen} /> : <Fallback tool={tool} />
   },
+  BuildCard: ({ data, tool }) => {
+    const build = buildFrom(data)
+    return build ? <BuildCard build={build} /> : <Fallback tool={tool} />
+  },
+  RunCard: ({ data, tool }) => {
+    const run = runFrom(isObject(data) ? data.run : null)
+    const tasks = tasksFrom(data)
+    if (!run) return <Fallback tool={tool} />
+    return <div className="flex flex-col gap-2"><RunCard run={run} />{tasks && tasks.length ? <TaskListCard tasks={tasks} /> : null}</div>
+  },
+  RunCards: ({ data, tool }) => {
+    const list = isObject(data) ? data.runs : null
+    const runs = Array.isArray(list) ? list.map(runFrom) : null
+    if (!runs || runs.some((r) => !r)) return <Fallback tool={tool} />
+    return <section className="flex flex-col gap-2" aria-label="Builds" data-testid="run-cards">{runs.map((r) => <RunCard key={r!.run_id} run={r!} />)}</section>
+  },
+  TaskListCard: ({ data, tool }) => {
+    const tasks = tasksFrom(data)
+    return tasks ? <TaskListCard tasks={tasks} /> : <Fallback tool={tool} />
+  },
+  run_card: (props) => (buildFrom(props.data) ? COMPONENTS.BuildCard!(props) : COMPONENTS.RunCard!(props)),
+  task_list_card: (props) => COMPONENTS.TaskListCard!(props),
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)
     return ask && callId ? <KeyInputCard ask={ask} callId={callId} /> : <Fallback tool={tool} />

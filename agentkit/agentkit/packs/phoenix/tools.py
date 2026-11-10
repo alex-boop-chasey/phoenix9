@@ -1,4 +1,6 @@
 """The Phoenix pack's card helpers (project and run cards) and the go_to tool's page checks."""
+from typing import Any
+
 from pydantic import BaseModel, Field, model_validator
 
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
@@ -125,3 +127,49 @@ def ask_for_key_inputs() -> type[BaseModel]:
         why: str = Field(max_length=200, description="One short sentence saying why the key is needed.")
 
     return AskForKey
+
+
+def _flat(values: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    """Nested settings as (dotted name, value) pairs."""
+    if not isinstance(values, dict):
+        return [(prefix, values)]
+    out: list[tuple[str, Any]] = []
+    for key, value in values.items():
+        out += _flat(value, f"{prefix}.{key}" if prefix else str(key))
+    return out
+
+
+def settings_card(name: str, data: Any, check: bool = False) -> dict:
+    """Card data for settings: name/value rows, the plain explanation if given, and problems only if the answer lists them."""
+    data = data if isinstance(data, dict) else {}
+    rows = [{"name": k, "value": "" if v is None else str(v)} for k, v in _flat(data.get("values", {}))] \
+        if isinstance(data.get("values"), dict) else []
+    card: dict = {"project": name or str(data.get("project") or ""), "rows": rows,
+                  "explanation": str(data.get("text") or ""), "link": f"{link_for(name)}/settings"}
+    if isinstance(data.get("problems"), list):
+        card["problems"] = [str(p) for p in data["problems"]]
+        card["note"] = "Check: fine." if not card["problems"] else "Check: problems found."
+    elif check:
+        card["note"] = "The check result is not known."
+    return card
+
+
+def keys_card(name: str, data: Any) -> dict:
+    """Card data for a project's keys: names and set/missing only, never a value."""
+    rows = data if isinstance(data, list) else []
+    return {"project": name, "keys": [{"name": str(r.get("name", "")), "status": "set" if r.get("has_value") else "missing"}
+                                      for r in rows if isinstance(r, dict)],
+            "link": f"{link_for(name)}/settings"}
+
+
+def _version(value: Any) -> str:
+    """A version as text from a tag string or a {tag} dict."""
+    return str(value.get("tag") or "") if isinstance(value, dict) else str(value or "")
+
+
+def update_card(data: Any) -> dict:
+    """Card data for the updater: installed version, newest version, and whether an install is queued."""
+    data = data if isinstance(data, dict) else {}
+    queued = data.get("queued") is True or data.get("running") is True
+    return {"installed": _version(data.get("installed")), "newest": _version(data.get("newest") or data.get("tag")),
+            "queued": queued, "link": "#/settings?section=updates"}

@@ -146,3 +146,41 @@ def test_builds_list_rows_carry_progress_and_no_dollars():
     card = run_card("alpha", {"run_id": "r", "status": "done", "tasks_total": 4, "tasks_passed": 3, "cost": "$1.00"})
     assert (card["tasks_done"], card["tasks_total"]) == (3, 4)
     assert "$" not in json.dumps(card)
+
+
+def test_settings_check_does_not_claim_fine_without_a_problems_list():
+    from agentkit.packs.phoenix.tools import settings_card
+    real_reply = {"project": "alpha", "values": {"steps": {"notify": {"on": True}}}, "source": {}}
+    card = settings_card("alpha", real_reply, check=True)
+    assert "fine" not in json.dumps(card).lower() and "not known" in card["note"]
+    assert card["rows"] == [{"name": "steps.notify.on", "value": "True"}]
+    _fake, made = tools()
+    out = made["settings-check"].function(name="alpha")
+    assert "fine" not in json.dumps(out).lower()
+    assert settings_card("alpha", {"ok": True, "problems": []}, check=True)["note"] == "Check: fine."
+    found = settings_card("alpha", {"ok": False, "problems": ["bad model"]}, check=True)
+    assert found["problems"] == ["bad model"] and "fine" not in found["note"].lower()
+
+
+def test_settings_card_has_rows_explanation_and_link():
+    from agentkit.packs.phoenix.tools import settings_card
+    card = settings_card("alpha", {"project": "alpha", "text": "Builds use one model."})
+    assert card["explanation"] == "Builds use one model." and card["link"] == "#/p/alpha/settings"
+
+
+def test_key_names_card_has_names_and_status_but_never_a_value():
+    from agentkit.packs.phoenix.tools import keys_card
+    rows = [{"name": "STRIPE_KEY", "secret": True, "has_value": True, "value_if_not_secret": None},
+            {"name": "SITE_URL", "secret": False, "has_value": True, "value_if_not_secret": "https://x.test"},
+            {"name": "EMPTY", "secret": True, "has_value": False, "value_if_not_secret": None}]
+    card = keys_card("alpha", rows)
+    assert card["keys"] == [{"name": "STRIPE_KEY", "status": "set"}, {"name": "SITE_URL", "status": "set"},
+                            {"name": "EMPTY", "status": "missing"}]
+    assert "https://x.test" not in json.dumps(card)
+
+
+def test_update_card_has_versions_and_queue_state():
+    from agentkit.packs.phoenix.tools import update_card
+    status = {"installed": {"tag": "v1"}, "newest": "v2", "running": False, "log_tail": "secret-ish"}
+    assert update_card(status) == {"installed": "v1", "newest": "v2", "queued": False, "link": "#/settings?section=updates"}
+    assert update_card({"ok": True, "queued": True, "tag": "v2"})["queued"] is True

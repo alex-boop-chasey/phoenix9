@@ -118,6 +118,78 @@ export function TaskListCard({ tasks }: { tasks: TaskRow[] }) {
   )
 }
 
+/** Card data for settings: name/value rows, a plain explanation and a link to the settings page. */
+export interface SettingsCardData { project: string; rows: { name: string; value: string }[]; explanation: string; note: string; problems: string[]; link?: string }
+/** Card data for key names: names and status only. */
+export interface KeyNamesCardData { project: string; keys: { name: string; status: string }[]; link?: string }
+/** Card data for the updater. */
+export interface UpdateCardData { installed: string; newest: string; queued: boolean; link?: string }
+
+/** Settings card data when it fits (a project name and a list of rows), else null. */
+export function settingsFrom(data: unknown): SettingsCardData | null {
+  if (!isObject(data) || !isText(data.project) || !Array.isArray(data.rows)) return null
+  const rows: { name: string; value: string }[] = []
+  for (const r of data.rows) {
+    if (!isObject(r) || !isText(r.name)) return null
+    rows.push({ name: r.name, value: isText(r.value) ? r.value : "" })
+  }
+  const problems = Array.isArray(data.problems) ? data.problems.filter(isText) : []
+  return { project: data.project, rows, explanation: isText(data.explanation) ? data.explanation : "", note: isText(data.note) ? data.note : "", problems, link: isText(data.link) ? data.link : undefined }
+}
+
+/** Key names card data; only the name and a set/missing status are read, so no other field can be drawn. */
+export function keyNamesFrom(data: unknown): KeyNamesCardData | null {
+  if (!isObject(data) || !isText(data.project) || !Array.isArray(data.keys)) return null
+  const keys: { name: string; status: string }[] = []
+  for (const k of data.keys) {
+    if (!isObject(k) || !isText(k.name)) return null
+    keys.push({ name: k.name, status: k.status === "set" ? "set" : "missing" })
+  }
+  return { project: data.project, keys, link: isText(data.link) ? data.link : undefined }
+}
+
+/** Update card data when it fits (versions are text), else null. */
+export function updateFrom(data: unknown): UpdateCardData | null {
+  if (!isObject(data) || !isText(data.installed) || !isText(data.newest)) return null
+  return { installed: data.installed, newest: data.newest, queued: data.queued === true, link: isText(data.link) ? data.link : undefined }
+}
+
+/** A project's settings: each name and value, the plain explanation and a link to the settings page. */
+export function SettingsCard({ settings }: { settings: SettingsCardData }) {
+  return (
+    <section className="card flex flex-col gap-1" aria-label="Settings" data-testid="settings-card">
+      <strong>Settings for {settings.project}</strong>
+      {settings.note ? <span className="block text-sm">{settings.note}</span> : null}
+      {settings.problems.map((p, i) => <span key={i} className="block text-sm">{p}</span>)}
+      <ul>{settings.rows.map((r) => <li key={r.name}>{r.name}: {r.value}</li>)}</ul>
+      {settings.explanation ? <p className="text-sm">{settings.explanation}</p> : null}
+      <a className="text-xs underline" href={settings.link || `#/p/${settings.project}/settings`}>Open the settings page</a>
+    </section>
+  )
+}
+
+/** A project's key names and whether each is set or missing; never a value. */
+export function KeyNamesCard({ keys }: { keys: KeyNamesCardData }) {
+  return (
+    <section className="card flex flex-col gap-1" aria-label="Keys" data-testid="key-names-card">
+      <strong>Keys for {keys.project}</strong>
+      {keys.keys.length ? <ul>{keys.keys.map((k) => <li key={k.name}>{k.name}: {k.status}</li>)}</ul> : <span className="text-sm">No keys yet.</span>}
+    </section>
+  )
+}
+
+/** The updater: installed version, newest version and whether an install is queued. */
+export function UpdateCard({ update }: { update: UpdateCardData }) {
+  return (
+    <section className="card flex flex-col gap-1" aria-label="Update" data-testid="update-card">
+      <span className="block text-sm">Installed: {update.installed || "unknown"}</span>
+      <span className="block text-sm">Newest: {update.newest || "unknown"}</span>
+      <span className="block text-xs">{update.queued ? "An install is queued." : "No install is queued."}</span>
+      <a className="text-xs underline" href={update.link || "#/settings?section=updates"}>Open the updates page</a>
+    </section>
+  )
+}
+
 /** What shows when a card's data does not fit its shape. */
 function Fallback({ tool }: { tool: string }) {
   return <p data-testid="card-fallback">Used {tool}, but the result could not be shown.</p>
@@ -151,6 +223,21 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   },
   run_card: (props) => (buildFrom(props.data) ? COMPONENTS.BuildCard!(props) : COMPONENTS.RunCard!(props)),
   task_list_card: (props) => COMPONENTS.TaskListCard!(props),
+  settings_card: ({ data, tool }) => {
+    const settings = settingsFrom(data)
+    return settings ? <SettingsCard settings={settings} /> : <Fallback tool={tool} />
+  },
+  SettingsCard: (props) => COMPONENTS.settings_card!(props),
+  keys_card: ({ data, tool }) => {
+    const keys = keyNamesFrom(data)
+    return keys ? <KeyNamesCard keys={keys} /> : <Fallback tool={tool} />
+  },
+  KeyNamesCard: (props) => COMPONENTS.keys_card!(props),
+  update_card: ({ data, tool }) => {
+    const update = updateFrom(data)
+    return update ? <UpdateCard update={update} /> : <Fallback tool={tool} />
+  },
+  UpdateCard: (props) => COMPONENTS.update_card!(props),
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)
     return ask && callId ? <KeyInputCard ask={ask} callId={callId} /> : <Fallback tool={tool} />

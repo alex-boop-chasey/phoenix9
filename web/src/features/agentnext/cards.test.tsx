@@ -98,3 +98,38 @@ test("card data that does not fit shows the fallback", () => {
     unmount()
   }
 })
+
+const call2 = (component: string, data: unknown) => ({ toolCallId: "c", toolName: "t", running: false, component, data })
+
+test("a settings card shows name, value, explanation and a link to the settings page", () => {
+  const data = { project: "alpha", rows: [{ name: "steps.notify.on", value: "True" }], explanation: "Builds tell you.", note: "", problems: [], link: "#/p/alpha/settings" }
+  render(<ToolCall call={call2("settings_card", data)} />)
+  expect(screen.getByText("steps.notify.on: True")).toBeInTheDocument()
+  expect(screen.getByText("Builds tell you.")).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: /settings page/ })).toHaveAttribute("href", "#/p/alpha/settings")
+})
+
+test("a key names card shows names and status, and draws no value", () => {
+  const data = { project: "alpha", keys: [{ name: "STRIPE_KEY", status: "set", value: "sk-live-123", value_if_not_secret: "sk-live-123" }, { name: "EMPTY", status: "missing" }] }
+  const { container } = render(<ToolCall call={call2("KeyNamesCard", data)} />)
+  expect(screen.getByText("STRIPE_KEY: set")).toBeInTheDocument()
+  expect(screen.getByText("EMPTY: missing")).toBeInTheDocument()
+  expect(container.textContent).not.toContain("sk-live-123")
+})
+
+test("an update card shows installed, newest and whether an install is queued", () => {
+  const { rerender } = render(<ToolCall call={call2("update_card", { installed: "v1", newest: "v2", queued: false })} />)
+  expect(screen.getByText("Installed: v1")).toBeInTheDocument()
+  expect(screen.getByText("Newest: v2")).toBeInTheDocument()
+  expect(screen.getByText("No install is queued.")).toBeInTheDocument()
+  rerender(<ToolCall call={call2("UpdateCard", { installed: "v1", newest: "v2", queued: true })} />)
+  expect(screen.getByText("An install is queued.")).toBeInTheDocument()
+})
+
+test("settings, key and update data that does not fit shows the fallback", () => {
+  for (const [component, data] of [["SettingsCard", { project: "a" }], ["KeyNamesCard", { project: "a", keys: [{}] }], ["UpdateCard", { installed: 1 }]] as const) {
+    const { unmount } = render(<ToolCall call={call2(component, data)} />)
+    expect(screen.getByTestId("card-fallback")).toBeInTheDocument()
+    unmount()
+  }
+})

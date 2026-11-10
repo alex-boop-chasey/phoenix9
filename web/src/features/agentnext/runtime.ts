@@ -19,7 +19,7 @@ export interface ApprovalItem { approvalId: string; toolName: string; input: unk
 export type BrowserAnswer = Record<string, unknown>
 
 /** The things beside the text that the page draws. */
-export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[] }
+export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[]; suggestions?: unknown }
 
 type Frame = { number: number; event: Record<string, any> }
 type Wait = Promise<void>
@@ -162,7 +162,7 @@ export class AgentNextAgent extends AbstractAgent {
   private async drive(input: RunAgentInput, sub: Subscriber<BaseEvent>) {
     const last = [...input.messages].reverse().find((m) => m.role === "user")
     const text = typeof last?.content === "string" ? last.content : ""
-    this.setSide({ ...this.side, running: true })
+    this.setSide({ ...this.side, running: true, suggestions: undefined })
     try {
       const id = await this.ensureThread()
       this.seen = 0
@@ -209,6 +209,8 @@ export class AgentNextAgent extends AbstractAgent {
       const card = value as CardItem
       const calls = (this.side.calls ?? []).map((c) => (c.toolCallId === card.toolCallId ? { ...c, running: false, component: card.component, data: card.data } : c))
       this.setSide({ ...this.side, cards: [...this.side.cards, card], calls })
+    } else if (name === "suggestions") {
+      this.setSide({ ...this.side, suggestions: (value as { actions?: unknown })?.actions })
     } else if (name === "approval_request") {
       const item: ApprovalItem = { approvalId: value.approvalId, toolName: value.toolName, input: value.input, decision: "pending" }
       this.setSide({ ...this.side, approvals: [...this.side.approvals, item] })

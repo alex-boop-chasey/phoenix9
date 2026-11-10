@@ -4,7 +4,9 @@ import asyncio
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 
-from . import llm, wire
+from pydantic import ValidationError
+
+from . import llm, tools, wire
 from .store import Store
 
 BUSY = "A reply is already being written in this chat. Wait for it to finish or stop it first."
@@ -30,10 +32,12 @@ class AlreadyAnswered(Exception):
 class Runs:
     """Starts and tracks runs; each one logs every AG-UI event to its thread through wire.py."""
 
-    def __init__(self, store: Store, agent):
-        """Keep the store (the event log) and the agent that answers."""
+    def __init__(self, store: Store, agent, pack=None):
+        """Keep the store (the event log), the agent that answers and the pack whose browser inputs get checked."""
         self.store = store
         self.agent = agent
+        self.browser_inputs = {t.name: t.inputs for t in pack.browser_tools} if pack else {}
+        self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
         self.history: dict[str, list] = {}
 
@@ -60,7 +64,58 @@ class Runs:
         """Run a turn as a background task, tracked as the thread's active run."""
         task = asyncio.create_task(self._drive(thread_id, run_id, message, results))
         self.active[thread_id] = task
-        task.add_done_callback(lambda _t: self.active.pop(thread_id, None))
+        task.add_done_callback(lambda _t: self._finished(thread_id))
+
+    def _finished(self, thread_id: str) -> None:
+        """Forget the ended run; carry on at once if every call it left behind already has an answer."""
+        self.active.pop(thread_id, None)
+        if thread_id in self.ready:
+            self.ready.discard(thread_id)
+            if not self.store.pending_pauses(thread_id):
+                self._resume(thread_id)
+
+    def _resume(self, thread_id: str) -> None:
+        """Start the follow-up run with every answer and decision collected for the thread."""
+        approvals = {
+            p["call_id"]: (True if p["state"] == "approved" else llm.refusal(REFUSED))
+            for p in self.store.take_decided(thread_id, "approval")}
+        calls = {p["call_id"]: p["result"] for p in self.store.take_decided(thread_id, "browser")}
+        self._launch(thread_id, wire.new_id(), None, llm.resume_results(calls, approvals))
+
+    async def browser_result(self, pause_id: str, result) -> None:
+        """Record the browser's answer to a paused tool call once, log it, and resume when all are answered."""
+        pause = self.store.get_pause(pause_id)
+        if pause is None or pause["kind"] != "browser":
+            raise Unknown(pause_id)
+        if not self.store.resolve_pause(pause_id, "answered", tools.quoted("the browser", result)):
+            raise AlreadyAnswered(pause_id)
+        thread_id = pause["thread_id"]
+        if (task := self.active.get(thread_id)) is not None:
+            await asyncio.gather(task, return_exceptions=True)  # the run is still winding down
+        if self.store.pending_pauses(thread_id) or thread_id in self.active:
+            return
+        self._resume(thread_id)
+
+    def _check_browser_call(self, thread_id: str, call) -> None:
+        """Check a browser call's inputs; pause for the browser if good, else answer the model with the error."""
+        inputs = call.args_as_dict()
+        model = self.browser_inputs.get(call.tool_name)
+        problem = None
+        if model is not None:
+            try:
+                model(**inputs)
+            except ValidationError as err:
+                problem = "; ".join(
+                    f"{'.'.join(str(x) for x in e['loc']) or 'input'}: {e['msg']}" for e in err.errors())
+            except TypeError:
+                problem = "the inputs must be an object"
+        self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
+        pause_id = self.store.create_pause(thread_id, "browser", call.tool_name, inputs, call.tool_call_id)
+        if problem is None:
+            self._log(thread_id, wire.browser_tool(pause_id, call.tool_call_id, call.tool_name, inputs))
+            return
+        error = tools.quoted("browser tool check", {"error": f"The inputs for {call.tool_name} were not valid: {problem}"})
+        self.store.resolve_pause(pause_id, "answered", error)
 
     async def decide(self, approval_id: str, decision: str) -> None:
         """Record Alex's answer to a paused change once, log it, and resume the run when all are answered."""
@@ -76,9 +131,7 @@ class Runs:
             await asyncio.gather(task, return_exceptions=True)  # the run is still winding down
         if self.store.pending_pauses(thread_id) or thread_id in self.active:
             return
-        decided = self.store.take_decided(thread_id, "approval")
-        approvals = {p["call_id"]: (True if p["state"] == "approved" else llm.refusal(REFUSED)) for p in decided}
-        self._launch(thread_id, wire.new_id(), None, llm.resume_results({}, approvals))
+        self._resume(thread_id)
 
     def running(self, thread_id: str) -> bool:
         """True while the thread has a run going."""
@@ -126,8 +179,10 @@ class Runs:
                         self._log(thread_id, wire.approval_request(pause_id, call.tool_call_id, call.tool_name, inputs))
                         paused = True
                     for call in item[2]:
-                        self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
+                        self._check_browser_call(thread_id, call)
+                    if item[2] or item[3]:
                         paused = True
+                        self.ready.add(thread_id)  # go on at once if nothing is left to wait for
             if text_open:
                 self._log(thread_id, wire.text_end(msg_id))
             if not paused:
@@ -280,6 +335,30 @@ def approval_route(runs: Runs, denied):
             return JSONResponse({"error": "no such pending approval"}, status_code=404)
         except AlreadyAnswered:
             return JSONResponse({"error": "this approval was already answered"}, status_code=409)
+        return JSONResponse({"accepted": True}, status_code=202)
+
+    return answer
+
+
+def browser_route(runs: Runs, denied):
+    """Make the POST /browser-results/{id} handler: the only way a paused browser tool call gets its result."""
+
+    async def answer(request: Request):
+        """Take the browser's result for one id; 404 if unknown, 409 if already answered."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        if not isinstance(body, dict) or "result" not in body:
+            return JSONResponse({"error": "result is required"}, status_code=400)
+        try:
+            await runs.browser_result(request.path_params["id"], body["result"])
+        except Unknown:
+            return JSONResponse({"error": "no such pending browser call"}, status_code=404)
+        except AlreadyAnswered:
+            return JSONResponse({"error": "this browser call was already answered"}, status_code=409)
         return JSONResponse({"accepted": True}, status_code=202)
 
     return answer

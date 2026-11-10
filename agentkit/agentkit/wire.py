@@ -108,3 +108,9 @@ def approval_decision(approval_id: str, decision: str) -> dict:
     """The CUSTOM event logging that Alex approved or refused a change."""
     value = {"approvalId": approval_id, "decision": decision}
     return _dump(CustomEvent(name="approval_decision", value=value, timestamp=_now()))
+
+
+def browser_tool(browser_id: str, call_id: str, tool_name: str, inputs) -> dict:
+    """The CUSTOM event asking the browser to carry out a tool: its id, the tool and the checked inputs."""
+    value = {"browserId": browser_id, "toolCallId": call_id, "toolName": tool_name, "input": inputs}
+    return _dump(CustomEvent(name="browser_tool", value=value, timestamp=_now()))

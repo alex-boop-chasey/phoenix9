@@ -143,7 +143,7 @@ class Store:
         """Return this thread's answered pauses of a kind that no run has used yet, marking them used."""
         def run(db):
             rows = db.execute(
-                "SELECT * FROM pauses WHERE thread_id=? AND kind=? AND state IN ('approved','denied') "
+                "SELECT * FROM pauses WHERE thread_id=? AND kind=? AND state IN ('approved','denied','answered') "
                 "ORDER BY created, rowid", (thread_id, kind)).fetchall()
             db.executemany("UPDATE pauses SET state='resumed' WHERE id=?", [(r["id"],) for r in rows])
             return [self._pause(r) for r in rows]

@@ -41,6 +41,7 @@ class Runs:
         """Keep the store (the event log), the agent that answers and the pack whose browser inputs get checked."""
         self.store = store
         self.agent = agent
+        self.browser_fields = {t.name: t.result_fields for t in pack.browser_tools} if pack else {}
         self.browser_inputs = {t.name: t.inputs for t in pack.browser_tools} if pack else {}
         self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
         self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
@@ -95,6 +96,7 @@ class Runs:
         pause = self.store.get_pause(pause_id)
         if pause is None or pause["kind"] != "browser":
             raise Unknown(pause_id)
+        result = limit_result(self.browser_fields.get(pause["tool"]), result)
         if not self.store.resolve_pause(pause_id, "answered", tools.quoted("the browser", result)):
             raise AlreadyAnswered(pause_id)
         thread_id = pause["thread_id"]
@@ -399,6 +401,16 @@ def approval_route(runs: Runs, denied):
         return JSONResponse({"accepted": True}, status_code=202)
 
     return answer
+
+
+def limit_result(fields, result):
+    """Keep only the declared keys and values of a browser result (all of it when the tool declares none)."""
+    if fields is None:
+        return result
+    if not isinstance(result, dict):
+        return {}
+    return {k: v for k, v in result.items()
+            if k in fields and isinstance(v, (str, int, float, bool, type(None))) and v in fields[k]}
 
 
 def browser_route(runs: Runs, denied):

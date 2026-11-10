@@ -33,6 +33,7 @@ class BrowserTool:
     name: str
     description: str
     inputs: type[BaseModel]
+    result_fields: dict[str, tuple] | None = None  # allowed result keys, each with its allowed values; None keeps all
 
 
 @dataclass(frozen=True)

@@ -1,13 +1,20 @@
 """The agent service (proof slice): threads, runs and the AG-UI event stream over SSE."""
+import argparse
 import asyncio
 import hmac
+import logging
+import os
+import sys
+from pathlib import Path
 
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from . import llm, tools, wire
+from . import config, llm, tools, wire
+
+log = logging.getLogger("agentkit")
 
 
 class Thread:
@@ -24,8 +31,11 @@ class Thread:
         self.decisions: dict[str, object] = {}  # decisions that came back so far
 
 
-def create_app(model, token: str, projects=tools.fake_projects, change_log=None) -> Starlette:
+def create_app(
+    model, token: str, projects=tools.fake_projects, change_log=None, info=None, blocked: str | None = None
+) -> Starlette:
     """Build the service app for a model, the shared token, a project source and a change log."""
+    info = info or {"key_present": False, "pack": "phoenix", "model": ""}
     change_log = change_log if change_log is not None else []
     agent = llm.build_agent(
         model,
@@ -133,6 +143,12 @@ def create_app(model, token: str, projects=tools.fake_projects, change_log=None)
         resume(thread)
         return JSONResponse({"accepted": True}, status_code=202)
 
+    async def status(request: Request):
+        """Say whether the service is up, has a key, and which pack and model it uses."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({"running": True, **info})
+
     async def new_thread(request: Request):
         """Start a new empty thread."""
         if denied(request):
@@ -152,6 +168,8 @@ def create_app(model, token: str, projects=tools.fake_projects, change_log=None)
         message = body.get("message") if isinstance(body, dict) else None
         if not isinstance(message, str) or not message.strip():
             return JSONResponse({"error": "message is required"}, status_code=400)
+        if blocked:
+            return JSONResponse({"error": blocked}, status_code=503)
         if thread.busy:
             return JSONResponse({"error": "a reply is already running"}, status_code=409)
         thread.busy = True
@@ -188,6 +206,7 @@ def create_app(model, token: str, projects=tools.fake_projects, change_log=None)
 
     return Starlette(
         routes=[
+            Route("/status", status, methods=["GET"]),
             Route("/threads", new_thread, methods=["POST"]),
             Route("/threads/{id}/runs", start_run, methods=["POST"]),
             Route("/approvals/{id}", approval, methods=["POST"]),
@@ -195,3 +214,52 @@ def create_app(model, token: str, projects=tools.fake_projects, change_log=None)
             Route("/threads/{id}/stream", stream, methods=["GET"]),
         ]
     )
+
+
+REFUSE_ROOT = "The agent service won't run as root. Start it as its own user (phoenix-agentkit)."
+
+
+def read_secret_file(path: str) -> str | None:
+    """Read a one-line secret file; None when it is missing, unreadable or empty."""
+    try:
+        return Path(path).read_text().strip() or None
+    except OSError:
+        return None
+
+
+def app_from_config(cfg: config.Config) -> Starlette:
+    """Build the real app: read the token and the key once; the key goes only to llm.py."""
+    token = read_secret_file(cfg.token_file)
+    if not token:
+        raise config.ConfigError("The agent's shared token file is missing or empty.")
+    key = read_secret_file(cfg.api_key_file)
+    model = llm.make_model(cfg.model, key) if key else llm.no_key_model()
+    info = {"key_present": key is not None, "pack": cfg.pack, "model": cfg.model}
+    blocked = None if cfg.prices_ready() else config.PRICES_NOT_READY
+    return create_app(model, token, info=info, blocked=blocked)
+
+
+def main(argv=None) -> int:
+    """Start the service with uvicorn on 127.0.0.1; refuse to run as root."""
+    parser = argparse.ArgumentParser(prog="agentkit.service")
+    parser.add_argument("--config", required=True)
+    args = parser.parse_args(argv)
+    if os.getuid() == 0:
+        print(REFUSE_ROOT, file=sys.stderr)
+        return 1
+    try:
+        cfg = config.load(args.config)
+        if cfg.host != "127.0.0.1":
+            raise config.ConfigError("The agent service only listens on 127.0.0.1.")
+        app = app_from_config(cfg)
+    except config.ConfigError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    import uvicorn
+
+    uvicorn.run(app, host=cfg.host, port=cfg.port, log_level="warning")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

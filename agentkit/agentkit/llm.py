@@ -95,3 +95,21 @@ async def stream_reply(agent: Agent, message: str) -> AsyncIterator[str]:
     async for item in run_turn(agent, message, []):
         if item[0] == "text":
             yield item[1]
+
+
+def make_model(name: str, api_key: str):
+    """Make the Claude model, handing the key straight to the provider (never the environment)."""
+    from pydantic_ai.models.anthropic import AnthropicModel
+    from pydantic_ai.providers.anthropic import AnthropicProvider
+
+    return AnthropicModel(name, provider=AnthropicProvider(api_key=api_key))
+
+
+def no_key_model():
+    """A stand-in model for when no key is present: every reply says so plainly."""
+    from pydantic_ai.models.function import FunctionModel
+
+    async def say(messages, info):
+        yield "The agent has no access key yet, so it can't answer."
+
+    return FunctionModel(stream_function=say)

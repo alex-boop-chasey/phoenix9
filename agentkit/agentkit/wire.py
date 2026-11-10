@@ -10,6 +10,10 @@ from ag_ui.core import (
     TextMessageContentEvent,
     TextMessageEndEvent,
     TextMessageStartEvent,
+    ToolCallArgsEvent,
+    ToolCallEndEvent,
+    ToolCallStartEvent,
+    CustomEvent,
 )
 from ag_ui.encoder import EventEncoder
 
@@ -54,6 +58,21 @@ def text_content(message_id: str, delta: str) -> dict:
 def text_end(message_id: str) -> dict:
     """The TEXT_MESSAGE_END event as a plain dict."""
     return _dump(TextMessageEndEvent(message_id=message_id, timestamp=_now()))
+
+
+def tool_call(call_id: str, name: str, args_json: str) -> list[dict]:
+    """The three events (start, arguments, end) that announce one tool call."""
+    return [
+        _dump(ToolCallStartEvent(tool_call_id=call_id, tool_call_name=name, timestamp=_now())),
+        _dump(ToolCallArgsEvent(tool_call_id=call_id, delta=args_json, timestamp=_now())),
+        _dump(ToolCallEndEvent(tool_call_id=call_id, timestamp=_now())),
+    ]
+
+
+def component(call_id: str, name: str, data) -> dict:
+    """A typed card for the panel: a component name plus its data, tied to a tool call."""
+    value = {"toolCallId": call_id, "component": name, "data": data}
+    return _dump(CustomEvent(name="component", value=value, timestamp=_now()))
 
 
 def _dump(event) -> dict:

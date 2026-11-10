@@ -1,17 +1,83 @@
-"""The thin layer over Pydantic AI: builds the agent and streams its reply as plain text chunks."""
+"""The thin layer over Pydantic AI: builds the agent, runs a turn and reports what happened."""
+import functools
 from collections.abc import AsyncIterator
 
-from pydantic_ai import Agent
+from pydantic_ai import (
+    Agent,
+    AgentRunResultEvent,
+    DeferredToolRequests,
+    DeferredToolResults,
+    FunctionToolResultEvent,
+    PartDeltaEvent,
+    PartStartEvent,
+    TextPart,
+    TextPartDelta,
+    ToolReturn,
+)
+from pydantic_ai.tools import ToolDefinition
+from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
+
+from . import tools
 
 
-def build_agent(model, instructions: str = "") -> Agent:
-    """Make a Pydantic AI agent for the given model (a model object or a name)."""
-    return Agent(model, instructions=instructions or None)
+def build_agent(model, instructions: str = "", read_tools=(), browser_tools=()) -> Agent:
+    """Make a Pydantic AI agent; browser tools are external, so the run pauses when they are called."""
+    toolsets = []
+    if read_tools:
+        toolsets.append(FunctionToolset([_with_card(fn) for fn in read_tools]))
+    if browser_tools:
+        defs = [
+            ToolDefinition(name=t["name"], description=t["description"], parameters_json_schema=t["parameters"])
+            for t in browser_tools
+        ]
+        toolsets.append(ExternalToolset(defs))
+    return Agent(
+        model,
+        instructions=instructions or None,
+        toolsets=toolsets,
+        output_type=[str, DeferredToolRequests],
+    )
+
+
+def _with_card(fn):
+    """Wrap a read tool so its card data rides along without reaching the model."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        return ToolReturn(return_value=result, metadata=tools.card_for(fn.__name__, result["data"]))
+
+    return wrapper
+
+
+def resume_results(calls: dict) -> DeferredToolResults:
+    """Browser results, keyed by tool call id, in the form the next run needs."""
+    return DeferredToolResults(calls=calls)
+
+
+async def run_turn(agent: Agent, message: str | None, history: list, results=None) -> AsyncIterator[tuple]:
+    """Run one turn and yield ("text", piece), ("card", call_id, card), then ("done", messages, pending_calls)."""
+    async with agent.run_stream_events(
+        message, message_history=history, deferred_tool_results=results
+    ) as events:
+        async for event in events:
+            if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart) and event.part.content:
+                yield "text", event.part.content
+            elif isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+                if event.delta.content_delta:
+                    yield "text", event.delta.content_delta
+            elif isinstance(event, FunctionToolResultEvent):
+                part = event.part
+                card = getattr(part, "metadata", None)
+                yield "tool", part.tool_call_id, part.tool_name, card
+            elif isinstance(event, AgentRunResultEvent):
+                output = event.result.output
+                pending = output.calls if isinstance(output, DeferredToolRequests) else []
+                yield "done", event.result.all_messages(), pending
 
 
 async def stream_reply(agent: Agent, message: str) -> AsyncIterator[str]:
     """Run the agent on a message and yield the reply text piece by piece."""
-    async with agent.run_stream(message) as result:
-        async for piece in result.stream_text(delta=True, debounce_by=None):
-            if piece:
-                yield piece
+    async for item in run_turn(agent, message, []):
+        if item[0] == "text":
+            yield item[1]

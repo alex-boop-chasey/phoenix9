@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs f5ebc909005ab27c -->
+<!-- phoenix 9.1.0 inputs 166a3bbce58756a6 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -570,7 +570,7 @@ generate the agent's reference files
 
 ### `phoenix docs generate`
 
-write commands, settings, steps, pages and cards files
+write commands, settings, steps, pages and cards files, and the agent's controls.json
 
 - `--out OUT`: the folder to write into (default: the phoenix-agent skill folder)
 

@@ -192,6 +192,10 @@ def build_server(home: Path, projects: Path, port: int):
     os.environ.setdefault("PHOENIX_CLAUDE_JSON", str(Path(home) / "claude.json"))
     adapters = demo_adapters(seed_demo.claude_home(home))
     adapters.host.files[os.environ["PHOENIX_CLAUDE_JSON"]] = '{"projects": {}}'
+    if os.environ.get("PHOENIX_E2E_AGENT_URL"):
+        from phoenix9.agentnext import AgentNext
+        adapters.agentnext = AgentNext({"url": os.environ["PHOENIX_E2E_AGENT_URL"],
+                                        "token_file": os.environ["PHOENIX_E2E_AGENT_TOKEN_FILE"]})
     common.make_adapters = lambda: adapters
     from phoenix9.ops import gates as ops_gates
     ops_gates.answer = answering_moves_run(ops_gates.answer, str(home))

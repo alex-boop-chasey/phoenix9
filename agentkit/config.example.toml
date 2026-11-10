@@ -1,0 +1,21 @@
+# Agent settings. Copy to /var/lib/phoenix9/agentkit/config.toml.
+pack = "phoenix"
+model = "claude-sonnet-5-5"
+monthly_cap_usd = 95.00   # internal only
+
+api_key_file = "/var/lib/phoenix9/agentkit/api-key"
+token_file = "/var/lib/phoenix9/agentkit/token"
+db_file = "/var/lib/phoenix9/agentkit/agentkit.db"
+host = "127.0.0.1"
+port = 8097
+phoenix_api = "http://127.0.0.1:8095"
+link_schemes = ["claude"]
+
+# Prices must be checked against Anthropic's price page before first use.
+# They are internal only: never shown in the panel or the doctor.
+# While any of them is not a number, the agent refuses model calls.
+[prices.claude-sonnet-5-5]
+input_per_mtok = "CHECK BEFORE USE"
+output_per_mtok = "CHECK BEFORE USE"
+cache_read_per_mtok = "CHECK BEFORE USE"
+cache_write_per_mtok = "CHECK BEFORE USE"

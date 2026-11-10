@@ -8,6 +8,8 @@ import time
 import uuid
 from pathlib import Path
 
+from agentkit import quote
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS threads (
     id TEXT PRIMARY KEY, title TEXT NOT NULL, created REAL NOT NULL, last_used REAL NOT NULL);
@@ -84,7 +86,7 @@ class Store:
 
     def set_title(self, thread_id: str, title: str) -> None:
         """Rename a thread."""
-        self._write(lambda db: db.execute("UPDATE threads SET title=? WHERE id=?", (title, thread_id)))
+        self._write(lambda db: db.execute("UPDATE threads SET title=? WHERE id=?", (quote.scrub_text(title), thread_id)))
 
     def touch_thread(self, thread_id: str) -> None:
         """Mark a thread as just used."""
@@ -97,7 +99,7 @@ class Store:
         def run(db):
             cur = db.execute("SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE thread_id=?", (thread_id,))
             seq = cur.fetchone()[0]
-            db.execute("INSERT INTO events VALUES (?,?,?)", (thread_id, seq, json.dumps(event)))
+            db.execute("INSERT INTO events VALUES (?,?,?)", (thread_id, seq, json.dumps(quote.scrub(event))))
             db.execute("UPDATE threads SET last_used=? WHERE id=?", (time.time(), thread_id))
             return seq
         return self._write(run)
@@ -115,7 +117,7 @@ class Store:
         self._write(lambda db: db.execute(
             "INSERT INTO pauses (id, thread_id, kind, tool, inputs, state, result, created, call_id) "
             "VALUES (?,?,?,?,?,?,NULL,?,?)",
-            (pid, thread_id, kind, tool, json.dumps(inputs), "pending", time.time(), call_id)))
+            (pid, thread_id, kind, tool, json.dumps(quote.scrub(inputs)), "pending", time.time(), call_id)))
         return pid
 
     def get_pause(self, pause_id: str) -> dict | None:
@@ -135,7 +137,7 @@ class Store:
         def run(db):
             cur = db.execute(
                 "UPDATE pauses SET state=?, result=? WHERE id=? AND state='pending'",
-                (state, json.dumps(result), pause_id))
+                (state, json.dumps(quote.scrub(result)), pause_id))
             return cur.rowcount == 1
         return self._write(run)
 
@@ -154,7 +156,7 @@ class Store:
         """Keep the model's message history for a thread (so a paused run can resume after a restart)."""
         self._write(lambda db: db.execute(
             "INSERT INTO histories VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET data=excluded.data",
-            (thread_id, data)))
+            (thread_id, quote.scrub_json(data))))
 
     def load_history(self, thread_id: str) -> str | None:
         """Return the saved message history, or None."""

@@ -6,7 +6,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 
 from pydantic import ValidationError
 
-from . import llm, tools, wire
+from . import llm, quote, tools, wire
 from .spend import SpendRefused
 from .store import Store
 
@@ -55,6 +55,7 @@ class Runs:
             raise RunBusy(BUSY)
         if self.store.pending_pauses(thread_id):
             raise RunBusy(WAITING)  # only POST /approvals can answer a pause, never a chat message
+        message = quote.scrub_text(message)
         run_id = wire.new_id()
         if (thread := self.store.get_thread(thread_id)) and thread["title"] == DEFAULT_TITLE:
             self.store.set_title(thread_id, message.strip()[:TITLE_LENGTH])

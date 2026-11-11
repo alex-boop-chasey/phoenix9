@@ -50,7 +50,7 @@ def build_pack(client: PhoenixClient | None = None) -> Pack:
     components = {**components, "ask_for_key": "KeyInputCard",
                   "ask_choice": "ChoiceCard", "ask_env_file": "EnvUploadCard", "what_happened": "WhatHappenedCard",
                   "flow": "FlowCard",
-                  "job-status": "JobCard", "build-plan": "PlanCheckCard", "project-specs": "SpecsCard"}
+                  "job-status": "JobCard", "build-plan": "PlanCheckCard", "project-specs": "SpecsCard", "search": "SearchResultsCard"}
     return Pack(
         name="phoenix",
         instructions=INSTRUCTIONS,

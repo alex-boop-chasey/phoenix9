@@ -6,6 +6,7 @@ import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
 import { JobCard, PlanCheckCard, SpecsCard, jobFrom, planCheckFrom, specsFrom } from "./guidedcards"
 import { KeyInputCard, keyAskFrom } from "./keycard"
+import { SearchResultsCard, searchFrom } from "./searchcard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
 export interface ProjectCardData { name: string; status: string; last_used: string; link?: string }
@@ -331,6 +332,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   session_card: ({ data, tool }) => {
     const d = sessionFrom(data)
     return d ? <SessionCard data={d} /> : <Fallback tool={tool} />
+  },
+  SearchResultsCard: ({ data }) => {
+    const rows = searchFrom(data)
+    return rows ? <SearchResultsCard rows={rows} /> : null
   },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)

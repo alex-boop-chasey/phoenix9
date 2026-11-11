@@ -33,7 +33,7 @@ def sample_args(entry):
 
 def test_tool_names_and_risks_match_the_file():
     _fake, made = tools()
-    made = {n: t for n, t in made.items() if n != "what_happened"}  # the agent's own card tool, not a control
+    made = {n: t for n, t in made.items() if n not in ("what_happened", "flow")}  # the agent's own card tools, not controls
     assert sorted(made) == sorted(ENTRIES)
     assert {n: t.risk for n, t in made.items()} == {n: e["risk"] for n, e in ENTRIES.items()}
     check_pack(build_pack(FakePhoenix().client()))

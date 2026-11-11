@@ -227,6 +227,47 @@ export function WhatHappenedCard({ data, onSend }: { data: WhatHappenedData; onS
   )
 }
 
+/** Card data for a task's tries: the task and one plain line per try. */
+export interface TriesCardData { run_id: string; task: string; status: string; max_tries: number | null; tries: string[] }
+/** Card data for a step's AI session excerpt: where it came from and the quoted text. */
+export interface SessionCardData { source: string; text: string }
+
+/** Tries data when it fits (a list of lines), else null. */
+export function triesFrom(data: unknown): TriesCardData | null {
+  if (!isObject(data) || !Array.isArray(data.tries)) return null
+  const title = isText(data.title) ? data.title : ""
+  const num = typeof data.task === "number" ? `Task ${data.task}` : ""
+  return { run_id: isText(data.run_id) ? data.run_id : "", task: [num, title].filter(Boolean).join(": "), status: isText(data.status) ? data.status : "", max_tries: typeof data.max_tries === "number" ? data.max_tries : null, tries: data.tries.filter(isText) }
+}
+
+/** Session data when the wrapped excerpt (quoted.data is text) fits, else null. */
+export function sessionFrom(data: unknown): SessionCardData | null {
+  const q = isObject(data) ? data.quoted : null
+  if (!isObject(q) || !isText(q.data)) return null
+  return { source: isText(q.quoted_from) ? q.quoted_from : "", text: q.data }
+}
+
+/** A task's tries, one line per try. */
+export function TriesCard({ data }: { data: TriesCardData }) {
+  return (
+    <section className="card flex flex-col gap-1" aria-label="Tries" data-testid="tries-card">
+      <strong>{data.task || "Tries"}{data.status ? ` - ${data.status}` : ""}</strong>
+      {data.max_tries !== null ? <span className="text-xs">Up to {data.max_tries} tries</span> : null}
+      {data.tries.length ? <ul>{data.tries.map((t, i) => <li key={i}>{t}</li>)}</ul> : <span className="text-sm">No tries yet.</span>}
+    </section>
+  )
+}
+
+/** A step's AI session excerpt, shown as quoted text. */
+export function SessionCard({ data }: { data: SessionCardData }) {
+  return (
+    <figure className="card flex flex-col gap-1" aria-label="Session excerpt" data-testid="session-card">
+      {data.source ? <figcaption className="text-xs">From {data.source}</figcaption> : null}
+      <blockquote className="whitespace-pre-wrap text-sm">{data.text}</blockquote>
+    </figure>
+  )
+}
+
 /** What shows when a card's data does not fit its shape. */
 function Fallback({ tool }: { tool: string }) {
   return <p data-testid="card-fallback">Used {tool}, but the result could not be shown.</p>
@@ -278,6 +319,14 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   WhatHappenedCard: ({ data, onSend }) => {
     const d = whatHappenedFrom(data)
     return d ? <WhatHappenedCard data={d} onSend={onSend} /> : null
+  },
+  tries_card: ({ data, tool }) => {
+    const d = triesFrom(data)
+    return d ? <TriesCard data={d} /> : <Fallback tool={tool} />
+  },
+  session_card: ({ data, tool }) => {
+    const d = sessionFrom(data)
+    return d ? <SessionCard data={d} /> : <Fallback tool={tool} />
   },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)

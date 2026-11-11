@@ -20,10 +20,18 @@ function words(value: unknown): string {
   return typeof value === "string" ? value : JSON.stringify(value)
 }
 
+const REASON_TOOLS = ["repair-skip-task", "repair-rewrite-checks"]
+
+/** The reason typed for a skip or rewrite-checks repair, or empty. */
+function reasonOf(item: ApprovalItem): string {
+  const why = (item.input as Record<string, unknown> | undefined)?.why
+  return REASON_TOOLS.includes(item.toolName) && typeof why === "string" ? why : ""
+}
+
 /** The lines saying exactly what will change, as label and value. */
 function changeLines(item: ApprovalItem): { label: string; value: string }[] {
   const input = (item.input && typeof item.input === "object" ? item.input : {}) as Record<string, unknown>
-  return Object.entries(input).map(([label, value]) => ({ label: label.replace(/_/g, " "), value: words(value) }))
+  return Object.entries(input).filter(([label]) => !(label === "why" && reasonOf(item) !== "")).map(([label, value]) => ({ label: label.replace(/_/g, " "), value: words(value) }))
 }
 
 /** A change waiting for Alex: what it does and the exact inputs, with Approve (typed check if destructive) and Deny. */
@@ -49,6 +57,7 @@ export function ApprovalCard({ item, onDecide }: {
           ))}
         </dl>
       )}
+      {reasonOf(item) ? <p data-testid="approval-reason">Reason: {reasonOf(item)}</p> : null}
       {item.decision === "pending" ? (
         <>
           {needsText ? (

@@ -15,9 +15,9 @@ import {
 /** The cards we can draw, chosen by name; anything else is not drawn. */
 
 /** One typed card, drawn from its data. */
-function Card({ card }: { card: CardItem }) {
+function Card({ card, onSend }: { card: CardItem; onSend?: (message: string) => void }) {
   const Draw = COMPONENTS[card.component]
-  return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId })}</> : null
+  return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId, onSend })}</> : null
 }
 
 const LAST_THREAD = "agent-next-thread"
@@ -115,7 +115,7 @@ function Conversation({ thread, earlier, follow, onRunEnd }: { thread: string; e
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
         {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
-        {side.cards.map((c) => <Card key={c.toolCallId} card={c} />)}
+        {side.cards.map((c) => <Card key={c.toolCallId} card={c} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />)}
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
         ))}

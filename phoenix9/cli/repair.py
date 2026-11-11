@@ -11,6 +11,10 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
     p.set_defaults(func=check)
+    p = group.add_parser("diagnose", parents=[common], help="say why a run stopped or failed and what could fix it")
+    p.add_argument("run_id")
+    p.add_argument("--project", required=True, help="the project of the run")
+    p.set_defaults(func=diagnose)
     p = group.add_parser("report", parents=[common], help="write and show the plain-English report of a run")
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
@@ -32,6 +36,38 @@ def add(sub, common) -> None:
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=resume)
+    _add_new(group, common)
+
+
+def _run_parser(group, common, name: str, help_text: str, func, yes: bool):
+    """Add one repair command that takes a run id (and --project, and --yes when it discards work)."""
+    p = group.add_parser(name, parents=[common], help=help_text)
+    p.add_argument("run_id")
+    p.add_argument("--project", help="the project of the run (the run id alone is enough)")
+    if yes:
+        p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=func)
+    return p
+
+
+def _add_new(group, common) -> None:
+    """Register rerun, resume-from, skip, rewrite-checks, max-tries and restart."""
+    p = _run_parser(group, common, "rerun", "run a task or a finish step again", rerun, True)
+    p.add_argument("--task", type=int, help="the task number to run again")
+    p.add_argument("--finish-step", help="the finish step to run again")
+    p = _run_parser(group, common, "resume-from", "carry on with a run from a task", resume_from, True)
+    p.add_argument("--task", type=int, required=True, help="the task number to carry on from")
+    p = _run_parser(group, common, "skip", "skip a task, with a reason", skip, True)
+    p.add_argument("--task", type=int, required=True, help="the task number to skip")
+    p.add_argument("--why", required=True, help="the reason, in one line")
+    p = _run_parser(group, common, "rewrite-checks", "rewrite the checks of a task, with a reason", rewrite_checks, True)
+    p.add_argument("--task", type=int, required=True, help="the task number whose checks are rewritten")
+    p.add_argument("--why", required=True, help="the reason, in one line")
+    p = _run_parser(group, common, "max-tries", "allow more tries per task in this run", max_tries, False)
+    p.add_argument("--tries", type=int, required=True, help="the new number of tries per task")
+    p = _run_parser(group, common, "restart", "start the build again on another preset", restart, False)
+    p.add_argument("--preset", required=True, help="the preset to restart on")
+    p.set_defaults(project_required=True)
 
 
 def undo(args) -> int:
@@ -61,6 +97,14 @@ def check(args) -> int:
     return 0 if r["ok"] else 1
 
 
+def diagnose(args) -> int:
+    """Show why a run stopped or failed, what was tried and the repairs that fit."""
+    r = repair.diagnose(args.project, args.run_id)
+    common.record_command(args.who, f"repair diagnose {args.run_id}", args.project)
+    lines = [r["cause"], *r["tried"]] + [f"Option: {o['label']} ({o['control']})" for o in r["options"]]
+    return show(args, r, "\n".join(lines))
+
+
 def report(args) -> int:
     """Write the run report and show it."""
     r = repair.report(args.run_id, project=args.project)
@@ -83,3 +127,70 @@ def apply(args) -> int:
     lines.append("Check after: " + ("not run" if after is None else "; ".join(after) or "no problems"))
     show(args, r, "\n".join(lines))
     return 0 if r["ok"] else 1
+
+
+def _confirm(args, what: str):
+    """Return a refusal (exit code) when --yes is missing, else None."""
+    if args.yes:
+        return None
+    return problem(args, f"{what} Add --yes to confirm.")
+
+
+def _outcome(args, r: dict, done: str) -> int:
+    """Show the result of a repair note: done in plain words, or the rollback; exit 1 when rolled back."""
+    if r.get("rolled_back"):
+        show(args, {"ok": False, **r}, "Rolled back: the repair did not pass its check.")
+        return 1
+    return show(args, {"ok": True, **r}, done)
+
+
+def rerun(args) -> int:
+    """Run a task or a finish step of a run again."""
+    refused = _confirm(args, "Running again throws away the work of that step.")
+    if refused is not None:
+        return refused
+    r = repair.rerun_step(args.run_id, task=args.task, finish_step=args.finish_step, who=args.who)
+    what = f"task {args.task}" if args.task is not None else f"finish step {args.finish_step}"
+    return _outcome(args, r, f"Done: {what} of {args.run_id} will run again.")
+
+
+def resume_from(args) -> int:
+    """Carry on with a run from a task."""
+    refused = _confirm(args, f"Carrying on from task {args.task} runs it again and throws away its work.")
+    if refused is not None:
+        return refused
+    r = repair.resume_from(args.run_id, args.task, who=args.who)
+    return _outcome(args, r, f"Done: {args.run_id} carries on from task {args.task}.")
+
+
+def skip(args) -> int:
+    """Skip a task of a run, with a reason."""
+    refused = _confirm(args, f"Skipping task {args.task} means it is not built.")
+    if refused is not None:
+        return refused
+    r = repair.skip_task(args.run_id, args.task, args.why, who=args.who)
+    return _outcome(args, r, f"Done: task {args.task} of {args.run_id} is skipped.")
+
+
+def rewrite_checks(args) -> int:
+    """Rewrite the checks of a task, with a reason."""
+    refused = _confirm(args, f"Rewriting the checks of task {args.task} replaces them.")
+    if refused is not None:
+        return refused
+    r = repair.rewrite_checks(args.run_id, args.task, args.why, who=args.who)
+    return _outcome(args, r, f"Done: the checks of task {args.task} of {args.run_id} will be rewritten.")
+
+
+def max_tries(args) -> int:
+    """Allow more tries per task in a run."""
+    r = repair.raise_max_tries(args.run_id, args.tries, who=args.who)
+    return _outcome(args, r, f"Done: {args.run_id} now allows {args.tries} tries per task.")
+
+
+def restart(args) -> int:
+    """Start the build of a stopped or failed run again on another preset."""
+    if not args.project:
+        return problem(args, "Say which project the run belongs to with --project.")
+    r = repair.restart_on_preset(args.project, args.run_id, args.preset, who=args.who)
+    return show(args, {"ok": True, **r}, f"Restarted: {args.run_id} is started again as {r['new_run_id']} "
+                                         f"on the {r['preset']} preset.")

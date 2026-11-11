@@ -67,3 +67,9 @@ counting zero.
 | Stuck on `paused-limit` | Wait; it resumes by itself. |
 | Services down / health fails | `phoenix doctor`, then ask Alex before `phoenix service restart`. |
 | Failed update | Phoenix rolls back by itself; check `phoenix update log`. |
+
+## Repair controls (the agent's own tools)
+When a build failed or stopped, read the run first, then offer the options from the diagnosis: re-run a step, rewrite a
+task's checks (give a reason), skip a task (give a reason), resume from a step, restart on another preset, raise max
+tries. Each opens an approval card. Never write a free-text repair note. One repair at a time per run. A repair that
+would loosen a safety check is refused: tell Alex in plain words and point to the dashboard.

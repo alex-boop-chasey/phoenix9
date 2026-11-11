@@ -13,5 +13,5 @@ def build(query: dict) -> dict:
     limit = query.get("limit", 5)
     if limit < 1 or limit > MAX_LIMIT:
         raise common.OpsError(f"'limit' must be from 1 to {MAX_LIMIT}.")
-    return {"title": f"Builds of {project}", "data": ops_runs.builds(project)[:limit], "actions": [],
+    return {"title": f"Builds of {project}", "data": ops_runs.builds(project, limit), "actions": [],
             "watch": {"projects": [project], "runs": [], "types": ["run"]}}

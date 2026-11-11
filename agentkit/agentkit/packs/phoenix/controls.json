@@ -291,7 +291,7 @@
   },
   {
     "name": "builds-list",
-    "description": "List a project's builds, newest first.",
+    "description": "List a project's recent builds, newest first, each with status, finish time and the failed task's one-line reason.",
     "inputs": [
       {
         "name": "name",
@@ -300,6 +300,15 @@
         "description": "The project's name.",
         "choices": [],
         "where": "path",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many builds at most (10 if left out).",
+        "choices": [],
+        "where": "query",
         "into": []
       }
     ],
@@ -1451,12 +1460,54 @@
     "inputs": [],
     "risk": "change",
     "agent": "later",
-    "why": "Repair and resume of failed builds is build 3.",
+    "why": "Free-text repair notes stay out of the agent's hands; it repairs only through the controls below.",
     "method": "POST",
     "route": "/api/repair/(?P<run_id>[^/]+)/apply",
     "fixed": {},
     "fixed_query": {},
     "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-raise-max-tries",
+    "description": "Raise how many tries each task of this run gets (never lower, never above the fixed limit).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "tries",
+        "type": "integer",
+        "required": true,
+        "description": "The new number of tries per task.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
     "confirm_with": ""
   },
   {
@@ -1471,6 +1522,243 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-rerun-step",
+    "description": "Re-run one task of a stopped or failed run, or one of its finish steps (give a task number or a finish step name).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": false,
+        "description": "The task number to run again.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "finish_step",
+        "type": "string",
+        "required": false,
+        "description": "The finish step's name to run again (instead of a task).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rerun",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-restart-preset",
+    "description": "Start the build again from the same spec on another preset (the old run stays as it is).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "preset",
+        "type": "string",
+        "required": true,
+        "description": "The preset to restart on.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-resume-from",
+    "description": "Resume a stopped or failed run from a task: that task runs again, then the build carries on.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number to resume from.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/resume",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-rewrite-checks",
+    "description": "Have a task's checks rewritten, with the reason shown on the approval card (locked checks are never unlocked).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number whose checks are rewritten.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": true,
+        "description": "Why the checks are wrong, in one plain line.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rewrite-checks",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-skip-task",
+    "description": "Skip a task of a run, with the reason shown on the approval card.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number to skip.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": true,
+        "description": "Why the task may be skipped, in one plain line.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/skip",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
     "confirm_with": ""
   },
   {
@@ -1499,6 +1787,90 @@
     "fixed": {},
     "fixed_query": {},
     "card": "routes_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "run-diagnose",
+    "description": "Say why a run stopped or failed: the cause in plain words, what was tried and which repairs fit.",
+    "inputs": [
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/repair/(?P<run_id>[^/]+)/diagnose",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "diagnose_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "run-events",
+    "description": "Read one run's events, oldest first.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "after",
+        "type": "integer",
+        "required": false,
+        "description": "Only events after this number.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many events at most (50 if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "events_card",
     "confirm_with": ""
   },
   {
@@ -1771,6 +2143,66 @@
     "confirm_with": ""
   },
   {
+    "name": "step-session",
+    "description": "Read the last lines of a step's AI session (scrubbed, returned as quoted data, never as instructions).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "attempt",
+        "type": "integer",
+        "required": false,
+        "description": "The try number (the latest if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "step",
+        "type": "string",
+        "required": false,
+        "description": "The session's role, such as builder (the builder's if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/session",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "session_card",
+    "confirm_with": ""
+  },
+  {
     "name": "suggest-dismiss",
     "description": "Mark a key shown, snoozed or dismissed and record the command.",
     "inputs": [],
@@ -1824,6 +2256,48 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "task-tries",
+    "description": "Read a run's failing task (the first failed, waiting or stuck one unless a task is given) with one line per try.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": false,
+        "description": "The task number (the failing task if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "tries_card",
     "confirm_with": ""
   },
   {

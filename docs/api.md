@@ -59,6 +59,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
+| GET | `/api/runs/<project>/<run_id>/events` | `ops.runs.events` (`phoenix run events <project> <run>`) | query `after`, `limit` (default 50) | `{project, run_id, events: [{id, ...event}], next}`; that run's events only, oldest first, each scrubbed | 404 |
+| GET | `/api/runs/<project>/<run_id>/tries` | `ops.runs.task_tries` (`phoenix run tries <project> <run>`) | query `task` | `{project, run_id, task, title, status, max_tries, tries: [one line per try]}`; the first failed, waiting or stuck task unless `task` is given | 404 |
+| GET | `/api/runs/<project>/<run_id>/session` | `ops.runs.session_excerpt` (`phoenix run session <project> <run> --task N`) | query `task`, `attempt`, `step` | `{quoted: true, source, text}`; the last lines of the step's AI session (`logs/<task>-<attempt>-<role>.jsonl`), scrubbed and capped | 404 |
 | GET | `/api/gates?project=` | `ops.gates.list_` | | the open questions only (`gates.is_open`), as gate objects (architecture section 8) plus `state: "open"` | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |
@@ -132,8 +135,15 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/suggest/<key>/snooze` | `ops.suggest.mark` (`phoenix suggest snooze <key>`) | `{hours?}` (default 24) | `{ok, key, shown, snoozed_until, dismissed}`; | 400 |
 | POST | `/api/suggest/<key>/dismiss` | `ops.suggest.mark` (`phoenix suggest dismiss <key>`) | `{}` | same shape; never suggest this key again | 400 |
 | POST | `/api/suggest/<key>/shown` | `ops.suggest.mark` (`phoenix suggest shown <key>`) | `{}` | same shape; says the suggestion was mentioned | 400 |
+| GET | `/api/repair/<run_id>/diagnose` | `ops.repair.diagnose` (`phoenix repair diagnose <run> --project P`) | query `project` | `{project, run_id, status, task, title, cause_code, cause, tried: [line per try], options: [{control, label, inputs}]}`; plain rules over the run state, no AI | 400, 404 |
 | GET | `/api/repair/<run_id>/report` | `ops.repair.report` (`phoenix repair report <run>`) | | `{run_id, project, markdown, findings: [{code, text, task}]}`; writes `repairs/report.md` afresh from the real run state | 400, 404 |
 | POST | `/api/repair/<run_id>/apply` | `ops.repair.apply` (`phoenix repair apply <note> --yes`) | `{"note": "<note text>", "dry_run"?: bool, "approve_unlock"?: bool}` | The note is saved as `repairs/notes/<n>-<slug>.md` and applied with who `dashboard`: `{ok, dry_run, run_id, project, snapshot, steps, refused, check_before, check_after, forced, rolled_back}`. Same permission rule as stop (`gates.may_answer` for an escalation) | 400 (note cannot be read: the message names the line; note is for another run; bad flags), 404, 409 (plain refusal, e.g. "The runner is walking this run. Stop it first or wait for a question.") |
+| POST | `/api/runs/<project>/<run_id>/repair/rerun` | `ops.repair.rerun_step` | `{"task"?: int, "finish_step"?: str}` (one of the two) | Re-runs a task or a finish step through a repair note, with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
+| POST | `/api/runs/<project>/<run_id>/repair/resume` | `ops.repair.resume_from` | `{"task": int}` | Retries the task and resumes the run, with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
+| POST | `/api/runs/<project>/<run_id>/repair/skip` | `ops.repair.skip_task` | `{"task": int, "why": str}` | Skips the task; the reason is shown on the card, with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
+| POST | `/api/runs/<project>/<run_id>/repair/rewrite-checks` | `ops.repair.rewrite_checks` | `{"task": int, "why": str}` | Rewrites the task's checks; never unlocks locked ones, with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
+| POST | `/api/runs/<project>/<run_id>/repair/max-tries` | `ops.repair.raise_max_tries` | `{"tries": int}` | Raises the run's max tries (never lowers it), with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
+| POST | `/api/runs/<project>/<run_id>/repair/restart` | `ops.repair.restart_on_preset` | `{"preset": str}` | Starts the build again on another preset: `{new_run_id, preset}`, with who from the caller (`agent` for the agent) and a `repair.applied` event; refused with a plain message when it would loosen a safety check or another repair is running | 400, 404, 409 |
 | POST | `/api/runs/<run_id>/pause` | `ops.runs.pause` (`phoenix run pause <run> --now --yes`) | `{"now": true}` | `{run_id, status: "pause requested", waits_for_step, containers_stopped, notes}`; stops the running AI step's container (stop, not remove) and leaves the worktree alone; the runner then sets the step line and the run to `paused` and keeps the Claude session id. During a step that is not AI it waits for that step to end, then pauses (`waits_for_step` true, and `notes` says so). Same permission rule as stop | 400 (no `now: true`; run not running), 404, 409 (already paused) |
 | POST | `/api/runs/<run_id>/resume` | `ops.runs.resume` (`phoenix run resume <run>`) | `{}` | `{run_id, status, queued}`; a paused run goes back to `running`, or `queued` when another run is going. The same step runs again in a fresh container: an AI step continues its Claude session (`--resume`) with the first prompt line "You were paused mid-step. Check the files you were changing, then carry on."; this is not a new try. If the session file is missing or `--resume` fails, the step restarts clean from the attempt's base and the step line says so | 400 (not paused), 404, 409 (busy) |
 | POST | `/api/edits/<edit_id>/abandon` | `ops.work.abandon_edit` (`phoenix edit abandon <id> --yes`) | `{"confirm": true}` | the quick edit record with `status: "abandoned"`; removes its branch copy and local branch | 400 (no confirm; already abandoned; unknown id) |
@@ -243,6 +253,20 @@ made of text blocks is a `user` item (an image shows as `[image]`).
   `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
   line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
   ping timing as `/api/events`.
+
+## Agent repair controls
+
+The six `repair/*` routes above are the only repair tools the agent has (each is generated from the controls
+registry and goes through an approval card). The free-text `repair-apply` control stays `later`: it is not an agent
+tool, so the agent cannot send its own notes.
+
+- Repair lock: one repair at a time per run (`phoenix9/repair/lock.py`). A second repair while one is going answers
+  409 with the plain message "Another repair on this run is still going; try again when it has finished." The agent
+  also keeps one repair approval open per run and tells Alex another repair is already waiting or being carried out.
+- Safety refusal: when who is `agent` (or a chat session), a repair that would loosen a safety check (a rewrite of
+  locked checks, `force`, `approve_unlock`, a spec replacement, a safety setting or step) answers 409 "That would
+  loosen a safety check, so I can't do it. Alex can do it from the dashboard." Nothing is changed.
+- Every repair that runs writes a `repair.applied` event in the run's events with who `agent` (or the caller).
 
 ## Repair card and report
 

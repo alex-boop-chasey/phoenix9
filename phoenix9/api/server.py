@@ -244,12 +244,35 @@ def get_specs(req, name):
 
 def get_builds(req, name):
     """Reply with a project's builds."""
-    return runs.builds(check_name(name))
+    return runs.builds(check_name(name), int_param(req, "limit", 10))
 
 
 def get_run(req, project, run_id):
     """Reply with one run's detail."""
     return runs.detail(check_name(project), check_run_id(run_id))
+
+
+def get_run_events(req, project, run_id):
+    """Reply with one run's events, oldest first."""
+    after = req.query.get("after")
+    return runs.events(check_name(project), check_run_id(run_id), int_param(req, "after", 0) if after else None,
+                       min(max(int_param(req, "limit", 50), 1), 1000))
+
+
+def get_run_tries(req, project, run_id):
+    """Reply with one task's tries (the first failed, waiting or stuck task unless `task` is given)."""
+    task = req.query.get("task")
+    return runs.task_tries(check_name(project), check_run_id(run_id), int_param(req, "task", 0) if task else None)
+
+
+def get_run_session(req, project, run_id):
+    """Reply with the scrubbed last lines of one step's AI session."""
+    task = req.query.get("task")
+    if task is None:
+        raise BadRequest("Give the task number (?task=N).")
+    attempt = req.query.get("attempt")
+    return runs.session_excerpt(check_name(project), check_run_id(run_id), int_param(req, "task", 0),
+                                int_param(req, "attempt", 0) if attempt else None, req.query.get("step") or None)
 
 
 def get_gates(req):
@@ -878,6 +901,14 @@ def get_repair_report(req, run_id):
     return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
 
 
+def get_repair_diagnose(req, run_id):
+    """Reply with the typed diagnosis of a stopped or failed run (the project comes in the query)."""
+    project = req.query.get("project")
+    if not project:
+        raise BadRequest("Say which project the run belongs to (project=).")
+    return ops_repair.diagnose(check_name(project), check_run_id(run_id))
+
+
 def get_report_status(req):
     """Reply with the status report the runner rewrites every 10 minutes (markdown); never writes a file
     (when there is no saved copy yet it is built once, outside the write lock, and not saved)."""
@@ -933,6 +964,73 @@ def post_repair_apply(req, run_id):
         raise BadRequest("Applying a repair needs confirmation.")
     with req.server.write_lock:
         return ops_repair.apply_text(run_id, text, who=WHO, **flags)
+
+
+def int_field(req, key: str) -> int | None:
+    """A whole number from the body (None when left out), or BadRequest."""
+    value = req.body.get(key)
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+        raise BadRequest(f"'{key}' should be a whole number.")
+    return value
+
+
+def text_field(req, key: str) -> str | None:
+    """A string from the body (None when left out), or BadRequest."""
+    value = req.body.get(key)
+    if value is not None and not isinstance(value, str):
+        raise BadRequest(f"'{key}' should be text.")
+    return value
+
+
+def need(value, key: str):
+    """The value, or BadRequest saying the field is missing."""
+    if value is None:
+        raise BadRequest(f"'{key}' is needed.")
+    return value
+
+
+def post_repair_rerun(req, project, run_id):
+    """Re-run a task or a finish step of a run through a repair note."""
+    run_id, task, step = check_run_id(run_id), int_field(req, "task"), text_field(req, "finish_step")
+    with req.server.write_lock:
+        return ops_repair.rerun_step(run_id, task, step, who=req.who)
+
+
+def post_repair_resume(req, project, run_id):
+    """Resume a run from a task through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    with req.server.write_lock:
+        return ops_repair.resume_from(run_id, task, who=req.who)
+
+
+def post_repair_skip(req, project, run_id):
+    """Skip a task of a run, with a reason, through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_repair.skip_task(run_id, task, why, who=req.who)
+
+
+def post_repair_rewrite_checks(req, project, run_id):
+    """Rewrite a task's checks, with a reason, through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_repair.rewrite_checks(run_id, task, why, who=req.who)
+
+
+def post_repair_max_tries(req, project, run_id):
+    """Raise a run's max tries through a repair note."""
+    run_id, tries = check_run_id(run_id), need(int_field(req, "tries"), "tries")
+    with req.server.write_lock:
+        return ops_repair.raise_max_tries(run_id, tries, who=req.who)
+
+
+def post_repair_restart(req, project, run_id):
+    """Restart a stopped or failed build on another preset."""
+    run_id, preset = check_run_id(run_id), need(text_field(req, "preset"), "preset")
+    with req.server.write_lock:
+        return ops_repair.restart_on_preset(check_name(project), run_id, preset, who=req.who)
 
 
 def post_run_note(req, run_id):
@@ -1064,6 +1162,9 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/session", get_run_session),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),
@@ -1137,8 +1238,15 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/shown", post_suggest_shown),
+    ("GET", r"/api/repair/(?P<run_id>[^/]+)/diagnose", get_repair_diagnose),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rerun", post_repair_rerun),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/resume", post_repair_resume),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/skip", post_repair_skip),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rewrite-checks", post_repair_rewrite_checks),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]

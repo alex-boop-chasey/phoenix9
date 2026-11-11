@@ -1,8 +1,10 @@
 """Ops for runs: start, status, list, log and stop."""
+import json
 import secrets
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
+from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, resolve, runs as core, scrub, settings, spec, state
+from phoenix9 import tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
@@ -139,7 +141,7 @@ def status(run_id: str) -> dict:
     folder = _run_folder(run_id)
     open_gates = [g for g in gates_core.run_gates(folder) if g["state"] == "open"]
     st = status_core.seen_run(state.load(folder), {g["id"] for g in open_gates})
-    return {**st, "gates": open_gates, "recent_events": events.tail(folder / "events.jsonl", 5)}
+    return {**st, "gates": open_gates, "recent_events": events_core.tail(folder / "events.jsonl", 5)}
 
 
 def list_(project: str | None = None) -> list:
@@ -153,7 +155,7 @@ def list_(project: str | None = None) -> list:
 def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
     """The run's events and step logs, optionally for one step and/or one task."""
     folder = _run_folder(run_id)
-    found = [e for e in events.read(folder / "events.jsonl")
+    found = [e for e in events_core.read(folder / "events.jsonl")
              if (step is None or e.get("step") == step) and (task is None or e.get("task") == task)]
     logs = {}
     log_dir = folder / "logs"
@@ -162,6 +164,121 @@ def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
             if step is None or path.stem == step:
                 logs[path.stem] = path.read_text(encoding="utf-8", errors="replace")
     return {"run_id": run_id, "events": found, "logs": logs}
+
+
+def events(project: str, run_id: str, after: int | None = None, limit: int = 50) -> dict:
+    """One run's events only, oldest first, each scrubbed, numbered by line; `after` skips up to that number."""
+    common.project_dir(project)
+    folder = _run_folder(run_id)
+    if folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    limit = min(max(int(limit), 1), 1000)
+    try:
+        lines = (folder / "events.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        lines = []
+    found = []
+    for number, line in enumerate(lines, 1):
+        if after is not None and number <= after:
+            continue
+        try:
+            event = json.loads(scrub.scrub(line))
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("run") in (None, run_id):
+            found.append({"id": number, **event})
+        if len(found) >= limit:
+            break
+    return {"project": project, "run_id": run_id, "events": found,
+            "next": found[-1]["id"] if found else (after or 0)}
+
+
+def _stuck_task(st: dict) -> str | None:
+    """The first failed or waiting task, else a task still marked running in a run that is not running."""
+    tasks = st.get("tasks") or {}
+    order = sorted(tasks, key=lambda n: int(n) if str(n).isdigit() else 0)
+    for n in order:
+        if tasks[n].get("status") in ("failed", "waiting"):
+            return n
+    for n in order:
+        if tasks[n].get("status") in ("running", "pending") and st.get("status") != "running":
+            return n
+    return None
+
+
+def task_tries(project: str, run_id: str, task: int | None = None) -> dict:
+    """One task of a run (default: the first failed, waiting or stuck one) with the run's max tries and one line per try."""
+    d = detail(project, run_id)
+    st = state.load(_run_folder(run_id)) or {}
+    key = str(task) if task is not None else _stuck_task(st)
+    if key is None:
+        return {"project": project, "run_id": run_id, "task": None, "title": None, "status": d.get("status"),
+                "max_tries": d.get("max_tries"), "tries": []}
+    if key not in (st.get("tasks") or {}) and key not in d["try_lines"]:
+        raise common.NotFound(f"Run {run_id} has no task {key}.")
+    info = (st.get("tasks") or {}).get(key) or {}
+    title = info.get("title") or next((t.get("title") for t in d["plan"].get("tasks", [])
+                                       if str(t.get("id")) == key), None)
+    return {"project": project, "run_id": run_id, "task": int(key), "title": title,
+            "status": info.get("status") or "pending", "max_tries": d.get("max_tries"),
+            "tries": d["try_lines"].get(key, [])}
+
+
+SESSION_CHARS = 2000   # most characters of a session excerpt
+SESSION_LINES = 40     # most lines of a session excerpt
+
+
+def _session_files(folder: Path, task: int, attempt: int | None, step: str | None) -> list[Path]:
+    """The step session logs (logs/<task>-<attempt>-<role>.jsonl) of a task, inside the run folder only."""
+    logs = (folder / "logs").resolve()
+    if not logs.is_dir() or not logs.is_relative_to(folder.resolve()):
+        return []
+    found = []
+    for path in logs.glob(f"{int(task)}-*-*.jsonl"):
+        parts = path.stem.split("-", 2)
+        if len(parts) == 3 and parts[1].isdigit() and path.resolve().parent == logs:
+            found.append((int(parts[1]), parts[2], path))
+    if attempt is None and found:
+        attempt = max(a for a, _, _ in found)
+    wanted = [(a, r, p) for a, r, p in found if a == attempt and (step is None or r == step)]
+    wanted.sort(key=lambda t: (t[1] != "builder", t[1]))   # the builder's session first
+    return [p for _, _, p in wanted]
+
+
+def _session_text(raw: str) -> str:
+    """The readable text of a stream-json session: assistant words and the final result, else the raw lines."""
+    out = []
+    for line in raw.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            out.append(line)
+            continue
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "assistant":
+            content = (ev.get("message") or {}).get("content")
+            blocks = content if type(content) is type([]) else []
+            out += [b["text"] for b in blocks if isinstance(b, dict) and isinstance(b.get("text"), str)]
+        elif ev.get("type") == "result" and isinstance(ev.get("result"), str):
+            out.append(ev["result"])
+    return "\n".join(out)
+
+
+def session_excerpt(project: str, run_id: str, task: int, attempt: int | None = None, step: str | None = None) -> dict:
+    """The last lines of a step's AI session, scrubbed and capped, returned as quoted data."""
+    folder = _run_folder(run_id)
+    if folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    files = _session_files(folder, task, attempt, step)
+    if not files:
+        raise common.NotFound(f"Run {run_id} has no AI session for task {task}"
+                              + (f" try {attempt}" if attempt else "") + ".")
+    path = files[0]
+    text = _session_text(path.read_text(encoding="utf-8", errors="replace"))
+    text = "\n".join(text.splitlines()[-SESSION_LINES:])
+    text = scrub.scrub(text)[-SESSION_CHARS:]
+    return {"quoted": True, "source": f"logs/{path.name}", "text": text}
 
 
 def summary(run_id: str) -> dict:
@@ -279,7 +396,7 @@ def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     if after["status"] != new:
         raise OpsError(f"Run {run_id} is {after['status']}, not paused, so there is nothing to resume.")
     pause_core.clear(folder)
-    events.emit("run.resumed", project=st["project"], run=run_id, who=who, status=new)
+    events_core.emit("run.resumed", project=st["project"], run=run_id, who=who, status=new)
     common.record_command(who, f"run resume {run_id}", st["project"], f"resumed run {run_id}")
     return {"run_id": run_id, "status": new, "queued": new == "queued"}
 
@@ -300,7 +417,7 @@ def note(run_id: str, task: int, text: str, who: str = "cli", project: str | Non
     if len(text.strip()) > taskfile.MAX_NOTE:
         raise OpsError(f"The note is {len(text.strip())} characters long; the most is {taskfile.MAX_NOTE}.")
     taskfile.add_note(folder, task, who, text)
-    events.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
+    events_core.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
     common.record_command(who, f"run note {run_id} {task}", st["project"])
     return {"run_id": run_id, "task": task, "file": str(taskfile.path(folder, task)),
             "file_id": f"{run_id}/tasks/{task}/task.md"}
@@ -392,7 +509,7 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
     def mark(s: dict) -> None:
         s.update(discarded=True, discarded_at=stamp, discarded_by=who, **({"discard_forced": True} if force else {}))
     state.update(folder, mark)
-    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
+    events_core.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
     common.record_command(who, f"run discard {run_id}", st["project"], f"discarded the work of run {run_id}")
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
@@ -400,15 +517,30 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
 list = list_
 
 
-def builds(project: str) -> list:
-    """Previous builds of a project, newest first, with title, preset, times, duration, cost."""
+def _failure_line(folder: Path) -> tuple:
+    """The failed or stuck task number of a run and its one-line reason (None, "" when there is none)."""
+    st = state.load(folder) or {}
+    key = _stuck_task(st)
+    if key is None:
+        return None, ""
+    found = tries_core.by_task(folder, st).get(key) or []
+    reason = next((t["reason"] for t in reversed(found) if t["reason"]), "")
+    return (int(key) if str(key).isdigit() else key), reason
+
+
+def builds(project: str, limit: int = 10) -> list:
+    """Recent builds of a project, newest first (10 by default), with title, preset, times, cost and the failed task."""
     from phoenix9 import summary
+    if limit < 1:
+        raise OpsError("'limit' must be 1 or more.")
     rows = []
-    for r in list_(project):
-        f = summary.facts(core.run_dir(project, r["run_id"]))
+    for r in list_(project)[:limit]:
+        folder = core.run_dir(project, r["run_id"])
+        f = summary.facts(folder)
+        task, reason = _failure_line(folder)
         rows.append({**r, "title": f["title"], "preset": f["preset"], "started": f["started"],
                      "finished": f["finished"], "duration": f["duration"], "cost": f["cost"],
-                     "tasks_failed": f["counts"]["failed"]})
+                     "tasks_failed": f["counts"]["failed"], "failed_task": task, "failed_reason": reason})
     return rows
 
 
@@ -425,7 +557,7 @@ def _preview_plan(project: str, overrides: dict) -> dict:
 def _repairs(folder: Path) -> "list[dict]":
     """The repairs applied to a run, read from its repair.applied events (never from the notes)."""
     found = []
-    for e in events.read(folder / "events.jsonl"):
+    for e in events_core.read(folder / "events.jsonl"):
         if e.get("type") == "repair.applied":
             d = e.get("data") or {}
             found.append({"n": len(found) + 1, "who": d.get("who"), "title": d.get("title"),
@@ -465,7 +597,8 @@ def detail(project: str, run_id: str) -> dict:
         except settings.SettingsError:
             pass
     spent = float((state.load(folder) or {}).get("usage", {}).get("cost_usd") or 0.0)
-    return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
+    tries, try_lines = tries_core.of_run(folder)
+    return {**data, "tries": tries, "try_lines": try_lines, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries, "budget_usd": cap, "spent_usd": round(spent, 2),
             "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
 

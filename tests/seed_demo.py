@@ -90,6 +90,10 @@ CHANGELOG = {
                  "set the merge question to ask", "added the demo data"],
 }
 
+# Why each earlier try of a failed demo task failed (the last try says "the checks failed")
+TRY_REASONS = ["the checks failed: 1 test failed in src/blog.test.ts", "the checks failed: the build did not finish",
+               "the checks failed: 1 test failed in src/blog.test.ts"]
+
 # Runs: project, id, spec title, status, per-task (status, tries, flagged), created, finished (or None)
 RUNS = [
     {"project": "demo-site", "id": "20261020-090000-contact-form", "status": "done", "created": "2026-10-20T09:00:00+00:00",
@@ -213,10 +217,23 @@ def _task_lines(plan: dict, n: int, status: str, tries: int, at: str) -> list:
     if status == "passed":
         return [_line("task", n, s, "passed", attempt, at=at) for s in names]
     lines = []
+    for earlier in range(1, attempt) if status == "failed" else []:
+        lines += _earlier_try_lines(names, n, earlier, at)
     for s in names:
         if s == "builder":
             lines.append(_line("task", n, s, "running" if status == "running" else "failed", attempt,
                                "" if status == "running" else "the checks failed", at))
+            break
+        lines.append(_line("task", n, s, "passed", attempt, at=at))
+    return lines
+
+
+def _earlier_try_lines(names: list, n: int, attempt: int, at: str) -> list:
+    """Step lines of one earlier try of a failed task: the steps before the Builder passed, the Builder failed."""
+    lines = []
+    for s in names:
+        if s == "builder":
+            lines.append(_line("task", n, s, "failed", attempt, TRY_REASONS[attempt % len(TRY_REASONS)], at))
             break
         lines.append(_line("task", n, s, "passed", attempt, at=at))
     return lines
@@ -260,7 +277,8 @@ def _gate_body(run: dict, kind: str) -> dict:
 
 def _session_lines(task: int, attempt: int, ok: bool) -> list:
     """A short stream-json log like the one Claude writes."""
-    result = "Done: the checks pass." if ok else "I could not make the checks pass."
+    result = "Done: the checks pass." if ok else (
+        f"I could not make the checks pass. The test for task {task} still fails on try {attempt}.")
     return [
         {"type": "system", "subtype": "init", "session_id": f"demo-{task}-{attempt}", "model": "claude-opus-5-5",
          "tools": ["Read", "Edit", "Bash"]},
@@ -386,6 +404,9 @@ def _write_run(run: dict) -> list:
     for n, (status, tries, _) in enumerate(run["tasks"], start=1):
         for attempt in range(1, tries + 1):
             _write_attempt_files(run_dir, n, attempt, ok=(status == "passed" and attempt == tries))
+    if run["id"] == "20261022-140000-blog-section":  # task 2 has locked checks, so an agent rewrite is refused
+        atomic.write_json(run_dir / "tasks" / "2" / "checks.lock.json",
+                          {"files": {"tests/phoenix/20261022-140000-blog-section/task-2/test_blog.py": "0" * 64}})
     atomic.write_text(run_dir / "logs" / "builder.log",
                       "builder: started\nbuilder: reading the task\nbuilder: finished the last attempt\n")
     kind = run.get("gate")

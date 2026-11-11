@@ -24,6 +24,7 @@ class ServerTool:
     risk: Risk
     function: Callable[..., Any]
     confirm_field: str | None = None  # the input whose value Alex must type to approve (destructive tools)
+    one_per: str | None = None  # the input naming what the tool acts on; only one such call per value at a time
 
 
 @dataclass(frozen=True)

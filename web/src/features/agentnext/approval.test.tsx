@@ -105,3 +105,9 @@ test("a message chip sends, link chips open, other schemes are never shown", asy
   expect(opened).toEqual(["https://example.com/x", "claude://open/1"])
   open.mockRestore()
 })
+
+test.each(["repair-skip-task", "repair-rewrite-checks"])("%s shows the why input as a Reason line", (toolName) => {
+  render(<ApprovalCard item={{ ...item, toolName, input: { task: 3, why: "It needs a key we lack." } }} onDecide={() => {}} />)
+  expect(screen.getByText("Reason: It needs a key we lack.")).toBeInTheDocument()
+  expect(screen.queryByText("why:")).toBeNull()
+})

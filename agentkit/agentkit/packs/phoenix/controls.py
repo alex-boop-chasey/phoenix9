@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field, create_model
 
 from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
-from agentkit.packs.phoenix.tools import (build_card, keys_card, project_card, run_card, settings_card, task_list,
-                                        update_card)
+from agentkit.packs.phoenix.tools import (build_card, diagnose_card, events_card, keys_card, project_card, repair_card,
+                                        run_card, session_card, settings_card, task_list, tries_card, update_card)
 
 CONTROLS_FILE = Path(__file__).with_name("controls.json")
 PLAIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -85,6 +85,16 @@ def _card_data(entry: dict, data: Any, values: dict) -> dict:
         return settings_card(project, data, entry["name"] == "settings-check")
     if card == "keys_card":
         return keys_card(project, data)
+    if card == "events_card" and entry["name"] == "run-events":
+        return events_card(project, data)
+    if card == "tries_card":
+        return tries_card(project, data)
+    if card == "session_card":
+        return session_card(project, data)
+    if card == "diagnose_card":
+        return diagnose_card(project, data)
+    if card == "repair_card":
+        return repair_card(project, data, values)
     if card == "update_card":
         return update_card(data)
     if card == "run_card" and isinstance(data, dict):
@@ -118,7 +128,8 @@ def make_server_tools(client: PhoenixClient, controls: list[dict] | None = None)
         if entry["agent"] != "tool":
             continue
         tools.append(ServerTool(entry["name"], entry["description"], input_model(entry), entry["risk"],
-                                make_function(entry, client), entry["confirm_with"] or None))
+                                make_function(entry, client), entry["confirm_with"] or None,
+                                "run_id" if entry["name"].startswith("repair-") else None))
         if entry["card"]:
             components[entry["name"]] = entry["card"]
     return tools, components

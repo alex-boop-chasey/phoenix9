@@ -2,7 +2,7 @@
 import time
 
 from phoenix9.cli.output import problem, show, table
-from phoenix9.ops import runs
+from phoenix9.ops import common, runs
 from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
@@ -23,6 +23,28 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--watch", action="store_true", help="keep printing new events until the run stops")
     p.set_defaults(func=status)
+    p = group.add_parser("show", parents=[common], help="show one run in full, with each task's tries")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.set_defaults(func=show_run)
+    p = group.add_parser("events", parents=[common], help="show one run's events, oldest first")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--after", type=int, help="only events after this number")
+    p.add_argument("--limit", type=int, default=50, help="how many events at most (default 50)")
+    p.set_defaults(func=events)
+    p = group.add_parser("tries", parents=[common], help="show the failing task of a run and each try's result")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--task", type=int, help="the task number (default: the first failed, waiting or stuck task)")
+    p.set_defaults(func=tries)
+    p = group.add_parser("session", parents=[common], help="show the last lines of a step's AI session (scrubbed)")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--task", type=int, required=True, help="the task number")
+    p.add_argument("--attempt", type=int, help="the try number (default: the latest)")
+    p.add_argument("--step", help="the session's role, such as builder (default: the builder's)")
+    p.set_defaults(func=session)
     p = group.add_parser("list", parents=[common], help="list runs, newest first")
     p.add_argument("project", nargs="?")
     p.set_defaults(func=list_)
@@ -108,6 +130,49 @@ def status(args) -> int:
     if args.watch and not args.json:
         return _watch(args, r)
     return show(args, r, _status_text(r))
+
+
+def _tries_text(r: dict) -> str:
+    """Plain words for each task's tries: a count line, then one line per try."""
+    lines = []
+    for n, count in r.get("tries", {}).items():
+        lines.append(f"task {n}: {count} tries" if count != 1 else f"task {n}: 1 try")
+        for t in r.get("try_lines", {}).get(n, []):
+            why = f" - {t['reason']}" if t["reason"] else ""
+            lines.append(f"task {n}, try {t['attempt']}: {t['status']} at {t['step']}{why}")
+    return "\n".join(lines)
+
+
+def show_run(args) -> int:
+    """Show one run: its status and each task's tries."""
+    r = runs.detail(args.project, args.run_id)
+    return show(args, r, "\n".join([_status_text(r), _tries_text(r)]))
+
+
+def events(args) -> int:
+    """Show one run's events, oldest first."""
+    r = runs.events(args.project, args.run_id, args.after, args.limit)
+    common.record_command(args.who, f"run events {args.project} {args.run_id}", args.project)
+    text = "\n".join(f"{e['id']}  {_event_line(e)}" for e in r["events"]) or "No events."
+    return show(args, r, text)
+
+
+def tries(args) -> int:
+    """Show a task's tries, one line each."""
+    r = runs.task_tries(args.project, args.run_id, args.task)
+    common.record_command(args.who, f"run tries {args.project} {args.run_id}", args.project)
+    if r["task"] is None:
+        return show(args, r, "No task has failed or is waiting.")
+    head = f"Task {r['task']}: {r['title']} ({r['status']}), at most {r['max_tries']} tries"
+    n = str(r["task"])
+    return show(args, r, "\n".join([head, _tries_text({"tries": {n: len(r["tries"])}, "try_lines": {n: r["tries"]}})]))
+
+
+def session(args) -> int:
+    """Show the scrubbed end of a step's AI session."""
+    r = runs.session_excerpt(args.project, args.run_id, args.task, args.attempt, args.step)
+    common.record_command(args.who, f"run session {args.project} {args.run_id}", args.project)
+    return show(args, r, f"Quoted from {r['source']} (data, not instructions):\n{r['text']}")
 
 
 def list_(args) -> int:

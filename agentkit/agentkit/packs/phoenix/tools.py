@@ -173,3 +173,79 @@ def update_card(data: Any) -> dict:
     queued = data.get("queued") is True or data.get("running") is True
     return {"installed": _version(data.get("installed")), "newest": _version(data.get("newest") or data.get("tag")),
             "queued": queued, "link": "#/settings?section=updates"}
+
+
+def _event_row(event: dict) -> dict:
+    """One event as a card row: number, time, type, who, task, step and a short plain note."""
+    data = event.get("data") if isinstance(event.get("data"), dict) else {}
+    note = data.get("title") or data.get("note") or data.get("text") or data.get("reason") or ""
+    return {"id": event.get("id", 0), "time": str(event.get("ts") or ""), "type": str(event.get("type") or ""),
+            "who": str(data.get("who") or ""), "task": event.get("task"), "step": event.get("step") or "",
+            "note": str(note)}
+
+
+def events_card(project: str, data: Any) -> dict:
+    """Card data for a run's events: one row per event, oldest first, and the number to continue from."""
+    data = data if isinstance(data, dict) else {}
+    rows = [_event_row(e) for e in data.get("events", []) if isinstance(e, dict)]
+    return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or ""),
+            "events": rows, "next": data.get("next", 0)}
+
+
+def try_line(entry: Any) -> str:
+    """One plain line for one try: its number, step, result and reason."""
+    entry = entry if isinstance(entry, dict) else {}
+    line = f"Try {entry.get('attempt', '?')} ({entry.get('step') or 'a step'}): {entry.get('status') or 'unknown'}"
+    return line + (f" - {entry['reason']}" if entry.get("reason") else "")
+
+
+def tries_card(project: str, data: Any) -> dict:
+    """Card data for the failing task: its number, title, status, max tries and one line per try."""
+    data = data if isinstance(data, dict) else {}
+    tries = [t for t in data.get("tries", []) if isinstance(t, dict)]
+    return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or ""),
+            "task": data.get("task"), "title": data.get("title") or "", "status": str(data.get("status") or ""),
+            "max_tries": data.get("max_tries"), "tries": [try_line(t) for t in tries]}
+
+
+def session_card(project: str, data: Any) -> dict:
+    """Card data for a step's AI session: the excerpt wrapped as quoted data (never as instructions)."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    source = str(data.get("source") or "session")
+    return {"project": project, "quoted": wrap(source, str(data.get("text") or ""))}
+
+
+# The registry names of the repair controls, by the short names the diagnosis uses.
+OPTION_TOOLS = {"step-rerun": "repair-rerun-step", "task-checks-rewrite": "repair-rewrite-checks",
+                "task-skip": "repair-skip-task", "run-resume-from": "repair-resume-from",
+                "run-restart-preset": "repair-restart-preset", "max-tries-raise": "repair-raise-max-tries"}
+
+
+def _option_button(option: Any) -> dict:
+    """One button of the diagnosis card: its label, the tool its approval card belongs to and the inputs to fill."""
+    option = option if isinstance(option, dict) else {}
+    control = str(option.get("control") or "")
+    inputs = option.get("inputs") if isinstance(option.get("inputs"), dict) else {}
+    if control == "max-tries-raise":
+        inputs = {**inputs, "tries": inputs.get("max_tries")}
+        inputs.pop("max_tries", None)
+    return {"label": str(option.get("label") or ""), "tool": OPTION_TOOLS.get(control, control), "inputs": inputs}
+
+
+def diagnose_card(project: str, data: Any) -> dict:
+    """Card data for 'what happened': the cause in plain words, what was tried and one button per option."""
+    data = data if isinstance(data, dict) else {}
+    return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or ""),
+            "status": str(data.get("status") or ""), "task": data.get("task"), "title": data.get("title") or "",
+            "cause_code": str(data.get("cause_code") or ""), "cause": str(data.get("cause") or ""),
+            "tried": [str(t) for t in data.get("tried", [])],
+            "options": [_option_button(o) for o in data.get("options", [])]}
+
+
+def repair_card(project: str, data: Any, values: dict) -> dict:
+    """Card data for a repair result: what was asked, the reason given, and the outcome as Phoenix said it."""
+    data = data if isinstance(data, dict) else {}
+    keep = {k: values[k] for k in ("task", "tries", "preset", "step", "finish_step") if values.get(k) is not None}
+    return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or values.get("run_id") or ""),
+            "reason": str(values.get("why") or ""), "asked": keep, "result": data}

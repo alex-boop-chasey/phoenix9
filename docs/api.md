@@ -60,6 +60,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
 | GET | `/api/runs/<project>/<run_id>/events` | `ops.runs.events` (`phoenix run events <project> <run>`) | query `after`, `limit` (default 50) | `{project, run_id, events: [{id, ...event}], next}`; that run's events only, oldest first, each scrubbed | 404 |
+| GET | `/api/runs/<project>/<run_id>/tries` | `ops.runs.task_tries` (`phoenix run tries <project> <run>`) | query `task` | `{project, run_id, task, title, status, max_tries, tries: [one line per try]}`; the first failed, waiting or stuck task unless `task` is given | 404 |
 | GET | `/api/gates?project=` | `ops.gates.list_` | | the open questions only (`gates.is_open`), as gate objects (architecture section 8) plus `state: "open"` | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
 | GET | `/api/library/profiles` | `ops.library.profiles` | | `{profiles, problems}` | |

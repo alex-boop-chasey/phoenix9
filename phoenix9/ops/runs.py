@@ -193,6 +193,37 @@ def events(project: str, run_id: str, after: int | None = None, limit: int = 50)
             "next": found[-1]["id"] if found else (after or 0)}
 
 
+def _stuck_task(st: dict) -> str | None:
+    """The first failed or waiting task, else a task still marked running in a run that is not running."""
+    tasks = st.get("tasks") or {}
+    order = sorted(tasks, key=lambda n: int(n) if str(n).isdigit() else 0)
+    for n in order:
+        if tasks[n].get("status") in ("failed", "waiting"):
+            return n
+    for n in order:
+        if tasks[n].get("status") in ("running", "pending") and st.get("status") != "running":
+            return n
+    return None
+
+
+def task_tries(project: str, run_id: str, task: int | None = None) -> dict:
+    """One task of a run (default: the first failed, waiting or stuck one) with the run's max tries and one line per try."""
+    d = detail(project, run_id)
+    st = state.load(_run_folder(run_id)) or {}
+    key = str(task) if task is not None else _stuck_task(st)
+    if key is None:
+        return {"project": project, "run_id": run_id, "task": None, "title": None, "status": d.get("status"),
+                "max_tries": d.get("max_tries"), "tries": []}
+    if key not in (st.get("tasks") or {}) and key not in d["try_lines"]:
+        raise common.NotFound(f"Run {run_id} has no task {key}.")
+    info = (st.get("tasks") or {}).get(key) or {}
+    title = info.get("title") or next((t.get("title") for t in d["plan"].get("tasks", [])
+                                       if str(t.get("id")) == key), None)
+    return {"project": project, "run_id": run_id, "task": int(key), "title": title,
+            "status": info.get("status") or "pending", "max_tries": d.get("max_tries"),
+            "tries": d["try_lines"].get(key, [])}
+
+
 def summary(run_id: str) -> dict:
     """The text of the run's summary.md."""
     path = _run_folder(run_id) / "summary.md"

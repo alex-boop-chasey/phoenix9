@@ -33,6 +33,11 @@ def add(sub, common) -> None:
     p.add_argument("--after", type=int, help="only events after this number")
     p.add_argument("--limit", type=int, default=50, help="how many events at most (default 50)")
     p.set_defaults(func=events)
+    p = group.add_parser("tries", parents=[common], help="show the failing task of a run and each try's result")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--task", type=int, help="the task number (default: the first failed, waiting or stuck task)")
+    p.set_defaults(func=tries)
     p = group.add_parser("list", parents=[common], help="list runs, newest first")
     p.add_argument("project", nargs="?")
     p.set_defaults(func=list_)
@@ -143,6 +148,17 @@ def events(args) -> int:
     common.record_command(args.who, f"run events {args.project} {args.run_id}", args.project)
     text = "\n".join(f"{e['id']}  {_event_line(e)}" for e in r["events"]) or "No events."
     return show(args, r, text)
+
+
+def tries(args) -> int:
+    """Show a task's tries, one line each."""
+    r = runs.task_tries(args.project, args.run_id, args.task)
+    common.record_command(args.who, f"run tries {args.project} {args.run_id}", args.project)
+    if r["task"] is None:
+        return show(args, r, "No task has failed or is waiting.")
+    head = f"Task {r['task']}: {r['title']} ({r['status']}), at most {r['max_tries']} tries"
+    n = str(r["task"])
+    return show(args, r, "\n".join([head, _tries_text({"tries": {n: len(r["tries"])}, "try_lines": {n: r["tries"]}})]))
 
 
 def list_(args) -> int:

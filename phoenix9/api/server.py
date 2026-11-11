@@ -259,6 +259,12 @@ def get_run_events(req, project, run_id):
                        min(max(int_param(req, "limit", 50), 1), 1000))
 
 
+def get_run_tries(req, project, run_id):
+    """Reply with one task's tries (the first failed, waiting or stuck task unless `task` is given)."""
+    task = req.query.get("task")
+    return runs.task_tries(check_name(project), check_run_id(run_id), int_param(req, "task", 0) if task else None)
+
+
 def get_gates(req):
     """Reply with the open and answered gates."""
     name = req.query.get("project")
@@ -1072,6 +1078,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),

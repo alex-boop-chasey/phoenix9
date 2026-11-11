@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs f82cbce723a5214f -->
+<!-- phoenix 9.1.0 inputs feadcb4e29d21eb2 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -38,6 +38,14 @@ show one run's events, oldest first
 - `<run_id>`
 - `--after AFTER`: only events after this number
 - `--limit LIMIT` (default 50): how many events at most (default 50)
+
+### `phoenix run tries`
+
+show the failing task of a run and each try's result
+
+- `<project>`
+- `<run_id>`
+- `--task TASK`: the task number (default: the first failed, waiting or stuck task)
 
 ### `phoenix run list`
 

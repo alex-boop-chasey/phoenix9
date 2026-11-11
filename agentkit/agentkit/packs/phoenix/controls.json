@@ -1878,6 +1878,48 @@
     "confirm_with": ""
   },
   {
+    "name": "task-tries",
+    "description": "Read a run's failing task (the first failed, waiting or stuck one unless a task is given) with one line per try.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": false,
+        "description": "The task number (the failing task if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "tries_card",
+    "confirm_with": ""
+  },
+  {
     "name": "ui-go",
     "description": "Check the route, publish a ui.go event ({hash, label, by}) and return {hash, label}.",
     "inputs": [],

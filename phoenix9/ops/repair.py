@@ -154,6 +154,32 @@ def resume_from(run_id: str, task: int, who: str = "agent") -> dict:
     return apply_text(run_id, text, who=who)
 
 
+def _clean_task_and_why(task: int, why: str) -> str:
+    """Check the task number and the reason (one printable line, no note syntax); return the trimmed reason."""
+    if isinstance(task, bool) or not isinstance(task, int) or task < 1:
+        raise common.OpsError("The task must be a number from 1 up.")
+    if not isinstance(why, str) or not why.strip():
+        raise common.OpsError("Give a reason, in one line.")
+    why = why.strip()
+    if len(why.splitlines()) != 1 or not why.isprintable():
+        raise common.OpsError("The reason must be one line of plain text.")
+    return why
+
+
+def skip_task(run_id: str, task: int, why: str, who: str = "agent") -> dict:
+    """Skip a task (`mark task N skipped because WHY`) through a repair note."""
+    why = _clean_task_and_why(task, why)
+    text = _note_text(run_id, why, [f"mark task {task} skipped because {why}"])
+    return apply_text(run_id, text, who=who)
+
+
+def rewrite_checks(run_id: str, task: int, why: str, who: str = "agent") -> dict:
+    """Rewrite a task's checks (`rewrite the checks of task N because WHY`), never unlocking locked checks."""
+    why = _clean_task_and_why(task, why)
+    text = _note_text(run_id, why, [f"rewrite the checks of task {task} because {why}"])
+    return apply_text(run_id, text, who=who, approve_unlock=False)
+
+
 def diagnose(project: str, run_id: str) -> dict:
     """Say in typed data why a run stopped or failed: the cause, what was tried and which repairs fit."""
     from phoenix9 import state

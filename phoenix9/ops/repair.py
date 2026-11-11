@@ -2,7 +2,7 @@
 import contextlib
 import re
 
-from phoenix9 import atomic, events, runs as core
+from phoenix9 import atomic, events, runs as core, settings, state
 from phoenix9.ops import common, runs as runs_ops
 from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, lock, notes, report as report_mod, resume as resume_mod, safety, snapshot
 from phoenix9.repair.steps import is_chat
@@ -209,3 +209,27 @@ def raise_max_tries(run_id: str, tries: int, who: str = "agent") -> dict:
         raise common.OpsError("The number of tries must be 1 or more.")
     text = _note_text(run_id, f"Allow {tries} tries per task", [f"set max_tries={tries} for this run"])
     return apply_text(run_id, text, who=who)
+
+
+def restart_on_preset(project: str, run_id: str, preset: str, who: str = "agent") -> dict:
+    """Start a new run from a stopped or failed run's spec on another preset, and record it on the old run."""
+    folder = _run_folder(run_id, project)
+    _may_repair(folder, who)
+    if preset not in settings.PRESETS:
+        raise common.OpsError(f"'{preset}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+    status = (state.load(folder) or {}).get("status")
+    if status not in ("stopped", "failed"):
+        raise common.Conflict(f"The run is {status}; only a stopped or failed run can be restarted on another preset.")
+    current = runs_ops.detail(project, run_id).get("preset")
+    if preset == current:
+        raise common.Conflict(f"The run already uses the {preset} preset; pick a different one.")
+    kept = atomic.read_json(folder / "overrides.json") or {}
+    with _one_at_a_time(folder):
+        started = runs_ops.start(project, folder / "spec.md", {**kept, "preset": preset}, who=who)
+    title = f"Restart the build on the {preset} preset"
+    events.emit("repair.applied", project=project, run=run_id, who=who, note="restart-on-preset", title=title,
+                steps=[f"restart on preset {preset}"], new_run=started["run_id"], preset=preset,
+                check_before=[], check_after=[], forced=False, rolled_back=False)
+    common.record_command(who, f"repair restart {run_id} {preset}", project,
+                          f"restarted run {run_id} on preset {preset} as {started['run_id']}")
+    return {"run_id": run_id, "project": project, "new_run_id": started["run_id"], "preset": preset}

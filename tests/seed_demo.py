@@ -404,6 +404,9 @@ def _write_run(run: dict) -> list:
     for n, (status, tries, _) in enumerate(run["tasks"], start=1):
         for attempt in range(1, tries + 1):
             _write_attempt_files(run_dir, n, attempt, ok=(status == "passed" and attempt == tries))
+    if run["id"] == "20261022-140000-blog-section":  # task 2 has locked checks, so an agent rewrite is refused
+        atomic.write_json(run_dir / "tasks" / "2" / "checks.lock.json",
+                          {"files": {"tests/phoenix/20261022-140000-blog-section/task-2/test_blog.py": "0" * 64}})
     atomic.write_text(run_dir / "logs" / "builder.log",
                       "builder: started\nbuilder: reading the task\nbuilder: finished the last attempt\n")
     kind = run.get("gate")

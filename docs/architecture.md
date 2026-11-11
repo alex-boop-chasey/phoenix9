@@ -1070,6 +1070,15 @@ ever sees spending as a share of the monthly allowance, in words.
 its key is present; the key file is never read by the doctor) and `agentkit-spend` (the allowance in words:
 plenty left, getting low, or used up). Each passes with "not set up yet" when `[agent_next]` is absent.
 
+
+### Repairing failed builds (agent v3 build 3)
+The agent reads a run's events, failing task, each try, a scrubbed session excerpt and the project's recent runs, and
+draws a "what happened" card from `ops.repair.diagnose` (plain rules over typed data, no AI in Phoenix). Each option on
+the card opens the approval card of a repair control: re-run a step, rewrite a task's checks (with a reason), skip a task
+(with a reason), resume from a step, restart on another preset, raise max tries. `repair-apply` (free text) stays
+`later`, so the agent cannot send arbitrary notes. One repair at a time per run (`phoenix9/repair/lock.py`, and one open
+repair approval per run in the agent). A repair asked by who `agent` that would loosen a safety check is refused with a
+plain message (`phoenix9/repair/safety.py`). Every repair is recorded as a `repair.applied` event with who `agent`.
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
 | Adapter | Real | Fake |

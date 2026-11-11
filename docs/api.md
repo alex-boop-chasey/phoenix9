@@ -254,6 +254,20 @@ made of text blocks is a `user` item (an image shows as `[image]`).
   line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
   ping timing as `/api/events`.
 
+## Agent repair controls
+
+The six `repair/*` routes above are the only repair tools the agent has (each is generated from the controls
+registry and goes through an approval card). The free-text `repair-apply` control stays `later`: it is not an agent
+tool, so the agent cannot send its own notes.
+
+- Repair lock: one repair at a time per run (`phoenix9/repair/lock.py`). A second repair while one is going answers
+  409 with the plain message "Another repair on this run is still going; try again when it has finished." The agent
+  also keeps one repair approval open per run and tells Alex another repair is already waiting or being carried out.
+- Safety refusal: when who is `agent` (or a chat session), a repair that would loosen a safety check (a rewrite of
+  locked checks, `force`, `approve_unlock`, a spec replacement, a safety setting or step) answers 409 "That would
+  loosen a safety check, so I can't do it. Alex can do it from the dashboard." Nothing is changed.
+- Every repair that runs writes a `repair.applied` event in the run's events with who `agent` (or the caller).
+
 ## Repair card and report
 
 `GET /api/cards?type=repair&query={"project":"p","run":"r","note"?:"<file>"}` builds the `repair` card (architecture

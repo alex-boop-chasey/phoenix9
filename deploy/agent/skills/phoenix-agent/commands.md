@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 8e7174bb87818e09 -->
+<!-- phoenix 9.1.0 inputs a3637e9aba6293f7 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -778,6 +778,14 @@ plain-English reports
 write and show the status report (what needs you)
 
 - `--out OUT`: write the report to this file instead of HOME/reports/status.md
+
+## `phoenix search`
+
+search projects, builds, notes, research and logs
+
+- `<text>`: the words to look for (2 to 100 characters)
+- `--kind KIND`: only this kind of result
+- `--limit LIMIT` (default 20): how many results at most (default 20, at most 50)
 
 ## `phoenix suggest`
 

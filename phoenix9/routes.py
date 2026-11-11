@@ -3,7 +3,7 @@ import re
 from urllib.parse import quote
 
 from phoenix9 import gates, paths, runs as runs_mod, settings
-from phoenix9.ops import common, logs as ops_logs
+from phoenix9.ops import common, docs as ops_docs, logs as ops_logs
 
 # Same list as web/src/lib/routes.ts (a test keeps them equal); params are in hash order.
 ROUTES: list[tuple[str, list[str]]] = [
@@ -14,6 +14,7 @@ ROUTES: list[tuple[str, list[str]]] = [
     ("p/<name>/logs", ["run", "step", "task", "kind", "log"]),
     ("p/<name>/settings", ["section", "key"]),
     ("settings", ["section"]),
+    ("doc", ["path"]),
 ]
 GLOBAL_SECTIONS = ("services", "models", "updates", "addresses")
 PROJECT_SECTIONS = ("project", "build")
@@ -72,6 +73,10 @@ def _check_section(name: str, section: str) -> None:
         raise common.OpsError(f"'{section}' is not a settings section; use one of: {', '.join(allowed)}.")
 
 
+def _check_doc(path: str) -> None:
+    ops_docs.resolve(path)  # raises a plain OpsError/NotFound when the document id is wrong or missing
+
+
 def _check_params(name: str, project: str | None, params: dict) -> None:
     """Refuse a param value that points at something that does not exist."""
     if params.get("gate"):
@@ -86,6 +91,8 @@ def _check_params(name: str, project: str | None, params: dict) -> None:
         _check_key(str(params["key"]))
     if params.get("section"):
         _check_section(name, str(params["section"]))
+    if name == "doc":
+        _check_doc(str(params.get("path") or ""))
 
 
 def _label(name: str, project: str | None, params: dict) -> str:
@@ -93,7 +100,7 @@ def _label(name: str, project: str | None, params: dict) -> str:
     if project:
         parts = [project, name.rsplit("/", 1)[1].capitalize()]
     else:
-        parts = {"projects": ["Projects"], "new": ["New project"], "settings": ["Settings"]}[name]
+        parts = {"projects": ["Projects"], "new": ["New project"], "settings": ["Settings"], "doc": ["Document"]}[name]
     if params.get("section"):
         parts = parts + [str(params["section"]).capitalize()]
     return " › ".join(parts)

@@ -2044,6 +2044,54 @@
     "confirm_with": ""
   },
   {
+    "name": "search",
+    "description": "Search projects, builds, notes, research and logs for some text (read-only, scrubbed); each result says which page opens it.",
+    "inputs": [
+      {
+        "name": "q",
+        "type": "string",
+        "required": true,
+        "description": "The words to look for (2 to 100 characters, matched as plain text).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "kind",
+        "type": "choice",
+        "required": false,
+        "description": "Only this kind of result.",
+        "choices": [
+          "project",
+          "run",
+          "note",
+          "research",
+          "log"
+        ],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many results at most (20 if left out, 50 at most).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/search",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "search_card",
+    "confirm_with": ""
+  },
+  {
     "name": "service-connect",
     "description": "Save a service's account keys and settings, then (unless check is False) try them; a failed check keeps them.",
     "inputs": [],

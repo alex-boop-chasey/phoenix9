@@ -39,7 +39,7 @@ def test_route_outside_the_list_is_refused(api):
     status, body = api("/api/projects/x/delete", "POST", HEADERS, {"yes": True})
     assert status == 403 and "isn't allowed" in body["message"]
     assert api("/api/projects/alpha/keys/save", "POST", HEADERS, {})[0] == 403
-    assert api("/api/projects", "POST", HEADERS, {})[0] == 403
+    assert api("/api/import", "POST", HEADERS, {})[0] == 403
     assert api("/api/info", headers=HEADERS)[0] == 403
 
 

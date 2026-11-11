@@ -17,6 +17,7 @@ WAITING = "This chat is waiting for your answer on a change. Approve or refuse i
 REFUSED = "Alex refused this"
 REPAIR_BUSY = ("Another repair for this run is already waiting for Alex's answer or being carried out, so I did not "
                "ask for a second one. Wait until it is finished, then look at the run again.")
+BAD_INPUTS = "Refused: those inputs are not allowed (an unknown field, such as keys), so nothing was sent."
 FAILED = "The agent could not finish this reply."
 
 
@@ -54,6 +55,7 @@ class Runs:
         self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
         self.descriptions = {t.name: t.description for t in pack.server_tools} if pack else {}
         self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
+        self.tool_inputs = {t.name: t.inputs for t in pack.server_tools} if pack else {}
         self.one_per = {t.name: t.one_per for t in pack.server_tools if t.one_per} if pack else {}
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
@@ -115,6 +117,17 @@ class Runs:
         if self.store.pending_pauses(thread_id) or thread_id in self.active:
             return
         self._resume(thread_id)
+
+    def _inputs_refused(self, tool: str, inputs) -> bool:
+        """True when a change tool's inputs do not fit its input model (an unknown field, a wrong type)."""
+        model = self.tool_inputs.get(tool)
+        if model is None:
+            return False
+        try:
+            model.model_validate(inputs)
+        except ValidationError:
+            return True
+        return False
 
     def _repair_key(self, tool: str, inputs: dict):
         """What a guarded tool call acts on (the run), or None when the tool is not guarded."""
@@ -229,6 +242,12 @@ class Runs:
                     self.store.save_history(thread_id, llm.dump_messages(item[1]))
                     for call in item[3]:
                         inputs = call.args_as_dict()
+                        if self._inputs_refused(call.tool_name, inputs):  # refused before any card; the args are not logged
+                            pause_id = self.store.create_pause(thread_id, "approval", call.tool_name, {}, call.tool_call_id)
+                            self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, "{}"))
+                            self.store.resolve_pause(pause_id, "denied", {"decision": "deny", "message": BAD_INPUTS})
+                            paused = True
+                            continue
                         taken = self._repair_taken(call.tool_name, inputs)
                         pause_id = self.store.create_pause(
                             thread_id, "approval", call.tool_name, inputs, call.tool_call_id)
@@ -431,14 +450,27 @@ def approval_route(runs: Runs, denied):
     return answer
 
 
+def _whole(v) -> bool:
+    """True for a whole number that is not a bool."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _field_ok(allowed, v) -> bool:
+    """True when the value fits the field's declaration: a tuple of scalars, or ("ints", low, high) for a short list."""
+    if isinstance(allowed, tuple) and len(allowed) == 3 and allowed[0] == "ints":
+        _, low, high = allowed
+        return (isinstance(v, list) and len(v) <= high - low + 1
+                and all(_whole(i) and low <= i <= high for i in v))
+    return isinstance(v, (str, int, float, bool, type(None))) and v in allowed
+
+
 def limit_result(fields, result):
     """Keep only the declared keys and values of a browser result (all of it when the tool declares none)."""
     if fields is None:
         return result
     if not isinstance(result, dict):
         return {}
-    return {k: v for k, v in result.items()
-            if k in fields and isinstance(v, (str, int, float, bool, type(None))) and v in fields[k]}
+    return {k: v for k, v in result.items() if k in fields and _field_ok(fields[k], v)}
 
 
 def browser_route(runs: Runs, denied):

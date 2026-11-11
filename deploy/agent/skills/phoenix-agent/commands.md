@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs b24f41333f9ede78 -->
+<!-- phoenix 9.1.0 inputs 8e7174bb87818e09 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -15,6 +15,13 @@ queue a run of a spec file
 - `<project>`
 - `--spec SPEC`: the spec file
 - `--preset PRESET`: use this preset for this run only
+
+### `phoenix run hotfix`
+
+start a short build on its own branch from a brief
+
+- `<project>`
+- `--brief BRIEF`: a small description of the change
 
 ### `phoenix run status`
 

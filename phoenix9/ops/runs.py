@@ -4,7 +4,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, resolve, runs as core, scrub, settings, spec, state
-from phoenix9 import tries as tries_core
+from phoenix9 import edits as edits_core, tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
@@ -134,6 +134,25 @@ def start_from_notes(project: str, spec: str | None = None, brief: str | None = 
         return start(project, temp, overrides=overrides, who=who)
     finally:
         temp.unlink(missing_ok=True)
+
+
+HOTFIX_OVERRIDES = {"preset": "quick", "steps": {"planner": {"on": True}}}   # fixed here, never taken from a caller
+HOTFIX_BRIEF_MAX = 2000   # the longest hotfix brief, in characters
+
+
+def start_hotfix(project: str, brief: str, who: str = "cli") -> dict:
+    """Start a short Quick-style build from a brief, when the project has no build going."""
+    text = brief.strip() if isinstance(brief, str) else ""
+    if not text:
+        raise OpsError("Describe the change to make.")
+    if len(text) > HOTFIX_BRIEF_MAX:
+        raise OpsError(f"The brief is too long (at most {HOTFIX_BRIEF_MAX} characters).")
+    busy = edits_core.build_running(project)
+    if busy:
+        raise OpsError(f"{project} already has a build going ({busy}). One hotfix at a time.")
+    started = start_from_notes(project, brief=text, overrides=json.loads(json.dumps(HOTFIX_OVERRIDES)), who=who)
+    common.record_command(who, f"run hotfix {project}", project, f"started hotfix run {started['run_id']}")
+    return started
 
 
 def status(run_id: str) -> dict:

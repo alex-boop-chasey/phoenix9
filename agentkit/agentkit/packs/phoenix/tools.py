@@ -129,6 +129,38 @@ def ask_for_key_inputs() -> type[BaseModel]:
     return AskForKey
 
 
+class ChoiceOption(BaseModel):
+    """One option in a choice card."""
+
+    label: str = Field(max_length=60, description="Short option text.")
+    hint: str = Field(default="", max_length=120, description="Optional one-line help.")
+
+
+def ask_choice_inputs() -> type[BaseModel]:
+    """The ask_choice input model: a question and 2 to 12 options; the answer is only indexes."""
+
+    class AskChoice(BaseModel):
+        """A question with options for Alex to pick from."""
+
+        question: str = Field(max_length=200, description="The question to ask.")
+        options: list[ChoiceOption] = Field(min_length=2, max_length=12, description="The options offered.")
+        multiple: bool = Field(default=False, description="True when more than one option may be picked.")
+
+    return AskChoice
+
+
+def ask_env_file_inputs() -> type[BaseModel]:
+    """The ask_env_file input model: project and why; there is no field for any value."""
+
+    class AskEnvFile(BaseModel):
+        """Which project's .env file to ask Alex for, and why."""
+
+        project: str = Field(description="The project's name.")
+        why: str = Field(max_length=200, description="One short sentence saying why the file is needed.")
+
+    return AskEnvFile
+
+
 def _flat(values: Any, prefix: str = "") -> list[tuple[str, Any]]:
     """Nested settings as (dotted name, value) pairs."""
     if not isinstance(values, dict):
@@ -282,3 +314,46 @@ def what_happened_card(models: dict, values: dict) -> dict:
     return {"project": str(values.get("project") or ""), "run_id": str(values.get("run_id") or ""),
             "cause": str(values.get("cause") or ""), "tried": [str(t) for t in values.get("tried") or []],
             "suggestion": str(values.get("suggestion") or ""), "options": options}
+
+
+def job_card(job_id: str, data: Any) -> dict:
+    """Card data for a background job: its kind, project, status, one label and status per step, and the message."""
+    data = data if isinstance(data, dict) else {}
+    steps = [{"label": str(s.get("label") or ""), "status": str(s.get("status") or "")}
+             for s in data.get("steps") or [] if isinstance(s, dict)]
+    return {"job": str(data.get("id") or job_id), "kind": str(data.get("kind") or ""),
+            "project": str(data.get("project") or ""), "status": str(data.get("status") or ""),
+            "steps": steps, "message": str(data.get("message") or "")}
+
+
+def plan_check_card(project: str, data: Any) -> dict:
+    """Card data for a plan check: the steps by group, the errors if any, and whether it is fine."""
+    data = data if isinstance(data, dict) else {}
+    groups = data.get("groups") if isinstance(data.get("groups"), dict) else {}
+    errors = [str(e) for e in data.get("errors") or []]
+    return {"project": project, "groups": {str(g): [str(s) for s in steps] for g, steps in groups.items()
+                                           if isinstance(steps, list)},
+            "errors": errors, "ok": not errors}
+
+
+def specs_card(project: str, data: Any) -> dict:
+    """Card data for a project's specs: name, title and whether each is in task format."""
+    rows = data if isinstance(data, list) else []
+    return {"project": project, "specs": [{"name": str(r.get("path") or ""), "title": str(r.get("title") or ""),
+                                           "task_format": r.get("task_format") is True}
+                                          for r in rows if isinstance(r, dict)]}
+
+
+def _library_rows(data: Any) -> list:
+    """The rows of a library answer, whether it is a list or an object holding one list."""
+    if isinstance(data, dict):
+        data = next((v for v in data.values() if isinstance(v, list)), [])
+    return [r for r in data if isinstance(r, dict)] if isinstance(data, list) else []
+
+
+def options_list(what: str, data: Any) -> dict:
+    """A plain options list for a library read (name and one-line description only), wrapped as quoted data."""
+    from agentkit.quote import wrap
+    rows = [{"name": str(r.get("name") or ""), "description": " ".join(str(r.get("title") or "").split())[:120]}
+            for r in _library_rows(data)]
+    return {"quoted": wrap(f"phoenix library {what}", rows)}

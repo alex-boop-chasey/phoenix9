@@ -1,5 +1,5 @@
 // The approval card, the go_to page move and the suggestion chips; all drawn from typed data, never from markup.
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { findRoute, routeHash } from "@/lib/routes"
@@ -34,6 +34,45 @@ function changeLines(item: ApprovalItem): { label: string; value: string }[] {
   return Object.entries(input).filter(([label]) => !(label === "why" && reasonOf(item) !== "")).map(([label, value]) => ({ label: label.replace(/_/g, " "), value: words(value) }))
 }
 
+function isObj(v: unknown): v is Record<string, unknown> { return !!v && typeof v === "object" && !Array.isArray(v) }
+
+/** The plain lines for a project-create approval, or null when the input does not fit. */
+export function createLines(input: unknown): { label: string; value: string }[] | null {
+  if (!isObj(input) || typeof input.name !== "string" || !input.name) return null
+  const source = isObj(input.source) ? input.source : {}
+  const repo = isObj(input.new_repo) ? input.new_repo : {}
+  const services = Array.isArray(input.services) ? input.services.filter((x): x is string => typeof x === "string") : []
+  const template = source.kind === "template" && typeof source.template === "string" ? source.template : "none"
+  const owner = repo.on === true && typeof repo.owner === "string" && repo.owner ? repo.owner : ""
+  return [
+    { label: "Name", value: input.name },
+    { label: "Type", value: typeof input.profile === "string" && input.profile ? input.profile : "not set" },
+    { label: "Framework", value: template },
+    { label: "Services", value: services.length ? services.join(", ") : "none" },
+    { label: "GitHub", value: owner ? `New GitHub repo under ${owner}` : "No new repo" },
+  ]
+}
+
+/** The summary for a project-create or hotfix-start approval, or null for any other card. */
+function summaryFor(item: ApprovalItem): ReactNode {
+  if (item.toolName === "project-create") {
+    const lines = createLines(item.input)
+    if (!lines) return null
+    return <ul data-testid="approval-summary">{lines.map((l) => <li key={l.label}>{l.label}: {l.value}</li>)}</ul>
+  }
+  const input = item.input
+  if (item.toolName === "hotfix-start" && isObj(input) && typeof input.brief === "string") {
+    return (
+      <div data-testid="approval-summary">
+        {typeof input.name === "string" ? <p>Project: {input.name}</p> : null}
+        <pre data-testid="approval-brief" className="whitespace-pre-wrap break-words max-h-60 overflow-y-auto border rounded p-2 text-sm">{input.brief}</pre>
+        <p>Starts a short build on its own branch</p>
+      </div>
+    )
+  }
+  return null
+}
+
 /** A change waiting for Alex: what it does and the exact inputs, with Approve (typed check if destructive) and Deny. */
 export function ApprovalCard({ item, onDecide }: {
   item: ApprovalItem; onDecide: (d: "approve" | "deny", confirm?: string) => void
@@ -41,6 +80,7 @@ export function ApprovalCard({ item, onDecide }: {
   const [typed, setTyped] = useState("")
   const input = (item.input ?? {}) as Record<string, unknown>
   const notify = item.toolName === "notifications-set" && typeof input.name === "string" && typeof input.on === "boolean"
+  const summary = summaryFor(item)
   const needsText = typeof item.confirmText === "string" && item.confirmText !== ""
   const allowed = !needsText || typed === item.confirmText
   return (
@@ -48,7 +88,7 @@ export function ApprovalCard({ item, onDecide }: {
       <h3>The agent wants to make a change</h3>
       <p><strong>{plainName(item.toolName)}</strong></p>
       {item.description ? <p data-testid="approval-description">{item.description}</p> : null}
-      {notify ? (
+      {summary ? summary : notify ? (
         <p data-testid="approval-change">Build notifications for {String(input.name)}: {input.on ? "off → on" : "on → off"}</p>
       ) : (
         <dl data-testid="approval-change">

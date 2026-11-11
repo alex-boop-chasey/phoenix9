@@ -513,7 +513,7 @@ def purge_jobs(jobs: dict) -> None:
         del jobs[key]
 
 
-def run_create_job(httpd, job: dict, opts: dict) -> None:
+def run_create_job(httpd, job: dict, opts: dict, who: str = WHO) -> None:
     """Background thread: create the project, turning progress lines into job steps."""
     def progress(line):
         with httpd.jobs_lock:
@@ -523,7 +523,7 @@ def run_create_job(httpd, job: dict, opts: dict) -> None:
 
     try:
         with httpd.write_lock:
-            projects.new(opts, WHO, progress=progress)
+            projects.new(opts, who, progress=progress)
         status, message = "done", ""
     except common.OpsError as err:
         status, message = "failed", str(err)
@@ -548,7 +548,7 @@ def post_create(req):
         job = {"id": job_id, "kind": "create", "project": opts["name"], "status": "running",
                "steps": [], "message": "", "finished_at": 0.0}
         httpd.jobs[job_id] = job
-    threading.Thread(target=run_create_job, args=(httpd, job, opts), daemon=True).start()
+    threading.Thread(target=run_create_job, args=(httpd, job, opts, req.who), daemon=True).start()
     return {"job": job_id}
 
 
@@ -851,6 +851,14 @@ def post_run_start(req, name):
     overrides = body_dict(req, "overrides")
     with req.server.write_lock:
         started = runs.start_from_notes(check_name(name), spec=spec, brief=brief, overrides=overrides, who=req.who)
+    return {k: started[k] for k in ("run_id", "project", "status")}
+
+
+def post_hotfix(req, name):
+    """Start a short hotfix build from a brief."""
+    brief = body_text(req, "brief", True)
+    with req.server.write_lock:
+        started = runs.start_hotfix(check_name(name), brief, who=req.who)
     return {k: started[k] for k in ("run_id", "project", "status")}
 
 
@@ -1226,6 +1234,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/plan", post_plan),
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
+    ("POST", rf"/api/projects/{NAME}/hotfix", post_hotfix),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),
     ("POST", r"/api/plans/(?P<plan_id>[^/]+)/abandon", post_plan_abandon),

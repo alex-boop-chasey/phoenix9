@@ -168,10 +168,29 @@
   {
     "name": "build-plan",
     "description": "The step plan for the project's settings plus these overrides (a wrong override is reported in `errors`).",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "overrides",
+        "type": "object",
+        "required": false,
+        "description": "Optional settings to try for this build.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/projects/(?P<name>[^/]+)/plan",
     "fixed": {},
@@ -763,6 +782,39 @@
     "confirm_with": ""
   },
   {
+    "name": "hotfix-start",
+    "description": "Start a short build on its own branch from a small description of the change. One at a time per project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "brief",
+        "type": "string",
+        "required": true,
+        "description": "A small description of the change to make.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/hotfix",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
     "name": "images-build",
     "description": "Which images to consider: the named ones, all of them, or the profiles existing projects use.",
     "inputs": [],
@@ -806,11 +858,21 @@
   },
   {
     "name": "job-status",
-    "description": "Progress of a background job; not a control.",
-    "inputs": [],
+    "description": "Progress of a background job (for example a project being created).",
+    "inputs": [
+      {
+        "name": "job_id",
+        "type": "string",
+        "required": true,
+        "description": "The job's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "read",
-    "agent": "later",
-    "why": "Progress of a background job; not a control.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/jobs/(?P<job_id>[0-9a-f]+)",
     "fixed": {},
@@ -927,8 +989,8 @@
     "description": "Every profile with its title and image tag, plus problems.",
     "inputs": [],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/library/profiles",
     "fixed": {},
@@ -941,8 +1003,8 @@
     "description": "Every service in the services library with the project keys it needs.",
     "inputs": [],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/library/services",
     "fixed": {},
@@ -969,8 +1031,8 @@
     "description": "The templates a new project can start from.",
     "inputs": [],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/library/templates",
     "fixed": {},
@@ -1194,10 +1256,20 @@
   {
     "name": "project-check-name",
     "description": "Say whether a new project name is usable: {ok, message}.",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project name to check.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/projects/check-name",
     "fixed": {},
@@ -1207,16 +1279,71 @@
   },
   {
     "name": "project-create",
-    "description": "Guided project creation is a later agent build.",
-    "inputs": [],
+    "description": "Create a new project in the background; the result carries the job id to follow.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The new project's name.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "required": false,
+        "description": "One line about the project.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "profile",
+        "type": "string",
+        "required": false,
+        "description": "The project type (a profile name from the library).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "source",
+        "type": "object",
+        "required": false,
+        "description": "Where it starts: {\"kind\": \"empty\"} or {\"kind\": \"template\", \"template\": \"<template name>\"}.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "new_repo",
+        "type": "object",
+        "required": false,
+        "description": "A new GitHub repo: {\"on\": true, \"owner\": \"<owner>\"} or {\"on\": false}.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "services",
+        "type": "list",
+        "required": false,
+        "description": "The names of the services the project uses.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
     "risk": "change",
-    "agent": "later",
-    "why": "Guided project creation is a later agent build.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/projects",
     "fixed": {},
     "fixed_query": {},
-    "card": "",
+    "card": "project_cards",
     "confirm_with": ""
   },
   {
@@ -1383,10 +1510,20 @@
   {
     "name": "project-specs",
     "description": "Markdown files under notes/specs and notes/plans: [{path, title, modified, task_format}], newest first.",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/projects/(?P<name>[^/]+)/specs",
     "fixed": {},

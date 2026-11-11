@@ -28,12 +28,14 @@ def sample_args(entry):
         args[item["name"]] = item["choices"][0] if item["type"] == "choice" else SAMPLES[item["type"]]
         if item["name"] in ("run_id", "gate_id"):
             args[item["name"]] = "20261109-1"
+        if item["name"] == "job_id":
+            args["job_id"] = "a1b2c3d4e5f6"
     return args
 
 
 def test_tool_names_and_risks_match_the_file():
     _fake, made = tools()
-    made = {n: t for n, t in made.items() if n != "what_happened"}  # the agent's own card tool, not a control
+    made = {n: t for n, t in made.items() if n not in ("what_happened", "flow", "next_steps")}  # the agent's own card tools, not controls
     assert sorted(made) == sorted(ENTRIES)
     assert {n: t.risk for n, t in made.items()} == {n: e["risk"] for n, e in ENTRIES.items()}
     check_pack(build_pack(FakePhoenix().client()))
@@ -118,7 +120,7 @@ def test_refusal_is_a_plain_error():
 def test_cards_use_the_pack_card_names():
     pack = build_pack(FakePhoenix().client())
     assert pack.components["builds-list"] == "RunCards" and pack.components["projects-list"] == "project_cards"
-    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key"]
+    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file"]
 
 
 def test_build_tools_return_build_card_data():

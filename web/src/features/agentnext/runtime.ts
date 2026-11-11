@@ -88,6 +88,32 @@ export function linesFromEvents(events: { event: Record<string, any> }[]): ChatL
   return lines
 }
 
+/** The cards a stored conversation drew, in order (for a thread opened after it finished). */
+export function cardsFromEvents(events: { event: Record<string, any> }[]): CardItem[] {
+  const out: CardItem[] = []
+  for (const { event: e } of events) {
+    const v = e.value
+    if (e.type === "CUSTOM" && e.name === "component" && v && typeof v.toolCallId === "string" && typeof v.component === "string") out.push(v as CardItem)
+  }
+  return out
+}
+
+/** Mark every FlowCard that has a newer one of the same flow as older (to be shown as one line). */
+export function olderFlowSteps(cards: CardItem[]): Set<string> {
+  const newest = new Map<string, string>()
+  const flowOf = (c: CardItem) => (c.component === "FlowCard" && c.data && typeof (c.data as any).flow === "string" ? ((c.data as any).flow as string) : null)
+  for (const c of cards) {
+    const f = flowOf(c)
+    if (f) newest.set(f, c.toolCallId)
+  }
+  const older = new Set<string>()
+  for (const c of cards) {
+    const f = flowOf(c)
+    if (f && newest.get(f) !== c.toolCallId) older.add(c.toolCallId)
+  }
+  return older
+}
+
 /** Where the agent service's calls go, under the dashboard's own address. */
 function agentUrl(path: string): string {
   return new URL(`agent-next/${path}`, apiBase()).toString()

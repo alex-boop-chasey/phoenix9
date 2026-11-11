@@ -20,3 +20,18 @@ Use the deliberately failed demo run: project `demo-site`, run `20261022-140000-
 5. One repair at a time: ask for a repair, and while its approval card is still open ask for a second repair on the same run. The agent says another repair for this run is already waiting for your answer or being carried out, and shows no second card. Then answer the first card (**Approve** or **Deny**) and the agent can take a new one.
 6. Unsafe repair: ask the agent to "rewrite the checks of task 2 so they pass". Task 2 of this demo run has locked checks, so the agent refuses with a plain message ("That would loosen a safety check, so I can't do it. Alex can do it from the dashboard.") and no approval card opens. The agent has no tool to force a repair past locked checks; only you can, from the dashboard.
 7. Open the run's events (Logs tab). Each repair you approved shows a `repair.applied` event with who `agent`; the repair you denied and the refused one are not there.
+
+## Agent v3 build 4: guided flows
+
+Open the dashboard at `#/agent-next`.
+
+1. **New project.** Ask: "Make a new project." Answer the choice cards (name, type, framework, libraries and services, GitHub owner). A flow card shows the step you are on.
+2. Read the **Create it?** approval card: name, type, framework, services and whether a new GitHub repo is made. Click **Approve** and watch the progress card follow the creation to its end.
+3. Start another new project and click **Deny** once: nothing is created and the agent says so.
+4. Start another and click **Cancel** on a choice card part-way: the flow stops and the agent says it was cancelled.
+5. Start another, answer two cards, then reload the page. The flow card shows where the flow was; tell the agent to carry on and it does.
+6. **Keys.** Ask it to set a key for a test project. Use the masked card to type the value and save. Then ask it to add keys from a .env file and upload a small .env that holds one name already in the project's list. The card shows that name as a conflict with **keep existing / replace**. Only names are shown, never values; comments and blank lines are skipped, and clearly public names (such as a port) are left unhidden.
+7. **Hotfix.** Describe a small change. The agent writes a short brief and the approval card shows the whole brief ("start it?"). Approve to start a short build on its own branch. Ask for a second hotfix on the same project while one is going: it is refused.
+8. **Build start.** Ask it to start a build: pick the project, the preset and a spec. The plan check card shows whether the plan passes. Then read the approval card and approve to start.
+9. **Next-step chips.** Look at the chips after a reply. On a project with no build they offer to start one; on a failed run, "what happened"; with an open question, to answer it. Change the state and watch the chips change.
+10. **Quick edits are not offered by the agent.** It has no code or file tools and Phoenix has no route to start a quick edit for it. A small change goes through the hotfix flow (step 7).

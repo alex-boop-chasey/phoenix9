@@ -3,6 +3,7 @@ from agentkit.pack import BrowserTool, Pack
 from agentkit.packs.phoenix.client import DEFAULT_URL, PhoenixClient
 from agentkit.packs.phoenix.controls import make_server_tools
 from agentkit.packs.phoenix.flow import flow_tool
+from agentkit.packs.phoenix.next_steps import next_steps_tool
 from agentkit.packs.phoenix.tools import ask_choice_inputs, ask_env_file_inputs, ask_for_key_inputs, go_to_inputs
 from agentkit.packs.phoenix.what_happened import what_happened_tool
 
@@ -36,9 +37,11 @@ def build_pack(client: PhoenixClient | None = None) -> Pack:
     server_tools, components = make_server_tools(client)
     server_tools.append(what_happened_tool(server_tools))
     server_tools.append(flow_tool())
+    server_tools.append(next_steps_tool(client))
     components = {**components, "ask_for_key": "KeyInputCard",
                   "ask_choice": "ChoiceCard", "ask_env_file": "EnvUploadCard", "what_happened": "WhatHappenedCard",
-                  "flow": "FlowCard"}
+                  "flow": "FlowCard",
+                  "job-status": "JobCard", "build-plan": "PlanCheckCard", "project-specs": "SpecsCard"}
     return Pack(
         name="phoenix",
         instructions=INSTRUCTIONS,

@@ -9,8 +9,9 @@ from pydantic import BaseModel, Field, create_model
 
 from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
-from agentkit.packs.phoenix.tools import (build_card, diagnose_card, events_card, keys_card, project_card, repair_card,
-                                        run_card, session_card, settings_card, task_list, tries_card, update_card)
+from agentkit.packs.phoenix.tools import (build_card, diagnose_card, events_card, job_card, keys_card, options_list,
+                                        plan_check_card, project_card, repair_card, run_card, session_card,
+                                        settings_card, specs_card, task_list, tries_card, update_card)
 
 CONTROLS_FILE = Path(__file__).with_name("controls.json")
 PLAIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -81,6 +82,14 @@ def _card_data(entry: dict, data: Any, values: dict) -> dict:
         project = str(data.get("project") or "")
     if entry["name"] == "run-show" and isinstance(data, dict):
         return {"run": run_card(project, data), "tasks": task_list(data), "result": data}
+    if entry["name"] == "job-status":
+        return job_card(str(values.get("job_id") or ""), data)
+    if entry["name"] == "build-plan":
+        return plan_check_card(project, data)
+    if entry["name"] == "project-specs":
+        return specs_card(project, data)
+    if entry["name"].startswith("library-"):
+        return options_list(entry["name"].split("-", 1)[1], data)
     if card == "settings_card":
         return settings_card(project, data, entry["name"] == "settings-check")
     if card == "keys_card":

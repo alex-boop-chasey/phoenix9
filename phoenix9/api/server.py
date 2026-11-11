@@ -966,6 +966,73 @@ def post_repair_apply(req, run_id):
         return ops_repair.apply_text(run_id, text, who=WHO, **flags)
 
 
+def int_field(req, key: str) -> int | None:
+    """A whole number from the body (None when left out), or BadRequest."""
+    value = req.body.get(key)
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+        raise BadRequest(f"'{key}' should be a whole number.")
+    return value
+
+
+def text_field(req, key: str) -> str | None:
+    """A string from the body (None when left out), or BadRequest."""
+    value = req.body.get(key)
+    if value is not None and not isinstance(value, str):
+        raise BadRequest(f"'{key}' should be text.")
+    return value
+
+
+def need(value, key: str):
+    """The value, or BadRequest saying the field is missing."""
+    if value is None:
+        raise BadRequest(f"'{key}' is needed.")
+    return value
+
+
+def post_repair_rerun(req, project, run_id):
+    """Re-run a task or a finish step of a run through a repair note."""
+    run_id, task, step = check_run_id(run_id), int_field(req, "task"), text_field(req, "finish_step")
+    with req.server.write_lock:
+        return ops_repair.rerun_step(run_id, task, step, who=req.who)
+
+
+def post_repair_resume(req, project, run_id):
+    """Resume a run from a task through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    with req.server.write_lock:
+        return ops_repair.resume_from(run_id, task, who=req.who)
+
+
+def post_repair_skip(req, project, run_id):
+    """Skip a task of a run, with a reason, through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_repair.skip_task(run_id, task, why, who=req.who)
+
+
+def post_repair_rewrite_checks(req, project, run_id):
+    """Rewrite a task's checks, with a reason, through a repair note."""
+    run_id, task = check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_repair.rewrite_checks(run_id, task, why, who=req.who)
+
+
+def post_repair_max_tries(req, project, run_id):
+    """Raise a run's max tries through a repair note."""
+    run_id, tries = check_run_id(run_id), need(int_field(req, "tries"), "tries")
+    with req.server.write_lock:
+        return ops_repair.raise_max_tries(run_id, tries, who=req.who)
+
+
+def post_repair_restart(req, project, run_id):
+    """Restart a stopped or failed build on another preset."""
+    run_id, preset = check_run_id(run_id), need(text_field(req, "preset"), "preset")
+    with req.server.write_lock:
+        return ops_repair.restart_on_preset(check_name(project), run_id, preset, who=req.who)
+
+
 def post_run_note(req, run_id):
     """Add a note to a task of a run (the next attempt reads it)."""
     task = req.body.get("task")
@@ -1174,6 +1241,12 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/diagnose", get_repair_diagnose),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rerun", post_repair_rerun),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/resume", post_repair_resume),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/skip", post_repair_skip),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rewrite-checks", post_repair_rewrite_checks),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]

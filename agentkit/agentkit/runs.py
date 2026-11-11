@@ -15,6 +15,8 @@ DEFAULT_TITLE = "New chat"
 TITLE_LENGTH = 60
 WAITING = "This chat is waiting for your answer on a change. Approve or refuse it first."
 REFUSED = "Alex refused this"
+REPAIR_BUSY = ("Another repair for this run is already waiting for Alex's answer or being carried out, so I did not "
+               "ask for a second one. Wait until it is finished, then look at the run again.")
 FAILED = "The agent could not finish this reply."
 
 
@@ -34,6 +36,12 @@ class AlreadyAnswered(Exception):
     """Raised when an approval already has an answer."""
 
 
+def _refusal_text(pause: dict) -> str:
+    """The reason the model is told for a refused call: the pause's own message, else Alex's refusal."""
+    result = pause.get("result")
+    return result["message"] if isinstance(result, dict) and result.get("message") else REFUSED
+
+
 class Runs:
     """Starts and tracks runs; each one logs every AG-UI event to its thread through wire.py."""
 
@@ -46,6 +54,7 @@ class Runs:
         self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
         self.descriptions = {t.name: t.description for t in pack.server_tools} if pack else {}
         self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
+        self.one_per = {t.name: t.one_per for t in pack.server_tools if t.one_per} if pack else {}
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
         self.history: dict[str, list] = {}
@@ -87,7 +96,7 @@ class Runs:
     def _resume(self, thread_id: str) -> None:
         """Start the follow-up run with every answer and decision collected for the thread."""
         approvals = {
-            p["call_id"]: (True if p["state"] == "approved" else llm.refusal(REFUSED))
+            p["call_id"]: (True if p["state"] == "approved" else llm.refusal(_refusal_text(p)))
             for p in self.store.take_decided(thread_id, "approval")}
         calls = {p["call_id"]: p["result"] for p in self.store.take_decided(thread_id, "browser")}
         self._launch(thread_id, wire.new_id(), None, llm.resume_results(calls, approvals))
@@ -106,6 +115,18 @@ class Runs:
         if self.store.pending_pauses(thread_id) or thread_id in self.active:
             return
         self._resume(thread_id)
+
+    def _repair_key(self, tool: str, inputs: dict):
+        """What a guarded tool call acts on (the run), or None when the tool is not guarded."""
+        field = self.one_per.get(tool)
+        return str(inputs.get(field) or "") or None if field and isinstance(inputs, dict) else None
+
+    def _repair_taken(self, tool: str, inputs: dict) -> bool:
+        """True when another approval in any thread already holds this run (waiting, or approved and not yet done)."""
+        key = self._repair_key(tool, inputs)
+        if key is None:
+            return False
+        return any(self._repair_key(p["tool"], p["inputs"]) == key for p in self.store.open_approvals())
 
     def _check_browser_call(self, thread_id: str, call) -> None:
         """Check a browser call's inputs; pause for the browser if good, else answer the model with the error."""
@@ -208,9 +229,14 @@ class Runs:
                     self.store.save_history(thread_id, llm.dump_messages(item[1]))
                     for call in item[3]:
                         inputs = call.args_as_dict()
+                        taken = self._repair_taken(call.tool_name, inputs)
                         pause_id = self.store.create_pause(
                             thread_id, "approval", call.tool_name, inputs, call.tool_call_id)
                         self._log(thread_id, *wire.tool_call(call.tool_call_id, call.tool_name, call.args_as_json_str()))
+                        if taken:  # one repair at a time per run: answer the model, show no second card
+                            self.store.resolve_pause(pause_id, "denied", {"decision": "deny", "message": REPAIR_BUSY})
+                            paused = True
+                            continue
                         self._log(thread_id, wire.approval_request(
                             pause_id, call.tool_call_id, call.tool_name, inputs, self.confirm_text(call.tool_name, inputs),
                             self.descriptions.get(call.tool_name)))

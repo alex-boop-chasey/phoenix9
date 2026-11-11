@@ -128,7 +128,8 @@ def make_server_tools(client: PhoenixClient, controls: list[dict] | None = None)
         if entry["agent"] != "tool":
             continue
         tools.append(ServerTool(entry["name"], entry["description"], input_model(entry), entry["risk"],
-                                make_function(entry, client), entry["confirm_with"] or None))
+                                make_function(entry, client), entry["confirm_with"] or None,
+                                "run_id" if entry["name"].startswith("repair-") else None))
         if entry["card"]:
             components[entry["name"]] = entry["card"]
     return tools, components

@@ -132,6 +132,12 @@ class Store:
             sql, args = sql + " AND thread_id=?", (thread_id,)
         return [self._pause(r) for r in self._read(sql + " ORDER BY created, rowid", args)]
 
+    def open_approvals(self) -> list[dict]:
+        """Return approvals in any thread that are waiting for an answer or approved but not yet carried out."""
+        rows = self._read("SELECT * FROM pauses WHERE kind='approval' AND state IN ('pending','approved') "
+                          "ORDER BY created, rowid")
+        return [self._pause(r) for r in rows]
+
     def resolve_pause(self, pause_id: str, state: str, result: object = None) -> bool:
         """Settle a pending pause once; return False if it was not pending."""
         def run(db):

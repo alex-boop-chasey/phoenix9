@@ -244,7 +244,7 @@ def get_specs(req, name):
 
 def get_builds(req, name):
     """Reply with a project's builds."""
-    return runs.builds(check_name(name))
+    return runs.builds(check_name(name), int_param(req, "limit", 10))
 
 
 def get_run(req, project, run_id):

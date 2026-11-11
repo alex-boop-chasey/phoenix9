@@ -517,15 +517,30 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
 list = list_
 
 
-def builds(project: str) -> list:
-    """Previous builds of a project, newest first, with title, preset, times, duration, cost."""
+def _failure_line(folder: Path) -> tuple:
+    """The failed or stuck task number of a run and its one-line reason (None, "" when there is none)."""
+    st = state.load(folder) or {}
+    key = _stuck_task(st)
+    if key is None:
+        return None, ""
+    found = tries_core.by_task(folder, st).get(key) or []
+    reason = next((t["reason"] for t in reversed(found) if t["reason"]), "")
+    return (int(key) if str(key).isdigit() else key), reason
+
+
+def builds(project: str, limit: int = 10) -> list:
+    """Recent builds of a project, newest first (10 by default), with title, preset, times, cost and the failed task."""
     from phoenix9 import summary
+    if limit < 1:
+        raise OpsError("'limit' must be 1 or more.")
     rows = []
-    for r in list_(project):
-        f = summary.facts(core.run_dir(project, r["run_id"]))
+    for r in list_(project)[:limit]:
+        folder = core.run_dir(project, r["run_id"])
+        f = summary.facts(folder)
+        task, reason = _failure_line(folder)
         rows.append({**r, "title": f["title"], "preset": f["preset"], "started": f["started"],
                      "finished": f["finished"], "duration": f["duration"], "cost": f["cost"],
-                     "tasks_failed": f["counts"]["failed"]})
+                     "tasks_failed": f["counts"]["failed"], "failed_task": task, "failed_reason": reason})
     return rows
 
 

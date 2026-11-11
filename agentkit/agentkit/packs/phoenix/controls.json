@@ -291,7 +291,7 @@
   },
   {
     "name": "builds-list",
-    "description": "List a project's builds, newest first.",
+    "description": "List a project's recent builds, newest first, each with status, finish time and the failed task's one-line reason.",
     "inputs": [
       {
         "name": "name",
@@ -300,6 +300,15 @@
         "description": "The project's name.",
         "choices": [],
         "where": "path",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many builds at most (10 if left out).",
+        "choices": [],
+        "where": "query",
         "into": []
       }
     ],

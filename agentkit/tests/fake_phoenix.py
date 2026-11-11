@@ -76,6 +76,8 @@ class FakePhoenix:
         self.created: list[dict] = []
         self.hotfixes: list[dict] = []
         self.plans: list[dict] = []
+        self.hotfix_busy = False
+        self.starts: list[dict] = []
         self.job_calls = 0
 
     def handle(self, request: httpx.Request) -> httpx.Response:
@@ -156,12 +158,18 @@ class FakePhoenix:
         body = json.loads(request.content or b"{}") if request.method == "POST" else {}
         if what == "specs" and request.method == "GET":
             return httpx.Response(200, json=SPECS)
+        if what == "runs" and request.method == "POST":
+            self.starts.append(body)
+            return httpx.Response(200, json={"run_id": "20261111-2", "project": "beta", "status": "queued",
+                                             "folder": "/x"})
         if what == "plan" and request.method == "POST":
             self.plans.append(body)
             errors = [BAD_OVERRIDES_ERROR] if (body.get("overrides") or {}).get("bad") else []
             return httpx.Response(200, json={**PLAN, "errors": errors})
         if what == "hotfix" and request.method == "POST":
             self.hotfixes.append(body)
+            if self.hotfix_busy:
+                return httpx.Response(409, json={"error": "A hotfix is already going for this project."})
             return httpx.Response(200, json={"run_id": "20261111-1", "project": "beta", "status": "queued",
                                              "folder": "/x"})
         return None

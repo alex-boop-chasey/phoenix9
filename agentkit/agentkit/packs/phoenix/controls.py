@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
@@ -34,7 +34,8 @@ def input_model(entry: dict) -> type[BaseModel]:
             fields[item["name"]] = (kind, Field(description=item["description"]))
         else:
             fields[item["name"]] = (kind | None, Field(None, description=item["description"]))
-    return create_model(entry["name"].replace("-", "_") + "_inputs", __doc__=entry["description"], **fields)
+    return create_model(entry["name"].replace("-", "_") + "_inputs", __doc__=entry["description"],
+                        __config__=ConfigDict(extra="forbid"), **fields)
 
 
 def fill_path(route: str, values: dict) -> str:

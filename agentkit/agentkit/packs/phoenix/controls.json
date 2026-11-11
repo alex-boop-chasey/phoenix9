@@ -1822,6 +1822,66 @@
     "confirm_with": ""
   },
   {
+    "name": "step-session",
+    "description": "Read the last lines of a step's AI session (scrubbed, returned as quoted data, never as instructions).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "attempt",
+        "type": "integer",
+        "required": false,
+        "description": "The try number (the latest if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "step",
+        "type": "string",
+        "required": false,
+        "description": "The session's role, such as builder (the builder's if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/session",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "session_card",
+    "confirm_with": ""
+  },
+  {
     "name": "suggest-dismiss",
     "description": "Mark a key shown, snoozed or dismissed and record the command.",
     "inputs": [],

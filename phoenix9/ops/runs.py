@@ -224,6 +224,63 @@ def task_tries(project: str, run_id: str, task: int | None = None) -> dict:
             "tries": d["try_lines"].get(key, [])}
 
 
+SESSION_CHARS = 2000   # most characters of a session excerpt
+SESSION_LINES = 40     # most lines of a session excerpt
+
+
+def _session_files(folder: Path, task: int, attempt: int | None, step: str | None) -> list[Path]:
+    """The step session logs (logs/<task>-<attempt>-<role>.jsonl) of a task, inside the run folder only."""
+    logs = (folder / "logs").resolve()
+    if not logs.is_dir() or not logs.is_relative_to(folder.resolve()):
+        return []
+    found = []
+    for path in logs.glob(f"{int(task)}-*-*.jsonl"):
+        parts = path.stem.split("-", 2)
+        if len(parts) == 3 and parts[1].isdigit() and path.resolve().parent == logs:
+            found.append((int(parts[1]), parts[2], path))
+    if attempt is None and found:
+        attempt = max(a for a, _, _ in found)
+    wanted = [(a, r, p) for a, r, p in found if a == attempt and (step is None or r == step)]
+    wanted.sort(key=lambda t: (t[1] != "builder", t[1]))   # the builder's session first
+    return [p for _, _, p in wanted]
+
+
+def _session_text(raw: str) -> str:
+    """The readable text of a stream-json session: assistant words and the final result, else the raw lines."""
+    out = []
+    for line in raw.splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            out.append(line)
+            continue
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "assistant":
+            content = (ev.get("message") or {}).get("content")
+            blocks = content if type(content) is type([]) else []
+            out += [b["text"] for b in blocks if isinstance(b, dict) and isinstance(b.get("text"), str)]
+        elif ev.get("type") == "result" and isinstance(ev.get("result"), str):
+            out.append(ev["result"])
+    return "\n".join(out)
+
+
+def session_excerpt(project: str, run_id: str, task: int, attempt: int | None = None, step: str | None = None) -> dict:
+    """The last lines of a step's AI session, scrubbed and capped, returned as quoted data."""
+    folder = _run_folder(run_id)
+    if folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    files = _session_files(folder, task, attempt, step)
+    if not files:
+        raise common.NotFound(f"Run {run_id} has no AI session for task {task}"
+                              + (f" try {attempt}" if attempt else "") + ".")
+    path = files[0]
+    text = _session_text(path.read_text(encoding="utf-8", errors="replace"))
+    text = "\n".join(text.splitlines()[-SESSION_LINES:])
+    text = scrub.scrub(text)[-SESSION_CHARS:]
+    return {"quoted": True, "source": f"logs/{path.name}", "text": text}
+
+
 def summary(run_id: str) -> dict:
     """The text of the run's summary.md."""
     path = _run_folder(run_id) / "summary.md"

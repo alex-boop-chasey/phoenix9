@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs feadcb4e29d21eb2 -->
+<!-- phoenix 9.1.0 inputs 79879a8ae0aa73cd -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -46,6 +46,16 @@ show the failing task of a run and each try's result
 - `<project>`
 - `<run_id>`
 - `--task TASK`: the task number (default: the first failed, waiting or stuck task)
+
+### `phoenix run session`
+
+show the last lines of a step's AI session (scrubbed)
+
+- `<project>`
+- `<run_id>`
+- `--task TASK`: the task number
+- `--attempt ATTEMPT`: the try number (default: the latest)
+- `--step STEP`: the session's role, such as builder (default: the builder's)
 
 ### `phoenix run list`
 

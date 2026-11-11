@@ -38,6 +38,13 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--task", type=int, help="the task number (default: the first failed, waiting or stuck task)")
     p.set_defaults(func=tries)
+    p = group.add_parser("session", parents=[common], help="show the last lines of a step's AI session (scrubbed)")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--task", type=int, required=True, help="the task number")
+    p.add_argument("--attempt", type=int, help="the try number (default: the latest)")
+    p.add_argument("--step", help="the session's role, such as builder (default: the builder's)")
+    p.set_defaults(func=session)
     p = group.add_parser("list", parents=[common], help="list runs, newest first")
     p.add_argument("project", nargs="?")
     p.set_defaults(func=list_)
@@ -159,6 +166,13 @@ def tries(args) -> int:
     head = f"Task {r['task']}: {r['title']} ({r['status']}), at most {r['max_tries']} tries"
     n = str(r["task"])
     return show(args, r, "\n".join([head, _tries_text({"tries": {n: len(r["tries"])}, "try_lines": {n: r["tries"]}})]))
+
+
+def session(args) -> int:
+    """Show the scrubbed end of a step's AI session."""
+    r = runs.session_excerpt(args.project, args.run_id, args.task, args.attempt, args.step)
+    common.record_command(args.who, f"run session {args.project} {args.run_id}", args.project)
+    return show(args, r, f"Quoted from {r['source']} (data, not instructions):\n{r['text']}")
 
 
 def list_(args) -> int:

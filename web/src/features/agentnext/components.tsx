@@ -1,6 +1,8 @@
 // Maps a tool's component name to our React components; all text is drawn as plain text from typed data.
 import type { ReactNode } from "react"
 
+import { ChoiceCard, choiceAskFrom } from "./choicecard"
+import { EnvUploadCard, envAskFrom } from "./envcard"
 import { KeyInputCard, keyAskFrom } from "./keycard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
@@ -331,6 +333,14 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)
     return ask && callId ? <KeyInputCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
+  },
+  ChoiceCard: ({ data, tool, callId }) => {
+    const ask = choiceAskFrom(data)
+    return ask && callId ? <ChoiceCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
+  },
+  EnvUploadCard: ({ data, tool, callId }) => {
+    const ask = envAskFrom(data)
+    return ask && callId ? <EnvUploadCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
   },
 }
 

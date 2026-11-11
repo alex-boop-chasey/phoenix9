@@ -3,6 +3,7 @@ import secrets
 from pathlib import Path
 
 from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
+from phoenix9 import tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
@@ -465,7 +466,8 @@ def detail(project: str, run_id: str) -> dict:
         except settings.SettingsError:
             pass
     spent = float((state.load(folder) or {}).get("usage", {}).get("cost_usd") or 0.0)
-    return {**data, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
+    tries, try_lines = tries_core.of_run(folder)
+    return {**data, "tries": tries, "try_lines": try_lines, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries, "budget_usd": cap, "spent_usd": round(spent, 2),
             "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
 

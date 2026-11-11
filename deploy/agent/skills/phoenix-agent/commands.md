@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 166a3bbce58756a6 -->
+<!-- phoenix 9.1.0 inputs 3893ce28bde7d525 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -22,6 +22,13 @@ show how a run is going
 
 - `<run_id>`
 - `--watch`: keep printing new events until the run stops
+
+### `phoenix run show`
+
+show one run in full, with each task's tries
+
+- `<project>`
+- `<run_id>`
 
 ### `phoenix run list`
 

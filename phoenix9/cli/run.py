@@ -23,6 +23,10 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--watch", action="store_true", help="keep printing new events until the run stops")
     p.set_defaults(func=status)
+    p = group.add_parser("show", parents=[common], help="show one run in full, with each task's tries")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.set_defaults(func=show_run)
     p = group.add_parser("list", parents=[common], help="list runs, newest first")
     p.add_argument("project", nargs="?")
     p.set_defaults(func=list_)
@@ -108,6 +112,23 @@ def status(args) -> int:
     if args.watch and not args.json:
         return _watch(args, r)
     return show(args, r, _status_text(r))
+
+
+def _tries_text(r: dict) -> str:
+    """Plain words for each task's tries: a count line, then one line per try."""
+    lines = []
+    for n, count in r.get("tries", {}).items():
+        lines.append(f"task {n}: {count} tries" if count != 1 else f"task {n}: 1 try")
+        for t in r.get("try_lines", {}).get(n, []):
+            why = f" - {t['reason']}" if t["reason"] else ""
+            lines.append(f"task {n}, try {t['attempt']}: {t['status']} at {t['step']}{why}")
+    return "\n".join(lines)
+
+
+def show_run(args) -> int:
+    """Show one run: its status and each task's tries."""
+    r = runs.detail(args.project, args.run_id)
+    return show(args, r, "\n".join([_status_text(r), _tries_text(r)]))
 
 
 def list_(args) -> int:

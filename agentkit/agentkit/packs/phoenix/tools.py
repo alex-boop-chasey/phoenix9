@@ -249,3 +249,36 @@ def repair_card(project: str, data: Any, values: dict) -> dict:
     keep = {k: values[k] for k in ("task", "tries", "preset", "step", "finish_step") if values.get(k) is not None}
     return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or values.get("run_id") or ""),
             "reason": str(values.get("why") or ""), "asked": keep, "result": data}
+
+
+WHAT_HAPPENED_TOOLS = ("repair-rerun-step", "repair-rewrite-checks", "repair-skip-task", "repair-resume-from",
+                       "repair-restart-preset", "repair-raise-max-tries", "build-resume")
+
+
+def check_option(option: Any, models: dict) -> dict:
+    """One card button checked against its tool's input model; raises ValueError saying what is wrong."""
+    if not isinstance(option, dict):
+        raise ValueError("Each option must have a label, a tool and inputs.")
+    tool, label, inputs = option.get("tool"), str(option.get("label") or "").strip(), option.get("inputs")
+    if tool not in WHAT_HAPPENED_TOOLS or tool not in models:
+        raise ValueError(f"'{tool}' is not a repair control, so it cannot be an option on this card.")
+    if not label:
+        raise ValueError("Every option needs a label.")
+    if not isinstance(inputs, dict):
+        raise ValueError(f"The inputs for '{tool}' must be an object.")
+    try:
+        models[tool].model_validate(inputs)
+    except Exception as err:
+        raise ValueError(f"The inputs for '{tool}' are not valid: {err}") from None
+    return {"label": label, "tool": tool, "inputs": inputs}
+
+
+def what_happened_card(models: dict, values: dict) -> dict:
+    """Card data for the agent's own 'what happened' answer, or {error} when an option is not a repair control."""
+    try:
+        options = [check_option(o, models) for o in values.get("options") or []]
+    except ValueError as err:
+        return {"error": str(err)}
+    return {"project": str(values.get("project") or ""), "run_id": str(values.get("run_id") or ""),
+            "cause": str(values.get("cause") or ""), "tried": [str(t) for t in values.get("tried") or []],
+            "suggestion": str(values.get("suggestion") or ""), "options": options}

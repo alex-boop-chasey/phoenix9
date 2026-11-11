@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 59df05372c8cfd86 -->
+<!-- phoenix 9.1.0 inputs b24f41333f9ede78 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -706,6 +706,61 @@ let the runner carry on with a repaired run
 - `<run_id>`
 - `--project PROJECT`: the project of the run (the run id alone is enough)
 - `--yes`: confirm that you mean it
+
+### `phoenix repair rerun`
+
+run a task or a finish step again
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--yes`: confirm that you mean it
+- `--task TASK`: the task number to run again
+- `--finish-step FINISH_STEP`: the finish step to run again
+
+### `phoenix repair resume-from`
+
+carry on with a run from a task
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--yes`: confirm that you mean it
+- `--task TASK`: the task number to carry on from
+
+### `phoenix repair skip`
+
+skip a task, with a reason
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--yes`: confirm that you mean it
+- `--task TASK`: the task number to skip
+- `--why WHY`: the reason, in one line
+
+### `phoenix repair rewrite-checks`
+
+rewrite the checks of a task, with a reason
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--yes`: confirm that you mean it
+- `--task TASK`: the task number whose checks are rewritten
+- `--why WHY`: the reason, in one line
+
+### `phoenix repair max-tries`
+
+allow more tries per task in this run
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--tries TRIES`: the new number of tries per task
+
+### `phoenix repair restart`
+
+start the build again on another preset
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--preset PRESET`: the preset to restart on
 
 ## `phoenix report`
 

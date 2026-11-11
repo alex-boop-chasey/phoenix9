@@ -277,6 +277,7 @@ HELPERS = {
     "repair.resume_from": "Internal: retry a task and resume the run through a repair note.",
     "repair.skip_task": "Internal: skip a task, with a reason, through a repair note.",
     "repair.rewrite_checks": "Internal: rewrite a task's checks, with a reason, through a repair note.",
+    "repair.raise_max_tries": "Internal: raise the run's max tries through a repair note.",
     # the agent's own link into Phoenix
     "agentaccess.is_agent": "Internal: tells whether a connection is the agent's.",
     "agentnext.call": "Internal: the pass-through to the agent service (not a control).",

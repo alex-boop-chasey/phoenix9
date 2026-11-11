@@ -190,3 +190,22 @@ def diagnose(project: str, run_id: str) -> dict:
     detail = runs_ops.detail(project, run_id)
     return diagnose_mod.diagnose(folder, project, run_id, st, shown["task"], shown["tries"], shown["max_tries"],
                                  detail.get("preset"), found)
+
+
+MAX_TRIES_LIMIT = 10   # the most tries per task a repair may allow
+
+
+def raise_max_tries(run_id: str, tries: int, who: str = "agent") -> dict:
+    """Raise a run's max tries (`set max_tries=N for this run`); never lower it, never above the fixed limit."""
+    if isinstance(tries, bool) or not isinstance(tries, int):
+        raise common.OpsError("The number of tries must be a whole number.")
+    if tries > MAX_TRIES_LIMIT:
+        raise common.Conflict(f"A run may have at most {MAX_TRIES_LIMIT} tries per task; {tries} is too many.")
+    folder = _run_folder(run_id)
+    current = runs_ops.detail(folder.parent.name, run_id).get("max_tries")
+    if isinstance(current, int) and tries <= current:
+        raise common.Conflict(f"The run already allows {current} tries; ask for more than that.")
+    if tries < 1:
+        raise common.OpsError("The number of tries must be 1 or more.")
+    text = _note_text(run_id, f"Allow {tries} tries per task", [f"set max_tries={tries} for this run"])
+    return apply_text(run_id, text, who=who)

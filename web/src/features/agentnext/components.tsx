@@ -190,13 +190,50 @@ export function UpdateCard({ update }: { update: UpdateCardData }) {
   )
 }
 
+/** One repair button: its label, the control it leads to and that control's inputs. */
+export interface RepairOption { label: string; tool: string; inputs: Record<string, unknown> }
+/** Card data for "what happened" to a stopped run. */
+export interface WhatHappenedData { project: string; run_id: string; cause: string; tried: string[]; suggestion: string; options: RepairOption[] }
+
+/** What-happened data when it fits (a cause and well-formed options), else null. */
+export function whatHappenedFrom(data: unknown): WhatHappenedData | null {
+  if (!isObject(data) || !isText(data.cause) || !data.cause || !Array.isArray(data.options)) return null
+  const options: RepairOption[] = []
+  for (const o of data.options) {
+    if (!isObject(o) || !isText(o.label) || !o.label || !isText(o.tool) || !o.tool || !isObject(o.inputs)) return null
+    options.push({ label: o.label, tool: o.tool, inputs: o.inputs })
+  }
+  const tried = Array.isArray(data.tried) ? data.tried.filter(isText) : []
+  return { project: isText(data.project) ? data.project : "", run_id: isText(data.run_id) ? data.run_id : "", cause: data.cause, tried, suggestion: isText(data.suggestion) ? data.suggestion : "", options }
+}
+
+/** The fixed chat message a button sends: ask the agent to use that control with those inputs. */
+export function optionMessage(o: RepairOption): string {
+  return `Please do this: ${o.label}. Use the ${o.tool} control with these inputs: ${JSON.stringify(o.inputs)}`
+}
+
+/** What happened to a run: the cause, what was tried, the suggestion and one button per option. */
+export function WhatHappenedCard({ data, onSend }: { data: WhatHappenedData; onSend?: (message: string) => void }) {
+  return (
+    <section className="card flex flex-col gap-2" aria-label="What happened" data-testid="what-happened-card">
+      <strong>What happened{data.run_id ? ` to ${data.run_id}` : ""}</strong>
+      <p className="text-sm">{data.cause}</p>
+      {data.tried.length ? <ul aria-label="What was tried">{data.tried.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
+      {data.suggestion ? <p className="text-sm">Suggestion: {data.suggestion}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        {data.options.map((o, i) => <button key={i} type="button" className="btn" onClick={() => onSend?.(optionMessage(o))}>{o.label}</button>)}
+      </div>
+    </section>
+  )
+}
+
 /** What shows when a card's data does not fit its shape. */
 function Fallback({ tool }: { tool: string }) {
   return <p data-testid="card-fallback">Used {tool}, but the result could not be shown.</p>
 }
 
 /** The cards we can draw, chosen by component name. */
-export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; callId?: string; onOpen?: (p: ProjectCardData) => void }) => ReactNode> = {
+export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; callId?: string; onOpen?: (p: ProjectCardData) => void; onSend?: (message: string) => void }) => ReactNode> = {
   project_cards: ({ data, tool, onOpen }) => {
     const projects = projectsFrom(data)
     return projects ? <ProjectCards projects={projects} onOpen={onOpen} /> : <Fallback tool={tool} />
@@ -238,6 +275,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
     return update ? <UpdateCard update={update} /> : <Fallback tool={tool} />
   },
   UpdateCard: (props) => COMPONENTS.update_card!(props),
+  WhatHappenedCard: ({ data, onSend }) => {
+    const d = whatHappenedFrom(data)
+    return d ? <WhatHappenedCard data={d} onSend={onSend} /> : null
+  },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)
     return ask && callId ? <KeyInputCard ask={ask} callId={callId} /> : <Fallback tool={tool} />

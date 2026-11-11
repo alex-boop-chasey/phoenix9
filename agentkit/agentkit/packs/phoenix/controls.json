@@ -1502,6 +1502,57 @@
     "confirm_with": ""
   },
   {
+    "name": "run-events",
+    "description": "Read one run's events, oldest first.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "after",
+        "type": "integer",
+        "required": false,
+        "description": "Only events after this number.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many events at most (50 if left out).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "events_card",
+    "confirm_with": ""
+  },
+  {
     "name": "run-show",
     "description": "One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,",
     "inputs": [

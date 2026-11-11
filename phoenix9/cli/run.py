@@ -2,7 +2,7 @@
 import time
 
 from phoenix9.cli.output import problem, show, table
-from phoenix9.ops import runs
+from phoenix9.ops import common, runs
 from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
@@ -27,6 +27,12 @@ def add(sub, common) -> None:
     p.add_argument("project")
     p.add_argument("run_id")
     p.set_defaults(func=show_run)
+    p = group.add_parser("events", parents=[common], help="show one run's events, oldest first")
+    p.add_argument("project")
+    p.add_argument("run_id")
+    p.add_argument("--after", type=int, help="only events after this number")
+    p.add_argument("--limit", type=int, default=50, help="how many events at most (default 50)")
+    p.set_defaults(func=events)
     p = group.add_parser("list", parents=[common], help="list runs, newest first")
     p.add_argument("project", nargs="?")
     p.set_defaults(func=list_)
@@ -129,6 +135,14 @@ def show_run(args) -> int:
     """Show one run: its status and each task's tries."""
     r = runs.detail(args.project, args.run_id)
     return show(args, r, "\n".join([_status_text(r), _tries_text(r)]))
+
+
+def events(args) -> int:
+    """Show one run's events, oldest first."""
+    r = runs.events(args.project, args.run_id, args.after, args.limit)
+    common.record_command(args.who, f"run events {args.project} {args.run_id}", args.project)
+    text = "\n".join(f"{e['id']}  {_event_line(e)}" for e in r["events"]) or "No events."
+    return show(args, r, text)
 
 
 def list_(args) -> int:

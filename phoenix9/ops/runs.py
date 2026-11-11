@@ -1,8 +1,9 @@
 """Ops for runs: start, status, list, log and stop."""
+import json
 import secrets
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events, gates as gates_core, paths, resolve, runs as core, settings, spec, state
+from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, resolve, runs as core, scrub, settings, spec, state
 from phoenix9 import tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
@@ -140,7 +141,7 @@ def status(run_id: str) -> dict:
     folder = _run_folder(run_id)
     open_gates = [g for g in gates_core.run_gates(folder) if g["state"] == "open"]
     st = status_core.seen_run(state.load(folder), {g["id"] for g in open_gates})
-    return {**st, "gates": open_gates, "recent_events": events.tail(folder / "events.jsonl", 5)}
+    return {**st, "gates": open_gates, "recent_events": events_core.tail(folder / "events.jsonl", 5)}
 
 
 def list_(project: str | None = None) -> list:
@@ -154,7 +155,7 @@ def list_(project: str | None = None) -> list:
 def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
     """The run's events and step logs, optionally for one step and/or one task."""
     folder = _run_folder(run_id)
-    found = [e for e in events.read(folder / "events.jsonl")
+    found = [e for e in events_core.read(folder / "events.jsonl")
              if (step is None or e.get("step") == step) and (task is None or e.get("task") == task)]
     logs = {}
     log_dir = folder / "logs"
@@ -163,6 +164,33 @@ def log(run_id: str, step: str | None = None, task: int | None = None) -> dict:
             if step is None or path.stem == step:
                 logs[path.stem] = path.read_text(encoding="utf-8", errors="replace")
     return {"run_id": run_id, "events": found, "logs": logs}
+
+
+def events(project: str, run_id: str, after: int | None = None, limit: int = 50) -> dict:
+    """One run's events only, oldest first, each scrubbed, numbered by line; `after` skips up to that number."""
+    common.project_dir(project)
+    folder = _run_folder(run_id)
+    if folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    limit = min(max(int(limit), 1), 1000)
+    try:
+        lines = (folder / "events.jsonl").read_text(encoding="utf-8", errors="replace").splitlines()
+    except FileNotFoundError:
+        lines = []
+    found = []
+    for number, line in enumerate(lines, 1):
+        if after is not None and number <= after:
+            continue
+        try:
+            event = json.loads(scrub.scrub(line))
+        except ValueError:
+            continue
+        if isinstance(event, dict) and event.get("run") in (None, run_id):
+            found.append({"id": number, **event})
+        if len(found) >= limit:
+            break
+    return {"project": project, "run_id": run_id, "events": found,
+            "next": found[-1]["id"] if found else (after or 0)}
 
 
 def summary(run_id: str) -> dict:
@@ -280,7 +308,7 @@ def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     if after["status"] != new:
         raise OpsError(f"Run {run_id} is {after['status']}, not paused, so there is nothing to resume.")
     pause_core.clear(folder)
-    events.emit("run.resumed", project=st["project"], run=run_id, who=who, status=new)
+    events_core.emit("run.resumed", project=st["project"], run=run_id, who=who, status=new)
     common.record_command(who, f"run resume {run_id}", st["project"], f"resumed run {run_id}")
     return {"run_id": run_id, "status": new, "queued": new == "queued"}
 
@@ -301,7 +329,7 @@ def note(run_id: str, task: int, text: str, who: str = "cli", project: str | Non
     if len(text.strip()) > taskfile.MAX_NOTE:
         raise OpsError(f"The note is {len(text.strip())} characters long; the most is {taskfile.MAX_NOTE}.")
     taskfile.add_note(folder, task, who, text)
-    events.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
+    events_core.emit("run.note", project=st["project"], run=run_id, task=task, who=who)
     common.record_command(who, f"run note {run_id} {task}", st["project"])
     return {"run_id": run_id, "task": task, "file": str(taskfile.path(folder, task)),
             "file_id": f"{run_id}/tasks/{task}/task.md"}
@@ -393,7 +421,7 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
     def mark(s: dict) -> None:
         s.update(discarded=True, discarded_at=stamp, discarded_by=who, **({"discard_forced": True} if force else {}))
     state.update(folder, mark)
-    events.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
+    events_core.emit("run.discarded", project=st["project"], run=run_id, who=who, notes=notes, forced=bool(force))
     common.record_command(who, f"run discard {run_id}", st["project"], f"discarded the work of run {run_id}")
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
@@ -426,7 +454,7 @@ def _preview_plan(project: str, overrides: dict) -> dict:
 def _repairs(folder: Path) -> "list[dict]":
     """The repairs applied to a run, read from its repair.applied events (never from the notes)."""
     found = []
-    for e in events.read(folder / "events.jsonl"):
+    for e in events_core.read(folder / "events.jsonl"):
         if e.get("type") == "repair.applied":
             d = e.get("data") or {}
             found.append({"n": len(found) + 1, "who": d.get("who"), "title": d.get("title"),

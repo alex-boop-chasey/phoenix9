@@ -252,6 +252,13 @@ def get_run(req, project, run_id):
     return runs.detail(check_name(project), check_run_id(run_id))
 
 
+def get_run_events(req, project, run_id):
+    """Reply with one run's events, oldest first."""
+    after = req.query.get("after")
+    return runs.events(check_name(project), check_run_id(run_id), int_param(req, "after", 0) if after else None,
+                       min(max(int_param(req, "limit", 50), 1), 1000))
+
+
 def get_gates(req):
     """Reply with the open and answered gates."""
     name = req.query.get("project")
@@ -1064,6 +1071,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),

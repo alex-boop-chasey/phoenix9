@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
+import { JobCard, PlanCheckCard, SpecsCard, jobFrom, planCheckFrom, specsFrom } from "./guidedcards"
 import { KeyInputCard, keyAskFrom } from "./keycard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
@@ -342,6 +343,18 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   FlowCard: ({ data, onSend }) => {
     const d = flowFrom(data)
     return d ? <FlowCard card={d} onSend={onSend} /> : null
+  },
+  PlanCheckCard: ({ data, tool }) => {
+    const d = planCheckFrom(data)
+    return d ? <PlanCheckCard data={d} /> : <Fallback tool={tool} />
+  },
+  SpecsCard: ({ data, tool }) => {
+    const d = specsFrom(data)
+    return d ? <SpecsCard data={d} /> : <Fallback tool={tool} />
+  },
+  JobCard: ({ data, tool }) => {
+    const d = jobFrom(data)
+    return d ? <JobCard data={d} /> : <Fallback tool={tool} />
   },
   EnvUploadCard: ({ data, tool, callId }) => {
     const ask = envAskFrom(data)

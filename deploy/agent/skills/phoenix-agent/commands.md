@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 79879a8ae0aa73cd -->
+<!-- phoenix 9.1.0 inputs 59df05372c8cfd86 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -666,6 +666,13 @@ look for problems in a run
 
 - `<run_id>`
 - `--project PROJECT`: the project of the run (the run id alone is enough)
+
+### `phoenix repair diagnose`
+
+say why a run stopped or failed and what could fix it
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run
 
 ### `phoenix repair report`
 

@@ -194,6 +194,10 @@ CONTROLS = (
           inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip")), GATE_NOTE),
           card="gate_card"),
     # ---- repair ----
+    _get("run-diagnose", "repair.diagnose", r"/api/repair/(?P<run_id>[^/]+)/diagnose", "tool", card="diagnose_card",
+         text="Say why a run stopped or failed: the cause in plain words, what was tried and which repairs fit.",
+         inputs=(_in("run_id", required=True, description="The run's id.", where="path"),
+                 _in("project", required=True, description="The project's name.", where="query"))),
     _get("repair-report", "repair.report", r"/api/repair/(?P<run_id>[^/]+)/report", "later",
          "Repair of failed builds is build 3."),
     _post("repair-apply", "repair.apply_text", r"/api/repair/(?P<run_id>[^/]+)/apply", "change", "later",

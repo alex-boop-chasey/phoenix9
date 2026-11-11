@@ -1,7 +1,7 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
 from phoenix9 import atomic, events, runs as core
 from phoenix9.ops import common, runs as runs_ops
-from phoenix9.repair import apply as apply_mod, check as check_mod, notes, report as report_mod, resume as resume_mod, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, notes, report as report_mod, resume as resume_mod, snapshot
 from phoenix9.repair.steps import is_chat
 
 
@@ -98,3 +98,15 @@ def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     common.record_command(who, f"repair resume {run_id}", folder.parent.name,
                           f"repair on run {run_id}: {title} (applied, snapshot {got})")
     return {"run_id": run_id, "project": folder.parent.name, "status": status, "snapshot": got}
+
+
+def diagnose(project: str, run_id: str) -> dict:
+    """Say in typed data why a run stopped or failed: the cause, what was tried and which repairs fit."""
+    from phoenix9 import state
+    shown = runs_ops.task_tries(project, run_id)
+    folder = _run_folder(run_id, project)
+    st = state.load(folder) or {}
+    found = check_mod.run_checks(folder)
+    detail = runs_ops.detail(project, run_id)
+    return diagnose_mod.diagnose(folder, project, run_id, st, shown["task"], shown["tries"], shown["max_tries"],
+                                 detail.get("preset"), found)

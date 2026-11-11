@@ -901,6 +901,14 @@ def get_repair_report(req, run_id):
     return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
 
 
+def get_repair_diagnose(req, run_id):
+    """Reply with the typed diagnosis of a stopped or failed run (the project comes in the query)."""
+    project = req.query.get("project")
+    if not project:
+        raise BadRequest("Say which project the run belongs to (project=).")
+    return ops_repair.diagnose(check_name(project), check_run_id(run_id))
+
+
 def get_report_status(req):
     """Reply with the status report the runner rewrites every 10 minutes (markdown); never writes a file
     (when there is no saved copy yet it is built once, outside the write lock, and not saved)."""
@@ -1163,6 +1171,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/shown", post_suggest_shown),
+    ("GET", r"/api/repair/(?P<run_id>[^/]+)/diagnose", get_repair_diagnose),
     ("GET", r"/api/repair/(?P<run_id>[^/]+)/report", get_repair_report),
     ("POST", r"/api/repair/(?P<run_id>[^/]+)/apply", post_repair_apply),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),

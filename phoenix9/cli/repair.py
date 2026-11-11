@@ -11,6 +11,10 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
     p.set_defaults(func=check)
+    p = group.add_parser("diagnose", parents=[common], help="say why a run stopped or failed and what could fix it")
+    p.add_argument("run_id")
+    p.add_argument("--project", required=True, help="the project of the run")
+    p.set_defaults(func=diagnose)
     p = group.add_parser("report", parents=[common], help="write and show the plain-English report of a run")
     p.add_argument("run_id")
     p.add_argument("--project", help="the project of the run (the run id alone is enough)")
@@ -59,6 +63,14 @@ def check(args) -> int:
     text = "No problems found" if r["ok"] else "\n".join(f"{i}. {p['text']}" for i, p in enumerate(r["problems"], 1))
     show(args, {"ok": r["ok"], **r}, text)
     return 0 if r["ok"] else 1
+
+
+def diagnose(args) -> int:
+    """Show why a run stopped or failed, what was tried and the repairs that fit."""
+    r = repair.diagnose(args.project, args.run_id)
+    common.record_command(args.who, f"repair diagnose {args.run_id}", args.project)
+    lines = [r["cause"], *r["tried"]] + [f"Option: {o['label']} ({o['control']})" for o in r["options"]]
+    return show(args, r, "\n".join(lines))
 
 
 def report(args) -> int:

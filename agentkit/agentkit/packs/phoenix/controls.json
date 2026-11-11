@@ -1511,6 +1511,39 @@
     "confirm_with": ""
   },
   {
+    "name": "run-diagnose",
+    "description": "Say why a run stopped or failed: the cause in plain words, what was tried and which repairs fit.",
+    "inputs": [
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/repair/(?P<run_id>[^/]+)/diagnose",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "diagnose_card",
+    "confirm_with": ""
+  },
+  {
     "name": "run-events",
     "description": "Read one run's events, oldest first.",
     "inputs": [

@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import re
 import time
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from phoenix9 import allowance, bell, runs, scrub, statusreport as sr
+from phoenix9 import allowance, atomic, bell, paths, runs, scrub, settings, statusreport as sr
 
 DAY = 86400.0
 MAX_CHARS = 1200
@@ -14,6 +17,7 @@ NAMED = 3
 MONEY = re.compile(r"(?:(?:US|AU|A)?\$\s?\d[\d,]*(?:\.\d+)?|\bUSD\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|AUD|dollars?)\b)", re.I)
 HIDDEN = "(amount hidden)"
 QUIET = "Nothing needs you."
+KEEP = 30
 
 
 def strip_money(text) -> str:
@@ -79,3 +83,62 @@ def telegram_text(text: str) -> str:
     if len(flat) + len(TELEGRAM_END) > TELEGRAM_MAX:
         flat = flat[:room - 1].rstrip() + "…"
     return flat + TELEGRAM_END
+
+
+def _local(now: float, tz: str) -> datetime:
+    """The moment `now` (seconds since 1970) as local time in the named timezone."""
+    return datetime.fromtimestamp(now, ZoneInfo(tz))
+
+
+def due(now: float, cfg: dict, last_sent_date: str | None) -> bool:
+    """True once per local day, after the set time has passed on that day; false when disabled."""
+    if not cfg.get("enabled"):
+        return False
+    try:
+        local = _local(now, cfg["timezone"])
+        hh, mm = (int(x) for x in cfg["time"].split(":"))
+    except (KeyError, ValueError, OSError):
+        return False
+    return last_sent_date != local.date().isoformat() and (local.hour, local.minute) >= (hh, mm)
+
+
+def _dir() -> Path:
+    return paths.home() / "reports" / "daily"
+
+
+def _state_file() -> Path:
+    return paths.home() / "reports" / "daily-state.json"
+
+
+def _save(date: str, text: str) -> None:
+    """Write the report for that date atomically and keep only the newest 30."""
+    atomic.write_text(_dir() / f"{date}.md", text)
+    for old in sorted(_dir().glob("*.md"))[:-KEEP]:
+        old.unlink(missing_ok=True)
+
+
+def latest() -> dict | None:
+    """{date, text} of the newest saved report, or None."""
+    try:
+        files = sorted(_dir().glob("*.md"))
+        return {"date": files[-1].stem, "text": files[-1].read_text()} if files else None
+    except OSError:
+        return None
+
+
+def send_if_due(adapters) -> bool:
+    """When the report is due: build and save it, send the short version, record the date. Never raises."""
+    try:
+        cfg = settings.report_settings()
+        now = adapters.clock.now()
+        last = (atomic.read_json(_state_file(), {}) or {}).get("last_sent_date")
+        if not due(now, cfg, last):
+            return False
+        date = _local(now, cfg["timezone"]).date().isoformat()
+        text = build(adapters, now)
+        _save(date, text)
+        adapters.notify.send(telegram_text(text))
+        atomic.write_json(_state_file(), {"last_sent_date": date})
+        return True
+    except Exception:  # noqa: BLE001 - the report must never stop the runner
+        return False

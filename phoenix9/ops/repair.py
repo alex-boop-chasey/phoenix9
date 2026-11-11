@@ -1,5 +1,6 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
 import contextlib
+import re
 
 from phoenix9 import atomic, events, runs as core
 from phoenix9.ops import common, runs as runs_ops
@@ -123,6 +124,34 @@ def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     common.record_command(who, f"repair resume {run_id}", folder.parent.name,
                           f"repair on run {run_id}: {title} (applied, snapshot {got})")
     return {"run_id": run_id, "project": folder.parent.name, "status": status, "snapshot": got}
+
+
+def _note_text(run_id: str, why: str, steps: list[str]) -> str:
+    """Build the text of a repair note from typed parts."""
+    return f"# Repair {run_id}\n\nWhy: {why}\n\n## Steps\n" + "".join(f"- {s}\n" for s in steps)
+
+
+def rerun_step(run_id: str, task: int | None = None, finish_step: str | None = None, who: str = "agent") -> dict:
+    """Re-run a task (`retry task N`) or a finish step (`rerun finish step NAME`) through a repair note."""
+    if (task is None) == (finish_step is None):
+        raise common.OpsError("Say either a task number or a finish step name, not both and not neither.")
+    if task is not None:
+        if isinstance(task, bool) or not isinstance(task, int) or task < 1:
+            raise common.OpsError("The task must be a number from 1 up.")
+        step, why = f"retry task {task}", f"Run task {task} again"
+    else:
+        if not re.fullmatch(notes.WORD, finish_step):
+            raise common.OpsError("The finish step name may only use letters, digits and . _ : -")
+        step, why = f"rerun finish step {finish_step}", f"Run finish step {finish_step} again"
+    return apply_text(run_id, _note_text(run_id, why, [step]), who=who)
+
+
+def resume_from(run_id: str, task: int, who: str = "agent") -> dict:
+    """Resume a run from a task: `retry task N` then `resume`, through one repair note."""
+    if isinstance(task, bool) or not isinstance(task, int) or task < 1:
+        raise common.OpsError("The task must be a number from 1 up.")
+    text = _note_text(run_id, f"Resume the run from task {task}", [f"retry task {task}", "resume"])
+    return apply_text(run_id, text, who=who)
 
 
 def diagnose(project: str, run_id: str) -> dict:

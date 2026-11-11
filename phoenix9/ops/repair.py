@@ -1,7 +1,9 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
+import contextlib
+
 from phoenix9 import atomic, events, runs as core
 from phoenix9.ops import common, runs as runs_ops
-from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, notes, report as report_mod, resume as resume_mod, safety, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, lock, notes, report as report_mod, resume as resume_mod, safety, snapshot
 from phoenix9.repair.steps import is_chat
 
 
@@ -24,6 +26,16 @@ def _refuse_loosening(folder, note, who: str, approve_unlock: bool) -> None:
     why = safety.refusal(folder, note, who, approve_unlock)
     if why:
         raise common.Conflict(why)
+
+
+@contextlib.contextmanager
+def _one_at_a_time(folder):
+    """Hold the run's repair lock; a second repair on the same run is a plain Conflict."""
+    try:
+        with lock.held(folder):
+            yield
+    except lock.Busy as err:
+        raise common.Conflict(str(err)) from None
 
 
 def undo(run_id: str, to: int | None = None, who: str = "cli", project: str | None = None) -> dict:
@@ -63,10 +75,11 @@ def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unloc
     folder = _run_folder(note.run)
     _refuse_loosening(folder, note, who, approve_unlock)
     _may_repair(folder, who)
-    try:
-        return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
-    except snapshot.RepairRefused as err:
-        raise common.OpsError(str(err)) from None
+    with _one_at_a_time(folder):
+        try:
+            return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+        except snapshot.RepairRefused as err:
+            raise common.OpsError(str(err)) from None
 
 
 def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = False,
@@ -81,12 +94,13 @@ def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = F
         raise common.OpsError(f"line 1: the note is for run '{note.run}', not '{run_id}'.")
     _refuse_loosening(folder, note, who, approve_unlock)
     _may_repair(folder, who)
-    path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
-    atomic.write_text(path, text if text.endswith("\n") else text + "\n")
-    try:
-        return apply_mod.apply(path, who, dry_run=dry_run, approve_unlock=approve_unlock)
-    except snapshot.RepairRefused as err:
-        raise common.Conflict(str(err)) from None
+    with _one_at_a_time(folder):
+        path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
+        atomic.write_text(path, text if text.endswith("\n") else text + "\n")
+        try:
+            return apply_mod.apply(path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+        except snapshot.RepairRefused as err:
+            raise common.Conflict(str(err)) from None
 
 
 def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
@@ -94,15 +108,16 @@ def resume(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     folder = _run_folder(run_id, project)
     _may_repair(folder, who)
     title = "Resume the run"
-    try:
-        snapshot.refuse_if_walking(folder)
-        why = resume_mod.refusal(folder)
-        if why:
-            raise snapshot.RepairRefused(why)
-        got = snapshot.take(folder, title)
-        status = resume_mod.resume(folder, who)
-    except (snapshot.RepairRefused, snapshot.SnapshotError) as err:
-        raise common.OpsError(str(err)) from None
+    with _one_at_a_time(folder):
+        try:
+            snapshot.refuse_if_walking(folder)
+            why = resume_mod.refusal(folder)
+            if why:
+                raise snapshot.RepairRefused(why)
+            got = snapshot.take(folder, title)
+            status = resume_mod.resume(folder, who)
+        except (snapshot.RepairRefused, snapshot.SnapshotError) as err:
+            raise common.OpsError(str(err)) from None
     events.emit("repair.applied", project=folder.parent.name, run=run_id, who=who, note="resume", title=title,
                 steps=["resume"], check_before=[], check_after=[], forced=False, rolled_back=False, snapshot=got)
     common.record_command(who, f"repair resume {run_id}", folder.parent.name,

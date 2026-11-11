@@ -101,9 +101,9 @@ def test_chat_with_escalation_permission_still_needs_alex(tmp_path):
                   ["turn off step reviewer for this run"]):
         out = ops.apply(str(note(tmp_path, r, *lines)), who="chat:home")
         assert out["rolled_back"] and "needs Alex" in out["refused"]
-    with pytest.raises(common.OpsError, match="Needs Alex"):
+    with pytest.raises(common.OpsError, match="Needs Alex|loosen a safety check"):
         ops.apply(str(note(tmp_path, r, "add a note to task 1: x", "force")), who="chat:home")
-    with pytest.raises(common.OpsError, match="Needs Alex"):
+    with pytest.raises(common.OpsError, match="Needs Alex|loosen a safety check"):
         ops.apply(str(note(tmp_path, r, "add a note to task 1: x")), who="chat:home", approve_unlock=True)
     with pytest.raises(common.OpsError, match="needs Alex"):
         ops.undo(r["run"], who="chat:home")

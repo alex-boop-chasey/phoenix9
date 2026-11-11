@@ -194,7 +194,7 @@ def test_cli_apply(tmp_path, capsys):
     assert cli_main.main(["repair", "apply", str(f)]) == 1                  # needs --yes or --dry-run
     assert cli_main.main(["repair", "apply", str(f), "--dry-run", "--json"]) == 0
     assert task(r, 1)["status"] == "failed"
-    assert cli_main.main(["repair", "apply", str(f), "--yes", "--who", "agent"]) == 0
+    assert cli_main.main(["repair", "apply", str(f), "--yes", "--who", "cli"]) == 0
     assert task(r, 1)["status"] == "pending"
     assert cli_main.main(["repair", "apply", str(tmp_path / "nope.md"), "--yes"]) == 1
 

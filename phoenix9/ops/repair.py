@@ -1,7 +1,7 @@
 """Ops for the repair kit: check a run, write its report, apply a repair note, undo a repair."""
 from phoenix9 import atomic, events, runs as core
 from phoenix9.ops import common, runs as runs_ops
-from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, notes, report as report_mod, resume as resume_mod, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, notes, report as report_mod, resume as resume_mod, safety, snapshot
 from phoenix9.repair.steps import is_chat
 
 
@@ -17,6 +17,13 @@ def _may_repair(folder, who: str) -> None:
     """Refuse a caller that may not repair runs of this project (the same rule as stopping a run)."""
     if not runs_ops._may_stop(folder.parent.name, who):
         raise common.Conflict(f"'{who}' may not repair runs in {folder.parent.name}.")
+
+
+def _refuse_loosening(folder, note, who: str, approve_unlock: bool) -> None:
+    """Refuse, before anything changes, a repair from the agent or chat that would loosen a safety check."""
+    why = safety.refusal(folder, note, who, approve_unlock)
+    if why:
+        raise common.Conflict(why)
 
 
 def undo(run_id: str, to: int | None = None, who: str = "cli", project: str | None = None) -> dict:
@@ -53,7 +60,9 @@ def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unloc
         note = apply_mod._read_note(note_path)[2]
     except snapshot.RepairRefused as err:
         raise common.OpsError(str(err)) from None
-    _may_repair(_run_folder(note.run), who)
+    folder = _run_folder(note.run)
+    _refuse_loosening(folder, note, who, approve_unlock)
+    _may_repair(folder, who)
     try:
         return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
     except snapshot.RepairRefused as err:
@@ -70,6 +79,7 @@ def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = F
         raise common.OpsError(str(err)) from None
     if note.run != run_id:
         raise common.OpsError(f"line 1: the note is for run '{note.run}', not '{run_id}'.")
+    _refuse_loosening(folder, note, who, approve_unlock)
     _may_repair(folder, who)
     path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
     atomic.write_text(path, text if text.endswith("\n") else text + "\n")

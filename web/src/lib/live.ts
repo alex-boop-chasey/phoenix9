@@ -13,6 +13,7 @@ export function invalidateForEvent(qc: QueryClient, ev: Pick<PhoenixEvent, "type
   if (ev.type === "command") return
   const inv = (queryKey: readonly unknown[]) => void qc.invalidateQueries({ queryKey })
   inv(keys.projects())
+  inv(keys.bell())
   inv(keys.gates())
   if (ev.type.startsWith("update.")) inv(keys.info())
   if (ev.type.startsWith("deploy.")) inv(keys.global())

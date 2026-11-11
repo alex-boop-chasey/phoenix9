@@ -79,6 +79,15 @@ SEARCH = {"query": "cart", "kind": None, "results": [
      "page": {"to": "p/beta/logs", "params": {"run": "20261110-1", "log": "2-2-builder.jsonl"}}}]}
 
 
+BELL = {"count": 3, "items": [
+    {"id": "question:beta:g1", "kind": "question", "title": "beta needs an answer: Which colour?", "detail": INJECTION,
+     "page": {"to": "p/beta/overview", "params": {"gate": "g1"}}},
+    {"id": "build:delta:1", "kind": "build", "title": "delta's build failed", "detail": "Task 2 failed.",
+     "page": {"to": "p/delta/build", "params": {"run": "20261110-2"}}},
+    {"id": "service:phoenix:x", "kind": "service", "title": "A service is not running", "detail": "Stopped.",
+     "page": {"to": "../etc", "params": {}}}]}
+
+
 class FakePhoenix:
     """Answers the allowed routes (any other /api path just says ok); `refuse` makes it answer 403 to everything."""
 
@@ -102,6 +111,8 @@ class FakePhoenix:
         path, query = request.url.path, dict(request.url.params)
         if path == "/api/routes":
             return httpx.Response(200, json={"ok": True, "data": ROUTES})
+        if path == "/api/bell":
+            return httpx.Response(200, json={"ok": True, "data": BELL})
         if path == "/api/search":
             return httpx.Response(200, json={"ok": True, "data": SEARCH})
         parts_ = path.strip("/").split("/")

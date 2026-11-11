@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, matchPath, useLocation } from "react-router"
 
+import { Bell } from "@/components/Bell"
 import { Crumbs } from "@/components/Crumbs"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
@@ -12,7 +13,6 @@ import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { PAGE_SCROLLER_ID, scrollPageTop } from "@/lib/focus"
 import { useInfo, useProjects } from "@/lib/queries"
-import { sortForSwitcher } from "@/lib/switcher"
 
 /** A full-height frame: the header and the project switcher stay put, only the main content (#page) scrolls.
  * The header, project switcher, phone picker, agent drawer and the "well" around every route. */
@@ -31,9 +31,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const current = matchPath("/p/:name/*", pathname)?.params.name ?? matchPath("/p/:name", pathname)?.params.name
   const update = info?.update
-  // The bell counts what the backend says needs Alex (each project's needs_you); nothing is worked out here.
-  const need = (projects ?? []).reduce((n, p) => n + (p.needs_you ?? 0), 0)
-  const firstNeed = need ? sortForSwitcher(projects ?? []).find((p) => p.needs_you > 0)?.name : undefined
   const inProjects = pathname === "/" || pathname.startsWith("/p/") || pathname === "/new" || pathname === "/import"
 
   useEffect(() => {
@@ -88,15 +85,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button className="hbtn picker" aria-label="Choose a project" aria-haspopup="dialog" onClick={() => setSheet(true)}>
             <Icon name="squares-four" />
           </button>
-          <Link
-            className="hbtn"
-            to={firstNeed ? `/p/${encodeURIComponent(firstNeed)}/overview` : "/"}
-            aria-label={need ? `Needs you: ${need} ${need === 1 ? "question" : "questions"} waiting` : "Needs you: nothing waiting"}
-            title={need ? `${need} ${need === 1 ? "question needs" : "questions need"} you` : "Nothing needs you"}
-          >
-            <Icon name="bell-ringing" />
-            {need > 0 && <span className="cnt" data-testid="bell-count">{need}</span>}
-          </Link>
+          <Bell />
           <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>

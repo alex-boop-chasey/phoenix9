@@ -1,6 +1,7 @@
 // Maps a tool's component name to our React components; all text is drawn as plain text from typed data.
 import type { ReactNode } from "react"
 
+import { BellCard, bellFrom } from "./bellcard"
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
@@ -336,6 +337,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   SearchResultsCard: ({ data }) => {
     const rows = searchFrom(data)
     return rows ? <SearchResultsCard rows={rows} /> : null
+  },
+  BellCard: ({ data }) => {
+    const rows = bellFrom(data)
+    return rows ? <BellCard rows={rows} /> : null
   },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)

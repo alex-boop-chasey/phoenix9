@@ -20,6 +20,7 @@ const REFRESH_MS = 10_000
 export const keys = {
   info: () => ["info"] as const,
   projects: () => ["projects"] as const,
+  bell: () => ["bell"] as const,
   project: (name: string) => ["project", name] as const,
   builds: (name: string) => ["builds", name] as const,
   run: (project: string, runId: string) => ["run", project, runId] as const,
@@ -56,6 +57,9 @@ export const useDeploys = (name: string, enabled = true) =>
   useQuery({ queryKey: ["deploys", name], queryFn: () => api.deploys(name), enabled: !!name && enabled })
 export const useProjects = () =>
   useQuery({ queryKey: keys.projects(), queryFn: api.projects, refetchInterval: () => refreshMs() })
+/** What needs Alex (the bell); refetched on the live events and on a timer. */
+export const useBell = () =>
+  useQuery({ queryKey: keys.bell(), queryFn: api.bell, refetchInterval: () => refreshMs() })
 export const useProjectSearch = (params: Record<string, string>) =>
   useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: () => refreshMs(), placeholderData: keepPreviousData })
 /** The sub-folders of a folder under the projects folder (empty path = the projects folder). */

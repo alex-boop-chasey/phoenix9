@@ -139,6 +139,9 @@ async function* readFrames(res: Response): AsyncGenerator<Frame> {
   }
 }
 
+/** The tools the browser itself carries out, without a card. */
+const BROWSER_ACTIONS = ["go_to", "open_bell"]
+
 /** Our agent: sends the message, follows the stream, answers browser actions and waits for approvals. */
 export class AgentNextAgent extends AbstractAgent {
   private seen = 0
@@ -259,8 +262,8 @@ export class AgentNextAgent extends AbstractAgent {
     }
     if (event.type === "TOOL_CALL_RESULT") this.finishCall(event.toolCallId)
     if (event.type === "TOOL_CALL_ARGS") ctx.args.set(event.toolCallId, (ctx.args.get(event.toolCallId) ?? "") + event.delta)
-    if (event.type === "TOOL_CALL_END" && event.toolCallId && ctx.names.get(event.toolCallId) === "go_to") {
-      waits.push(this.runBrowserTool(id, event.toolCallId, "go_to", ctx.args.get(event.toolCallId) ?? "{}", sub))
+    if (event.type === "TOOL_CALL_END" && event.toolCallId && BROWSER_ACTIONS.includes(ctx.names.get(event.toolCallId) ?? "")) {
+      waits.push(this.runBrowserTool(id, event.toolCallId, ctx.names.get(event.toolCallId) ?? "", ctx.args.get(event.toolCallId) ?? "{}", sub))
     }
     return event.type === "RUN_FINISHED" || event.type === "RUN_ERROR"
   }

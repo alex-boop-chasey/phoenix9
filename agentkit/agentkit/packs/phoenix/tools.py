@@ -279,6 +279,30 @@ def search_card(data: Any) -> dict:
     return {"query": str(data.get("query") or ""), "results": rows}
 
 
+def bell_card(data: Any) -> dict:
+    """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    rows = []
+    for item in data.get("items", []) if isinstance(data.get("items"), list) else []:
+        link = page_link(item.get("page")) if isinstance(item, dict) else None
+        if link is None:
+            continue
+        rows.append({"kind": str(item.get("kind") or ""), "title": wrap("phoenix bell", str(item.get("title") or "")),
+                     "detail": wrap("phoenix bell", str(item.get("detail") or "")), "link": link})
+    count = data.get("count")
+    return {"count": count if isinstance(count, int) and not isinstance(count, bool) else len(rows), "items": rows}
+
+
+def open_bell_inputs() -> type[BaseModel]:
+    """The open_bell input model: nothing to fill in."""
+
+    class OpenBell(BaseModel):
+        """Open the bell list in Alex's browser."""
+
+    return OpenBell
+
+
 # The registry names of the repair controls, by the short names the diagnosis uses.
 OPTION_TOOLS = {"step-rerun": "repair-rerun-step", "task-checks-rewrite": "repair-rewrite-checks",
                 "task-skip": "repair-skip-task", "run-resume-from": "repair-resume-from",

@@ -684,3 +684,14 @@ export interface GateReview {
   removed: number
   merge_request: string
 }
+
+/** One thing that needs Alex, as GET /api/bell sends it. */
+export interface BellItem {
+  id: string
+  kind: string
+  title: string
+  detail: string
+  page: { to: string; params?: Record<string, unknown>; hash?: string; label?: string }
+}
+/** The bell: how many things need Alex and the list. */
+export interface BellData { count: number; items: BellItem[] }

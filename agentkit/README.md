@@ -97,6 +97,15 @@ React component called `RecipeCards` to the panel's component list in
   route, card, `confirm_with`) read at start-up. The Phoenix pack does this with
   `packs/phoenix/controls.json`, which Phoenix generates from its own registry; agentkit only reads the file.
 
+### Browser tools for guided flows, and the flow tool
+
+- `ask_choice` shows choice chips; the answer is only the picked indexes. `ask_env_file` shows a .env upload card;
+  the answer is only counts (added, replaced, kept). The masked key card (`ask_for_key`) is the third. Their
+  `result_fields` keep every typed value away from the model.
+- `flow` (server tool) records the flow's name, step and plain facts in the event log as a flow card, so a reload
+  shows where it was and the agent can carry on. Cancelling is allowed at every step. A flow card is never an approval.
+- `next_steps` (read) returns typed suggestions from a project's real state for `suggest_next_actions`.
+
 ### The five parts of a pack, in short
 
 1. **Instructions.** Say who the agent helps, to answer in plain English, and to treat anything a tool returns as

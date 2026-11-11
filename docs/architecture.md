@@ -998,6 +998,13 @@ needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POS
 `POST /browser-results/{id}`, `GET /spend`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
 
+**Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
+key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.
+The server tool `flow` records where a guided flow is in the event log (so a reload shows the flow card), and the read
+tool `next_steps` works out chips from a project's real state. The `hotfix-start` control calls
+`POST /api/projects/<name>/hotfix` (one hotfix at a time). The agent's `project-create` refuses any `keys` field and
+bad inputs are refused before any approval card shows.
+
 **The passthrough.** phoenix-api passes the browser's calls at `/api/agent-next/<same path>` to the service, after
 its usual checks, adding the token. global.toml `[agent_next]` holds `url` (default `http://127.0.0.1:8097`),
 `token_file` (default `/var/lib/phoenix9/agentkit/token`) and `uid` (the agent user's uid; with no `uid`, agent

@@ -2,7 +2,7 @@
 from agentkit.pack import BrowserTool, Pack
 from agentkit.packs.phoenix.client import DEFAULT_URL, PhoenixClient
 from agentkit.packs.phoenix.controls import make_server_tools
-from agentkit.packs.phoenix.tools import ask_for_key_inputs, go_to_inputs
+from agentkit.packs.phoenix.tools import ask_choice_inputs, ask_env_file_inputs, ask_for_key_inputs, go_to_inputs
 from agentkit.packs.phoenix.what_happened import what_happened_tool
 
 INSTRUCTIONS = """You help Alex look after his Phoenix projects and run Phoenix for him. Answer in plain English, briefly. Use plain text only: no markup, no HTML, no links written as markup.
@@ -20,13 +20,22 @@ ASK_FOR_KEY_TEXT = (
     "Ask Alex for a project key. He types the value into a masked field that posts straight to Phoenix; "
     "the value never comes back to you. You only learn whether it was saved or cancelled.")
 
+ASK_CHOICE_TEXT = (
+    "Ask Alex to pick from 2 to 12 options you offer. You learn only which of your own options were picked "
+    "(by position), or that he cancelled.")
+ASK_ENV_FILE_TEXT = (
+    "Ask Alex to choose a .env file in his browser; it goes straight to Phoenix's key manager and no value comes "
+    "back to you. You only learn whether it was saved, cancelled, and how many names were added, replaced or kept.")
+WHOLE = tuple(range(201))
+
 
 def build_pack(client: PhoenixClient | None = None) -> Pack:
     """Make the Phoenix pack around a client (the real Phoenix API by default), tools from controls.json."""
     client = client or PhoenixClient(DEFAULT_URL)
     server_tools, components = make_server_tools(client)
     server_tools.append(what_happened_tool(server_tools))
-    components = {**components, "ask_for_key": "KeyInputCard", "what_happened": "WhatHappenedCard"}
+    components = {**components, "ask_for_key": "KeyInputCard",
+                  "ask_choice": "ChoiceCard", "ask_env_file": "EnvUploadCard", "what_happened": "WhatHappenedCard"}
     return Pack(
         name="phoenix",
         instructions=INSTRUCTIONS,
@@ -34,6 +43,10 @@ def build_pack(client: PhoenixClient | None = None) -> Pack:
         browser_tools=(
             BrowserTool("go_to", "Open a dashboard page in Alex's browser.", go_to_inputs(client)),
             BrowserTool("ask_for_key", ASK_FOR_KEY_TEXT, ask_for_key_inputs(), {"status": ("saved", "cancelled")}),
+            BrowserTool("ask_choice", ASK_CHOICE_TEXT, ask_choice_inputs(),
+                        {"status": ("picked", "cancelled"), "picked": ("ints", 0, 11)}),
+            BrowserTool("ask_env_file", ASK_ENV_FILE_TEXT, ask_env_file_inputs(),
+                        {"status": ("saved", "cancelled"), "added": WHOLE, "replaced": WHOLE, "kept": WHOLE}),
         ),
         components=components,
     )

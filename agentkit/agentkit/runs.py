@@ -431,14 +431,27 @@ def approval_route(runs: Runs, denied):
     return answer
 
 
+def _whole(v) -> bool:
+    """True for a whole number that is not a bool."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _field_ok(allowed, v) -> bool:
+    """True when the value fits the field's declaration: a tuple of scalars, or ("ints", low, high) for a short list."""
+    if isinstance(allowed, tuple) and len(allowed) == 3 and allowed[0] == "ints":
+        _, low, high = allowed
+        return (isinstance(v, list) and len(v) <= high - low + 1
+                and all(_whole(i) and low <= i <= high for i in v))
+    return isinstance(v, (str, int, float, bool, type(None))) and v in allowed
+
+
 def limit_result(fields, result):
     """Keep only the declared keys and values of a browser result (all of it when the tool declares none)."""
     if fields is None:
         return result
     if not isinstance(result, dict):
         return {}
-    return {k: v for k, v in result.items()
-            if k in fields and isinstance(v, (str, int, float, bool, type(None))) and v in fields[k]}
+    return {k: v for k, v in result.items() if k in fields and _field_ok(fields[k], v)}
 
 
 def browser_route(runs: Runs, denied):

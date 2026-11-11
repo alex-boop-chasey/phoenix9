@@ -129,6 +129,38 @@ def ask_for_key_inputs() -> type[BaseModel]:
     return AskForKey
 
 
+class ChoiceOption(BaseModel):
+    """One option in a choice card."""
+
+    label: str = Field(max_length=60, description="Short option text.")
+    hint: str = Field(default="", max_length=120, description="Optional one-line help.")
+
+
+def ask_choice_inputs() -> type[BaseModel]:
+    """The ask_choice input model: a question and 2 to 12 options; the answer is only indexes."""
+
+    class AskChoice(BaseModel):
+        """A question with options for Alex to pick from."""
+
+        question: str = Field(max_length=200, description="The question to ask.")
+        options: list[ChoiceOption] = Field(min_length=2, max_length=12, description="The options offered.")
+        multiple: bool = Field(default=False, description="True when more than one option may be picked.")
+
+    return AskChoice
+
+
+def ask_env_file_inputs() -> type[BaseModel]:
+    """The ask_env_file input model: project and why; there is no field for any value."""
+
+    class AskEnvFile(BaseModel):
+        """Which project's .env file to ask Alex for, and why."""
+
+        project: str = Field(description="The project's name.")
+        why: str = Field(max_length=200, description="One short sentence saying why the file is needed.")
+
+    return AskEnvFile
+
+
 def _flat(values: Any, prefix: str = "") -> list[tuple[str, Any]]:
     """Nested settings as (dotted name, value) pairs."""
     if not isinstance(values, dict):

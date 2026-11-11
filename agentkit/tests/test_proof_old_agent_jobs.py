@@ -1,0 +1,252 @@
+"""Proof: each old-agent job (see docs/old-agent-checklist.md) shown working on the new agent, one test per row."""
+import asyncio
+import json
+
+from starlette.applications import Starlette
+from starlette.routing import Route
+
+from agentkit import llm, runs
+from agentkit.packs.phoenix import INSTRUCTIONS, build_pack
+from agentkit.packs.phoenix.controls import load_controls
+from agentkit.store import Store
+from fake_phoenix import FAILED_RUN, INJECTION, FakePhoenix
+from test_approvals import client, paused, requests_in, script, types
+from test_browser_tools import customs
+
+FILLER = {"string": "x", "integer": 1, "boolean": True, "object": {}, "list": []}
+GOOD = {"gate_id": "20261110-100000-demo.1", "run_id": FAILED_RUN, "project": "beta", "name": "beta",
+        "edit_id": "e-1", "plan_id": "p-1", "action": "approve", "text": "Use the second page.", "task": 2}
+
+
+def args_for(tool):
+    """Plausible arguments for a control: its required inputs filled in."""
+    entry = next(e for e in load_controls() if e["name"] == tool)
+    out = {}
+    for i in entry["inputs"]:
+        if i["required"]:
+            out[i["name"]] = i["choices"][0] if i["type"] == "choice" else GOOD.get(i["name"], FILLER[i["type"]])
+    return out
+
+
+def build(plan, fake=None):
+    """A fake Phoenix, a store, a Runs on the real pack with the scripted model, an app and what the model saw."""
+    fake, store, seen = fake or FakePhoenix(), Store(":memory:"), []
+    pack = build_pack(fake.client())
+    r = runs.Runs(store, llm.build_pack_agent(script(plan, seen), pack), pack)
+    app = Starlette(routes=[
+        Route("/approvals/{id}", runs.approval_route(r, lambda _q: False), methods=["POST"]),
+        Route("/browser-results/{id}", runs.browser_route(r, lambda _q: False), methods=["POST"])])
+    return fake, store, r, app, seen
+
+
+def returns(seen):
+    """The data of every tool return the model was shown, by tool name."""
+    return {p.tool_name: p.content["data"] for call in seen for m in call for p in getattr(m, "parts", [])
+            if p.part_kind == "tool-return"}
+
+
+def posts(fake):
+    """The POST requests that reached the fake Phoenix."""
+    return [q for q in fake.requests if q.method == "POST"]
+
+
+async def approved(tool, args=None, fake=None, confirm=None):
+    """Script one call of `tool`, check it paused with nothing sent, approve it, and return (fake, store, tid, seen)."""
+    args = args if args is not None else args_for(tool)
+    fake, store, r, app, seen = build([(tool, args)], fake)
+    tid = await paused(r, store)
+    assert posts(fake) == [] and types(store, tid)[-1] != "RUN_FINISHED"
+    (req,) = requests_in(store, tid)
+    assert req["toolName"] == tool
+    body = {"decision": "approve", **({"confirm": confirm} if confirm else {})}
+    async with client(app) as c:
+        assert (await c.post(f"/approvals/{req['approvalId']}", json=body)).status_code == 202
+    await r.active[tid]
+    return fake, store, tid, seen
+
+
+def run(coro):
+    """Run one async test body."""
+    return asyncio.run(coro)
+
+
+def test_job_01():
+    assert "a step is one small piece of a build" in INSTRUCTIONS and "a task is one item of a spec" in INSTRUCTIONS
+
+
+def test_job_03():
+    async def go():
+        _f, store, r, _a, seen = build([("step-session", {"project": "beta", "run_id": FAILED_RUN, "task": 2})])
+        tid = await paused(r, store)
+        got = [p.content for call in seen for m in call for p in getattr(m, "parts", [])
+               if p.part_kind == "tool-return"][0]
+        assert "delete the project" in json.dumps(got["data"]) and "not instructions" in json.dumps(got).lower()
+        assert types(store, tid)[-1] == "RUN_FINISHED" and requests_in(store, tid) == []
+
+    run(go())
+
+
+def test_job_04():
+    assert "plain English, briefly" in INSTRUCTIONS and "Answer in plain English" in INSTRUCTIONS
+
+
+def test_job_05():
+    async def go():
+        for tool in ("merge-answer", "update-install", "build-start", "project-create", "settings-change"):
+            fake, store, r, _a, _s = build([(tool, args_for(tool))])
+            tid = await paused(r, store)
+            assert posts(fake) == [] and len(requests_in(store, tid)) == 1, tool
+            assert types(store, tid)[-1] != "RUN_FINISHED"
+
+    run(go())
+
+
+def test_job_06():
+    names = {t.name for t in build_pack(FakePhoenix().client()).server_tools}
+    assert not names & {"keys-reveal", "service-connect", "service-test", "keys-save"}
+    pack = build_pack(FakePhoenix().client())
+    assert {"ask_for_key", "ask_env_file"} <= {t.name for t in pack.browser_tools}
+    assert "Never ask Alex to type a key into the chat" in INSTRUCTIONS
+
+    async def go():
+        _f, store, r, app, seen = build([("ask_for_key", {"project": "beta", "name": "STRIPE_KEY", "why": "Payments."})])
+        tid = await paused(r, store)
+        (ask,) = customs(store, tid, "browser_tool")
+        async with client(app) as c:
+            await c.post(f"/browser-results/{ask['browserId']}", json={"result": {"status": "saved"}})
+        await r.active[tid]
+        assert "saved" in json.dumps(returns(seen)["ask_for_key"])
+
+    run(go())
+
+
+def test_job_07():
+    async def go():
+        fake, store, tid, seen = await approved("settings-change", {"name": "beta", "set": {"steps.verify.on": False}},
+                                                FakePhoenix(refuse=True))
+        assert "Refused" in json.dumps(returns(seen)["settings-change"]) and types(store, tid)[-1] == "RUN_FINISHED"
+
+    run(go())
+
+
+def test_job_08():
+    async def go():
+        fake, _s, _t, _seen = await approved("chat-open")
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/chat/beta/open" and sent.headers["X-Phoenix"] == "1"
+        assert all(q.url.path.startswith("/api/") for q in fake.requests)
+
+    run(go())
+
+
+def test_job_10():
+    async def go():
+        fake, store, tid, _seen = await approved("build-start", {"name": "beta"})
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/projects/beta/runs" and types(store, tid)[-1] == "RUN_FINISHED"
+
+    run(go())
+
+
+def test_job_12():
+    import test_stop
+    test_stop.test_stop_cancels_the_model_call_logs_it_and_a_new_run_can_start()
+    test_stop.test_stop_closes_a_pending_pause_as_stopped()
+
+
+def test_job_13():
+    async def go():
+        fake, _s, r, _a, _sn = build([("chat-show", {"name": "beta"})])
+        tid = await paused(r, _s)
+        assert [q.url.path for q in fake.requests] == ["/api/chat/beta"] and requests_in(_s, tid) == []
+        for tool, path in (("chat-open", "open"), ("chat-sleep", "sleep")):
+            fake, _st, _t, _sn = await approved(tool, {"name": "beta"})
+            assert [q.url.path for q in posts(fake)] == [f"/api/chat/beta/{path}"]
+        fake, store, r, app, _sn = build([("chat-off", {"name": "beta"})])
+        tid = await paused(r, store)
+        (req,) = requests_in(store, tid)
+        async with client(app) as c:   # off needs the project's name typed
+            assert (await c.post(f"/approvals/{req['approvalId']}", json={"decision": "approve"})).status_code == 400
+            assert posts(fake) == []
+            assert (await c.post(f"/approvals/{req['approvalId']}",
+                                 json={"decision": "approve", "confirm": "beta"})).status_code == 202
+        await r.active[tid]
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/chat/beta/off" and json.loads(sent.content) == {"confirm": True}
+
+    run(go())
+
+
+def test_job_14():
+    async def go():
+        _f, store, r, app, seen = build([("ask_choice", {"question": "What next?", "options": [
+            {"label": "The form"}, {"label": "The footer"}]}), ("projects-list", {})])
+        tid = await paused(r, store)
+        (ask,) = customs(store, tid, "browser_tool")
+        assert ask["toolName"] == "ask_choice"
+        async with client(app) as c:
+            await c.post(f"/browser-results/{ask['browserId']}", json={"result": {"status": "picked", "picked": [0]}})
+        await r.active[tid]
+        assert "picked" in json.dumps(returns(seen)["ask_choice"]) and "projects" in returns(seen)["projects-list"]
+        assert requests_in(store, tid) == []
+
+    run(go())
+
+
+def test_job_15():
+    async def go():
+        _f, store, r, app, seen = build([("go_to", {"page": "projects"})])
+        tid = await paused(r, store)
+        (ask,) = customs(store, tid, "browser_tool")
+        assert ask["toolName"] == "go_to"
+        async with client(app) as c:
+            await c.post(f"/browser-results/{ask['browserId']}", json={"result": {"status": "opened"}})
+        await r.active[tid]
+        assert types(store, tid)[-1] == "RUN_FINISHED"
+
+    run(go())
+
+
+def test_job_19():
+    async def go():
+        fake, _s, _t, _sn = await approved("plan-abandon", {"plan_id": "p-1"}, confirm="p-1")
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/plans/p-1/abandon" and json.loads(sent.content) == {"confirm": True}
+
+    run(go())
+
+
+def test_job_20():
+    import test_proof_repair_explain as proof
+    proof.test_proof_repair_explain_reads_run_with_no_pause_and_ends_on_the_card()
+
+
+def test_job_21():
+    import test_proof_repair_actions as proof
+    proof.test_each_repair_pauses_then_posts_exactly_once_after_approve()
+    proof.test_deny_sends_nothing_to_phoenix()
+
+
+def test_job_26():
+    import test_proof_next_steps
+    test_proof_next_steps.test_proof_next_steps()
+
+
+def test_job_27():
+    inputs = {i["name"] for e in load_controls() if e["agent"] == "tool" for i in e["inputs"]}
+    assert not any("budget" in n or "cap" in n for n in inputs)
+    assert "Never mention money amounts" in INSTRUCTIONS
+    import test_allowance_limits as limits
+    limits.test_80_percent_is_low_and_the_agent_still_answers()
+    limits.test_100_percent_refuses_the_next_call_in_plain_words()
+
+
+def test_job_37():
+    async def go():
+        _f, store, r, _a, seen = build([("bell", {}), ("open_bell", {})])
+        tid = await paused(r, store)
+        (ask,) = customs(store, tid, "browser_tool")
+        assert ask["toolName"] == "open_bell"
+        assert returns(seen)["bell"]["count"] == 3
+
+    run(go())

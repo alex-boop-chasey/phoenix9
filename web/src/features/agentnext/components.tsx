@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
+import { FlowCard, flowFrom } from "./flowcard"
 import { KeyInputCard, keyAskFrom } from "./keycard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
@@ -337,6 +338,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   ChoiceCard: ({ data, tool, callId }) => {
     const ask = choiceAskFrom(data)
     return ask && callId ? <ChoiceCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
+  },
+  FlowCard: ({ data, onSend }) => {
+    const d = flowFrom(data)
+    return d ? <FlowCard card={d} onSend={onSend} /> : null
   },
   EnvUploadCard: ({ data, tool, callId }) => {
     const ask = envAskFrom(data)

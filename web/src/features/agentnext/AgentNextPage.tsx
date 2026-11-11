@@ -7,15 +7,20 @@ import { AllowanceBar } from "./Allowance"
 import { History } from "./History"
 import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
 import { COMPONENTS, ToolCall } from "./components"
+import { FlowLine, flowFrom } from "./flowcard"
 import {
-  AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentAvailable, agentGet, linesFromEvents, useAgentNextRuntime,
+  AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentAvailable, agentGet, cardsFromEvents, linesFromEvents, olderFlowSteps, useAgentNextRuntime,
   type Allowance, type CardItem, type ChatLine, type Frame, type ThreadInfo,
 } from "./runtime"
 
 /** The cards we can draw, chosen by name; anything else is not drawn. */
 
 /** One typed card, drawn from its data. */
-function Card({ card, onSend }: { card: CardItem; onSend?: (message: string) => void }) {
+function Card({ card, older, onSend }: { card: CardItem; older?: boolean; onSend?: (message: string) => void }) {
+  if (older) {
+    const flow = flowFrom(card.data)
+    return flow ? <FlowLine card={flow} /> : null
+  }
   const Draw = COMPONENTS[card.component]
   return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId, onSend })}</> : null
 }
@@ -28,6 +33,7 @@ export default function AgentNextPage() {
   const [allowance, setAllowance] = useState<Allowance | null>(null)
   const [current, setCurrent] = useState("")
   const [earlier, setEarlier] = useState<ChatLine[]>([])
+  const [earlierCards, setEarlierCards] = useState<CardItem[]>([])
   const [opened, setOpened] = useState(0)
   const [follow, setFollow] = useState<{ frames: Frame[] } | undefined>(undefined)
   const [problem, setProblem] = useState<string | null>(null)
@@ -43,6 +49,7 @@ export default function AgentNextPage() {
     if (!got) return
     // A run still going is replayed and followed by the conversation itself, so only a finished one is shown here.
     setEarlier(got.running ? [] : linesFromEvents(got.events))
+    setEarlierCards(got.running ? [] : cardsFromEvents(got.events))
     setFollow(got.running ? { frames: got.events } : undefined)
     setCurrent(id)
     localStorage.setItem(LAST_THREAD, id)
@@ -61,6 +68,7 @@ export default function AgentNextPage() {
     localStorage.removeItem(LAST_THREAD)
     setFollow(undefined)
     setEarlier([])
+    setEarlierCards([])
     setCurrent("")
     setOpened((n) => n + 1)
   }
@@ -80,17 +88,20 @@ export default function AgentNextPage() {
         <AllowanceBar allowance={allowance} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} follow={follow} onRunEnd={refresh} />
+        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} earlierCards={earlierCards} follow={follow} onRunEnd={refresh} />
       </div>
     </div>
   )
 }
 
 /** One conversation: the chat, cards, approvals, Stop and the message box. */
-function Conversation({ thread, earlier, follow, onRunEnd }: { thread: string; earlier: ChatLine[]; follow?: { frames: Frame[] }; onRunEnd: () => void }) {
+function Conversation({ thread, earlier, earlierCards, follow, onRunEnd }: { thread: string; earlier: ChatLine[]; earlierCards: CardItem[]; follow?: { frames: Frame[] }; onRunEnd: () => void }) {
   const navigate = useNavigate()
   const browserHandler = useMemo(() => makeGoTo((hash) => navigate(hash)), [navigate])
   const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread, follow)
+
+  const allCards = useMemo(() => [...earlierCards, ...side.cards], [earlierCards, side.cards])
+  const older = useMemo(() => olderFlowSteps(allCards), [allCards])
 
   const [wasRunning, setWasRunning] = useState(false)
   useEffect(() => {
@@ -115,7 +126,7 @@ function Conversation({ thread, earlier, follow, onRunEnd }: { thread: string; e
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
         {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
-        {side.cards.map((c) => <Card key={c.toolCallId} card={c} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />)}
+        {allCards.map((c) => <Card key={c.toolCallId} card={c} older={older.has(c.toolCallId)} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />)}
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
         ))}

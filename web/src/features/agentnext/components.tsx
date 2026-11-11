@@ -2,6 +2,7 @@
 import type { ReactNode } from "react"
 
 import { BellCard, bellFrom } from "./bellcard"
+import { ReportCard, reportFrom } from "./reportcard"
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
@@ -341,6 +342,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   BellCard: ({ data }) => {
     const rows = bellFrom(data)
     return rows ? <BellCard rows={rows} /> : null
+  },
+  ReportCard: ({ data }) => {
+    const report = reportFrom(data)
+    return report ? <ReportCard report={report} /> : null
   },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)

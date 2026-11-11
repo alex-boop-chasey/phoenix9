@@ -426,6 +426,34 @@
     "confirm_with": ""
   },
   {
+    "name": "daily-report",
+    "description": "Read the newest daily report: a short plain-English summary of the last day (no money, the allowance in words).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/report/daily",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "report_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "daily-report-now",
+    "description": "Build a daily report right now from the current state (nothing is sent or saved).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/report/daily/now",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "report_card",
+    "confirm_with": ""
+  },
+  {
     "name": "deploy-start",
     "description": "Planned for a later agent build; for now Alex uses the dashboard.",
     "inputs": [],

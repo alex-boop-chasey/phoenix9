@@ -279,6 +279,13 @@ def search_card(data: Any) -> dict:
     return {"query": str(data.get("query") or ""), "results": rows}
 
 
+def report_card(data: Any) -> dict:
+    """Card data for the daily report: {date, text} as plain text, the report text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"date": str(data.get("date") or ""), "text": wrap("phoenix report", str(data.get("text") or ""))}
+
+
 def bell_card(data: Any) -> dict:
     """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
     from agentkit.quote import wrap

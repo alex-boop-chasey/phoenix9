@@ -1,4 +1,4 @@
-"""The bell: one plain list of what needs Alex (questions, failed builds, held merge requests, services, allowance).
+"""The bell: one plain list of what needs Alex (questions, failed builds, held merge requests, services, allowance, the newest daily report).
 
 Plain rules over Phoenix's own data, no AI. Every text is scrubbed and has no money figure; a source that fails is skipped.
 """
@@ -91,12 +91,21 @@ def _allowance(adapters) -> list[dict]:
                   _page("settings", section="models"))]
 
 
+def _reports() -> list[dict]:
+    """One item for the newest daily report (the next one replaces it)."""
+    from phoenix9 import dailyreport  # here because dailyreport itself reads the bell
+    found = dailyreport.latest()
+    if not found:
+        return []
+    return [_item("report", "phoenix", found["date"], f"Daily report for {found['date']}", found["text"], _page("projects"), found["date"])]
+
+
 def items(adapters, now: float | None = None) -> list[dict]:
     """Everything that needs Alex, from the real state; a source that fails is skipped."""
     now = time.time() if now is None else now
     found = []
     for source in (_questions, lambda: _builds(now), lambda: _merges(adapters, now), lambda: _services(adapters),
-                   lambda: _allowance(adapters)):
+                   lambda: _allowance(adapters), _reports):
         found += sr._safe(source) or []
     return found
 

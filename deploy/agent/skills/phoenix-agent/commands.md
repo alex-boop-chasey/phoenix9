@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs a57ba51d57a3258c -->
+<!-- phoenix 9.1.0 inputs d67eb440b84ceb11 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -782,6 +782,12 @@ plain-English reports
 write and show the status report (what needs you)
 
 - `--out OUT`: write the report to this file instead of HOME/reports/status.md
+
+### `phoenix report daily`
+
+show the newest daily report (--now builds one without sending it)
+
+- `--now`: build a report right now; nothing is sent or saved
 
 ## `phoenix search`
 

@@ -257,6 +257,16 @@ def get_bell(req):
     return ops_bell.show()
 
 
+def get_report_daily(req):
+    """Reply with the newest saved daily report ({date, text})."""
+    return ops_report.daily_latest()
+
+
+def get_report_daily_now(req):
+    """Reply with a daily report built right now (nothing is sent or saved)."""
+    return ops_report.daily_now()
+
+
 def get_search(req):
     """Reply with search results for ?q= (optional ?kind= and ?limit=); a bad query is a 400."""
     return ops_search.run(req.query.get("q", ""), req.query.get("kind") or None, int_param(req, "limit", 20))
@@ -1255,6 +1265,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/report/status", get_report_status),
+    ("GET", r"/api/report/daily", get_report_daily),
+    ("GET", r"/api/report/daily/now", get_report_daily_now),
     ("GET", r"/api/suggest", get_suggest),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),

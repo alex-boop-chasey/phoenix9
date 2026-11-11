@@ -466,6 +466,12 @@ A merge of that project tags the merge commit as the next `v9.<n>` release (`pho
 `[chat]` in `global.toml` (`settings.chat_settings()`): `sleep_after_minutes` (default 120), `off_after_days` (3),
 `start_wait_seconds` (60), `wrap_up_minutes` (3), `claude_home` (`/root/.claude`).
 
+`[report]` in `global.toml` (`settings.report_settings()`): the daily report. `enabled` (default `true`), `time`
+(24-hour `HH:MM`, default `"08:00"`), `timezone` (a name `zoneinfo` accepts, default `"Australia/Melbourne"`). A missing or
+odd value reads as the default; `settings.save_report_settings` refuse a bad time or
+unknown timezone with a message naming the setting. They are not safety settings, so the agent may change them
+through an approval card.
+
 ### 5.3 The ai block (any ai step; harness spec section 5)
 `model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),
 `mcp_servers` (list of names from the registry), `claude_md` (`library` | `project` | `both`),

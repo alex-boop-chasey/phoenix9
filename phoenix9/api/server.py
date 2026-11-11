@@ -513,7 +513,7 @@ def purge_jobs(jobs: dict) -> None:
         del jobs[key]
 
 
-def run_create_job(httpd, job: dict, opts: dict) -> None:
+def run_create_job(httpd, job: dict, opts: dict, who: str = WHO) -> None:
     """Background thread: create the project, turning progress lines into job steps."""
     def progress(line):
         with httpd.jobs_lock:
@@ -523,7 +523,7 @@ def run_create_job(httpd, job: dict, opts: dict) -> None:
 
     try:
         with httpd.write_lock:
-            projects.new(opts, WHO, progress=progress)
+            projects.new(opts, who, progress=progress)
         status, message = "done", ""
     except common.OpsError as err:
         status, message = "failed", str(err)
@@ -548,7 +548,7 @@ def post_create(req):
         job = {"id": job_id, "kind": "create", "project": opts["name"], "status": "running",
                "steps": [], "message": "", "finished_at": 0.0}
         httpd.jobs[job_id] = job
-    threading.Thread(target=run_create_job, args=(httpd, job, opts), daemon=True).start()
+    threading.Thread(target=run_create_job, args=(httpd, job, opts, req.who), daemon=True).start()
     return {"job": job_id}
 
 

@@ -7,12 +7,17 @@ WHO = "agent"
 NAME = r"[a-z0-9][a-z0-9-]{0,40}"   # the same safe patterns as phoenix9/api/server.py
 RUN_ID = r"\d{8}-\d{6}-[a-z0-9-]+"
 GATE_ID = RUN_ID + r"\.\d+"
-SAFE_PARTS = {"name": NAME, "project": NAME, "run_id": RUN_ID, "gate_id": GATE_ID}
+JOB_ID = r"[0-9a-f]+"
+SAFE_PARTS = {"name": NAME, "project": NAME, "run_id": RUN_ID, "gate_id": GATE_ID, "job_id": JOB_ID}
 NOT_ALLOWED = "Refused: the agent isn't allowed to do that."
 NEEDS_HEADER = "Refused: this request didn't come from a Phoenix program."
 SAFETY_SETTING = "Refused: that is a safety setting, and the agent may not change it. Change it in Settings yourself."
 NO_PRESET_IN_SET = "Refused: choose a preset with the preset control, not inside the settings."
 ONLY_SERVICES = "Refused: the agent may only change a project's services here, not its description, repo or profile."
+CREATE_KEYS = ["name", "description", "profile", "source", "new_repo", "services"]
+NO_CREATE_KEYS = "Refused: the agent can't send keys when creating a project; keys go in through the key card or .env card."
+NO_CREATE_SOURCE = "Refused: the agent can only create an empty project or one from a template, not from code or a repo."
+NO_CREATE_FIELD = "Refused: the agent may only send name, description, profile, source, new_repo and services."
 NEEDS_SETTINGS = "Refused: say which settings to change, like {\"set\": {\"setting name\": value}}."
 
 
@@ -83,6 +88,18 @@ def _preset_refusal(name: str, preset) -> str:
     return ""
 
 
+def _create_refusal(body: dict) -> str:
+    """The plain refusal when an agent create body has keys, a code/repo source or an unknown field, else ''."""
+    if "keys" in body:
+        return NO_CREATE_KEYS
+    source = body.get("source")
+    if isinstance(source, dict) and source.get("kind") not in (None, "empty", "template"):
+        return NO_CREATE_SOURCE
+    if set(body) - set(CREATE_KEYS):
+        return NO_CREATE_FIELD
+    return ""
+
+
 def settings_refusal(method: str, path: str, body) -> str:
     """The plain refusal for an agent write that would loosen its leash (safety keys, presets, wide edits), else ''."""
     if method != "POST":
@@ -90,6 +107,8 @@ def settings_refusal(method: str, path: str, body) -> str:
     body = body if isinstance(body, dict) else {}
     parts = path.rstrip("/").split("/")
     last = parts[-1]
+    if path.rstrip("/") == "/api/projects":
+        return _create_refusal(body)
     if last == "settings":
         values = body.get("set")
         if not isinstance(values, dict) or not values or set(body) - {"set"}:

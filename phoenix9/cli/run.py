@@ -19,6 +19,10 @@ def add(sub, common) -> None:
     p.add_argument("--spec", required=True, help="the spec file")
     p.add_argument("--preset", help="use this preset for this run only")
     p.set_defaults(func=start)
+    p = group.add_parser("hotfix", parents=[common], help="start a short build on its own branch from a brief")
+    p.add_argument("project")
+    p.add_argument("--brief", required=True, help="a small description of the change")
+    p.set_defaults(func=hotfix)
     p = group.add_parser("status", parents=[common], help="show how a run is going")
     p.add_argument("run_id")
     p.add_argument("--watch", action="store_true", help="keep printing new events until the run stops")
@@ -86,6 +90,12 @@ def start(args) -> int:
     overrides = {"preset": args.preset} if args.preset else None
     r = runs.start(args.project, args.spec, overrides, who=args.who)
     return show(args, r, f"Queued run {r['run_id']} for {r['project']}.")
+
+
+def hotfix(args) -> int:
+    """Start a hotfix run from a brief."""
+    r = runs.start_hotfix(args.project, args.brief, who=args.who)
+    return show(args, r, f"Started hotfix run {r['run_id']} for {r['project']}.")
 
 
 def _status_text(r: dict) -> str:

@@ -782,6 +782,39 @@
     "confirm_with": ""
   },
   {
+    "name": "hotfix-start",
+    "description": "Start a short build on its own branch from a small description of the change. One at a time per project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "brief",
+        "type": "string",
+        "required": true,
+        "description": "A small description of the change to make.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/hotfix",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "run_card",
+    "confirm_with": ""
+  },
+  {
     "name": "images-build",
     "description": "Which images to consider: the named ones, all of them, or the profiles existing projects use.",
     "inputs": [],

@@ -854,6 +854,14 @@ def post_run_start(req, name):
     return {k: started[k] for k in ("run_id", "project", "status")}
 
 
+def post_hotfix(req, name):
+    """Start a short hotfix build from a brief."""
+    brief = body_text(req, "brief", True)
+    with req.server.write_lock:
+        started = runs.start_hotfix(check_name(name), brief, who=req.who)
+    return {k: started[k] for k in ("run_id", "project", "status")}
+
+
 def post_run_stop(req, project, run_id):
     """Stop a run."""
     if req.body.get("confirm") is not True:
@@ -1226,6 +1234,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/plan", post_plan),
     ("POST", rf"/api/projects/{NAME}/defaults", post_defaults),
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
+    ("POST", rf"/api/projects/{NAME}/hotfix", post_hotfix),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),
     ("POST", r"/api/plans/(?P<plan_id>[^/]+)/abandon", post_plan_abandon),

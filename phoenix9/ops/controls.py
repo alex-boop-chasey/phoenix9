@@ -154,6 +154,11 @@ CONTROLS = (
                   _in("brief", description="A short brief to build from instead of a spec."),
                   _in("overrides", "object", description="Settings to use for this build only.")),
           card="run_card"),
+    _post("hotfix-start", "runs.start_hotfix", rf"/api/projects/{NAME}/hotfix", "change", "tool",
+          inputs=(P_NAME, _in("brief", description="A small description of the change to make.", required=True)),
+          card="run_card",
+          text="Start a short build on its own branch from a small description of the change. "
+               "One at a time per project."),
     _post("build-pause", "runs.pause", r"/api/runs/(?P<run_id>[^/]+)/pause", "change", "tool",
           inputs=(P_RUN,), fixed={"now": True}, card="run_card"),
     _post("build-resume", "runs.resume", r"/api/runs/(?P<run_id>[^/]+)/resume", "change", "tool",

@@ -10,7 +10,7 @@ import time
 from phoenix9 import allowance, doctor, gates, routes, runs, scrub, statusreport as sr
 from phoenix9.ops.common import OpsError
 
-MONEY = re.compile(r"(?:US|AU|A)?\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|AUD|dollars?)\b", re.I)
+MONEY = re.compile(r"(?:US|AU|A)?\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|AUD|dollars?)\b|\b(?:USD|AUD)\s?\d[\d,]*(?:\.\d+)?", re.I)
 TEXT_MAX = 200
 
 

@@ -1,5 +1,5 @@
 """Ops for search: find projects, runs, notes, research and run logs by plain text (read-only)."""
-from phoenix9 import routes, search as core
+from phoenix9 import routes, scrub, search as core
 from phoenix9.ops.common import OpsError
 
 
@@ -14,4 +14,4 @@ def _opened(item: dict):
 def run(q: str, kind: str | None = None, limit: int = 20) -> dict:
     """Search projects, builds, notes, research and logs for some text; each result says which page opens it."""
     found = core.search(q, [kind] if kind else None, limit)
-    return {"query": q.strip(), "kind": kind, "results": [r for r in map(_opened, found) if r]}
+    return {"query": scrub.scrub(q.strip()), "kind": kind, "results": [r for r in map(_opened, found) if r]}

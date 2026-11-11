@@ -88,6 +88,9 @@ BELL = {"count": 3, "items": [
      "page": {"to": "../etc", "params": {}}}]}
 
 
+DAILY_REPORT = {"date": "2026-11-11", "text": "Good morning. Nothing needs you. " + INJECTION}
+
+
 class FakePhoenix:
     """Answers the allowed routes (any other /api path just says ok); `refuse` makes it answer 403 to everything."""
 
@@ -113,6 +116,8 @@ class FakePhoenix:
             return httpx.Response(200, json={"ok": True, "data": ROUTES})
         if path == "/api/bell":
             return httpx.Response(200, json={"ok": True, "data": BELL})
+        if path == "/api/report/daily":
+            return httpx.Response(200, json={"ok": True, "data": DAILY_REPORT})
         if path == "/api/search":
             return httpx.Response(200, json={"ok": True, "data": SEARCH})
         parts_ = path.strip("/").split("/")

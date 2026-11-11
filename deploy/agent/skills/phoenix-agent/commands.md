@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs a3637e9aba6293f7 -->
+<!-- phoenix 9.1.0 inputs a57ba51d57a3258c -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -140,6 +140,10 @@ answer a question
 - `<answer>`
 - `--note NOTE` (default ): words for the step (needed for 'back')
 - `--by BY`: dollars to add to the cap (for 'raise')
+
+## `phoenix bell`
+
+list what needs you (questions, failed builds, held merges, services, allowance)
 
 ## `phoenix settings`
 

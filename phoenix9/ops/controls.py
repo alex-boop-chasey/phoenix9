@@ -175,6 +175,8 @@ CONTROLS = (
          text="Read one run's events, oldest first.",
          inputs=(P_PROJECT, P_RUN, _in("after", "integer", description="Only events after this number.", where="query"),
                  _in("limit", "integer", description="How many events at most (50 if left out).", where="query"))),
+    _get("bell", "bell.show", "/api/bell", "tool", card="bell_card",
+         text="Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance), with a count."),
     _get("search", "search.run", "/api/search", "tool", card="search_card",
          text="Search projects, builds, notes, research and logs for some text (read-only, scrubbed); each result says which page opens it.",
          inputs=(_in("q", required=True, description="The words to look for (2 to 100 characters, matched as plain text).", where="query"),

@@ -98,6 +98,20 @@
     "confirm_with": ""
   },
   {
+    "name": "bell",
+    "description": "Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance), with a count.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/bell",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "bell_card",
+    "confirm_with": ""
+  },
+  {
     "name": "blocks-check",
     "description": "Check a {kind, json} block; return {ok, reason, resolved} (resolved is None when not ok).",
     "inputs": [],

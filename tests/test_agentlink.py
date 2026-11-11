@@ -1,7 +1,7 @@
 """Tests for finding the agent session and its state."""
 import json
 
-from phoenix9 import agentlink
+from phoenix9 import agentlink, chatlink
 from tests.fakes import FakeHost
 
 HOME = "/root/.claude"
@@ -243,6 +243,7 @@ def inbox(tmp_path, monkeypatch):
     found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": path,
              "transcript": str(tr), "status": "idle"}
     monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
+    monkeypatch.setattr(chatlink, "find", lambda *a, **k: found)
 
     class Box:
         pass
@@ -325,6 +326,7 @@ def test_send_cap(inbox):
 
 def test_send_asleep(inbox, monkeypatch):
     monkeypatch.setattr(agentlink, "find", lambda *a, **k: None)
+    monkeypatch.setattr(chatlink, "find", lambda *a, **k: None)
     with pytest.raises(agentlink.SendError, match="asleep"):
         agentlink.send("hi")
 
@@ -473,9 +475,9 @@ def test_clean_who(who, clean):
 def test_from_name_attribute_is_escaped():
     head = agentlink.wrap_head("x")
     assert head.count('"') == 6
-    monkey = agentlink.from_name
+    monkey = chatlink.from_name
     try:
-        agentlink.from_name = lambda who, panel=False: 'A&B <"c">'
+        chatlink.from_name = lambda who, panel=False: 'A&B <"c">'
         assert 'from-name="A&amp;B &lt;&quot;c&quot;&gt;"' in agentlink.wrap_head("x")
     finally:
-        agentlink.from_name = monkey
+        chatlink.from_name = monkey

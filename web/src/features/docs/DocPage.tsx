@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router"
 
 import { ErrorState } from "@/components/ErrorState"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Markdown } from "@/features/agent/markdown"
+import { Markdown } from "@/components/markdown"
 import { get } from "@/lib/api"
 
 import { docDownloadUrl } from "./docUrl"

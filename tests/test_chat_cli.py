@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from phoenix9 import adapters as adapters_mod, agentlink, paths, projectchat as pc
+from phoenix9 import adapters as adapters_mod, chatlink, paths, projectchat as pc
 from phoenix9.__main__ import main
 from phoenix9.ops import common
 from tests.fakes import FakeClock, FakeHost, fake_adapters
@@ -61,13 +61,13 @@ class Clock(FakeClock):
 
 @pytest.fixture
 def sent(monkeypatch):
-    """Replace agentlink.send_to with a recorder."""
+    """Replace chatlink.send_to with a recorder."""
     box = []
 
     def fake(found, text, context=None, who="cli", timeout=5.0, host=None):
         box.append({"found": found, "text": text})
         return {"sent": True, "at": "x", "after_line": 0}
-    monkeypatch.setattr(agentlink, "send_to", fake)
+    monkeypatch.setattr(chatlink, "send_to", fake)
     return box
 
 
@@ -161,8 +161,8 @@ def test_timeout_and_other_wait(setup, sent):
 
 def test_send_failure_still_returns_links(setup, monkeypatch):
     def refuse(*a, **k):
-        raise agentlink.SendError("refused")
-    monkeypatch.setattr(agentlink, "send_to", refuse)
+        raise chatlink.SendError("refused")
+    monkeypatch.setattr(chatlink, "send_to", refuse)
     setup("inactive", appear_after=1, notes=True)
     code, out, _ = run("chat", "open", "alpha", "--json")
     data = json.loads(out)

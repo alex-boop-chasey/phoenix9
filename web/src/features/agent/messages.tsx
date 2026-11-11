@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ActionCard, ActionGroup } from "@/features/agent/ActionCard"
 import { BlockView } from "@/features/agent/blocks/BlockView"
 import { parseBlocks } from "@/features/agent/blocks/parse"
-import { Markdown } from "@/features/agent/markdown"
+import { Markdown } from "@/components/markdown"
 import type { ActionItem, AgentItem, AgentState, NoticeItem, UserItem } from "@/features/agent/useAgent"
 
 function clock(at: string): string {

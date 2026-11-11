@@ -6,7 +6,7 @@ import types
 
 import pytest
 
-from phoenix9 import agentlink, paths
+from phoenix9 import agentlink, chatlink, paths
 from phoenix9.api import server
 from phoenix9.ops import common
 from fakes import FakeHost
@@ -31,6 +31,7 @@ def host(api, monkeypatch):
     h = FakeHost()
     monkeypatch.setattr(common, "make_adapters", lambda: types.SimpleNamespace(host=h))
     monkeypatch.setattr(agentlink, "Host", lambda: h)
+    monkeypatch.setattr(chatlink, "Host", lambda: h)
     h.files[CH + "/sessions/100.json"] = json.dumps({
         "pid": 100, "cwd": "/srv/projects/home", "name": "Phoenix agent", "status": "idle",
         "messagingSocketPath": "/tmp/cc-socks-0/x.sock", "kind": "interactive", "sessionId": S1})
@@ -48,6 +49,7 @@ def sent(monkeypatch):
     """Capture what would be written to the inbox socket."""
     wrote = []
     monkeypatch.setattr(agentlink, "connect_and_write", lambda path, data, timeout=0: wrote.append((path, data)))
+    monkeypatch.setattr(chatlink, "connect_and_write", lambda path, data, timeout=0: wrote.append((path, data)))
     return wrote
 
 
@@ -191,6 +193,8 @@ def tmp_session(tmp_path, monkeypatch):
                 "transcript": str(path(state["id"])), "status": "idle"}
 
     monkeypatch.setattr(agentlink, "find", find)
+
+    monkeypatch.setattr(chatlink, "find", find)
     state["path"] = path
     return state
 

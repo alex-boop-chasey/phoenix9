@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from phoenix9 import agentlink, chat
+from phoenix9 import chatlink, chat
 from tests.fakes import FakeHost
 
 U = "claude-rc-chat@alpha"
@@ -19,7 +19,7 @@ def projects(tmp_path, monkeypatch):
     (root / "nofile").mkdir()
     monkeypatch.setenv("PHOENIX_PROJECTS", str(root))
     monkeypatch.setenv("PHOENIX_HOME", str(tmp_path / "home"))
-    agentlink.forget()
+    chatlink.forget()
     return root
 
 

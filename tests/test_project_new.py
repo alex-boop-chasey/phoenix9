@@ -245,10 +245,10 @@ def test_cli_needs_new_repo_choice(env, capsys):
 def chat_env(env, tmp_path, monkeypatch, mode):
     """Swap in a host whose chat unit comes up (or fails) and a send_to that records messages."""
     from fakes.chathost import chat_adapters
-    from phoenix9 import agentlink
+    from phoenix9 import chatlink
     sent = []
-    monkeypatch.setattr(agentlink, "send_to", lambda found, text, *a, **k: sent.append(text) or {"sent": True})
-    agentlink.forget()
+    monkeypatch.setattr(chatlink, "send_to", lambda found, text, *a, **k: sent.append(text) or {"sent": True})
+    chatlink.forget()
     fakes = chat_adapters(tmp_path, mode, env["projects"] / "demo", env["claude"])
     return fakes, sent
 

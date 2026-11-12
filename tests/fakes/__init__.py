@@ -244,6 +244,11 @@ class FakeDocker:
         self.images: dict[str, dict] = {tag: {} for tag in toolbox_images()}
         self.build_codes: list[int] = []         # exit codes for build(), in turn (default 0)
         self.ids: dict[str, str] = {}            # tag -> image id (default sha256:fake-<tag> for an image that exists)
+        self.cores = 4                           # the pretend host's CPU core count
+
+    def cpu_count(self):
+        """The fake host's core count (.cores)."""
+        return self.cores
 
     def image_exists(self, tag):
         """True when the tag is in .images."""

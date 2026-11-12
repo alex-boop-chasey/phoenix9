@@ -14,7 +14,7 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import heartbeat, paths, scrub
+from phoenix9 import heartbeat, paths, scrub, settings
 
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
@@ -30,7 +30,40 @@ BUILD_TIMEOUT_S = 3600                              # one image build
 FORBIDDEN_ENV_FILES = ("github.env", "telegram.env")              # hard rule 2: never inside a step container
 FORBIDDEN_ENV_PATTERNS = ("service-*.env",)         # hard rule 2: account service keys
 BUILTIN_DOMAINS = ("api.anthropic.com",)            # init-firewall.sh also allows registry.npmjs.org itself
-DEFAULT_LIMITS = {"memory": "4g", "cpus": "1.5", "pids": "512"}
+DEFAULT_LIMITS = {"memory": "4g", "cpus": "1.5", "pids": "512"}   # AI step containers
+MIN_CHECK_CPUS = 0.5
+
+
+def host_cpus(runner) -> int:
+    """The host's core count, asked of the adapter so tests can fake it (at least 1)."""
+    try:
+        return max(1, int(runner.cpu_count()))
+    except (AttributeError, TypeError, ValueError):
+        return max(1, os.cpu_count() or 1)
+
+
+def check_cpus(runner, value=None) -> float:
+    """How many cores a check container may use: "all" (every host core), or a number from 0.5 up to the host's count."""
+    value = settings.check_cpus_setting() if value is None else value
+    host = host_cpus(runner)
+    if value == "all":
+        return float(host)
+    bad = ValueError(f'limits.check_cpus must be "all" or a number from {MIN_CHECK_CPUS} to {host} '
+                     f"(this machine has {host} cores); got {value!r}.")
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise bad
+    try:
+        number = float(value)
+    except ValueError:
+        raise bad from None
+    if not MIN_CHECK_CPUS <= number <= host:
+        raise bad
+    return number
+
+
+def _cpu_text(number: float) -> str:
+    """A cpu count as docker wants it: "8" not "8.0"."""
+    return str(int(number)) if number == int(number) else str(number)
 
 
 # ------------------------------------------------------------- the one place that runs docker
@@ -84,6 +117,10 @@ class DockerRunner:
             for fh in (stdout, stderr):
                 if hasattr(fh, "close"):
                     fh.close()
+
+    def cpu_count(self) -> int:
+        """How many CPU cores this machine has."""
+        return os.cpu_count() or 1
 
     def rm(self, name: str) -> None:
         """Force-remove a container by name or id (no error if it is not there)."""
@@ -430,7 +467,8 @@ def _scrub_file(path: Path, env_files: list[Path]) -> None:
 # ------------------------------------------------------------- check containers
 def check_run(project: str, run_id: str, task: int | str, attempt: int, role: str, image: str,
               checkout: Path, command: str, env_file: Path | None, domains_file: Path | None, store: str,
-              firewall: bool = True, extra_mounts: list[Mount] = (), extra_env: dict | None = None) -> Run:
+              firewall: bool = True, extra_mounts: list[Mount] = (), extra_env: dict | None = None,
+              cpus: float = 1) -> Run:
     """Describe a check container (nothing is started here). Never gets claude.env."""
     # ported from reference/v8/phoenix/docker.py:359
     if env_file and Path(env_file).name == "claude.env":
@@ -441,6 +479,7 @@ def check_run(project: str, run_id: str, task: int | str, attempt: int, role: st
         mounts.append(Mount(Path(domains_file), DOMAINS_MOUNT))
     mounts += list(extra_mounts)
     env = {k: v for k, v in session_env().items() if not k.startswith("CLAUDE_")}
+    env["PHOENIX_CPUS"] = str(max(1, int(cpus)))        # a project's test command may use it (parallel workers)
     env.update(GIT_ENV)
     env.update(check_extra_env(extra_env))
     return Run(project, run_id, task, attempt, role, image, ["bash", "-c", command], mounts=mounts, env=env,
@@ -462,9 +501,10 @@ def run_check_container(runner, project: str, run_id: str, task: int | str, atte
     out.parent.mkdir(parents=True, exist_ok=True)
     name = container_name(project, run_id, task, attempt, role)
     store = f"{name}-pnpm"
+    cpus = check_cpus(runner)
     r = check_run(project, run_id, task, attempt, role, image, Path(checkout), command, env_file,
-                  domains_file, store, firewall, mounts, extra_env)
-    argv = build_argv(r, limits)
+                  domains_file, store, firewall, mounts, extra_env, cpus)
+    argv = build_argv(r, {"cpus": _cpu_text(cpus), **(limits or {})})
     hand_to_agent(runner, Path(checkout))
     hand_writable_mounts(runner, mounts)
     runner.rm(name)

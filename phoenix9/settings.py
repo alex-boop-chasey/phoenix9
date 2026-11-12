@@ -253,6 +253,13 @@ def remember_suite_passes() -> bool:
     return value if isinstance(value, bool) else True
 
 
+def check_cpus_setting() -> str | int | float:
+    """The raw `[limits] check_cpus` value of global.toml ("all" when missing); docker.check_cpus() validates it."""
+    table = read_global().get("limits")
+    value = table.get("check_cpus") if isinstance(table, dict) else None
+    return "all" if value is None else value
+
+
 AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
 
 

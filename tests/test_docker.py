@@ -300,3 +300,41 @@ def test_check_and_session_containers_get_git_working(tmp_path):
     s = docker.claude_run("p", "r1", 1, 1, "builder", "img", wt, prompt, ["claude"])
     assert any(m.dst.endswith("/main/.git") and m.ro for m in s.mounts)
     assert s.env["GIT_CONFIG_VALUE_0"] == "*"
+
+
+# ------------------------------------------------------------- check containers and CPU cores
+def run_check(files, adapters, cores, setting=None):
+    """Run a fake check container on a host with `cores` cores; return the docker argv."""
+    if setting is not None:
+        paths.config().mkdir(parents=True, exist_ok=True)
+        (paths.config() / "global.toml").write_text(f"[limits]\ncheck_cpus = {setting}\n")
+    d = adapters.docker
+    d.cores = cores
+    docker.run_check_container(d, "shop", "abcd", 3, 1, IMAGE, files["ws"], "make test", files["env"],
+                               files["domains"], 5)
+    return d.argvs[-1]
+
+
+@pytest.mark.parametrize("cores", [2, 8])
+def test_check_container_uses_every_core_by_default(files, adapters, cores):
+    argv = run_check(files, adapters, cores)
+    assert pairs(argv, "--cpus") == [str(cores)]
+    assert f"PHOENIX_CPUS={cores}" in pairs(argv, "-e")
+
+
+def test_check_container_fixed_number(files, adapters):
+    argv = run_check(files, adapters, 8, setting="2.5")
+    assert pairs(argv, "--cpus") == ["2.5"] and "PHOENIX_CPUS=2" in pairs(argv, "-e")
+    assert "PHOENIX_CPUS=1" in pairs(run_check(files, adapters, 8, setting="0.5"), "-e")
+
+
+def test_ai_container_limits_unchanged(files, adapters):
+    adapters.docker.cores = 8
+    assert pairs(claude_argv(files), "--cpus") == ["1.5"]
+    assert not any(e.startswith("PHOENIX_CPUS") for e in pairs(claude_argv(files), "-e"))
+
+
+@pytest.mark.parametrize("bad", ["0.1", "9", '"lots"', "true", "-1"])
+def test_bad_check_cpus_refused_plainly(files, adapters, bad):
+    with pytest.raises(ValueError, match="limits.check_cpus must be"):
+        run_check(files, adapters, 8, setting=bad)

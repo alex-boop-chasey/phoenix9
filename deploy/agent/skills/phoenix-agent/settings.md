@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 7089e214fb66ead3 -->
+<!-- phoenix 9.1.0 inputs e20ab913d5bd9f0b -->
 # Settings (phoenix.toml)
 
 Change with `phoenix settings`. Unknown keys are errors.
@@ -54,17 +54,20 @@ Lowest first; a later layer wins: library < profile < preset < project < run.
 | `steps.spec-check.on` | bool | true |  |
 | `steps.branch.on` | bool | true |  |
 | `steps.planner.on` | bool | false |  |
+| `steps.planner.auto_approve` | bool | false |  |
 | `steps.service-setup.on` | bool | true |  |
 | `steps.check-writer.on` | bool | false |  |
 | `steps.check-writer.once` | bool | true |  |
 | `steps.red-check.on` | bool | true |  |
 | `steps.red-check.once` | bool | true |  |
 | `steps.builder.on` | bool | true |  |
+| `steps.builder.retry` | str | 'repair' | repair, restart |
 | `steps.diff-rules.on` | bool | true |  |
 | `steps.secret-scan.on` | bool | true |  |
 | `steps.acceptance.on` | bool | true |  |
 | `steps.verify.on` | bool | true |  |
-| `steps.verify.scope` | str | 'task' |  |
+| `steps.verify.scope` | str | 'task' | task, affected, full |
+| `steps.verify.suite_every` | int | 5 |  |
 | `steps.reviewer.on` | bool | false |  |
 | `steps.reviewer.strict` | bool | true |  |
 | `steps.commit.on` | bool | true |  |

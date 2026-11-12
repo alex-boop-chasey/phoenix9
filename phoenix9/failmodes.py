@@ -17,7 +17,7 @@ import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import atomic, chatlink, events, gates, paths, scrub, state, taskfile
+from phoenix9 import atomic, chatlink, events, gatenotify, gates, paths, scrub, state, taskfile
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
@@ -39,11 +39,11 @@ def attempt_result(run_dir, task_no: int, attempt: int) -> dict | None:
     return found if isinstance(found, dict) and "status" in found else None   # a session record is not an end
 
 
-def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons) -> None:
+def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons, kept: bool = False) -> None:
     """Record that attempt k is over. From here on a restart starts the next attempt, not this one."""
     atomic.write_json(attempt_dir(run_dir, task_no, attempt) / "result.json",
                       {"attempt": attempt, "status": status, "reasons": [scrub.scrub(r) for r in reasons],
-                       "at": state.now()})
+                       "kept": bool(kept), "at": state.now()})
 
 
 def _trimmed(reasons) -> list[str]:
@@ -87,6 +87,14 @@ def after_last_try(runner, run_dir, task_no: int, reasons) -> str:
 # ---------------------------------------------------------------------- final task outcomes
 def _spec(run_dir: Path):
     return spec_mod.from_json(atomic.read_json(run_dir / "spec.json"))
+
+
+ALREADY_DONE = "already done: nothing needed changing"
+
+
+def already_done_marker(run_dir, task_no: int, attempt: int) -> Path:
+    """The file the builder leaves when the task needed no change (its checks are what decide)."""
+    return attempt_dir(run_dir, task_no, attempt) / "already-done.txt"
 
 
 def _finish_task(run_dir: Path, task_no: int, status: str, **fields) -> None:
@@ -169,6 +177,7 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
     told = f"Phoenix: task {task_no} of run {run_id} ({project}) needs you: {why} (gate {gate['id']})"
     if mode != "delegate":
         runner.adapters.notify.send(told)
+        gatenotify.mark_sent(runner.adapters, run_dir, gate)     # this is its one message; reminders follow it
         return gate
     problem = _hand_to_agent(run_dir, gate, run_id, project, task_no)
     if problem:

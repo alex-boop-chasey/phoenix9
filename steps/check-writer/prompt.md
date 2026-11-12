@@ -32,7 +32,8 @@ Write exactly one check file per Done-when bullet, all in `{{checks_dir}}/`, not
 - Check the result, not the method: what a program prints, what a function returns, what a file
   holds. Be exact where the bullet is exact and do not invent requirements the bullet does not state.
 - Secrets and test keys come from environment variables. Never write a key, password or token into a
-  check.
+  check. If a check needs a key-shaped value, build it at run time from harmless pieces (for example by
+  joining two short strings) or use the test keys already in the environment.
 - Do not install anything. Assume the packages the project needs will be installed by the builder.
 - Call programs by path (`./bin/tool`, `python3 -m pkg`), not by a bare name that is not on PATH yet.
 

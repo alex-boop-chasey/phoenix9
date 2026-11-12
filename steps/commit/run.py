@@ -1,5 +1,5 @@
 """Commit: records the task's change on the run's branch."""
-from phoenix9 import atomic, git
+from phoenix9 import atomic, failmodes, git
 from phoenix9.stepctx import StepResult
 
 AUTHOR = "Phoenix 9 <phoenix@localhost>"
@@ -9,6 +9,8 @@ def run(ctx):
     """Commit the worktree (no env files, never empty) with Phoenix-Run/Task/Attempt trailers."""
     task = ctx.task
     n = task["number"]
+    if failmodes.already_done_marker(ctx.run.folder, n, ctx.attempt).is_file():
+        return _already_done(ctx)
     try:
         sha = ctx.adapters.git.commit(
             ctx.worktree, f"Task {n}: {task['title']}",
@@ -22,3 +24,13 @@ def run(ctx):
     old = path.read_text() if path.exists() else ""
     atomic.write_text(path, old + f"Task {n} passed on attempt {ctx.attempt}: {sha[:12]} {task['title']}\n")
     return StepResult("pass", produces={"commit": sha})
+
+
+def _already_done(ctx) -> StepResult:
+    """The task needed no change: record that truthfully and point at the commit it already stands on."""
+    n, head = ctx.task["number"], ctx.adapters.git.head(ctx.worktree)
+    path = ctx.run.folder / "progress.md"
+    old = path.read_text() if path.exists() else ""
+    atomic.write_text(path, old + f"Task {n} passed on attempt {ctx.attempt}: {failmodes.ALREADY_DONE} "
+                                  f"({ctx.task['title']})\n")
+    return StepResult("pass", produces={"commit": head})

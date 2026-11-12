@@ -20,11 +20,21 @@ place you may write is `/out`.
 
 {{test_report}}
 
+{{test_mode}}
+
 The checks that were run:
 
 {{checks}}
 
 Passing checks are not enough, and Phoenix has already counted them. You are the second reader.
+
+## Do not run the tests
+
+Do NOT run the project's test suite, the checks, a build or a package install. Phoenix already ran them
+on a clean copy and the results are above. Reading files, searching, and running a short read-only
+command to inspect something (a few seconds) are fine. If the report looks wrong or incomplete, say so
+in the verdict reasons instead of re-running. If the change is risky and the tests above did not cover
+it, fail or note it and say in the reason which test file ought to be run.
 
 ## The change
 

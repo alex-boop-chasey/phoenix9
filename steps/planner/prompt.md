@@ -56,14 +56,19 @@ Done when:
 
 Rules:
 
-- Between 1 and 60 tasks, numbered 1, 2, 3 with no gaps. Each task must be small enough for one
-  session to finish: one clear change, not a whole feature area.
+- Between 1 and 60 tasks, numbered 1, 2, 3 with no gaps. Plan fewer, larger tasks: every task pays a
+  fixed cost (containers, checks, verify, review: roughly 5-10 minutes) whatever its size. A task is one
+  coherent piece that a builder can finish in one session of roughly 20-40 minutes and that can be proven
+  on its own. Merge steps that touch the same files or cannot be checked separately. Do not make a
+  separate task for documentation, a small test file, a rename or a config line that belongs to another
+  task. Split only when a task would exceed one session, when two parts have different risks (for
+  example a safety file), or when later tasks need a stable point to build on.
 - Every task has at least one backticked Done-when command that the project can really run in the
   worktree. The project's own commands are good examples: `{{check_command}}` for checks and
   `{{suite_command}}` for the whole test suite. A task can add its own checks first and name the command
   that runs them.
-- `Depends on:` must be correct: list every task whose result this one needs, or `none`. Never make a
-  cycle.
+- `Depends on:` must be accurate and minimal: list every task whose result this one needs and no
+  others, or `none`. It will decide which tasks may run side by side. Never make a cycle.
 - `For you: yes` only for things only a human can do (accounts, payments, DNS, keys). Everything else
   is `For you: no`. Never ask the build to create secrets.
 - Keep everything in the brief. Do not drop what it asks for and do not invent large extras. Put a short

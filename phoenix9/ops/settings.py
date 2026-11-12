@@ -161,13 +161,14 @@ def check(project: str) -> dict:
 SAFETY_TOP = ("budget_usd", "on_failure", "domains", "diff", "safety_files", "services", "home_chat_may_answer",
               "profile")
 SAFETY_WORDS = ("tool", "mcp")
+SAFETY_KEYS = ("steps.planner.auto_approve",)      # answers the plan question without a person
 SAFETY_REASON = "This is a safety setting: change this in Settings yourself."
 
 
 def is_safety_key(key: str, lib=None) -> bool:
     """True when a dotted key loosens or tightens the agent's leash (sites, diff rules, secrets, tools, MCP, safety steps)."""
     parts = key.split(".")
-    if parts[0] in SAFETY_TOP or any(w in key.lower() for w in SAFETY_WORDS):
+    if key in SAFETY_KEYS or parts[0] in SAFETY_TOP or any(w in key.lower() for w in SAFETY_WORDS):
         return True
     if parts[0] == "steps" and len(parts) > 1:
         lib = lib or common.library()

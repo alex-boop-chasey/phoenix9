@@ -266,17 +266,25 @@ def check_secrets(ctx):
     return _result(True, f"claude.env present; {github}")
 
 
+def _cpus_note(ctx) -> str:
+    """One plain sentence on how many cores check containers get (or why the setting is refused)."""
+    try:
+        return f"test runs may use {docker._cpu_text(docker.check_cpus(ctx.ad.docker))} cores"
+    except ValueError as err:
+        return f"Warning: {err}"
+
+
 def check_images(ctx):
-    """Every profile image a project uses has been built."""
+    """Every profile image a project uses has been built; also says how many cores test runs may use."""
     used = projects_profiles()
     if not used:
-        return _result(True, "no projects yet, nothing to check")
+        return _result(True, "no projects yet, nothing to check; " + _cpus_note(ctx))
     missing = []
     for name in used:
         tag = _profile_image(name)
         if not tag or not ctx.ad.docker.image_exists(tag):
             missing.append(tag or f"profile {name} has no image")
-    return _result(not missing, f"{len(used)} profile images present" if not missing
+    return _result(not missing, f"{len(used)} profile images present; {_cpus_note(ctx)}" if not missing
                    else "image missing: " + ", ".join(missing), "Build them with `phoenix images build`.")
 
 

@@ -21,3 +21,15 @@ Every image keeps the same safety pieces: firewall scripts, a sudoers line for o
 `/opt/hands/entry.sh`, a pinned Claude Code, and the non-root user `node` (uid 1000).
 
 Building is done by the chat on the host, never by a run. Sizes are estimates, not measured.
+
+## Using every core in test runs
+
+Check containers (baseline, acceptance, verify, red-check, full-suite) may use every CPU core of the machine;
+the global setting `limits.check_cpus` in `global.toml` (`[limits]` table) can be `"all"` (the default) or a number
+from 0.5 up to the machine's core count. AI step containers keep their own fixed limit. Each check container gets
+the environment variable `PHOENIX_CPUS`, a whole number of at least 1, which a project's test command can use:
+
+    pytest -n "$PHOENIX_CPUS"          # pytest-xdist (the package must be in the project's own requirements)
+    vitest run --pool=forks --poolOptions.forks.maxForks="$PHOENIX_CPUS"    # vitest
+
+Phoenix does not change any profile's test command for you.

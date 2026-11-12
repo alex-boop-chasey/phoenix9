@@ -10,4 +10,5 @@ safety = true
 default = "on"
 
 [settings]
-scope = "task"
+scope = "task"          # task | affected | full
+suite_every = 5         # affected scope: whole suite after this many passed tasks (0 = never)

@@ -294,3 +294,11 @@ def test_full_preset_plan_gate_end_to_end(tmp_path, setup, capsys):
     gates.answer(st["tasks"]["2"]["gate"], "approve")
     assert runner.drive(run_dir) == "done"
     assert state.load(run_dir)["tasks"]["3"]["status"] == "passed"
+
+
+def test_planner_prompts_have_sizing_guidance():
+    """Both plan prompts ask for fewer, larger tasks and a minimal dependency list."""
+    for name in ("planner", "_plan-session"):
+        text = (REPO / "steps" / name / "prompt.md").read_text()
+        assert "fewer, larger tasks" in text
+        assert "accurate and minimal" in text

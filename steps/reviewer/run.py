@@ -48,6 +48,22 @@ def _report_text(ctx) -> str:
     return text
 
 
+def _mode_text(ctx) -> str:
+    """One plain sentence on which tests verify ran (checks only / touched tests / whole suite)."""
+    report = _report(ctx) or {}
+    mode, picked = report.get("mode"), report.get("picked") or []
+    if mode == "suite":
+        return "Verify ran the whole test suite."
+    if mode == "affected":
+        files = ", ".join(str(f) for f in picked) if picked else "the tests that cover the changed files"
+        return (f"Verify ran only the tests that cover the changed files: {files}. "
+                "Other test files were not run.")
+    if mode == "checks":
+        return ("Verify ran only the task's own checks, not the project's other tests. "
+                "If the change is risky for code those tests cover, name the test file that ought to be run.")
+    return "The report does not say which tests were run (older report, or verify was off)."
+
+
 def _input_files(ctx) -> dict:
     """The host files the reviewer may read, by name inside /inputs (only files that exist)."""
     found = {}
@@ -75,6 +91,7 @@ def before(ctx) -> dict:
         "done_when": _done_when(ctx.task),
         "diff_path": f"{INPUTS}/diff.patch",
         "test_report": _report_text(ctx),
+        "test_mode": _mode_text(ctx),
         "checks": checks_text(ctx) or "(none)",
     }
 

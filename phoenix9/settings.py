@@ -91,6 +91,10 @@ AI_SCHEMA: dict[str, Spec] = {
 }
 
 
+STEP_CHOICES = {"verify.scope": ("task", "affected", "full"),
+                "builder.retry": ("repair", "restart")}   # step settings with a fixed list of values
+
+
 def step_specs(lib: Library) -> dict[str, Spec]:
     """Every settable key under steps.<name>, with defaults from the library step."""
     specs: dict[str, Spec] = {}
@@ -99,7 +103,8 @@ def step_specs(lib: Library) -> dict[str, Spec]:
         specs[f"{base}.on"] = _spec(step.default != "off")
         for key, value in step.settings.items():
             item = type(value[0]) if isinstance(value, list) and value else None
-            specs[f"{base}.{key}"] = Spec(type(value), value, item or (str if isinstance(value, list) else None))
+            choices = STEP_CHOICES.get(f"{step.name}.{key}", ())
+            specs[f"{base}.{key}"] = Spec(type(value), value, item or (str if isinstance(value, list) else None), choices)
         if step.kind == "ai":
             for key, spec in AI_SCHEMA.items():
                 default = _nested(step.ai, key.split("."), spec.default)
@@ -241,6 +246,19 @@ def suggestion_mode() -> str:
     """The global `suggestions` setting: on (agent and strip), strip-only or off; 'on' when missing or odd."""
     value = read_global().get("suggestions")
     return value if value in SUGGESTION_MODES else "on"
+
+
+def remember_suite_passes() -> bool:
+    """The global `remember_suite_passes` setting: skip a whole-suite run on code that already passed it (default on)."""
+    value = read_global().get("remember_suite_passes", True)
+    return value if isinstance(value, bool) else True
+
+
+def check_cpus_setting() -> str | int | float:
+    """The raw `[limits] check_cpus` value of global.toml ("all" when missing); docker.check_cpus() validates it."""
+    table = read_global().get("limits")
+    value = table.get("check_cpus") if isinstance(table, dict) else None
+    return "all" if value is None else value
 
 
 AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
@@ -485,6 +503,11 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "test.check_files": _spec(""),
     "test.check_command": _spec(""),
     "test.report_args": _spec(""),
+    "test.affected_cmd": _spec(""),
+    "test.affected_takes": _spec("tests", ("tests", "sources")),
+    "test.affected_max": _spec(40),
+    "test.test_globs": _spec(""),
+    "test.affected_all_globs": _spec(""),
 }
 
 

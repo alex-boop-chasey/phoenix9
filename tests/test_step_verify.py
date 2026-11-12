@@ -232,3 +232,69 @@ def test_verify_runs_each_sh_check_on_its_own(tmp_path, adapters, work):
     assert sh[0] in " ".join(adapters.docker.argvs[0]) and sh[1] not in " ".join(adapters.docker.argvs[0])
     assert sh[1] in " ".join(adapters.docker.argvs[1])
     assert res.status == "fail"
+
+
+def test_task_and_full_scope_reports_say_their_mode(tmp_path, adapters, work):
+    write(work, {FILES[0]: "x\n"})
+    for scope, mode, runs in (("task", "checks", 1), ("full", "suite", 2)):
+        adapters.docker.argvs.clear()
+        ctx = ctx_for(tmp_path, adapters, work, scope=scope)
+        checklock.lock(ctx.run.folder, 1, work, FILES)
+        script_reports(adapters, ("pytest.xml", "pytest-pass.xml"), ("pytest.xml", "pytest-pass.xml"))
+        assert mod.run(ctx).status == "pass"
+        data = json.loads((ctx.run.folder / "tasks/1/attempt-1/verify/test-report.json").read_text())
+        assert data["mode"] == mode and data["picked"] == [] and len(adapters.docker.argvs) == runs
+        assert "suite_pending" not in json.loads((ctx.run.folder / "state.json").read_text())
+
+
+# ---- sharing Acceptance's results
+def accepted(tmp_path, adapters, work, scope="task"):
+    """Lock the checks, run Acceptance with Verify on, and return a Verify context for the same attempt."""
+    acc = load("acceptance")
+    write(work, {FILES[0]: "x\n"})
+    ctx = ctx_for(tmp_path, adapters, work, scope=scope)
+    checklock.lock(ctx.run.folder, 1, work, FILES)
+    from phoenix9 import atomic
+    atomic.write_json(ctx.run.folder / "plan.json", {"groups": {"task": ["acceptance", "verify"]}})
+    script_reports(adapters, ("pytest.xml", "pytest-pass.xml"))
+    assert acc.run(ctx).status == "pass"
+    return ctx
+
+
+def test_verify_reuses_acceptance_results(tmp_path, adapters, work):
+    ctx = accepted(tmp_path, adapters, work)
+    assert len(adapters.docker.argvs) == 1
+    res = mod.run(ctx)
+    assert res.status == "pass", res.reasons
+    assert len(adapters.docker.argvs) == 1                       # the checks ran once for the attempt
+    data = json.loads(Path(res.produces["test-report"]).read_text())
+    assert data["ok"] and data["checks_run_by"] == "acceptance" and data["passed"] >= 1
+    assert any("run by acceptance" in n for n in data["notes"])
+
+
+def test_verify_reruns_when_the_tree_differs(tmp_path, adapters, work):
+    ctx = accepted(tmp_path, adapters, work)
+    write(work, {"later.txt": "changed after acceptance\n"})
+    script_reports(adapters, ("pytest.xml", "pytest-pass.xml"))
+    res = mod.run(ctx)
+    assert res.status == "pass" and len(adapters.docker.argvs) == 2
+    assert json.loads(Path(res.produces["test-report"]).read_text())["checks_run_by"] == "verify"
+
+
+def test_verify_reruns_for_another_attempt_or_without_a_record(tmp_path, adapters, work):
+    ctx = accepted(tmp_path, adapters, work)
+    ctx.attempt = 2
+    script_reports(adapters, ("pytest.xml", "pytest-pass.xml"))
+    assert mod.run(ctx).status == "pass" and len(adapters.docker.argvs) == 2
+    ctx.attempt = 1
+    (ctx.run.folder / "tasks/1/attempt-1/acceptance-results.json").unlink()
+    script_reports(adapters, ("pytest.xml", "pytest-pass.xml"))
+    assert mod.run(ctx).status == "pass" and len(adapters.docker.argvs) == 3
+
+
+def test_verify_full_scope_runs_only_the_suite_when_reusing(tmp_path, adapters, work):
+    ctx = accepted(tmp_path, adapters, work, scope="full")
+    script_reports(adapters, ("pytest.xml", "pytest-pass.xml"))
+    res = mod.run(ctx)
+    assert res.status == "pass" and len(adapters.docker.argvs) == 2
+    assert FILES[0] not in " ".join(adapters.docker.argvs[1])

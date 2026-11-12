@@ -2140,6 +2140,39 @@
     "confirm_with": ""
   },
   {
+    "name": "run-timing",
+    "description": "Read where one run's time went: clock, waiting on a person, working, time per step, test time against AI time, tries and whole-suite runs.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/timing",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "search",
     "description": "Search projects, builds, notes, research and logs for some text (read-only, scrubbed); each result says which page opens it.",
     "inputs": [

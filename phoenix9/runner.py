@@ -29,7 +29,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, events, failmodes, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, checklock, events, failmodes, gatenotify, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
@@ -85,6 +85,14 @@ class Outcome:
     """
     status: str
     reasons: list = field(default_factory=list)
+
+
+REPAIR_STEPS = ("acceptance", "verify", "reviewer", "secret-scan")
+
+
+def _retry_keeps(task: dict, k: int, max_tries) -> bool:
+    """True when the next try after attempt k may start on the kept work: not an escalation rerun, not the last try."""
+    return not task.get("rerun") and not task.get("escalations", 0) and k + 1 < max(1, int(max_tries))
 
 
 class Runner:
@@ -403,7 +411,7 @@ class Runner:
         why = "\n".join(x for x in (f"Task {n}: {task['title']}", task.get("goal", ""),
                                     f"Done when:\n{done}" if done else "") if x)
         _open_gate(run_dir, ("task", n), kind="human-task", title=f"Task {n} is for you: {task['title']}",
-                   why=why, task=n, actions=["approve", "skip", "stop"])
+                   why=why, task=n, actions=["approve", "skip", "stop"], adapters=self.adapters)
         return "waiting"
 
     def _answer_task_gate(self, run_dir: Path, n: int, gate_id: str) -> str:
@@ -437,16 +445,23 @@ class Runner:
             k = t.get("tries", 0)
             last = failmodes.attempt_result(run_dir, n, k) if k else None
             if last is not None and last["status"] == "passed":
-                failmodes._finish_task(run_dir, n, "passed")
+                done = failmodes.already_done_marker(run_dir, n, k).is_file()
+                failmodes._finish_task(run_dir, n, "passed", **({"note": failmodes.ALREADY_DONE} if done else {}))
                 return "passed"
             if last is not None and not t.get("rerun") and not failmodes.should_retry(run_dir, n, max_tries):
+                if last.get("kept"):
+                    self._drop_kept_work(run_dir, n)  # no repair try follows: do not leave the work lying about
                 return failmodes.after_last_try(self, run_dir, n, last.get("reasons") or [])
             if k == 0 or last is not None:
+                start = "kept" if last is not None and last.get("kept") and _retry_keeps(t, k, max_tries) else "clean"
                 k += 1                                # the last attempt is over: start the next one
                 state.set_task(run_dir, n, tries=k, rerun=False, status="running")
+                self._record_start(run_dir, n, k, start)
                 taskfile.refresh(run_dir, n)
             else:
                 state.set_task(run_dir, n, status="running")   # attempt k was cut short: go on with it
+                if not (t.get("attempt_starts") or {}).get(str(k)):
+                    self._record_start(run_dir, n, k, "clean")
             out = self._run_attempt(run_dir, setup, things, task_data, k)
             taskfile.refresh(run_dir, n)             # the task file shows this attempt's result
             if out.status in ("waiting", "stopped"):
@@ -474,23 +489,53 @@ class Runner:
                 continue
             if name not in once and not based:
                 based = True
-                if self._line_index(state.load(run_dir), "task", n, name, k) is None and worktree:
+                if (self._line_index(state.load(run_dir), "task", n, name, k) is None and worktree
+                        and not state.attempt_kept(run_dir, n, k)):      # a kept try measures from the task's start
                     state.set_task(run_dir, n, attempt_base=self.adapters.git.head(worktree))
             out = self._do_step(run_dir, setup, things, "task", name, task, k)
             if out.status == "failed":
-                self._end_attempt(run_dir, n, k, out.reasons, worktree, start_head)
+                self._end_attempt(run_dir, n, k, out.reasons, worktree, start_head, name, setup)
                 return out
             if out.status in ("waiting", "stopped", "dropped"):
                 return out
         failmodes.write_attempt_result(run_dir, n, k, "passed", [])
         return Outcome("passed")
 
-    def _end_attempt(self, run_dir: Path, n: int, k: int, reasons, worktree, start_head) -> None:
-        """A failed attempt is thrown away: reset the worktree, then record that the attempt is over."""
+    def _end_attempt(self, run_dir: Path, n: int, k: int, reasons, worktree, start_head, step: str = "",
+                     setup: dict | None = None) -> None:
+        """A failed attempt is thrown away (reset the worktree) unless the builder's `retry` is `repair`, the
+        failing step is one that judges the work, the locked checks are untouched and another try may follow."""
         base = state.load(run_dir)["tasks"][str(n)].get("attempt_base") or start_head
+        keep = self._keeps_work(run_dir, n, k, step, worktree, setup or {})
+        if worktree and base and not keep:
+            self.adapters.git.reset_attempt(worktree, base)
+        failmodes.write_attempt_result(run_dir, n, k, "failed", reasons, kept=keep)
+
+    def _keeps_work(self, run_dir: Path, n: int, k: int, step: str, worktree, setup: dict) -> bool:
+        """True when the working folder stays for the next try (repair, not restart)."""
+        if step not in REPAIR_STEPS or not worktree:
+            return False
+        if self._step_settings(setup, "builder").get("retry", "restart") != "repair":
+            return False
+        max_tries = (setup.get("settings") or {}).get("max_tries", 1)
+        if k + 1 >= max(1, int(max_tries)):
+            return False                                 # the last try always starts clean
+        return not checklock.verify(run_dir, n, worktree)
+
+    def _drop_kept_work(self, run_dir: Path, n: int) -> None:
+        """The task stopped retrying with work kept in the folder: reset it to the task's start."""
+        worktree = self._worktree(run_dir)
+        base = state.load(run_dir)["tasks"][str(n)].get("attempt_base")
         if worktree and base:
             self.adapters.git.reset_attempt(worktree, base)
-        failmodes.write_attempt_result(run_dir, n, k, "failed", reasons)
+
+    @staticmethod
+    def _record_start(run_dir: Path, n: int, k: int, start: str) -> None:
+        """Remember on the task whether attempt k began clean or kept (for the dashboard and timing)."""
+        def change(s):
+            t = s["tasks"][str(n)]
+            t["attempt_starts"] = {**(t.get("attempt_starts") or {}), str(k): start}
+        state.update(run_dir, change)
 
     def _worktree(self, run_dir: Path) -> Path | None:
         st = state.load(run_dir)
@@ -547,7 +592,7 @@ class Runner:
         ctx.resume = resume                         # a paused step starts again in a fresh container (not a new try)
         result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
-            return self._open_step_gate(run_dir, index, step, number, result)
+            return self._open_step_gate(run_dir, index, step, number, result, setup)
         heartbeat.mark_progress()                   # ...and so is it ending
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
@@ -587,7 +632,8 @@ class Runner:
                    f"(it stopped before saying), so ${spent:.2f} of the ${cap:.2f} cap is a low guess. "
                    "Raise the cap to carry on, or stop.")
             title = "Spending unknown"
-        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS)
+        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS,
+                   adapters=self.adapters)
         return Outcome("waiting")
 
     def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
@@ -625,17 +671,32 @@ class Runner:
         state.update(run_dir, change)
 
     def _open_step_gate(self, run_dir: Path, index: int, step: Step, task: int | None,
-                        result: StepResult) -> Outcome:
+                        result: StepResult, setup: dict | None = None) -> Outcome:
         """Open the gate the step asked for. The line keeps what the step said (produces, reasons)
         so the answer can be acted on after a restart."""
         spec = dict(result.gate or {})
-        _open_gate(run_dir, ("line", index), extra={"produces": dict(result.produces),
+        auto = self._auto_approves(step, spec, setup)
+        gate = _open_gate(run_dir, ("line", index), extra={"produces": dict(result.produces),
                                                     "reasons": list(result.reasons)},
+                   adapters=None if auto else self.adapters,
                    kind=spec.get("kind", "step"), title=spec.get("title", step.title),
                    why=spec.get("why", "; ".join(result.reasons) or f"{step.title} needs you."),
                    task=task, step=step.name, links=spec.get("links", ()), actions=spec.get("actions"),
                    flags=spec.get("flags", ()), head=spec.get("head"), task_statuses=spec.get("task_statuses"))
+        if auto:
+            self._approve_plan_by_setting(run_dir, gate)
         return Outcome("waiting")
+
+    def _auto_approves(self, step: Step, spec: dict, setup: dict | None) -> bool:
+        """True only for the planner's plan question when the project set planner `auto_approve` (never any other gate)."""
+        return (setup is not None and step.name == "planner" and spec.get("kind") == "plan"
+                and self._step_settings(setup, "planner").get("auto_approve") is True)
+
+    def _approve_plan_by_setting(self, run_dir: Path, gate: dict) -> None:
+        """Answer the plan question as approved (who = setting) and tell Alex; the run goes on at once."""
+        gates.answer(gate["id"], "approve", who="setting",
+                     note="Approved automatically: the project setting planner.auto_approve is on.")
+        gatenotify.announce_auto_approved(self.adapters, run_dir, gate)
 
     def _handle_gate(self, run_dir: Path, setup: dict, things: dict, index: int, line: dict, number) -> Outcome | None:
         """The step's gate: no answer yet = still waiting; else act on it (STEP_ANSWERS).
@@ -759,12 +820,12 @@ class Runner:
 
 
 # ---------------------------------------------------------------------- gates held by the run
-def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -> dict:
+def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, adapters=None, **fields) -> dict:
     """Open a gate (gates.open_gate takes `fields`) and, in ONE state update, record who holds it:
     holder ("task", n) sets the task's `gate`; ("line", index) sets that step line's `gate` and
     status waiting. `extra` fields go onto the holder too. current.gate is set either way.
     Opening a gate is a boundary: an ended run or a stop request stops here, before anything is
-    written (runend.check)."""
+    written (runend.check). With `adapters`, Alex gets the one "a question is waiting" message."""
     runend.check(run_dir)
     try:
         gate = gates.open_gate(run_dir, **fields)
@@ -782,6 +843,8 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
                                          note=f"waiting for gate {gate['id']}", **(extra or {}))
         s["current"]["gate"] = gate["id"]
     state.update(Path(run_dir), change)
+    if adapters is not None:
+        gatenotify.announce(adapters, Path(run_dir), gate)
     return gate
 
 
@@ -972,7 +1035,8 @@ def _restart_clean(ctx: StepContext, prompt_file: Path, prompt_text: str) -> Non
     the step line says so."""
     number = ctx.task["number"] if ctx.task else None
     base = (state.load(ctx.run.folder)["tasks"].get(str(number)) or {}).get("attempt_base") if number else None
-    if ctx.worktree and base:
+    kept = state.attempt_kept(ctx.run.folder, number, ctx.attempt) if number else False
+    if ctx.worktree and base and not kept:               # a kept try keeps the earlier work it was started with
         ctx.adapters.git.reset_attempt(ctx.worktree, base)
     prompt_file.write_text(prompt_text, encoding="utf-8")
     index = _step_line(ctx)

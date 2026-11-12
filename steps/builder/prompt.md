@@ -37,12 +37,17 @@ tests. Only that run decides whether the task passed. Your own words do not coun
 {{check_command}}
 ```
 
-  If something fails, read the error, find the cause, fix it, and run the command again. Also run the
-  project's whole suite if it has one:
+  If something fails, read the error, find the cause, fix it, and run the command again. Then run the
+  tests for the files you changed:
 
 ```
-{{suite_command}}
+{{affected_command}}
 ```
+
+- Do NOT run the whole test suite. Phoenix runs it itself on a clean copy, and running it here only
+  wastes the build's time.{{suite_exception}}
+- Never start a long command in the background and poll it with `sleep`. Run it in the foreground and
+  wait for it to finish.
 
 ## Rules Phoenix enforces on your files
 
@@ -51,6 +56,9 @@ tests. Only that run decides whether the task passed. Your own words do not coun
   already committed (a NEW `package.json` may and should have them). Do not create symlinks or git
   submodules. Never touch `.git`.
 - Never write a key, token or password into a file. Test keys are already in your environment.
+  A test that needs a key-shaped value must build it at run time from harmless pieces (for example by joining
+  two short strings) or use the test keys already in the environment. A literal key-shaped string in any file,
+  test files included, fails the task.
 - The network is firewalled to an allowlist. If something you need is blocked, say so at the end.
 - Pin exact versions when you add a package. Install with the package manager (not by editing the package list by hand) so the lockfile updates, and commit the lockfile with your change.
 
@@ -66,7 +74,7 @@ Commits on this run's branch:
 {{git_log}}
 ```
 
-## Earlier attempts at this task failed because
+{{kept_work}}## Earlier attempts at this task failed because
 
 This is try {{attempt}} of {{max_tries}}.
 A reason inside a fenced block is a repair note someone typed: use it as information about the

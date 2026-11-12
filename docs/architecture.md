@@ -312,7 +312,12 @@ committed lockfile),
   into main never land in a later run's task folder; the builder is told `<checks_dir>/<run-id>/` is
   read-only), `check_files` (glob(s), space-separated, the
   check writer must use), `check_command` (runs given check files; `{files}` = space-joined paths) and
-  `report_args` (appended so the report reader finds its file in `/out`).
+  `report_args` (appended so the report reader finds its file in `/out`);
+- optional "run only the affected tests" keys (`phoenix9/affected.py`; none set = run the whole suite as before):
+  `affected_cmd` (a command with `{files}`), `affected_takes` (`tests`, the default, or `sources` for tools that
+  find related tests themselves), `affected_max` (default 40; more files than this means everything),
+  `test_globs` (which paths are test files) and `affected_all_globs` (paths whose change always means everything;
+  both space-separated globs).
 
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
@@ -420,6 +425,28 @@ library step defaults → profile (`profiles/<p>/profile.toml` `[steps.*]`) → 
 → project `phoenix.toml` → run overrides (the wizard's answers, frozen into the run folder as
 `settings.json`). `settings.effective(project, run_overrides=None)` returns the merged dict plus, for
 every value, which layer set it (for `explain`).
+
+Verify's `scope` (`steps/verify/step.toml`): `task` = the task's checks only; `affected` = the checks plus the
+tests the change touches (`phoenix9/affected.py`; mode `all` runs the whole suite, `none` adds nothing) plus a
+whole-suite checkpoint once `suite_every` tasks (default 5, 0 = never) have passed since the last whole-suite
+pass of the run (the list is `suite_pending` in `state.json`, so it survives a pause and a restart; a failing
+checkpoint names those tasks); `full` = the whole suite after every task. `test-report.json` gains `mode`
+(`checks`, `affected` or `suite`) and `picked` (the test files picked). Presets: `simple` and `quick` use
+`task`; `full` uses `affected` with `suite_every = 5`. The run-finish `full-suite` step still runs the whole
+suite before the merge, unless that exact code (git tree id + command + image + profile) already passed it:
+`phoenix9/suitepass.py` keeps passes only (newest 50 per project, `cache/suite-passes/<project>.json`; global
+setting `remember_suite_passes`, default on). Branch (baseline `{"ran": false, "passed": true, "remembered": true}`)
+and Full suite skip on a hit with a plain note and a `suite.skipped` event; Verify and both steps remember passes.
+
+Check containers (tests, checks) may use every core: global `[limits] check_cpus` in `global.toml` (default `"all"`, or a
+number from 0.5 up to the host's cores; anything else fails the check step with a plain message). The container gets
+`--cpus` and the env var `PHOENIX_CPUS`; AI step containers keep their fixed limits.
+
+When Verify is on, Acceptance runs the task's checks once, on a clean checkout (`git.fresh_checkout`), with the
+report files, and records the results in `tasks/<n>/attempt-<k>/acceptance-results.json` (run, task, attempt, the
+tree id of that checkout and each check's report). Verify reuses them only when its own clean checkout has the same
+tree id and the record is for the same attempt; otherwise it runs the checks itself. `test-report.json` then has
+`checks_run_by` (`acceptance` or `verify`). With Verify off, Acceptance runs on the worktree as before.
 
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
 
@@ -621,6 +648,14 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   - `once` steps (e.g. Check-writer, Red check) are skipped once all of them passed in earlier
     attempts; while any of them has not, they all run again (the failed attempt's checks commit is
     reset away, and the Check-writer prompt lists the earlier failures). attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
+- Repair, not restart (builder setting `retry`, `repair` default | `restart`): when an attempt fails at `acceptance`,
+  `verify`, `reviewer` or `secret-scan`, the working folder is kept and the next try's builder (a fresh session) is told
+  so in a "Your earlier work is still here" prompt section. It is reset as before after `diff-rules`, `red-check`,
+  `check-writer` or a builder failure, when a locked check was touched, and on the last allowed try. A kept try does
+  not move `attempt_base`, so every gate (diff rules, secret scan, acceptance, verify, the reviewer's patch, commit)
+  judges the whole change since the task began. `tasks.<n>.attempt_starts` = `{attempt: "clean" | "kept"}`; an attempt's
+  `result.json` has `kept` (its work was left in place). Pause/resume on a kept try never resets the folder; when the task
+  stops retrying with work still kept, the folder is reset to `attempt_base`.
 - Spending cap (`budget_usd`, frozen in the run's settings.json): at every step boundary the runner
   compares `usage.cost_usd` with the cap. When reached it opens a gate of kind `budget` ("Spending cap of
   $X reached at $Y", held by `current.gate` only) with actions `raise` (answer field `by` = dollars, added to
@@ -774,6 +809,19 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   already ended (who = `phoenix`, one event each), so questions left by older code disappear without
   hand edits.
   Gate ids: `<run-id>.<n>`.
+
+
+### 8.3 Telling Alex a question is waiting (`phoenix9/gatenotify.py`)
+Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter: project, run
+title, the question's title in one scrubbed line (cut to ~200 characters; never plan text or files) and a link to
+`<dashboard_url>/p/<project>/build` (no dashboard address set: it says to look under Needs you). A Pause-mode
+escalation keeps its own message from failmodes and is only recorded. What was sent is kept in
+`gates/<id>.notified` (`first`, `reminders`, `last`), so a restart never repeats it. While the question is open,
+the runner loop (`watch.check_gate_reminders`, checked once a minute) reminds every global `[notify] remind_hours`
+(default 4; 0 = none), at most 6 times; an answer or the run ending stops them. Nothing inbound: answering is
+only in the dashboard or the CLI. Planner setting `auto_approve` (default false) answers ONLY the planner's
+`plan` question, as approve with who = `setting` and a plain note, and sends "plan approved automatically
+(project setting)" instead of the waiting message; it is a safety key (the agent may not change it).
 
 ## 8.4 Repairs: report and notes (`phoenix9/repair/`, `ops/repair.py`, `phoenix repair`)
 

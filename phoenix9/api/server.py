@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -283,6 +283,11 @@ def get_run_tries(req, project, run_id):
     """Reply with one task's tries (the first failed, waiting or stuck task unless `task` is given)."""
     task = req.query.get("task")
     return runs.task_tries(check_name(project), check_run_id(run_id), int_param(req, "task", 0) if task else None)
+
+
+def get_run_timing(req, project, run_id):
+    """Reply with where one run's time went."""
+    return timing.timing(check_name(project), check_run_id(run_id))
 
 
 def get_run_session(req, project, run_id):
@@ -1192,6 +1197,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/timing", get_run_timing),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/session", get_run_session),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),

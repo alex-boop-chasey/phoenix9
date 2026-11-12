@@ -178,3 +178,22 @@ def test_full_preset_test_report_sources(tmp_path):
     assert resolve.resolve(lib, enabled).sources["reviewer"]["test-report"] == "step:verify"
     enabled["verify"] = False
     assert resolve.resolve(lib, enabled).sources["reviewer"]["test-report"] == "fallback:exit-codes-only"
+
+
+def _rendered(tmp_path, adapters, report):
+    mod = load("reviewer")
+    ctx = unit_ctx(tmp_path, adapters)
+    ctx.things = {"test-report": report}
+    return aistep.render((REPO / "steps" / "reviewer" / "prompt.md").read_text(), mod.before(ctx))
+
+
+@pytest.mark.parametrize("report,expected", [
+    ({"mode": "suite", "passed": 5}, "ran the whole test suite"),
+    ({"mode": "affected", "picked": ["tests/test_a.py"], "passed": 2}, "tests/test_a.py"),
+    ({"mode": "checks", "passed": 1}, "only the task's own checks"),
+    ({"passed": 1}, "does not say which tests were run"),
+])
+def test_prompt_has_rule_and_mode_line(tmp_path, adapters, report, expected):
+    text = _rendered(tmp_path, adapters, report)
+    assert "Do NOT run the project's test suite" in text
+    assert expected in text and "{{" not in text

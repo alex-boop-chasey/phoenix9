@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gatenotify, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import plansession, project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
@@ -31,6 +31,7 @@ class Memory:
     report_written: float | None = None   # when the status report was last written
     daily_checked: float | None = None    # when the daily report was last looked at
     allowance_checked: float | None = None   # when the allowance was last read
+    reminders_checked: float | None = None   # when open questions were last checked for a reminder
 
 
 def all_states() -> list[dict]:
@@ -341,6 +342,18 @@ def check_daily_report(adapters, memory: Memory) -> None:
         pass
 
 
+def check_gate_reminders(adapters, memory: Memory) -> None:
+    """Remind Alex of questions still open (every `[notify] remind_hours`, at most 6 times), looking once a minute; never raises."""
+    try:
+        now = adapters.clock.now()
+        if memory.reminders_checked is not None and now - memory.reminders_checked < DAILY_CHECK_S:
+            return
+        memory.reminders_checked = now
+        gatenotify.send_reminders(adapters)
+    except Exception:  # noqa: BLE001 - reminders must not stop the loop
+        pass
+
+
 def check_allowance(adapters, memory: Memory) -> None:
     """Tell Alex once per month when the allowance gets low and once when it is used up; never raises."""
     try:
@@ -391,6 +404,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             write_status_report(adapters, memory)
             check_daily_report(adapters, memory)
             check_allowance(adapters, memory)
+            check_gate_reminders(adapters, memory)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

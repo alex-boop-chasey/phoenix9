@@ -1,7 +1,7 @@
 """Builder: Claude writes the code for one task; Phoenix judges only the files it left behind."""
 from pathlib import Path
 
-from phoenix9 import atomic, checklock, state, taskfile
+from phoenix9 import atomic, checklock, failmodes, state, taskfile
 from phoenix9.aistep import failures_list, finish_line, profile_test, task_text
 from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
@@ -36,6 +36,26 @@ def _check_command(ctx, test: dict) -> str:
     return "\n".join(commands) or test.get("task_cmd") or test.get("cmd", "")
 
 
+NO_AFFECTED = "the tests that cover the files you changed"
+
+
+def _affected_command(test: dict) -> str:
+    """The profile's affected-tests command as a pattern with a plain explanation, or a plain sentence."""
+    template = test.get("affected_cmd") or ""
+    if "{files}" not in template:
+        return NO_AFFECTED
+    return (f"{template}\n(replace {{files}} with the test files that cover the files you changed, "
+            "separated by spaces)")
+
+
+def _suite_exception(test: dict) -> str:
+    """The one case where the whole suite may be run once: no partial runs and no checks for the task."""
+    if _affected_command(test) != NO_AFFECTED or not test.get("cmd"):
+        return ""
+    return ("\n  One exception: this project has no way to run part of its suite. If no checks exist for this "
+            "task, you may run the whole suite ONCE at the end:\n\n```\n" + test["cmd"] + "\n```")
+
+
 def _git_log(ctx) -> str:
     """`git log --oneline` of the run's branch since it left the default branch (newest first, capped)."""
     git = ctx.adapters.git
@@ -68,6 +88,23 @@ def fix_notes(ctx) -> str:
     return taskfile.prompt_notes(ctx.run.folder, ctx.task["number"]) if ctx.task else taskfile.NO_NOTES
 
 
+KEPT_WORK = """## Your earlier work is still here
+
+Try {previous} did not pass, but Phoenix kept its files: everything it wrote is still in /workspace. You are a
+fresh session and do not remember it, so read the files first. Fix the problems listed in the next section
+instead of starting over. If you judge some of that earlier work wrong, you may redo it. Phoenix checks the
+WHOLE change since the task began, not only what you add now.
+
+"""
+
+
+def _kept_work(ctx) -> str:
+    """The "earlier work is still here" section on a repair try; empty (no heading) on a clean one."""
+    if not state.attempt_kept(ctx.run.folder, ctx.task["number"], ctx.attempt):
+        return ""
+    return KEPT_WORK.format(previous=ctx.attempt - 1)
+
+
 def before(ctx) -> dict:
     """Fill the builder prompt's placeholders."""
     test = profile_test(ctx)
@@ -79,14 +116,37 @@ def before(ctx) -> dict:
         "checks": _checks(ctx),
         "checks_dir": checklock.run_checks_dir(test, ctx.run.id),
         "check_command": _check_command(ctx, test),
+        "affected_command": _affected_command(test),
         "suite_command": test.get("cmd", ""),
+        "suite_exception": _suite_exception(test),
         "git_log": _git_log(ctx),
         "services": _services(ctx),
+        "kept_work": _kept_work(ctx),
         "failures": _failures(ctx),
         "fix_notes": fix_notes(ctx),
         "attempt": ctx.attempt,
         "max_tries": ctx.project.settings.get("max_tries", 1),
     }
+
+
+def _has_checks(ctx) -> bool:
+    """True when the task has locked checks or Done-when commands to judge it by."""
+    checks = ctx.things.get("checks")
+    if isinstance(checks, list) and checks:
+        return True
+    return any(c.get("command") for c in (ctx.task or {}).get("done_when", []))
+
+
+def _red_check_ran(ctx) -> bool:
+    """True when Red check passed or failed for this task in any try."""
+    n = ctx.task["number"]
+    return any(x["task"] == n and x["step"] == "red-check" and x["status"] in ("passed", "failed")
+               for x in state.load(ctx.run.folder)["steps"])
+
+
+def _may_be_done_already(ctx) -> bool:
+    """No change is fine only when real checks will judge it and Red check did not expect new code."""
+    return _has_checks(ctx) and not _red_check_ran(ctx)
 
 
 def after(ctx, session) -> StepResult:
@@ -100,9 +160,14 @@ def after(ctx, session) -> StepResult:
     n = ctx.task["number"]
     base = state.load(ctx.run.folder)["tasks"][str(n)].get("attempt_base") or ctx.adapters.git.head(ctx.worktree)
     patch = ctx.adapters.git.diff_text(ctx.worktree, base, binary=True)
+    out = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}" / "diff.patch"
     if not patch.strip():
+        if kind == "done" and _may_be_done_already(ctx):
+            atomic.write_text(out, "")
+            atomic.write_text(failmodes.already_done_marker(ctx.run.folder, n, ctx.attempt),
+                              failmodes.ALREADY_DONE + "\n")
+            return StepResult("pass", produces={"diff": str(out)})
         why = "The builder changed no files"
         return StepResult("fail", [f"{why}. It said: {detail}" if kind == "blocked" else why])
-    out = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}" / "diff.patch"
     atomic.write_text(out, patch)
     return StepResult("pass", produces={"diff": str(out)})

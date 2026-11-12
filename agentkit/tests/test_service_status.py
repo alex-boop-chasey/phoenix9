@@ -17,7 +17,8 @@ def make_client(tmp_path, with_key: bool, key: str):
     key_file = tmp_path / "api-key"
     if with_key:
         key_file.write_text(key + "\n")
-    cfg = config.Config(token_file=str(tmp_path / "token"), api_key_file=str(key_file))
+    cfg = config.Config(token_file=str(tmp_path / "token"), api_key_file=str(key_file),
+                        db_file=str(tmp_path / "agent.db"))
     return TestClient(service.app_from_config(cfg))
 
 

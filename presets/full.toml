@@ -12,7 +12,8 @@ on = true
 
 [steps.verify]
 on = true
-scope = "full"
+scope = "affected"
+suite_every = 5
 
 [steps.reviewer]
 on = true

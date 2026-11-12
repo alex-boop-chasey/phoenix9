@@ -91,6 +91,9 @@ AI_SCHEMA: dict[str, Spec] = {
 }
 
 
+STEP_CHOICES = {"verify.scope": ("task", "affected", "full")}   # step settings with a fixed list of values
+
+
 def step_specs(lib: Library) -> dict[str, Spec]:
     """Every settable key under steps.<name>, with defaults from the library step."""
     specs: dict[str, Spec] = {}
@@ -99,7 +102,8 @@ def step_specs(lib: Library) -> dict[str, Spec]:
         specs[f"{base}.on"] = _spec(step.default != "off")
         for key, value in step.settings.items():
             item = type(value[0]) if isinstance(value, list) and value else None
-            specs[f"{base}.{key}"] = Spec(type(value), value, item or (str if isinstance(value, list) else None))
+            choices = STEP_CHOICES.get(f"{step.name}.{key}", ())
+            specs[f"{base}.{key}"] = Spec(type(value), value, item or (str if isinstance(value, list) else None), choices)
         if step.kind == "ai":
             for key, spec in AI_SCHEMA.items():
                 default = _nested(step.ai, key.split("."), spec.default)

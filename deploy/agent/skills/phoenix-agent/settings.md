@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 7089e214fb66ead3 -->
+<!-- phoenix 9.1.0 inputs 5ed611ffdb20641a -->
 # Settings (phoenix.toml)
 
 Change with `phoenix settings`. Unknown keys are errors.
@@ -64,7 +64,8 @@ Lowest first; a later layer wins: library < profile < preset < project < run.
 | `steps.secret-scan.on` | bool | true |  |
 | `steps.acceptance.on` | bool | true |  |
 | `steps.verify.on` | bool | true |  |
-| `steps.verify.scope` | str | 'task' |  |
+| `steps.verify.scope` | str | 'task' | task, affected, full |
+| `steps.verify.suite_every` | int | 5 |  |
 | `steps.reviewer.on` | bool | false |  |
 | `steps.reviewer.strict` | bool | true |  |
 | `steps.commit.on` | bool | true |  |

@@ -232,3 +232,16 @@ def test_verify_runs_each_sh_check_on_its_own(tmp_path, adapters, work):
     assert sh[0] in " ".join(adapters.docker.argvs[0]) and sh[1] not in " ".join(adapters.docker.argvs[0])
     assert sh[1] in " ".join(adapters.docker.argvs[1])
     assert res.status == "fail"
+
+
+def test_task_and_full_scope_reports_say_their_mode(tmp_path, adapters, work):
+    write(work, {FILES[0]: "x\n"})
+    for scope, mode, runs in (("task", "checks", 1), ("full", "suite", 2)):
+        adapters.docker.argvs.clear()
+        ctx = ctx_for(tmp_path, adapters, work, scope=scope)
+        checklock.lock(ctx.run.folder, 1, work, FILES)
+        script_reports(adapters, ("pytest.xml", "pytest-pass.xml"), ("pytest.xml", "pytest-pass.xml"))
+        assert mod.run(ctx).status == "pass"
+        data = json.loads((ctx.run.folder / "tasks/1/attempt-1/verify/test-report.json").read_text())
+        assert data["mode"] == mode and data["picked"] == [] and len(adapters.docker.argvs) == runs
+        assert "suite_pending" not in json.loads((ctx.run.folder / "state.json").read_text())

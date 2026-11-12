@@ -426,6 +426,15 @@ library step defaults → profile (`profiles/<p>/profile.toml` `[steps.*]`) → 
 `settings.json`). `settings.effective(project, run_overrides=None)` returns the merged dict plus, for
 every value, which layer set it (for `explain`).
 
+Verify's `scope` (`steps/verify/step.toml`): `task` = the task's checks only; `affected` = the checks plus the
+tests the change touches (`phoenix9/affected.py`; mode `all` runs the whole suite, `none` adds nothing) plus a
+whole-suite checkpoint once `suite_every` tasks (default 5, 0 = never) have passed since the last whole-suite
+pass of the run (the list is `suite_pending` in `state.json`, so it survives a pause and a restart; a failing
+checkpoint names those tasks); `full` = the whole suite after every task. `test-report.json` gains `mode`
+(`checks`, `affected` or `suite`) and `picked` (the test files picked). Presets: `simple` and `quick` use
+`task`; `full` uses `affected` with `suite_every = 5`. The run-finish `full-suite` step still runs the whole
+suite before the merge.
+
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
 
 When Phoenix creates a new GitHub repo (empty or non-GitHub template source), it writes `code/.github/dependabot.yml` before the first commit, so it is in the first push: one weekly entry (directory `/`, 5 open PRs) per ecosystem found in code/ (package.json → npm, Cargo.toml → cargo, pyproject.toml/requirements.txt → pip), else from the profile (web/mobile/platform → npm, desktop → npm+cargo, python-script → pip). Nothing is written when none is found, and existing repos and `--code` folders are never touched.

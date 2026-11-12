@@ -1,5 +1,6 @@
 // Slide 1: build from a spec in the project's notes, or from a brief the Planner turns into a spec.
 import { Icon } from "@/components/Icon"
+import { ReferenceCard } from "@/features/reference/ReferenceCard"
 import { Textarea } from "@/components/ui/textarea"
 
 import { Choices } from "./Choice"
@@ -7,7 +8,7 @@ import { NEEDS_PLANNER_NOTE } from "./model"
 import type { SlideProps } from "./Wizard"
 
 /** Spec or brief, then the spec list (from the real specs API) or the brief box. */
-export function SlideWhat({ state, dispatch, specs }: SlideProps) {
+export function SlideWhat({ project, state, dispatch, specs }: SlideProps) {
   const a = state.answers
   const sorted = [...specs].sort((x, y) => y.modified.localeCompare(x.modified))
   return (
@@ -48,6 +49,7 @@ export function SlideWhat({ state, dispatch, specs }: SlideProps) {
           <span className="help">The Planner stays switched on for this build.</span>
         </div>
       )}
+      <ReferenceCard project={project} />
     </div>
   )
 }

@@ -24,6 +24,7 @@ const routes = (over: Record<string, unknown> = {}) => ({
   [`GET /api/projects/${P}/specs`]: wizardSpecs,
   [`POST /api/projects/${P}/plan`]: (req: MockRequest) => wizardPlan((req.body as { overrides: Record<string, unknown> }).overrides),
   [`GET /api/projects/${P}/runs`]: [],
+  [`GET /api/projects/${P}/reference`]: { files: [], links: [] },
   "GET /api/events/recent": { events: [], next: 0 },
   ...over,
 })

@@ -142,3 +142,21 @@ def test_symlinked_folder_refused(proj, tmp_path):
     with pytest.raises(ReferenceError_):
         reference.add_file(proj, "a.txt", b"x", "a")
     assert list(target.iterdir()) == []
+
+
+def test_vision_is_replaced_and_listed_first(proj):
+    reference.add_file(proj, "a.css", b"a{}", "alex")
+    reference.set_vision(proj, "first idea", "alex")
+    entry = reference.set_vision(proj, "second idea", "alex")
+    assert entry["name"] == "vision.md" and entry["kind"] == "vision"
+    assert [f["name"] for f in reference.list_files(proj)] == ["vision.md", "a.css"]
+    assert (reference.folder(proj) / "vision.md").read_text() == "second idea"
+    reference.add_file(proj, "vision.md", b"uploaded", "alex")
+    assert [f["name"] for f in reference.list_files(proj)] == ["vision.md", "a.css"]
+
+
+def test_vision_refuses_empty_and_secrets(proj):
+    with pytest.raises(ReferenceError_):
+        reference.set_vision(proj, "", "alex")
+    with pytest.raises(ReferenceError_):
+        reference.set_vision(proj, "my key is sk-ant-api03-" + "a" * 40, "alex")

@@ -302,3 +302,10 @@ def test_planner_prompts_have_sizing_guidance():
         text = (REPO / "steps" / name / "prompt.md").read_text()
         assert "fewer, larger tasks" in text
         assert "accurate and minimal" in text
+
+
+def test_planner_prompt_calls_out_the_vision():
+    from phoenix9 import refsnapshot
+    line = "vision.md, when present, is the owner's own description of what they want: treat it as the primary intent."
+    assert line in refsnapshot._section("planner")
+    assert "vision.md" not in refsnapshot._section("builder")

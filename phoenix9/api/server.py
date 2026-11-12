@@ -261,6 +261,13 @@ def post_reference_file(req, name):
         return ops_reference.add(check_name(name), filename, data, req.who, replace=req.body.get("replace") is True)
 
 
+def put_reference_vision(req, name):
+    """Save the owner's vision text ({text}) as vision.md."""
+    text = body_text(req, "text")
+    with req.server.write_lock:
+        return ops_reference.set_vision(check_name(name), text, req.who)
+
+
 def delete_reference_file(req, name, filename):
     """Remove one reference file."""
     with req.server.write_lock:
@@ -1243,6 +1250,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
     ("GET", rf"/api/projects/{NAME}/reference", get_reference),
     ("POST", rf"/api/projects/{NAME}/reference/files", post_reference_file),
+    ("PUT", rf"/api/projects/{NAME}/reference/vision", put_reference_vision),
     ("POST", rf"/api/projects/{NAME}/reference/files/remove", post_reference_file_remove),
     ("DELETE", rf"/api/projects/{NAME}/reference/files/(?P<filename>[^/]+)", delete_reference_file),
     ("POST", rf"/api/projects/{NAME}/reference/links", post_reference_links),

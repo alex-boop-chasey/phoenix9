@@ -1874,6 +1874,30 @@
     "confirm_with": ""
   },
   {
+    "name": "reference-vision-set",
+    "description": "Save the owner's vision text as vision.md in the project; returns its entry.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Writing the owner's vision is Alex's alone (not an agent tool); point Alex to the Reference material card.",
+    "method": "PUT",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/vision",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "repair-apply",
     "description": "Save posted note text in the run's repairs/notes and apply it; unreadable notes are OpsError, refusals Conflict.",
     "inputs": [],

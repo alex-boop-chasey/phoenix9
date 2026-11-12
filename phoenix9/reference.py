@@ -7,6 +7,7 @@ from phoenix9 import atomic, scrub
 from phoenix9.ops import common
 
 LINKS_NAME = "links.txt"
+VISION_NAME = "vision.md"
 MAX_FILE = 5 * 1024 * 1024
 MAX_FILES = 40
 MAX_TOTAL = 25 * 1024 * 1024
@@ -46,6 +47,8 @@ def kind_of(name: str) -> str:
     """What sort of file this is: style, design tokens, text, image, document or links."""
     if name == LINKS_NAME:
         return "links"
+    if name == VISION_NAME:
+        return "vision"
     return KINDS.get(Path(name).suffix.lower(), "text")
 
 
@@ -55,7 +58,7 @@ def list_files(project: str) -> list[dict]:
     if not ref.is_dir():
         return []
     out = []
-    for path in sorted(ref.iterdir(), key=lambda p: p.name):
+    for path in sorted(ref.iterdir(), key=lambda p: (p.name != VISION_NAME, p.name)):
         if path.name.startswith(".") or path.is_symlink() or not path.is_file():
             continue
         st = path.stat()
@@ -121,6 +124,7 @@ def _check_content(name: str, data: bytes) -> None:
 def add_file(project: str, filename: str, data: bytes, who: str, replace: bool = False) -> dict:
     """Validate and save one reference file; returns its list entry. `who` is the person or agent adding it."""
     name = clean_name(filename)
+    replace = replace or name == VISION_NAME  # there is only ever one vision document
     if len(data) > MAX_FILE:
         raise ReferenceError_(f"{name} is too big: files can be at most {MAX_FILE // (1024 * 1024)} MB.")
     _check_content(name, data)
@@ -140,6 +144,11 @@ def add_file(project: str, filename: str, data: bytes, who: str, replace: bool =
                               "Remove one first.")
     atomic.write_bytes(ref / name, data, 0o644)
     return next(f for f in list_files(project) if f["name"] == name)
+
+
+def set_vision(project: str, text: str, who: str) -> dict:
+    """Save the owner's vision text as vision.md (replacing any earlier one); returns its list entry."""
+    return add_file(project, VISION_NAME, str(text).encode("utf-8"), who, replace=True)
 
 
 def remove_file(project: str, filename: str) -> None:

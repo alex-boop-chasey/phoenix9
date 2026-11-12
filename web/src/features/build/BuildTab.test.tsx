@@ -16,6 +16,7 @@ const routes = (over: Record<string, unknown> = {}) => ({
   "GET /api/projects/demo-site/runs": BUILDS,
   "GET /api/runs/demo-site/r-wait": runDetail(),
   "GET /api/events/recent": { events: [], next: 0 },
+  "GET /api/projects/demo-site/reference": { files: [], links: [] },
   ...over,
 })
 const show = (route = "/p/demo-site/build") => renderWithProviders(<BuildTab name="demo-site" />, { route })
@@ -86,4 +87,19 @@ test("run= opens that run", async () => {
   mockApi(routes())
   show("/p/demo-site/build?run=r-wait")
   expect(await screen.findByRole("link", { name: "See this build's logs" })).toBeInTheDocument()
+})
+
+test("shows the reference material card with the vision slot, and saves a vision", async () => {
+  const { calls } = mockApi(routes({
+    "PUT /api/projects/demo-site/reference/vision": {},
+    "GET /api/projects/demo-site/reference": {
+      files: [{ name: "vision.md", size: 20, modified: "2026-11-01T00:00:00Z", kind: "vision" }], links: [],
+    },
+  }))
+  show("/p/demo-site/build?list=1")
+  expect(await screen.findByRole("heading", { name: "Reference material" })).toBeInTheDocument()
+  expect(await screen.findByText("Vision saved (20 B)")).toBeInTheDocument()
+  await userEvent.type(screen.getByLabelText("Your vision (optional)"), "A calm bakery site")
+  await userEvent.click(screen.getByRole("button", { name: "Save vision" }))
+  await waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ text: "A calm bakery site" }))
 })

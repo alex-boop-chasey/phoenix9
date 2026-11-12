@@ -162,3 +162,14 @@ def test_full_run_mounts_for_planner_builder_reviewer_not_check_writer(e2e):
         got = launches(e2e, role)
         assert got and all(k["reference_dir"] for k in got), role
     assert all(k.get("reference_dir") is None for k in launches(e2e, "check-writer"))
+
+
+def test_index_marks_the_owners_vision_first(phoenix_env, tmp_path):
+    proj = make_project()
+    reference.add_file(proj, "brand.css", b"a{color:red}", "alex")
+    reference.set_vision(proj, "A calm bakery site", "alex")
+    run = run_folder(tmp_path)
+    assert refsnapshot.snapshot(proj, run) == 2
+    index = (run / "reference" / "INDEX.md").read_text()
+    assert "- vision.md (18 bytes, Owner's vision)" in index
+    assert index.index("vision.md") < index.index("brand.css")

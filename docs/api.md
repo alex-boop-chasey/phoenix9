@@ -128,6 +128,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/keys/remove` | `ops.keys.remove` | `{name}` | masked key rows | 400, 404 |
 | GET | `/api/projects/<name>/reference` | `ops.reference.show` | - | `{files: [{name, size, modified, kind}], links: [{url, note}]}` | 404 |
 | POST | `/api/projects/<name>/reference/files` | `ops.reference.add` | `{filename, data_base64, replace?}` (body up to 8 MB, the only route above 64 KB) | the file's entry | 400, 404 |
+| PUT | `/api/projects/<name>/reference/vision` | `ops.reference.set_vision` | `{text}` (saved as `vision.md`, replacing the old one) | the file's entry | 400, 404 |
 | DELETE | `/api/projects/<name>/reference/files/<filename>` | `ops.reference.remove` | none | `{project, name, removed}` | 400, 404 |
 | POST | `/api/projects/<name>/reference/files/remove` | `ops.reference.remove` | `{filename}` (the agent's way: its client sends only GET and POST) | `{project, name, removed}` | 400, 404 |
 | POST | `/api/projects/<name>/reference/links` | `ops.reference.add_links` | `{text}` (a URL per line, or `URL \| note`) | `{added, skipped, links}` | 400, 404 |

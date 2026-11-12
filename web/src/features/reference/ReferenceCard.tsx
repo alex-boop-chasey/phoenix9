@@ -70,6 +70,10 @@ export function ReferenceCard({ project }: { project: string }) {
   const [linkError, setLinkError] = useState("")
   const [removeError, setRemoveError] = useState("")
   const [dragging, setDragging] = useState(false)
+  const visionInput = useRef<HTMLInputElement>(null)
+  const [vision, setVision] = useState("")
+  const [visionBusy, setVisionBusy] = useState(false)
+  const [visionError, setVisionError] = useState("")
 
   const refresh = useCallback(async () => {
     try {
@@ -152,7 +156,28 @@ export function ReferenceCard({ project }: { project: string }) {
     if (file) await addLinks(await readText(file), false)
   }
 
-  const files = view?.files.filter((f) => f.kind !== "links") ?? []
+  async function saveVision(text: string, clear: boolean) {
+    setVisionBusy(true)
+    setVisionError("")
+    try {
+      await api.saveVision(project, text)
+      if (clear) setVision("")
+    } catch (e) {
+      setVisionError(errorText(e))
+    }
+    setVisionBusy(false)
+    await refresh()
+  }
+
+  async function onVisionFile(list: FileList | null) {
+    const file = list?.[0]
+    if (visionInput.current) visionInput.current.value = ""
+    if (file) await saveVision(await readText(file), false)
+  }
+
+  const all = view?.files.filter((f) => f.kind !== "links") ?? []
+  const savedVision = all.find((f) => f.name === "vision.md")
+  const files = all.filter((f) => f.name !== "vision.md")
   const links = view?.links ?? []
 
   return (
@@ -161,6 +186,29 @@ export function ReferenceCard({ project }: { project: string }) {
       <span className="help">
         Style sheets, design tokens, notes, images or links the build should look at. Optional. They are only read, never run.
       </span>
+
+      <div className="field">
+        <label htmlFor={`${uid}-vision`}>Your vision (optional)</label>
+        <span className="help">
+          In your own words, what you want. The build treats it as the main goal. Saving replaces the old one.
+        </span>
+        <Textarea id={`${uid}-vision`} rows={4} value={vision} onChange={(e) => setVision(e.target.value)} placeholder="A calm booking site for my bakery…" />
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <Button type="button" variant="secondary" size="sm" disabled={visionBusy || !vision.trim()} onClick={() => void saveVision(vision, true)}>Save vision</Button>
+          <Button type="button" variant="secondary" size="sm" disabled={visionBusy} onClick={() => visionInput.current?.click()}>Choose a .md or .txt</Button>
+          <input
+            ref={visionInput} type="file" accept=".md,.txt,text/plain,text/markdown" hidden aria-label="Vision file"
+            onChange={(ev) => void onVisionFile(ev.target.files)}
+          />
+          {savedVision && (
+            <>
+              <span className="small">Vision saved ({formatBytes(savedVision.size)})</span>
+              <Button type="button" variant="ghost" size="sm" aria-label="Remove vision" onClick={() => void removeFile("vision.md")}>Remove</Button>
+            </>
+          )}
+        </div>
+        {visionError && <span className="help" role="alert">{visionError}</span>}
+      </div>
 
       <div
         className="field"
@@ -235,7 +283,7 @@ export function ReferenceCard({ project }: { project: string }) {
 
       {removeError && <span className="help" role="alert">{removeError}</span>}
       {loadError && <span className="help" role="alert">{loadError}</span>}
-      <p className="small" aria-live="polite">{view ? summaryLine(files.length, links.length) : "Loading reference material…"}</p>
+      <p className="small" aria-live="polite">{view ? summaryLine(all.length, links.length) : "Loading reference material…"}</p>
     </section>
   )
 }

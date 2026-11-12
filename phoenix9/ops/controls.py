@@ -131,6 +131,9 @@ CONTROLS = (
          text="List a project's reference material: the uploaded files and the saved links (names only)."),
     _post("reference-file-add", "reference.add", rf"/api/projects/{NAME}/reference/files", "change", "later",
           "Uploading reference files is Alex's alone (not an agent tool); point Alex to the Reference material card.", inputs=(P_NAME,)),
+    Control("reference-vision-set", "reference.set_vision", "PUT", rf"/api/projects/{NAME}/reference/vision",
+            "change", "later", "Writing the owner's vision is Alex's alone (not an agent tool); point Alex to the "
+            "Reference material card.", inputs=(P_NAME,)),
     _post("reference-file-remove", "reference.remove", rf"/api/projects/{NAME}/reference/files/remove",
           "destructive", "tool", text="Remove one reference file from a project.",
           inputs=(P_NAME, _in("filename", required=True, description="The file's name, as listed.")),

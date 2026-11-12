@@ -69,3 +69,14 @@ def test_agent_may_list_and_remove_but_not_add(api):
     assert api(URL + "/files", "POST", HEADERS, body)[0] == 403
     assert api(URL + "/links", "POST", HEADERS, {"text": "https://example.com"})[0] == 403
     assert api(URL + "/files/remove", "POST", HEADERS, {"filename": "brand.css"})[0] == 200
+
+
+def test_vision_route_writes_and_replaces(api):
+    make_project("alpha")
+    for text in ("first", "second"):
+        status, body = api(URL + "/vision", "PUT", POST_HEADERS, {"text": text})
+        assert status == 200 and body["data"]["name"] == "vision.md"
+    assert (paths.projects() / "alpha" / "notes" / "reference" / "vision.md").read_text() == "second"
+    assert api(URL)[1]["data"]["files"][0]["name"] == "vision.md"
+    assert api(URL + "/vision", "PUT", POST_HEADERS, {"text": ""})[0] == 400
+    assert api(URL + "/vision", "PUT", POST_HEADERS, {})[0] == 400

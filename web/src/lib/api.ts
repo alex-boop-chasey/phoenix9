@@ -72,6 +72,15 @@ export function post<T>(path: string, body: unknown = {}): Promise<T> {
   })
 }
 
+/** PUT a JSON body to a path under api/ and return its `data`. */
+export function put<T>(path: string, body: unknown = {}): Promise<T> {
+  return send<T>(urlFor(path), {
+    method: "PUT",
+    headers: { "X-Phoenix": "1", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
 /** The address for an EventSource (all projects, or one). */
 export function eventsUrl(project?: string): string {
   return urlFor("events", { project })
@@ -127,6 +136,7 @@ export const api = {
   reference: (name: string) => get<ReferenceView>(`projects/${e(name)}/reference`),
   addReferenceFile: (name: string, filename: string, dataBase64: string) =>
     post<unknown>(`projects/${e(name)}/reference/files`, { filename, data_base64: dataBase64 }),
+  saveVision: (name: string, text: string) => put<unknown>(`projects/${e(name)}/reference/vision`, { text }),
   removeReferenceFile: (name: string, filename: string) => post<unknown>(`projects/${e(name)}/reference/files/remove`, { filename }),
   addReferenceLinks: (name: string, text: string) => post<unknown>(`projects/${e(name)}/reference/links`, { text }),
   removeReferenceLink: (name: string, url: string) => post<unknown>(`projects/${e(name)}/reference/links/remove`, { url }),

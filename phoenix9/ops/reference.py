@@ -61,3 +61,11 @@ def remove_link(project: str, url: str, who: str = "dashboard") -> dict:
     _guard(reference.remove_link, project, url)
     common.record_command(who, f"reference unlink {project}", project, change="reference link removed")
     return {"project": project, "url": url, "removed": True}
+
+
+def set_vision(project: str, text: str, who: str) -> dict:
+    """Save the owner's vision text as vision.md in the project; returns its entry."""
+    common.project_dir(project)
+    entry = _guard(reference.set_vision, project, text, who)
+    common.record_command(who, f"reference vision {project}", project, change="reference vision saved")
+    return entry

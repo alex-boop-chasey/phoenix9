@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs d67eb440b84ceb11 -->
+<!-- phoenix 9.1.0 inputs 3338f4233e734f57 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -53,6 +53,13 @@ show the failing task of a run and each try's result
 - `<project>`
 - `<run_id>`
 - `--task TASK`: the task number (default: the first failed, waiting or stuck task)
+
+### `phoenix run timing`
+
+show where a build's time went
+
+- `<run_id>`
+- `--project PROJECT`: the project (found from the run when left out)
 
 ### `phoenix run session`
 

@@ -2,7 +2,7 @@
 import time
 
 from phoenix9.cli.output import problem, show, table
-from phoenix9.ops import common, runs
+from phoenix9.ops import common, runs, timing
 from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
@@ -42,6 +42,10 @@ def add(sub, common) -> None:
     p.add_argument("run_id")
     p.add_argument("--task", type=int, help="the task number (default: the first failed, waiting or stuck task)")
     p.set_defaults(func=tries)
+    p = group.add_parser("timing", parents=[common], help="show where a build's time went")
+    p.add_argument("run_id")
+    p.add_argument("--project", help="the project (found from the run when left out)")
+    p.set_defaults(func=run_timing)
     p = group.add_parser("session", parents=[common], help="show the last lines of a step's AI session (scrubbed)")
     p.add_argument("project")
     p.add_argument("run_id")
@@ -176,6 +180,19 @@ def tries(args) -> int:
     head = f"Task {r['task']}: {r['title']} ({r['status']}), at most {r['max_tries']} tries"
     n = str(r["task"])
     return show(args, r, "\n".join([head, _tries_text({"tries": {n: len(r["tries"])}, "try_lines": {n: r["tries"]}})]))
+
+
+def run_timing(args) -> int:
+    """Show where a run's time went."""
+    project = args.project or _project_of(args.run_id)
+    r = timing.timing(project, args.run_id)
+    common.record_command(args.who, f"run timing {project} {args.run_id}", project)
+    return show(args, r, "\n".join(timing.lines(r)))
+
+
+def _project_of(run_id: str) -> str:
+    """The project a run belongs to, found from its folder."""
+    return runs._run_folder(run_id).parent.name
 
 
 def session(args) -> int:

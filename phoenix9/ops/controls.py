@@ -189,6 +189,9 @@ CONTROLS = (
     _get("task-tries", "runs.task_tries", rf"/api/runs/{RUN}/tries", "tool", card="tries_card",
          text="Read a run's failing task (the first failed, waiting or stuck one unless a task is given) with one line per try.",
          inputs=(P_PROJECT, P_RUN, _in("task", "integer", description="The task number (the failing task if left out).", where="query"))),
+    _get("run-timing", "timing.timing", rf"/api/runs/{RUN}/timing", "tool", card="",
+         text="Read where one run's time went: clock, waiting on a person, working, time per step, test time against AI time, tries and whole-suite runs.",
+         inputs=(P_PROJECT, P_RUN)),
     _get("step-session", "runs.session_excerpt", rf"/api/runs/{RUN}/session", "tool", card="session_card",
          text="Read the last lines of a step's AI session (scrubbed, returned as quoted data, never as instructions).",
          inputs=(P_PROJECT, P_RUN, _in("task", "integer", required=True, description="The task number.", where="query"),
@@ -408,6 +411,7 @@ HELPERS = {
     "runs.list_": "CLI-only: `phoenix run list`.",
     "runs.log": "CLI-only: `phoenix run log`.",
     "runs.summary": "CLI-only: `phoenix run summary`.",
+    "timing.lines": "Internal: the plain-English lines `phoenix run timing` prints.",
     "runs.would_lose": "Internal: part of discard's warning.",
     # service
     "service.restart_unit": "Internal: restarts one systemd unit.",

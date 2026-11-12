@@ -4,7 +4,9 @@ import asyncio
 import hmac
 import logging
 import os
+import sqlite3
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from starlette.applications import Starlette
@@ -12,7 +14,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from . import config, llm, tools, wire
+from . import config, llm, runs, spend, tools, wire
+from .packs.phoenix import build_pack
+from .packs.phoenix.client import PhoenixClient
+from .store import Store
 
 log = logging.getLogger("agentkit")
 
@@ -34,7 +39,11 @@ class Thread:
 def create_app(
     model, token: str, projects=tools.fake_projects, change_log=None, info=None, blocked: str | None = None
 ) -> Starlette:
-    """Build the service app for a model, the shared token, a project source and a change log."""
+    """The first proof-slice app (fake projects, in-memory threads, no store, no meter).
+
+    Kept only because older proof tests build their small apps from it; the deployed service uses
+    build_service_app instead.
+    """
     info = info or {"key_present": False, "pack": "phoenix", "model": ""}
     change_log = change_log if change_log is not None else []
     agent = llm.build_agent(
@@ -227,6 +236,53 @@ def read_secret_file(path: str) -> str | None:
         return None
 
 
+def build_service_app(cfg: config.Config, token: str, model, phoenix: PhoenixClient, store: Store,
+                      key_present: bool = True) -> Starlette:
+    """Assemble the real service: store, spend meter, the Phoenix pack, runs and every route.
+
+    The model is wrapped so every call is checked against the allowance (prices not filled in means
+    every call is refused with a plain message) and its tokens are recorded.
+    """
+    meter = spend.Meter(store, cfg)
+    pack = build_pack(phoenix)
+    agent = llm.build_pack_agent(llm.SpendModel(model, meter), pack, tuple(cfg.link_schemes))
+    run = runs.Runs(store, agent, pack)
+    info = {"key_present": key_present, "pack": cfg.pack, "model": cfg.model}
+
+    def denied(request: Request) -> bool:
+        """True when the bearer token is missing or wrong."""
+        given = request.headers.get("authorization", "")
+        return not hmac.compare_digest(given.encode(), f"Bearer {token}".encode())
+
+    async def status(request: Request):
+        """Say whether the service is up, has a key, and which pack and model it uses."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return JSONResponse({"running": True, **info})
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        """Close the database file when the service stops."""
+        yield
+        store.close()
+
+    return Starlette(
+        routes=[
+            Route("/status", status, methods=["GET"]),
+            Route("/spend", spend.spend_route(meter, denied), methods=["GET"]),
+            Route("/threads", runs.new_route(run, denied), methods=["POST"]),
+            Route("/threads", runs.list_route(run, denied), methods=["GET"]),
+            Route("/threads/{id}", runs.read_route(run, denied), methods=["GET"]),
+            Route("/threads/{id}/runs", runs.start_route(run, denied), methods=["POST"]),
+            Route("/threads/{id}/stream", runs.stream_route(run, denied), methods=["GET"]),
+            Route("/threads/{id}/stop", runs.stop_route(run, denied), methods=["POST"]),
+            Route("/approvals/{id}", runs.approval_route(run, denied), methods=["POST"]),
+            Route("/browser-results/{id}", runs.browser_route(run, denied), methods=["POST"]),
+        ],
+        lifespan=lifespan,
+    )
+
+
 def app_from_config(cfg: config.Config) -> Starlette:
     """Build the real app: read the token and the key once; the key goes only to llm.py."""
     token = read_secret_file(cfg.token_file)
@@ -234,9 +290,11 @@ def app_from_config(cfg: config.Config) -> Starlette:
         raise config.ConfigError("The agent's shared token file is missing or empty.")
     key = read_secret_file(cfg.api_key_file)
     model = llm.make_model(cfg.model, key) if key else llm.no_key_model()
-    info = {"key_present": key is not None, "pack": cfg.pack, "model": cfg.model}
-    blocked = None if cfg.prices_ready() else config.PRICES_NOT_READY
-    return create_app(model, token, info=info, blocked=blocked)
+    try:
+        store = Store(cfg.db_file)
+    except (OSError, sqlite3.Error) as err:
+        raise config.ConfigError(f"The agent's database can't be opened ({type(err).__name__}).") from err
+    return build_service_app(cfg, token, model, PhoenixClient(cfg.phoenix_api), store, key is not None)
 
 
 def main(argv=None) -> int:

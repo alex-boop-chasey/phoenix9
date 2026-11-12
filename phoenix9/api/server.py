@@ -841,13 +841,13 @@ def post_chat_sleep(req, name):
         return ops_chat.sleep_chat(check_name(name), WHO)
 
 
-def post_chat_off(req, name):
-    """Turn the project's chat off (needs confirm)."""
+def post_chat_forget(req, name):
+    """Stop the project's chat and forget its saved conversation (needs confirm)."""
     check_name(name)
     if req.body.get("confirm") is not True:
-        raise BadRequest("Turning the chat off needs \"confirm\": true.")
+        raise BadRequest("Forgetting the saved chat needs \"confirm\": true.")
     with req.server.write_lock:
-        return ops_chat.off_chat(name, WHO)
+        return ops_chat.forget_chat(name, WHO)
 
 
 def get_import_candidates(req):
@@ -1298,7 +1298,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
     ("POST", rf"/api/chat/{NAME}/sleep", post_chat_sleep),
-    ("POST", rf"/api/chat/{NAME}/off", post_chat_off),
+    ("POST", rf"/api/chat/{NAME}/forget", post_chat_forget),
     ("POST", r"/api/projects", post_create),
     ("POST", r"/api/import", post_import),
     ("POST", rf"/api/projects/{NAME}/remove", post_remove),

@@ -603,7 +603,7 @@ def check_project_chats(ctx):
     detail = "; ".join(lines) if lines else "no projects yet"
     if warnings:
         detail += "\nWarning: " + "; ".join(warnings)
-    fix = "; ".join(f"`phoenix chat off {w.split(':')[0]} --yes`, then press Chat" for w in warnings)
+    fix = "; ".join(f"`phoenix chat forget {w.split(':')[0]} --yes`, then press Chat" for w in warnings)
     return _result(not warnings, detail, fix)
 
 

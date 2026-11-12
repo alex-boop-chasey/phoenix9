@@ -284,8 +284,3 @@ def forget(project: str, adapters, who: str = "cli") -> dict:
     return {"state": "none", "changed": True,
             "message": "The saved chat is forgotten. Press Chat to start a fresh one."}
 
-
-def off(project: str, adapters, who: str = "cli") -> dict:
-    """Old name kept for callers step 4 removes: stops the chat unit only, keeping the saved chat."""
-    chat.stop_unit(adapters.host, project)
-    return {"state": state(project, adapters)["state"], "changed": True, "message": ASLEEP_WORDS}

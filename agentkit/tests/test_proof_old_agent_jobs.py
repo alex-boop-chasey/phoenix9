@@ -162,17 +162,17 @@ def test_job_13():
         for tool, path in (("chat-open", "open"), ("chat-sleep", "sleep")):
             fake, _st, _t, _sn = await approved(tool, {"name": "beta"})
             assert [q.url.path for q in posts(fake)] == [f"/api/chat/beta/{path}"]
-        fake, store, r, app, _sn = build([("chat-off", {"name": "beta"})])
+        fake, store, r, app, _sn = build([("chat-forget", {"name": "beta"})])
         tid = await paused(r, store)
         (req,) = requests_in(store, tid)
-        async with client(app) as c:   # off needs the project's name typed
+        async with client(app) as c:   # forget needs the project's name typed
             assert (await c.post(f"/approvals/{req['approvalId']}", json={"decision": "approve"})).status_code == 400
             assert posts(fake) == []
             assert (await c.post(f"/approvals/{req['approvalId']}",
                                  json={"decision": "approve", "confirm": "beta"})).status_code == 202
         await r.active[tid]
         (sent,) = posts(fake)
-        assert sent.url.path == "/api/chat/beta/off" and json.loads(sent.content) == {"confirm": True}
+        assert sent.url.path == "/api/chat/beta/forget" and json.loads(sent.content) == {"confirm": True}
 
     run(go())
 

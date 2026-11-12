@@ -184,12 +184,12 @@ def _deployments(name: str, folder) -> list:
 
 
 def _chat(name: str, adapters) -> dict:
-    """The chat unit's name and state (off when it cannot be read)."""
+    """The chat unit's name and state (unknown when it cannot be read)."""
     unit = f"claude-rc-chat@{name}"
     try:
         return {"unit": unit, "state": projectchat.state(name, adapters)["state"]}
     except Exception:       # a broken chat doc must not hide the rest of the plan
-        return {"unit": unit, "state": "off"}
+        return {"unit": unit, "state": "unknown"}
 
 
 def _folder_refusals(name: str, folder: Path | None) -> list:

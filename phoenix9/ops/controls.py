@@ -323,13 +323,13 @@ CONTROLS = (
     _post("service-restart", "service.restart_api_soon", rf"/api/service/{NAME}/restart", "destructive", "later",
           LATER),
     _get("chat-show", "chat.chat_state", rf"/api/chat/{NAME}", "tool", inputs=(P_NAME,),
-         text="Say whether a project's chat is on, awake or asleep, and its links."),
+         text="Say whether a project's chat is awake, working, waking, asleep or not started yet, and its links."),
     _post("chat-open", "chat.open_chat", rf"/api/chat/{NAME}/open", "change", "tool", inputs=(P_NAME,),
-          text="Open a project's chat (starting it if needed)."),
+          text="Open a project's chat, waking it if asleep (the same conversation)."),
     _post("chat-sleep", "chat.sleep_chat", rf"/api/chat/{NAME}/sleep", "change", "tool", inputs=(P_NAME,),
-          text="Put a project's chat to sleep."),
-    _post("chat-off", "chat.off_chat", rf"/api/chat/{NAME}/off", "destructive", "tool", inputs=(P_NAME,),
-          text="Turn a project's chat off (Alex types the project name to confirm).",
+          text="Put a project's chat to sleep: it wraps up, then stops; nothing is lost."),
+    _post("chat-forget", "chat.forget_chat", rf"/api/chat/{NAME}/forget", "destructive", "tool", inputs=(P_NAME,),
+          text="Forget a project's saved chat so Chat starts a fresh one (Alex types the project name to confirm).",
           fixed={"confirm": True}, confirm_with="name"),
     _get("cards-build", "cards.build", "/api/cards", "later", "The dashboard's card builder; not a control."),
     _get("docs-list", "docs.list", "/api/docs/list", "later", LATER),
@@ -411,6 +411,8 @@ HELPERS = {
     "logs.render_session": "Internal: log page helper.",
     "logs.render_gate": "Internal: log page helper.",
     "logs.render_commands": "Internal: log page helper.",
+    # chat
+    "chat.status_all": "CLI-only: `phoenix chat status` without a project.",
     # images
     "images.build": "CLI-only: builds step images (the dashboard goes through images.choose).",
     # projects

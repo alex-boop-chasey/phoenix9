@@ -550,11 +550,11 @@ def test_project_chats_check_lists_units_and_never_fails_for_no_chat(healthy, ph
     (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
     healthy.host.script(["systemctl", "is-active"], rc=3, out="inactive\n")
     check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
-    assert check["ok"] and "demo: off" in check["detail"]
+    assert check["ok"] and "demo: none" in check["detail"]
 
 
 def test_project_chats_check_warns_for_failed_unit_with_the_fix(healthy, phoenix_env):
     (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
     healthy.host.script(["systemctl", "is-active"], rc=3, out="failed\n")
     check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
-    assert not check["ok"] and "phoenix chat off demo --yes" in check["fix"]
+    assert not check["ok"] and "phoenix chat forget demo --yes" in check["fix"]

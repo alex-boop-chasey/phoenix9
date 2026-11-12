@@ -56,6 +56,22 @@ def start_unit(host, project: str) -> None:
         raise NotReady("Phoenix couldn't start the chat service %s: %s" % (unit, first))
 
 
+UNIT_PREFIX = "claude-rc-chat@"
+
+
+def active_chat_names(host) -> list[str]:
+    """Names of every active claude-rc-chat@<name> unit, listed or not (asks systemd through the Host adapter)."""
+    rc, out, _ = host.systemctl("list-units", UNIT_PREFIX + "*", "--state=active", "--plain", "--no-legend")
+    names = []
+    for line in (out or "").splitlines() if rc == 0 else []:
+        unit = line.split()[0] if line.split() else ""
+        if unit.startswith(UNIT_PREFIX) and unit.endswith(".service"):
+            name = unit[len(UNIT_PREFIX):-len(".service")]
+            if name and name not in names:
+                names.append(name)
+    return sorted(names)
+
+
 def stop_unit(host, project: str) -> None:
     """Disable and stop the project's chat unit."""
     host.systemctl("disable", "--now", chat_unit(project))

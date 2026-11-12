@@ -1,4 +1,4 @@
-"""Ops for project chats: open a project's chat; shared by the CLI and the API."""
+"""Ops for project chats: state, open, sleep, forget and the status of all; shared by the CLI and the API."""
 from phoenix9 import projectchat
 from phoenix9.ops import common
 
@@ -38,11 +38,26 @@ def _run(project: str, who: str, word: str, action) -> dict:
 
 
 def sleep_chat(project: str, who: str = "cli") -> dict:
-    """Put the project's chat to sleep; returns {state, changed, message}."""
+    """Put the project's chat to sleep (wrap-up, then its unit stops); returns {state, changed, message}."""
     return _run(project, who, "sleep", lambda p, a: projectchat.sleep(p, a, who))
 
 
-def off_chat(project: str, who: str = "cli") -> dict:
-    """Turn the project's chat off; returns {state, changed, message}."""
-    return _run(project, who, "off", lambda p, a: projectchat.off(p, a, who))
+def forget_chat(project: str, who: str = "cli") -> dict:
+    """Stop the project's chat and forget its saved conversation; returns {state, changed, message}."""
+    return _run(project, who, "forget", lambda p, a: projectchat.forget(p, a, who))
 
+
+def status_all() -> dict:
+    """Every listed project's chat {name, state, last_active}, plus names of active chat units for unlisted ones."""
+    from phoenix9 import chat, project as project_mod
+    adapters = common.make_adapters()
+    names = project_mod.project_names()
+    rows = []
+    for name in names:
+        try:
+            current = projectchat.state(name, adapters)
+        except Exception:       # one unreadable chat must not hide the others
+            current = {"state": "unknown", "last_active": None}
+        rows.append({"name": name, "state": current["state"], "last_active": current.get("last_active")})
+    unlisted = [n for n in chat.active_chat_names(adapters.host) if n not in names]
+    return {"projects": rows, "unlisted": unlisted}

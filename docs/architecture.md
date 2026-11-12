@@ -438,6 +438,10 @@ suite before the merge, unless that exact code (git tree id + command + image + 
 setting `remember_suite_passes`, default on). Branch (baseline `{"ran": false, "passed": true, "remembered": true}`)
 and Full suite skip on a hit with a plain note and a `suite.skipped` event; Verify and both steps remember passes.
 
+Check containers (tests, checks) may use every core: global `[limits] check_cpus` in `global.toml` (default `"all"`, or a
+number from 0.5 up to the host's cores; anything else fails the check step with a plain message). The container gets
+`--cpus` and the env var `PHOENIX_CPUS`; AI step containers keep their fixed limits.
+
 When Verify is on, Acceptance runs the task's checks once, on a clean checkout (`git.fresh_checkout`), with the
 report files, and records the results in `tasks/<n>/attempt-<k>/acceptance-results.json` (run, task, attempt, the
 tree id of that checkout and each check's report). Verify reuses them only when its own clean checkout has the same

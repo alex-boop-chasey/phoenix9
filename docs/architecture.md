@@ -86,7 +86,7 @@ phoenix9/                      the Python package
   hold.py                      the update hold: runs stop at a task boundary; harness_busy() (phase 4)
   deploy.py                    deployers runner (phase 4)
   projectchat.py               project chat: .phoenix/chat.md and the five chat states (Project chats)
-  ops/chat.py, cli/chatcmd.py  chat open_chat / sleep_chat / off_chat / catch_up and `phoenix chat ...`
+  ops/chat.py, cli/chatcmd.py  chat open_chat / sleep_chat / off_chat and `phoenix chat ...`
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
                                (full mode also has five agent lines: agent-unit, agent-session, agent-socket, agent-transcript, agent-folder,
                                and `access`, the optional Cloudflare Access lock; a missing or empty transcript is a problem)
@@ -491,7 +491,7 @@ must be `none` (`settings.self_project_problems`). `deploy/self-project.toml` is
 A merge of that project tags the merge commit as the next `v9.<n>` release (`phoenix9/release.py`).
 
 ### 5.2b Chat settings
-`[chat]` in `global.toml` (`settings.chat_settings()`): `sleep_after_minutes` (default 120), `off_after_days` (3),
+`[chat]` in `global.toml` (`settings.chat_settings()`): `sleep_after_minutes` (default 120),
 `start_wait_seconds` (60), `wrap_up_minutes` (3), `claude_home` (`/root/.claude`).
 
 `[report]` in `global.toml` (`settings.report_settings()`): the daily report. `enabled` (default `true`), `time`
@@ -1720,9 +1720,9 @@ Each project has one remote-control Claude conversation, run by the systemd temp
 - **Five states** (`projectchat.state` -> `{state, bridge_session_id, web_url, app_url, last_active}`): `off` (unit inactive or failed), `starting` (unit activating, or active with no conversation yet and no chat document), `sleeping` (unit active, no live session in Claude's registry, but a chat document exists), `live` (registry entry found, idle), `working` (registry entry found, status busy). The unit state comes from systemd, the session from the registry (`agentlink.find_in`); a live session refreshes the chat document (at most every 10 minutes).
 - **Chat document** `.phoenix/chat.md`: heading `# Chat: <project>`, then one `Key: value` line each, in this order: `Project`, `Desktop app link`, `Web link`, `Conversation id`, `Local session id`, `Created`, `Last active` (times are UTC `YYYY-MM-DDTHH:MM:SSZ`). Written atomically (`projectchat.write_chat_doc`), read strictly (`read_chat_doc` returns fields or a reason).
 - **Links**: desktop `claude://claude.ai/code/<id>`, web `https://claude.ai/code/<id>`, where `<id>` is the conversation (bridge session) id. Opening a sleeping chat returns the links without starting anything.
-- **Sleep and off rules** (`[chat]` settings): a live chat idle for `sleep_after_minutes` goes to sleep (after a `wrap_up_minutes` wrap-up message); a sleeping chat unused for `off_after_days` is switched off. Writing to a sleeping chat wakes it. The runner guard (`watch.check_chats`) runs every 10 minutes, skips projects with a live run and `home`, and records each action as a `command` event with who `runner`.
-- **Creation**: every new project and every Import sets up its chat (`projectchat.set_up`), which ends sleeping; `phoenix chat catch-up` lists existing projects without a chat document (`phoenix9` and `home` have their own), and `--all` sets them up one at a time.
-- **Commands**: `phoenix chat open|sleep|off|catch-up` (`phoenix9/cli/chatcmd.py` over `phoenix9/ops/chat.py`: `open_chat`, `sleep_chat`, `off_chat`, `chat_state`, `catch_up`); `off` needs `--yes`.
+- **Sleep rules** (`[chat]` settings): an awake chat idle for `sleep_after_minutes` goes to sleep (after a `wrap_up_minutes` wrap-up message, then its unit is stopped); a working chat is never put to sleep. A chat still waking 10 minutes after the runner first saw it waking gets its unit stopped (`chat stop-stuck <project>`). The runner guard (`watch.check_chats`) runs every 10 minutes, skips projects with a live run, `home` and `phoenix9`, and records each action as a `command` event with who `runner`.
+- **Creation**: creating or importing a project sets up no chat; its chat state is `none` until Alex presses Chat.
+- **Commands**: `phoenix chat open|sleep|off` (`phoenix9/cli/chatcmd.py` over `phoenix9/ops/chat.py`: `open_chat`, `sleep_chat`, `off_chat`, `chat_state`); `off` needs `--yes`.
 - **Sender labels**: messages written into a chat say who sent them: `Phoenix (<who>)` for the CLI, runner and agent (who is cleaned to `[A-Za-z0-9/_.:-]`, 80 characters, else `unknown`) and `Alex (Phoenix panel)` for the dashboard panel.
 
 Branch tidiness: main is the only long-lived branch. New GitHub repos get "automatically delete head branches" switched on (`gh repo edit --delete-branch-on-merge`; a failure is a "Warning:" line in the create steps, not a failed create). After the Merge step merges a run itself (auto mode, or a local-only approve) it removes the run's worktree (`git worktree remove --force`, run from the code folder through the git adapter) and deletes the run's branch locally and on origin when it was pushed; a failed removal or delete is a note on the step, not a failure (a worktree that cannot be removed is detached instead, so the branch can still go). A failed merge, and a failed run, keep their worktree for repair. A push that fails with git's "could not read Username" (no HOME, so no gh credential helper) fails the step with "Phoenix's worker can't reach your GitHub login: run `phoenix doctor`"; other push failures read "GitHub refused the push: <first line>". When the merge is left to GitHub (a merge request) nothing is deleted, the worktree included; GitHub's auto-delete does it. Stopping a run (`run stop`, or a stop answer at a gate) removes its worktree and local branch, and the remote branch if it was pushed (`runs.discard_branch`).

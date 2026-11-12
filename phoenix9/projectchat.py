@@ -289,22 +289,3 @@ def off(project: str, adapters, who: str = "cli") -> dict:
     """Old name kept for callers step 4 removes: stops the chat unit only, keeping the saved chat."""
     chat.stop_unit(adapters.host, project)
     return {"state": state(project, adapters)["state"], "changed": True, "message": ASLEEP_WORDS}
-
-
-NOT_SET_UP_WORDS = "chat not set up yet: press Chat to try again"
-
-
-def set_up(project: str, adapters, who: str, say=None) -> dict:
-    """Open then sleep a new project's chat (step 3 removes this); never raises: {chat: 'sleeping'} or {chat: 'not set up yet', chat_message}."""
-    try:
-        if say:
-            say("Setting up the chat")
-        open_(project, adapters, who)
-        sleep(project, adapters, who, wrap_up=False)
-        if state(project, adapters)["state"] != "asleep":
-            raise NotReady("the chat did not go to sleep")
-    except Exception:  # any failure here must never fail project creation
-        if say:
-            say(NOT_SET_UP_WORDS)
-        return {"chat": "not set up yet", "chat_message": NOT_SET_UP_WORDS}
-    return {"chat": "sleeping"}

@@ -36,10 +36,10 @@ def test_report_not_a_table_falls_back(tmp_path, monkeypatch):
 
 
 def test_save_keeps_other_settings(tmp_path, monkeypatch):
-    _global(tmp_path, monkeypatch, 'suggestions = "off"\n[chat]\noff_after_days = 7\n')
+    _global(tmp_path, monkeypatch, 'suggestions = "off"\n[chat]\nwrap_up_minutes = 7\n')
     got = settings.save_report_settings({"time": "06:30", "timezone": "Europe/London"})
     assert got == {"enabled": True, "time": "06:30", "timezone": "Europe/London"}
-    assert settings.suggestion_mode() == "off" and settings.chat_settings()["off_after_days"] == 7
+    assert settings.suggestion_mode() == "off" and settings.chat_settings()["wrap_up_minutes"] == 7
 
 
 @pytest.mark.parametrize("key,value", [("time", "25:00"), ("time", "8:00"), ("timezone", "Nowhere/Land"),

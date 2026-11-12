@@ -276,12 +276,12 @@ def agent_settings() -> dict:
     return out
 
 
-CHAT_DEFAULTS = {"sleep_after_minutes": 120, "off_after_days": 3, "start_wait_seconds": 60,
-                 "wrap_up_minutes": 3, "claude_home": "/root/.claude"}
+CHAT_DEFAULTS = {"sleep_after_minutes": 120, "start_wait_seconds": 60, "wrap_up_minutes": 3,
+                 "claude_home": "/root/.claude"}
 
 
 def chat_settings() -> dict:
-    """The [chat] table of global.toml (sleep, off, wait, wrap-up, claude home) with defaults filled in."""
+    """The [chat] table of global.toml (sleep, wait, wrap-up, claude home) with defaults filled in."""
     table = read_global().get("chat")
     table = table if isinstance(table, dict) else {}
     out = {}

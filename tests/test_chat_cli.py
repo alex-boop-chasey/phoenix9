@@ -267,119 +267,12 @@ def test_sleep_and_off_events(setup, sent):
 NAMES = ["alpha", "beta", "bad", "done", "phoenix9", "home"]
 
 
-class Many(FakeHost):
-    """A host with one chat unit per project; 'failing' projects refuse to start."""
-
-    def __init__(self, failing):
-        super().__init__()
-        self.failing, self.units, self.added = set(failing), {}, set()
-
-    @staticmethod
-    def name(unit):
-        return unit.split("@", 1)[1].split(".", 1)[0]
-
-    def systemctl(self, *args):
-        self.calls.append(["systemctl", *args])
-        i = lambda n: NAMES.index(n)
-        if args[0] == "is-active":
-            st = self.units.get(self.name(args[-1]), "inactive")
-            return (0 if st == "active" else 3), st + "\n", ""
-        if args[0] == "show":
-            n = self.name(args[-1])
-            return 0, ("%d\n" % (100 + 10 * i(n)) if self.units.get(n) == "active" else "0\n"), ""
-        if args[0] in ("enable", "start", "restart"):
-            n = self.name(args[-1])
-            if n in self.failing:
-                return 1, "", "boom"
-            self.units[n] = "active"
-        return 0, "", ""
-
-    def add_session(self, n):
-        pid = 101 + 10 * NAMES.index(n)
-        sock = "/tmp/cc-socks-0/%s.sock" % n
-        data = {"pid": pid, "cwd": str(paths.projects() / n), "name": n, "status": "idle",
-                "messagingSocketPath": sock, "kind": "interactive", "sessionId": SID, "startedAt": 1,
-                "bridgeSessionId": "session_%s_1" % n.upper()}
-        self.files["%s/sessions/%d.json" % (HOME, pid)] = json.dumps(data)
-        self.files[sock] = ""
-        self.pids.update({pid - 1, pid})
-        self.parents[pid] = pid - 1
-        self.added.add(n)
-
-
-class ManyClock(FakeClock):
-    """A clock whose sleeps let each started unit's conversation appear once."""
-
-    def __init__(self, host):
-        super().__init__()
-        self.host = host
-
-    def sleep(self, s):
-        super().sleep(s)
-        for n, st in list(self.host.units.items()):
-            if st == "active" and n not in self.host.added:
-                self.host.add_session(n)
-
-
-@pytest.fixture
-def world(monkeypatch, tmp_path, sent):
-    """Six projects; 'done' has a chat document already."""
-    for n in NAMES:
-        (paths.projects() / n).mkdir()
-        (paths.projects() / n / "CLAUDE.md").write_text("x")
-    pc.write_chat_doc("done", pc.build_fields("done", "session_DONE_9", SID, 1_800_000_000.0, 1_800_000_000.0))
-
-    def make(failing=()):
-        h = Many(failing)
-        a = fake_adapters(tmp_path)
-        a.host, a.clock = h, ManyClock(h)
-        monkeypatch.setattr(adapters_mod, "real", lambda: a)
-        monkeypatch.setattr(common, "make_adapters", lambda: a)
-        return a
-    return make
-
-
-def started(a):
-    return sorted({Many.name(c[-1]) for c in a.host.calls if c[:2] == ["systemctl", "enable"]})
-
-
-def test_catch_up_lists_without_all(world):
-    a = world()
-    code, out, err = run("chat", "catch-up")
-    assert code == 0 and "--all" in out + err
-    assert all(n in out + err for n in ("alpha", "beta", "bad"))
-    assert started(a) == [] and pc.read_chat_doc("alpha")[0] is None
-
-
-def test_catch_up_all_sets_up_each_and_skips_others(world):
-    a = world()
-    code, out, err = run("chat", "catch-up", "--all")
-    assert code == 0, (out, err)
-    assert started(a) == ["alpha", "bad", "beta"]
-    for n in ("alpha", "beta", "bad"):
-        assert pc.state(n, a)["state"] == "sleeping"
-    for n in ("phoenix9", "home"):
-        assert pc.read_chat_doc(n)[0] is None
-    assert pc.read_chat_doc("done")[0]["Conversation id"] == "session_DONE_9"
-
-
-def test_catch_up_failure_continues_and_exits_1(world):
-    a = world(failing=["bad"])
-    code, out, err = run("chat", "catch-up", "--all")
-    assert code == 1 and "bad" in out + err
-    for n in ("alpha", "beta"):
-        assert pc.state(n, a)["state"] == "sleeping"
-    assert pc.read_chat_doc("bad")[0] is None
-
-
-def test_catch_up_json_shape_and_event(world):
-    world(failing=["bad"])
-    code, out, _ = run("chat", "catch-up", "--all", "--json", "--who", "t3")
-    data = json.loads(out)
-    assert code == 1 and data["todo"] == ["alpha", "bad", "beta"] and data["failed"] == 1
-    assert {r["project"]: r["ok"] for r in data["results"]} == {"alpha": True, "beta": True, "bad": False}
-    cmds = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
-    assert any(c["who"] == "t3" and "chat catch-up" in c["command"] for c in cmds)
+def test_catch_up_is_gone():
+    """Creation no longer sets up a chat, so there is nothing to catch up."""
+    from phoenix9.ops import chat as chat_ops
+    code, _out, err = run("chat", "catch-up")
+    assert code == 2 and "invalid choice" in err
+    assert not hasattr(chat_ops, "catch_up") and not hasattr(pc, "set_up")
 
 
 def test_open_waits_for_the_conversation_id_not_just_the_session(setup, sent):

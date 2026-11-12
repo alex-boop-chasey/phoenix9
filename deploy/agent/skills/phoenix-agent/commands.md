@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs c085d8f37e6ab7d4 -->
+<!-- phoenix 9.1.0 inputs 6866cf7a89460d83 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -707,12 +707,6 @@ stop and disable a project's chat (needs --yes)
 
 - `<project>`: the project
 - `--yes`: confirm that you mean it
-
-### `phoenix chat catch-up`
-
-set up chats for existing projects that have none
-
-- `--all`: really do it (without it, only list what would be done)
 
 ## `phoenix repair`
 

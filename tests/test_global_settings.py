@@ -150,11 +150,16 @@ def test_agent_settings_broken_values_fall_back(tmp_path, monkeypatch):
 
 def test_chat_settings_defaults_and_overrides(tmp_path, monkeypatch):
     _global(tmp_path, monkeypatch, "")
-    assert settings.chat_settings() == {"sleep_after_minutes": 120, "off_after_days": 3, "start_wait_seconds": 60,
-                                        "wrap_up_minutes": 3, "claude_home": "/root/.claude"}
-    _global(tmp_path, monkeypatch, '[chat]\noff_after_days = 7\nclaude_home = "/tmp/ch"\n')
+    assert settings.chat_settings() == {"sleep_after_minutes": 120, "start_wait_seconds": 60, "wrap_up_minutes": 3, "claude_home": "/root/.claude"}
+    _global(tmp_path, monkeypatch, '[chat]\nwrap_up_minutes = 7\nclaude_home = "/tmp/ch"\n')
     got = settings.chat_settings()
-    assert got["off_after_days"] == 7 and got["claude_home"] == "/tmp/ch" and got["sleep_after_minutes"] == 120
+    assert got["wrap_up_minutes"] == 7 and got["claude_home"] == "/tmp/ch" and got["sleep_after_minutes"] == 120
+
+
+def test_chat_settings_ignore_old_off_after_days(tmp_path, monkeypatch):
+    _global(tmp_path, monkeypatch, '[chat]\noff_after_days = 7\nsleep_after_minutes = 30\n')
+    got = settings.chat_settings()
+    assert "off_after_days" not in got and got["sleep_after_minutes"] == 30
 
 
 def test_chat_settings_bad_values_fall_back(tmp_path, monkeypatch):

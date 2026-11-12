@@ -10,7 +10,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, events, gates, git, keys, paths, project_services, projectchat, runs, services, settings, templates
+from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, services, settings, templates
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -470,7 +470,6 @@ def _create(opts: dict, adapters, who: str, progress=None) -> dict:
         events.emit("project.created", project=name, who=who, source=facts["source"], profile=facts["profile"],
                     template=opts.get("template") if facts["source"] == "template" else None)
         common.record_command(who, f"project new {name}", name, change=f"created by {who}")
-        chat_result = projectchat.set_up(name, adapters, who, say)
     except Exception as err:
         left = _left_in_place(made)
         undo(made, adapters.host)
@@ -478,8 +477,7 @@ def _create(opts: dict, adapters, who: str, progress=None) -> dict:
         raise OpsError(message.rstrip(".") + "." + left) from None
     return {"name": name, "path": str(folder), "source": facts["source"], "profile": facts["profile"],
             "template": opts.get("template") if facts["source"] == "template" else None,
-            "repo": result["repo"] or None, "services": list(opts.get("services") or []), "steps": steps,
-            **chat_result}
+            "repo": result["repo"] or None, "services": list(opts.get("services") or []), "steps": steps}
 
 
 # ----------------------------------------------------------------------------- reading a project

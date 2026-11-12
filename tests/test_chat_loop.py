@@ -1,11 +1,11 @@
-"""Tests for the runner's chat upkeep (fakes only): sleep, off, skips, spacing and error safety."""
+"""Tests for the runner's chat upkeep (fakes only): sleep, stuck waking, skips, spacing and error safety."""
 import pytest
 
-from phoenix9 import events, paths, projectchat, watch
+from phoenix9 import chat, events, paths, projectchat, watch
 
 NOW = 1_000_000.0
 IDLE_LIVE = NOW - 121 * 60
-OLD_SLEEP = NOW - 4 * 86400
+OLD = NOW - 4 * 86400
 
 
 @pytest.fixture
@@ -24,66 +24,104 @@ def world(adapters, monkeypatch):
         return s
     monkeypatch.setattr(projectchat, "state", state)
     monkeypatch.setattr(projectchat, "sleep", lambda p, a, who="cli", wrap_up=True: w["calls"].append(("sleep", p, who)))
-    monkeypatch.setattr(projectchat, "off", lambda p, a, who="cli": w["calls"].append(("off", p, who)))
+    monkeypatch.setattr(chat, "stop_unit", lambda host, p: w["calls"].append(("stop", p)))
     return w
 
 
 
 def test_idle_live_chat_sleeps(world, adapters):
-    world["states"]["alpha"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["alpha"] = {"state": "awake", "last_active": IDLE_LIVE}
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == [("sleep", "alpha", "runner")]
 
 
 def test_recent_live_chat_left_alone(world, adapters):
-    world["states"]["alpha"] = {"state": "live", "last_active": NOW - 60}
+    world["states"]["alpha"] = {"state": "awake", "last_active": NOW - 60}
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == []
 
 
-def test_old_sleeping_chat_goes_off(world, adapters):
-    world["states"]["alpha"] = {"state": "sleeping", "last_active": OLD_SLEEP}
+def test_old_asleep_chat_is_not_switched_off(world, adapters):
+    world["states"]["alpha"] = {"state": "asleep", "last_active": OLD}
     watch.check_chats(adapters, watch.Memory())
-    assert world["calls"] == [("off", "alpha", "runner")]
+    assert world["calls"] == []
 
 
-@pytest.mark.parametrize("word", ["working", "starting", "off"])
+@pytest.mark.parametrize("word", ["working", "asleep", "none"])
 def test_other_states_left_alone(world, adapters, word):
-    world["states"]["alpha"] = {"state": word, "last_active": OLD_SLEEP}
-    watch.check_chats(adapters, watch.Memory())
+    world["states"]["alpha"] = {"state": word, "last_active": OLD}
+    memory = watch.Memory()
+    watch.check_chats(adapters, memory)
+    adapters.clock.t += 600
+    watch.check_chats(adapters, memory)
     assert world["calls"] == []
+
+
+def test_waking_chat_stopped_after_ten_minutes(world, adapters):
+    world["states"]["alpha"] = {"state": "waking", "last_active": None}
+    memory = watch.Memory()
+    watch.check_chats(adapters, memory)
+    assert world["calls"] == []                      # first seen waking: left alone
+    adapters.clock.t += 600
+    watch.check_chats(adapters, memory)
+    assert world["calls"] == [("stop", "alpha")]
+
+
+def test_waking_then_awake_resets_the_stuck_clock(world, adapters):
+    memory = watch.Memory()
+    world["states"]["alpha"] = {"state": "waking", "last_active": None}
+    watch.check_chats(adapters, memory)
+    world["states"]["alpha"] = {"state": "awake", "last_active": NOW}
+    adapters.clock.t += 600
+    watch.check_chats(adapters, memory)
+    world["states"]["alpha"] = {"state": "waking", "last_active": None}
+    adapters.clock.t += 600
+    watch.check_chats(adapters, memory)
+    assert world["calls"] == []
+
+
+def test_stuck_chat_records_one_command(world, adapters, monkeypatch):
+    seen = []
+    monkeypatch.setattr("phoenix9.ops.common.record_command", lambda *a, **k: seen.append(a))
+    world["states"]["alpha"] = {"state": "waking", "last_active": None}
+    memory = watch.Memory()
+    watch.check_chats(adapters, memory)
+    adapters.clock.t += 600
+    watch.check_chats(adapters, memory)
+    assert seen == [("runner", "chat stop-stuck alpha", "alpha")]
 
 
 def test_missing_last_active_is_never_idle(world, adapters):
-    world["states"]["alpha"] = {"state": "live", "last_active": None}
+    world["states"]["alpha"] = {"state": "awake", "last_active": None}
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == []
 
 
 @pytest.mark.parametrize("status", ["queued", "running", "waiting", "paused-limit"])
 def test_project_with_active_run_skipped(world, adapters, status):
-    world["states"]["alpha"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["alpha"] = {"state": "awake", "last_active": IDLE_LIVE}
     world["runs"] = [{"project": "alpha", "status": status}]
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == []
 
 
 def test_ended_run_does_not_block(world, adapters):
-    world["states"]["alpha"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["alpha"] = {"state": "awake", "last_active": IDLE_LIVE}
     world["runs"] = [{"project": "alpha", "status": "done"}]
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == [("sleep", "alpha", "runner")]
 
 
-def test_home_skipped(world, adapters):
-    world["names"] = ["home"]
-    world["states"]["home"] = {"state": "live", "last_active": IDLE_LIVE}
+@pytest.mark.parametrize("name", ["home", "phoenix9"])
+def test_own_chats_skipped(world, adapters, name):
+    world["names"] = [name]
+    world["states"][name] = {"state": "awake", "last_active": IDLE_LIVE}
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == []
 
 
 def test_ten_minute_spacing(world, adapters):
-    world["states"]["alpha"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["alpha"] = {"state": "awake", "last_active": IDLE_LIVE}
     memory = watch.Memory()
     watch.check_chats(adapters, memory)
     watch.check_chats(adapters, memory)
@@ -99,7 +137,7 @@ def test_ten_minute_spacing(world, adapters):
 def test_error_in_one_project_does_not_stop_others(world, adapters):
     world["names"] = ["alpha", "beta"]
     world["states"]["alpha"] = RuntimeError("boom")
-    world["states"]["beta"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["beta"] = {"state": "awake", "last_active": IDLE_LIVE}
     watch.check_chats(adapters, watch.Memory())
     assert world["calls"] == [("sleep", "beta", "runner")]
 
@@ -114,6 +152,6 @@ def test_error_inside_check_chats_does_not_raise(world, adapters, monkeypatch):
 def test_action_records_runner_command_event(world, adapters, monkeypatch):
     seen = []
     monkeypatch.setattr("phoenix9.ops.common.record_command", lambda *a, **k: seen.append(a))
-    world["states"]["alpha"] = {"state": "live", "last_active": IDLE_LIVE}
+    world["states"]["alpha"] = {"state": "awake", "last_active": IDLE_LIVE}
     watch.check_chats(adapters, watch.Memory())
     assert seen == [("runner", "chat sleep alpha", "alpha")]

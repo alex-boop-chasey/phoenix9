@@ -388,9 +388,6 @@ HELPERS = {
     "app.allowed_peer_uids": "Internal: the API's guard.",
     "app.write_peer_uid": "Internal: the API's guard.",
     "app.access_lock_problem": "Internal: a doctor check.",
-    # chat
-    "chat.catch_up_todo": "Internal: part of a project chat.",
-    "chat.catch_up": "Internal: part of a project chat.",
     # common
     "common.project_lock": "Internal helper.",
     "common.make_adapters": "Internal helper.",

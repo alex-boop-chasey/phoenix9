@@ -39,8 +39,12 @@ Answer:
 
 Rules:
 
-- Tasks are numbered 1, 2, 3 with no gaps; each is small enough for one session; each has at least one
-  backticked Done-when command.
+- Tasks are numbered 1, 2, 3 with no gaps; each is one coherent piece a builder can finish in one session
+  of roughly 20-40 minutes and prove on its own. Plan fewer, larger tasks: merge steps that touch the same files
+  or cannot be checked separately, and do not make separate tasks for documentation, a small test file, a rename
+  or a config line. Split only when a task would exceed one session, when parts have different risks (for example
+  a safety file), or when later tasks need a stable point. `Depends on:` must be accurate and minimal. Each has at
+  least one backticked Done-when command.
 - Keep your questions IN the spec, under `## Open questions`: one numbered question per line with your
   recommended answer, each followed by an `Answer:` line left empty. Do not ask anything in your reply.
 - `## Decisions` holds what is already decided (leave it out when there is nothing yet).

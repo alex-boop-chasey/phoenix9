@@ -376,6 +376,21 @@ def test_memory_files_check_lists_projects_and_the_fix(healthy, phoenix_env):
     assert by_name(doctor.run_checks(healthy, "full"))["memory-files"]["ok"]
 
 
+def test_reference_check_warns_but_never_fails(healthy, phoenix_env):
+    (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
+    ref = phoenix_env["projects"] / "demo" / "notes" / "reference"
+    ref.mkdir(parents=True)
+    (ref / "a.css").write_text("a{}")
+    check = by_name(doctor.run_checks(healthy, "full"))["reference"]
+    assert check["ok"] and "within the limits" in check["detail"]
+    from phoenix9 import reference
+    for i in range(reference.MAX_FILES + 1):
+        (ref / f"f{i}.txt").write_text("x")
+    check = by_name(doctor.run_checks(healthy, "full"))["reference"]
+    assert check["ok"] and check["detail"].startswith("Warning:") and "demo" in check["detail"]
+    assert "phoenix reference remove" in check["fix"]
+
+
 def test_api_check_reads_the_tag_inside_the_api_reply(adapters, monkeypatch):
     """The real /api/health reply is {"ok": true, "data": {..., "tag"}}; the for-update check must find the tag there."""
     adapters.http.script("GET", "http://127.0.0.1:8095/api/health", 200,

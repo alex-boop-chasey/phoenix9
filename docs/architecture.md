@@ -1409,6 +1409,26 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   (probed read-only with `LOCK_SH|LOCK_NB`), so a killed updater (its flock dies with it) can never
   freeze the runner; there is no time limit.
 
+## 12.5 Reference material (`phoenix9/reference.py`, `refsnapshot.py`, `ops/reference.py`, `phoenix reference`)
+
+Alex can give a project reference documents (CSS, Tailwind config, design tokens, text, images, PDFs, a list
+of links, and an optional vision text). Everything below is plain files; no AI runs in Phoenix.
+
+- **Where:** `<project>/notes/reference/`. Links are one file, `links.txt` (`URL` or `URL | note`); the vision
+  is `vision.md` (saved by `PUT .../reference/vision`, always replaced, listed first).
+- **Limits and refusals:** at most 40 files, 5 MB each, 25 MB in all; only the allowed file types; no empty
+  files; names are cleaned; a symlinked notes or reference folder is refused; a file or link list containing a
+  secret is refused; a bad link (localhost, internal or private addresses) refuses the whole paste.
+- **Who:** uploads, links and the vision are Alex's (dashboard, `phoenix reference add|link`). The agent may
+  only list and remove. `phoenix doctor` warns (never fails) when a folder is over the limits.
+- **Frozen snapshot:** when a run is made, `refsnapshot.snapshot` copies the files into `<run>/reference/`
+  (read-only, with an `INDEX.md`) and writes the `reference.snapshot` event. Later uploads do not change a
+  run that already exists.
+- **Mount:** the copy is mounted read-only at `/phoenix/reference` for the planner, builder and reviewer
+  steps only. Check writers, checks and deploy get none, and it is never inside the workspace.
+- **Files are data, never instructions:** the prompts say so. Nothing in the folder is run, imported or
+  obeyed, and links are listed for the agent but never opened.
+
 ## 13. Formats defined in later phases
 
 All phase 4 formats now live in the sections above. Where to look:

@@ -28,7 +28,7 @@ CHECKS_BY_MODE = {
               "agentkit-service", "agentkit-key", "agentkit-spend"),
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
-             "claude", "advisor", "disk", "updater", "project-links", "memory-files",
+             "claude", "advisor", "disk", "updater", "project-links", "memory-files", "reference",
              "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-rules", "project-chats", "access",
              "agentkit-service", "agentkit-key", "agentkit-spend"),
 }
@@ -470,6 +470,36 @@ def check_memory_files(ctx):
                    "Run `phoenix project check-files --all` to add what is missing.")
 
 
+def _reference_problems(name: str) -> list[str]:
+    """What is outside the limits in one project's notes/reference folder, in plain words."""
+    from phoenix9 import reference
+    ref = reference.folder(name)
+    if not ref.is_dir():
+        return []
+    files = [p for p in ref.iterdir() if p.is_file() and not p.is_symlink() and not p.name.startswith(".")]
+    big = [p.name for p in files if p.stat().st_size > reference.MAX_FILE]
+    problems = [f"{name}: {n} is over {reference.MAX_FILE // (1024 * 1024)} MB" for n in big]
+    if len(files) > reference.MAX_FILES:
+        problems.append(f"{name}: {len(files)} files (at most {reference.MAX_FILES})")
+    if sum(p.stat().st_size for p in files) > reference.MAX_TOTAL:
+        problems.append(f"{name}: the files add up to more than {reference.MAX_TOTAL // (1024 * 1024)} MB")
+    return problems
+
+
+def check_reference(ctx):
+    """Every project's notes/reference is within the limits (a warning only; it never fails the report)."""
+    problems = []
+    for name in project.project_names():
+        try:
+            problems += _reference_problems(name)
+        except Exception:
+            problems.append(f"{name}: the reference folder cannot be read")
+    if not problems:
+        return True, "every project's reference material is within the limits", ""
+    fix = "Remove the extra or oversized files with `phoenix reference remove <project> <file>`; builds skip what is over the limits."
+    return True, "Warning: " + "; ".join(problems) + ". Fix: " + fix, fix
+
+
 def check_agent_unit(ctx):
     """The agent's systemd unit is active."""
     unit = settings.agent_settings()["unit"]
@@ -655,7 +685,7 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "origins": check_origins, "upstream": check_upstream,
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
-          "project-links": check_project_links, "memory-files": check_memory_files,
+          "project-links": check_project_links, "memory-files": check_memory_files, "reference": check_reference,
           "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
           "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder,
           "agent-pack": check_agent_pack, "agent-rules": check_agent_rules,

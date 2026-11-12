@@ -37,12 +37,17 @@ tests. Only that run decides whether the task passed. Your own words do not coun
 {{check_command}}
 ```
 
-  If something fails, read the error, find the cause, fix it, and run the command again. Also run the
-  project's whole suite if it has one:
+  If something fails, read the error, find the cause, fix it, and run the command again. Then run the
+  tests for the files you changed:
 
 ```
-{{suite_command}}
+{{affected_command}}
 ```
+
+- Do NOT run the whole test suite. Phoenix runs it itself on a clean copy, and running it here only
+  wastes the build's time.{{suite_exception}}
+- Never start a long command in the background and poll it with `sleep`. Run it in the foreground and
+  wait for it to finish.
 
 ## Rules Phoenix enforces on your files
 

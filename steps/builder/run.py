@@ -36,6 +36,26 @@ def _check_command(ctx, test: dict) -> str:
     return "\n".join(commands) or test.get("task_cmd") or test.get("cmd", "")
 
 
+NO_AFFECTED = "the tests that cover the files you changed"
+
+
+def _affected_command(test: dict) -> str:
+    """The profile's affected-tests command as a pattern with a plain explanation, or a plain sentence."""
+    template = test.get("affected_cmd") or ""
+    if "{files}" not in template:
+        return NO_AFFECTED
+    return (f"{template}\n(replace {{files}} with the test files that cover the files you changed, "
+            "separated by spaces)")
+
+
+def _suite_exception(test: dict) -> str:
+    """The one case where the whole suite may be run once: no partial runs and no checks for the task."""
+    if _affected_command(test) != NO_AFFECTED or not test.get("cmd"):
+        return ""
+    return ("\n  One exception: this project has no way to run part of its suite. If no checks exist for this "
+            "task, you may run the whole suite ONCE at the end:\n\n```\n" + test["cmd"] + "\n```")
+
+
 def _git_log(ctx) -> str:
     """`git log --oneline` of the run's branch since it left the default branch (newest first, capped)."""
     git = ctx.adapters.git
@@ -79,7 +99,9 @@ def before(ctx) -> dict:
         "checks": _checks(ctx),
         "checks_dir": checklock.run_checks_dir(test, ctx.run.id),
         "check_command": _check_command(ctx, test),
+        "affected_command": _affected_command(test),
         "suite_command": test.get("cmd", ""),
+        "suite_exception": _suite_exception(test),
         "git_log": _git_log(ctx),
         "services": _services(ctx),
         "failures": _failures(ctx),

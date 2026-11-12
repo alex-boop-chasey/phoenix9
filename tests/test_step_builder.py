@@ -92,7 +92,13 @@ def test_prompt_has_no_unfilled_placeholders(tmp_path, adapters, project):
             things={"checks": ["tests/phoenix/test_a.py"], "failures": ["first reason"]},
             adapters=adapters, emit=lambda *a, **k: None, log=lambda t: None)
         text = aistep.render(template, mod.before(ctx))   # strict: an unfilled placeholder raises
-        assert "{{" not in text and "1. first reason" in text and profile["test"]["cmd"] in text
+        assert "{{" not in text and "1. first reason" in text
+        assert "do NOT run the whole test suite" in text.replace("Do NOT", "do NOT")
+        if profile["test"].get("affected_cmd"):
+            assert profile["test"]["affected_cmd"] in text and "One exception" not in text
+        else:
+            assert "the tests that cover the files you changed" in text and "One exception" in text
+            assert profile["test"]["cmd"] in text
 
 
 def test_prompt_failures_listed_on_retry(tmp_path, setup):

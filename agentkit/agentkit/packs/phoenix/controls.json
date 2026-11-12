@@ -98,6 +98,20 @@
     "confirm_with": ""
   },
   {
+    "name": "bell",
+    "description": "Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance), with a count.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/bell",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "bell_card",
+    "confirm_with": ""
+  },
+  {
     "name": "blocks-check",
     "description": "Check a {kind, json} block; return {ok, reason, resolved} (resolved is None when not ok).",
     "inputs": [],
@@ -357,25 +371,47 @@
   },
   {
     "name": "chat-off",
-    "description": "Turn the project's chat off; returns {state, changed, message}.",
-    "inputs": [],
-    "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "description": "Turn a project's chat off (Alex types the project name to confirm).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/chat/(?P<name>[^/]+)/off",
-    "fixed": {},
+    "fixed": {
+      "confirm": true
+    },
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "name"
   },
   {
     "name": "chat-open",
-    "description": "Open the project's chat and return {state, web_url, app_url, bridge_session_id, message}.",
-    "inputs": [],
+    "description": "Open a project's chat (starting it if needed).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/chat/(?P<name>[^/]+)/open",
     "fixed": {},
@@ -385,11 +421,21 @@
   },
   {
     "name": "chat-show",
-    "description": "The project's chat state {state, bridge_session_id, web_url, app_url, last_active}; the project must exist.",
-    "inputs": [],
+    "description": "Say whether a project's chat is on, awake or asleep, and its links.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/chat/(?P<name>[^/]+)",
     "fixed": {},
@@ -399,16 +445,54 @@
   },
   {
     "name": "chat-sleep",
-    "description": "Put the project's chat to sleep; returns {state, changed, message}.",
-    "inputs": [],
+    "description": "Put a project's chat to sleep.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/chat/(?P<name>[^/]+)/sleep",
     "fixed": {},
     "fixed_query": {},
     "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "daily-report",
+    "description": "Read the newest daily report: a short plain-English summary of the last day (no money, the allowance in words).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/report/daily",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "report_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "daily-report-now",
+    "description": "Build a daily report right now from the current state (nothing is sent or saved).",
+    "inputs": [],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/report/daily/now",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "report_card",
     "confirm_with": ""
   },
   {
@@ -1166,17 +1250,29 @@
   },
   {
     "name": "plan-abandon",
-    "description": "Give up a planning session that is not running; OpsError in plain words when that is not possible.",
-    "inputs": [],
+    "description": "Give up a planning session that is not running (Alex types its id to confirm).",
+    "inputs": [
+      {
+        "name": "plan_id",
+        "type": "string",
+        "required": true,
+        "description": "The planning session's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "destructive",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/plans/(?P<plan_id>[^/]+)/abandon",
-    "fixed": {},
+    "fixed": {
+      "confirm": true
+    },
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "plan_id"
   },
   {
     "name": "plan-approve",
@@ -2041,6 +2137,54 @@
     "fixed": {},
     "fixed_query": {},
     "card": "run_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "search",
+    "description": "Search projects, builds, notes, research and logs for some text (read-only, scrubbed); each result says which page opens it.",
+    "inputs": [
+      {
+        "name": "q",
+        "type": "string",
+        "required": true,
+        "description": "The words to look for (2 to 100 characters, matched as plain text).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "kind",
+        "type": "choice",
+        "required": false,
+        "description": "Only this kind of result.",
+        "choices": [
+          "project",
+          "run",
+          "note",
+          "research",
+          "log"
+        ],
+        "where": "query",
+        "into": []
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "How many results at most (20 if left out, 50 at most).",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/search",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "search_card",
     "confirm_with": ""
   },
   {

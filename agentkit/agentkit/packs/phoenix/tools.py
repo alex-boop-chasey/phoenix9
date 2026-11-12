@@ -1,5 +1,7 @@
 """The Phoenix pack's card helpers (project and run cards) and the go_to tool's page checks."""
+import re
 from typing import Any
+from urllib.parse import quote
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -246,6 +248,66 @@ def session_card(project: str, data: Any) -> dict:
     data = data if isinstance(data, dict) else {}
     source = str(data.get("source") or "session")
     return {"project": project, "quoted": wrap(source, str(data.get("text") or ""))}
+
+
+PAGE_RX = re.compile(r"[A-Za-z0-9_-]+(?:/[A-Za-z0-9_.-]+)*")
+
+
+def page_link(page: Any) -> str | None:
+    """The `#/...` hash for a search result's page ({to, params}), or None when the page is malformed."""
+    if not isinstance(page, dict) or not isinstance(page.get("to"), str):
+        return None
+    to, params = page["to"], page.get("params") or {}
+    if not PAGE_RX.fullmatch(to) or ".." in to or not isinstance(params, dict):
+        return None
+    query = "&".join(f"{quote(str(k), safe='')}={quote(str(v), safe='')}" for k, v in params.items()
+                     if isinstance(v, (str, int)) and v not in ("", None))
+    return f"#/{'' if to == 'projects' else to}" + (f"?{query}" if query else "")
+
+
+def search_card(data: Any) -> dict:
+    """Card data for search: {kind, title, snippet, link} per result, snippets quoted, bad pages dropped."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    rows = []
+    for item in data.get("results", []) if isinstance(data.get("results"), list) else []:
+        link = page_link(item.get("page")) if isinstance(item, dict) else None
+        if link is None:
+            continue
+        rows.append({"kind": str(item.get("kind") or ""), "title": str(item.get("title") or ""),
+                     "snippet": wrap("phoenix search", str(item.get("snippet") or "")), "link": link})
+    return {"query": str(data.get("query") or ""), "results": rows}
+
+
+def report_card(data: Any) -> dict:
+    """Card data for the daily report: {date, text} as plain text, the report text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"date": str(data.get("date") or ""), "text": wrap("phoenix report", str(data.get("text") or ""))}
+
+
+def bell_card(data: Any) -> dict:
+    """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    rows = []
+    for item in data.get("items", []) if isinstance(data.get("items"), list) else []:
+        link = page_link(item.get("page")) if isinstance(item, dict) else None
+        if link is None:
+            continue
+        rows.append({"kind": str(item.get("kind") or ""), "title": wrap("phoenix bell", str(item.get("title") or "")),
+                     "detail": wrap("phoenix bell", str(item.get("detail") or "")), "link": link})
+    count = data.get("count")
+    return {"count": count if isinstance(count, int) and not isinstance(count, bool) else len(rows), "items": rows}
+
+
+def open_bell_inputs() -> type[BaseModel]:
+    """The open_bell input model: nothing to fill in."""
+
+    class OpenBell(BaseModel):
+        """Open the bell list in Alex's browser."""
+
+    return OpenBell
 
 
 # The registry names of the repair controls, by the short names the diagnosis uses.

@@ -1,7 +1,7 @@
 """Ops for reports: write the daily status report, or read the copy the runner keeps."""
 import time
 
-from phoenix9 import statusreport
+from phoenix9 import dailyreport, statusreport
 from phoenix9.ops import common
 
 
@@ -27,3 +27,16 @@ def saved() -> dict:
     if not _fallback or now - _fallback["at"] >= FALLBACK_S:
         _fallback.update(at=now, text=statusreport.build(common.make_adapters()))
     return {"path": str(path), "text": _fallback["text"], "saved": False}
+
+
+def daily_latest() -> dict:
+    """{date, text}: the newest saved daily report, or a plain 'No report yet.' (date empty)."""
+    found = dailyreport.latest()
+    return {"date": found["date"], "text": dailyreport.strip_money(found["text"])} if found else {"date": "", "text": "No report yet."}
+
+
+def daily_now() -> dict:
+    """{date, text}: a daily report built right now; nothing is sent, saved or recorded."""
+    adapters = common.make_adapters()
+    now = adapters.clock.now()
+    return {"date": time.strftime("%Y-%m-%d", time.localtime(now)), "text": dailyreport.build(adapters, now)}

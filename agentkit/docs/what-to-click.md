@@ -35,3 +35,13 @@ Open the dashboard at `#/agent-next`.
 8. **Build start.** Ask it to start a build: pick the project, the preset and a spec. The plan check card shows whether the plan passes. Then read the approval card and approve to start.
 9. **Next-step chips.** Look at the chips after a reply. On a project with no build they offer to start one; on a failed run, "what happened"; with an open question, to answer it. Change the state and watch the chips change.
 10. **Quick edits are not offered by the agent.** It has no code or file tools and Phoenix has no route to start a quick edit for it. A small change goes through the hotfix flow (step 7).
+
+## Agent v3 build 5: search, bell, daily report
+
+Open the dashboard at `#/agent-next`.
+
+1. **Search.** Ask the agent: "Find my note about <a word from one of your notes>." Result cards appear (project, run, note, research or log). Click one: the right page opens. Log snippets never show keys or passwords.
+2. **The bell.** Look at the top bar: the bell shows a count. Click it to see what needs you (questions, failed or stopped builds, held merge requests, services not running, a low allowance, the latest daily report). Then ask the agent "what needs me?": the bell opens and the agent explains each item in plain words. Click an item to go to its page.
+3. **The daily report.** The report is on by default at 08:00 Australia/Melbourne. The time is the `[report]` `time` setting in `global.toml` (there is no button for it yet): set it one minute ahead, wait, and see the report appear in the bell and in Telegram. Ask the agent "show today's report" for the report card.
+4. **No money anywhere.** Look at the search cards, the bell, the report, Telegram and the agent's replies: the allowance is only ever words ("plenty left", "getting low", "used up") and a bar. No dollar amount appears. At 80 percent of the allowance you get one warning (bell and Telegram); at the monthly cap the agent stops answering until next month.
+5. **Retirement (after the merge).** The old agent is removed in one separate change for you to review. After the merge: the old flame button is gone from the top bar, the new agent opens from the top bar, and every job the old agent did is on the checklist `agentkit/docs/old-agent-checklist.md`. Project chats (the Chat buttons) still work as before.

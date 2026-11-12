@@ -17,7 +17,7 @@ import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import agentlink, atomic, events, gates, paths, scrub, state, taskfile
+from phoenix9 import atomic, chatlink, events, gates, paths, scrub, state, taskfile
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
@@ -141,7 +141,7 @@ def handoff_text(run_id: str, task_no: int) -> str:
 def _hand_to_agent(run_dir: Path, gate: dict, run_id: str, project: str, task_no: int) -> str:
     """Send the hand-off message. Returns "" when it was sent, else the plain reason it was not."""
     try:
-        agentlink.send(handoff_text(run_id, task_no), {"project": project, "run": run_id}, who=HANDOFF_WHO)
+        chatlink.send(handoff_text(run_id, task_no), {"project": project, "run": run_id}, who=HANDOFF_WHO)
     except Exception as err:  # noqa: BLE001 - an agent that is asleep or broken must fall back to Alex, not crash
         return scrub.scrub(str(err).strip().splitlines()[0] if str(err).strip() else type(err).__name__)
     return ""
@@ -152,7 +152,7 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
 
     The gate: kind escalation, actions acknowledged / skip / stop, title "Task N needs you", why = the
     last reasons, links = the attempt folders. In delegate mode the gate carries the flag
-    HANDOFF_FLAG and ONE message goes to the agent through agentlink.send; Alex hears nothing unless
+    HANDOFF_FLAG and ONE message goes to the agent through chatlink.send; Alex hears nothing unless
     the agent is asleep or the send fails: then the flag is replaced by a note saying so and Alex is
     told, exactly as in pause mode.
     """

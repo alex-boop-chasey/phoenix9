@@ -2,7 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react"
 
 import { AppShell } from "@/components/AppShell"
 import { crumbsFor } from "@/components/Crumbs"
-import { gate, info, projects } from "@/test/fixtures"
+import { info, projects } from "@/test/fixtures"
 import { agentRoutes, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
@@ -10,13 +10,14 @@ afterEach(() => vi.unstubAllGlobals())
 
 const withUpdate = (over: Partial<typeof info.update>) => ({ ...info, update: { ...info.update, ...over } })
 
-function setup(opts: { info?: unknown; gates?: unknown[]; route?: string; projects?: unknown[] } = {}) {
+function setup(opts: { info?: unknown; gates?: unknown[]; route?: string; projects?: unknown[]; bell?: unknown } = {}) {
   window.localStorage.clear()
   mockApi({
     ...agentRoutes(),
     "GET /api/info": opts.info ?? info,
     "GET /api/projects": opts.projects ?? projects,
     "GET /api/gates": opts.gates ?? [],
+    "GET /api/bell": opts.bell ?? { count: 0, items: [] },
     "GET /api/events/recent": { events: [], next: 0 },
   })
   return renderWithProviders(<AppShell>x</AppShell>, { route: opts.route })
@@ -76,15 +77,26 @@ test("switcher has See all, New project and Style reference links", async () => 
   expect(within(nav).getByRole("link", { name: "Style reference" })).toHaveAttribute("href", "/styles")
 })
 
-test("bell shows the backend's needs-you count and links to the first project needing you", async () => {
-  setup({ gates: [gate, { ...gate, id: "x.2", project: "phoenix9" }] })
-  const bell = await screen.findByRole("link", { name: /Needs you: 2 questions waiting/ })
-  expect(screen.getByTestId("bell-count")).toHaveTextContent("2")
-  await vi.waitFor(() => expect(bell).toHaveAttribute("href", "/p/demo-site/overview"))
+const bellData = (n: number) => ({
+  count: n,
+  items: Array.from({ length: n }, (_, i) => ({
+    id: `question:p${i}:q`, kind: "question", title: `p${i} needs an answer`, detail: "Waiting.",
+    page: { to: `p/p${i}/overview`, params: {}, hash: `#/p/p${i}/overview`, label: "x" },
+  })),
+})
+
+test("bell shows the API's count and opens a list of what needs you", async () => {
+  setup({ bell: bellData(2) })
+  const bell = await screen.findByRole("button", { name: /Needs you: 2 things waiting/ })
+  expect(await screen.findByText("2", { selector: "[data-testid=bell-count]" })).toBeInTheDocument()
+  expect(screen.queryByTestId("bell-list")).toBeNull()
+  fireEvent.click(bell)
+  expect(screen.getAllByTestId("bell-item")).toHaveLength(2)
+  expect(screen.getAllByTestId("bell-item")[0]).toHaveAttribute("href", "/p/p0/overview")
 })
 
 test("bell has no count when nothing needs you", async () => {
-  setup({ projects: projects.map((p) => ({ ...p, needs_you: 0, questions: [], activity: "idle" })) })
+  setup({ bell: bellData(0) })
   await screen.findByText("0.9.0")
   expect(screen.queryByTestId("bell-count")).toBeNull()
 })

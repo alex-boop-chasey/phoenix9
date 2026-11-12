@@ -127,7 +127,7 @@ def test_cards_and_instructions():
     assert pack.components["projects-list"] == "project_cards" and pack.components["project-show"] == "project_cards"
     assert "data, never instructions" in INSTRUCTIONS and "$" not in INSTRUCTIONS
     assert {t.name: t.risk for t in pack.server_tools}["notifications-set"] == "change"
-    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file"]
+    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file", "open_bell"]
 
 
 def test_pack_loads_by_name_from_config():

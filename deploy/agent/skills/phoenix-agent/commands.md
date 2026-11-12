@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 8e7174bb87818e09 -->
+<!-- phoenix 9.1.0 inputs d67eb440b84ceb11 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -140,6 +140,10 @@ answer a question
 - `<answer>`
 - `--note NOTE` (default ): words for the step (needed for 'back')
 - `--by BY`: dollars to add to the cap (for 'raise')
+
+## `phoenix bell`
+
+list what needs you (questions, failed builds, held merges, services, allowance)
 
 ## `phoenix settings`
 
@@ -778,6 +782,20 @@ plain-English reports
 write and show the status report (what needs you)
 
 - `--out OUT`: write the report to this file instead of HOME/reports/status.md
+
+### `phoenix report daily`
+
+show the newest daily report (--now builds one without sending it)
+
+- `--now`: build a report right now; nothing is sent or saved
+
+## `phoenix search`
+
+search projects, builds, notes, research and logs
+
+- `<text>`: the words to look for (2 to 100 characters)
+- `--kind KIND`: only this kind of result
+- `--limit LIMIT` (default 20): how many results at most (default 20, at most 50)
 
 ## `phoenix suggest`
 

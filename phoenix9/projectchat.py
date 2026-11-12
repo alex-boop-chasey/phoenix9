@@ -3,7 +3,7 @@ import calendar
 import re
 import time
 
-from phoenix9 import agentlink, atomic, chat, paths, settings
+from phoenix9 import atomic, chatlink, chat, paths, settings
 
 KEYS = ("Project", "Desktop app link", "Web link", "Conversation id", "Local session id",
         "Created", "Last active")
@@ -73,9 +73,9 @@ def _check(project: str, fields: dict) -> str | None:
     bridge = fields["Conversation id"]
     if fields["Project"] != project:
         return "wrong project"
-    if not agentlink.BRIDGE_RE.fullmatch(bridge):
+    if not chatlink.BRIDGE_RE.fullmatch(bridge):
         return "bad conversation id"
-    if not agentlink.is_session_id(fields["Local session id"]):
+    if not chatlink.is_session_id(fields["Local session id"]):
         return "bad local session id"
     if fields["Desktop app link"] != DESKTOP_PREFIX + bridge:
         return "bad desktop app link"
@@ -102,7 +102,7 @@ def read_chat_doc(project: str) -> tuple[dict | None, str | None]:
 def sync_chat_doc(project: str, found: dict, now: float) -> bool:
     """Make the document match the live conversation; True when it wrote. Bad ids leave it alone."""
     bridge, sid = found.get("bridge_session_id"), found.get("session_id")
-    if not (isinstance(bridge, str) and agentlink.BRIDGE_RE.fullmatch(bridge)) or not agentlink.is_session_id(sid):
+    if not (isinstance(bridge, str) and chatlink.BRIDGE_RE.fullmatch(bridge)) or not chatlink.is_session_id(sid):
         return False
     current, _ = read_chat_doc(project)
     if current is None or current["Conversation id"] != bridge or current["Local session id"] != sid:
@@ -119,7 +119,7 @@ def _session_process(host, project: str) -> dict | None:
     """The project's live conversation process (the unit's main process or its direct child), or None."""
     folder = str(paths.projects() / project)
     main = chat.unit_main_pid(host, project)
-    found = agentlink.find_in(folder, agentlink.CLAUDE_HOME, host, main)
+    found = chatlink.find_in(folder, chatlink.CLAUDE_HOME, host, main)
     if found is None or main is None:
         return None
     if found["pid"] != main and host.parent_pid(found["pid"]) != main:
@@ -196,9 +196,9 @@ def _prime(project: str, adapters, who: str) -> str | None:
     found = _session_process(adapters.host, project)
     try:
         if found is None:
-            raise agentlink.SendError("no conversation to write to")
-        agentlink.send_to(found, PRIME_TEXT, {"project": project}, "chat:%s" % project, host=adapters.host)
-    except agentlink.SendError:
+            raise chatlink.SendError("no conversation to write to")
+        chatlink.send_to(found, PRIME_TEXT, {"project": project}, "chat:%s" % project, host=adapters.host)
+    except chatlink.SendError:
         return PRIME_FAILED
     return None
 
@@ -258,9 +258,9 @@ def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dic
     found = _session_process(host, project)
     if found is not None and wrap_up:
         try:
-            agentlink.send_to(found, WRAP_UP_TEXT, {"project": project}, "chat:%s" % project, host=host)
+            chatlink.send_to(found, WRAP_UP_TEXT, {"project": project}, "chat:%s" % project, host=host)
             _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
-        except agentlink.SendError:
+        except chatlink.SendError:
             pass
         found = _session_process(host, project)
     if found is not None:

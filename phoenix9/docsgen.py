@@ -19,6 +19,7 @@ PAGE_TEXT = {
     "p/<name>/logs": "One project's logs and run documents; `run`, `step`, `task`, `kind` and `log` pick what to show.",
     "p/<name>/settings": "One project's settings (sections: project, build); `key` jumps to one setting.",
     "settings": "Phoenix's own settings (sections: services, models, updates, addresses).",
+    "doc": "The document viewer: one notes or research document; `path` is its id, like notes:<project>/<file>.md.",
 }
 
 

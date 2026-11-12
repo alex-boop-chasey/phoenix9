@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
@@ -28,6 +29,8 @@ class Memory:
     agent_checked: float | None = None    # when the agent watchdog last ran
     chats_checked: float | None = None    # when the chats were last checked for sleep/off
     report_written: float | None = None   # when the status report was last written
+    daily_checked: float | None = None    # when the daily report was last looked at
+    allowance_checked: float | None = None   # when the allowance was last read
 
 
 def all_states() -> list[dict]:
@@ -319,6 +322,51 @@ def write_status_report(adapters, memory: Memory) -> None:
         pass
 
 
+DAILY_CHECK_S = 60
+ALLOWANCE_CHECK_S = 300
+ALLOWANCE_TELL = {"low": "Phoenix: the agent's allowance is {words}.",
+                  "used_up": "Phoenix: the agent's allowance is {words}."}
+
+
+def check_daily_report(adapters, memory: Memory) -> None:
+    """Send the daily report when it is due, looking at most once a minute; never raises."""
+    try:
+        now = adapters.clock.now()
+        if memory.daily_checked is not None and now - memory.daily_checked < DAILY_CHECK_S:
+            return
+        memory.daily_checked = now
+        from phoenix9 import dailyreport
+        dailyreport.send_if_due(adapters)
+    except Exception:  # noqa: BLE001 - the report must not stop the loop
+        pass
+
+
+def check_allowance(adapters, memory: Memory) -> None:
+    """Tell Alex once per month when the allowance gets low and once when it is used up; never raises."""
+    try:
+        now = adapters.clock.now()
+        if memory.allowance_checked is not None and now - memory.allowance_checked < ALLOWANCE_CHECK_S:
+            return
+        memory.allowance_checked = now
+        from phoenix9 import allowance
+        got = allowance.read(adapters)
+        if got["state"] not in ALLOWANCE_TELL:
+            return
+        month = datetime.fromtimestamp(now, ZoneInfo(settings.report_settings()["timezone"])).strftime("%Y-%m")
+        file = paths.home() / "reports" / "allowance-state.json"
+        told = atomic.read_json(file, {}) or {}
+        told = told if told.get("month") == month else {"month": month}
+        if told.get(got["state"]):
+            return
+        adapters.notify.send(ALLOWANCE_TELL[got["state"]].format(words=got["words"]))
+        told[got["state"]] = True
+        if got["state"] == "used_up":
+            told["low"] = True
+        atomic.write_json(file, told)
+    except Exception:  # noqa: BLE001 - the allowance check must not stop the loop
+        pass
+
+
 def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
     """Remove leftover containers and close questions of ended runs once, then run a round every interval_s seconds."""
     heartbeat.reset_progress()
@@ -341,6 +389,8 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             prune_deleted_copies(adapters)
             mark_stalled_edits()
             write_status_report(adapters, memory)
+            check_daily_report(adapters, memory)
+            check_allowance(adapters, memory)
             adapters.clock.sleep(interval_s)
     finally:
         stop.set()

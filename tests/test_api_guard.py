@@ -8,7 +8,7 @@ import types
 import pytest
 
 from helpers import rsatest
-from phoenix9 import access, adapters, addresses, agentlink, paths
+from phoenix9 import access, adapters, addresses, agentlink, chatlink, paths
 from phoenix9.api import server
 from phoenix9.ops import common
 from test_api_server import POST_HEADERS, api, dist, make_project  # noqa: F401  (fixtures)
@@ -182,7 +182,9 @@ def captured(monkeypatch, tmp_path):
     found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": "x", "transcript": None,
              "status": "idle"}
     monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
+    monkeypatch.setattr(chatlink, "find", lambda *a, **k: found)
     monkeypatch.setattr(agentlink, "connect_and_write", lambda path, data, timeout=0: wrote.append(data))
+    monkeypatch.setattr(chatlink, "connect_and_write", lambda path, data, timeout=0: wrote.append(data))
     return wrote
 
 

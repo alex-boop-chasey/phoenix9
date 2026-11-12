@@ -1,11 +1,14 @@
 // Maps a tool's component name to our React components; all text is drawn as plain text from typed data.
 import type { ReactNode } from "react"
 
+import { BellCard, bellFrom } from "./bellcard"
+import { ReportCard, reportFrom } from "./reportcard"
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
 import { JobCard, PlanCheckCard, SpecsCard, jobFrom, planCheckFrom, specsFrom } from "./guidedcards"
 import { KeyInputCard, keyAskFrom } from "./keycard"
+import { SearchResultsCard, searchFrom } from "./searchcard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
 export interface ProjectCardData { name: string; status: string; last_used: string; link?: string }
@@ -331,6 +334,18 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   session_card: ({ data, tool }) => {
     const d = sessionFrom(data)
     return d ? <SessionCard data={d} /> : <Fallback tool={tool} />
+  },
+  SearchResultsCard: ({ data }) => {
+    const rows = searchFrom(data)
+    return rows ? <SearchResultsCard rows={rows} /> : null
+  },
+  BellCard: ({ data }) => {
+    const rows = bellFrom(data)
+    return rows ? <BellCard rows={rows} /> : null
+  },
+  ReportCard: ({ data }) => {
+    const report = reportFrom(data)
+    return report ? <ReportCard report={report} /> : null
   },
   KeyInputCard: ({ data, tool, callId }) => {
     const ask = keyAskFrom(data)

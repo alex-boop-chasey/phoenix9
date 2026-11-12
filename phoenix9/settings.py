@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 import re
 import tomllib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import paths, tomlw
 from .library import Library, _is_type, _type_name, load_library, read_toml
@@ -274,6 +275,51 @@ def chat_settings() -> dict:
             ok = isinstance(value, int) and not isinstance(value, bool) and value >= 0
         out[key] = value if ok else default
     return out
+
+
+REPORT_DEFAULTS = {"enabled": True, "time": "08:00", "timezone": "Australia/Melbourne"}
+
+
+def _good_time(value) -> bool:
+    """True for a 24-hour 'HH:MM' text."""
+    return isinstance(value, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value) is not None
+
+
+def _good_timezone(value) -> bool:
+    """True for a timezone name zoneinfo accepts."""
+    if not isinstance(value, str) or not value:
+        return False
+    try:
+        ZoneInfo(value)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        return False
+    return True
+
+
+REPORT_CHECKS = {"enabled": lambda v: isinstance(v, bool), "time": _good_time, "timezone": _good_timezone}
+
+
+def report_settings() -> dict:
+    """The [report] table of global.toml (enabled, time, timezone) with defaults for missing or odd values."""
+    table = read_global().get("report")
+    table = table if isinstance(table, dict) else {}
+    return {k: (table[k] if REPORT_CHECKS[k](table.get(k)) else d) for k, d in REPORT_DEFAULTS.items()}
+
+
+def save_report_settings(changes: dict) -> dict:
+    """Save checked [report] changes into global.toml and return the new values; a bad value is refused by name."""
+    for key, value in changes.items():
+        if key not in REPORT_DEFAULTS:
+            raise ValueError(f"report.{key} is not a report setting")
+        if not REPORT_CHECKS[key](value):
+            hints = {"enabled": "true or false", "time": "a 24-hour time like 08:00",
+                     "timezone": "a timezone name like Australia/Melbourne"}
+            raise ValueError(f"report.{key} must be {hints[key]}, not {value!r}")
+    data = dict(read_global())
+    table = data.get("report")
+    data["report"] = {**(table if isinstance(table, dict) else {}), **changes}
+    tomlw.dump(paths.config() / "global.toml", data)
+    return report_settings()
 
 
 DELETE_DEFAULTS = {"keep_days": 30}

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { Markdown } from "@/features/agent/markdown"
+import { Markdown } from "@/components/markdown"
 
 const html = (t: string) => render(<Markdown text={t} />).container
 

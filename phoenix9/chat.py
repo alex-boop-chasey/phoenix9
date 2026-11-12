@@ -2,7 +2,7 @@
 
 No AI runs in Phoenix's own processes (rule 1): this file only starts, stops and looks at systemd units
 through the Host adapter, and never starts Claude (planning sessions run in step containers, plansession.py). A build that runs out of tries is handed to the agent with a message
-(`failmodes.escalate` through `agentlink.send`), never with a session started here.
+(`failmodes.escalate` through `chatlink.send`), never with a session started here.
 """
 from __future__ import annotations
 
@@ -59,12 +59,12 @@ def stop_unit(host, project: str) -> None:
 def stop_conversation(host, project: str, pid: int) -> None:
     """Send SIGTERM to a conversation process, only if it is the unit's main process's direct child or a
     registry entry for this project; raises ValueError for any other pid."""
-    from phoenix9 import agentlink, paths
+    from phoenix9 import chatlink, paths
     chat_unit(project)
     main = unit_main_pid(host, project)
     if main is not None and host.parent_pid(pid) == main:
         return host.stop_pid(pid)
-    live = agentlink._live_in(host, agentlink.CLAUDE_HOME, str(paths.projects() / project))
+    live = chatlink._live_in(host, chatlink.CLAUDE_HOME, str(paths.projects() / project))
     if any(e["pid"] == pid for e in live):
         return host.stop_pid(pid)
     raise ValueError(f"process {pid} is not a conversation of project {project}")

@@ -10,6 +10,7 @@ export const ROUTES: RouteEntry[] = [
   { name: "p/<name>/logs", params: ["run", "step", "task", "kind", "log"] },
   { name: "p/<name>/settings", params: ["section", "key"] },
   { name: "settings", params: ["section"] },
+  { name: "doc", params: ["path"] },
 ]
 
 /** The catalogue entry for a route such as "p/test-site/build", or undefined. */

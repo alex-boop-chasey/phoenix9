@@ -466,6 +466,12 @@ A merge of that project tags the merge commit as the next `v9.<n>` release (`pho
 `[chat]` in `global.toml` (`settings.chat_settings()`): `sleep_after_minutes` (default 120), `off_after_days` (3),
 `start_wait_seconds` (60), `wrap_up_minutes` (3), `claude_home` (`/root/.claude`).
 
+`[report]` in `global.toml` (`settings.report_settings()`): the daily report. `enabled` (default `true`), `time`
+(24-hour `HH:MM`, default `"08:00"`), `timezone` (a name `zoneinfo` accepts, default `"Australia/Melbourne"`). A missing or
+odd value reads as the default; `settings.save_report_settings` refuse a bad time or
+unknown timezone with a message naming the setting. They are not safety settings, so the agent may change them
+through an approval card.
+
 ### 5.3 The ai block (any ai step; harness spec section 5)
 `model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),
 `mcp_servers` (list of names from the registry), `claude_md` (`library` | `project` | `both`),
@@ -1086,6 +1092,33 @@ the card opens the approval card of a repair control: re-run a step, rewrite a t
 `later`, so the agent cannot send arbitrary notes. One repair at a time per run (`phoenix9/repair/lock.py`, and one open
 repair approval per run in the agent). A repair asked by who `agent` that would loosen a safety check is refused with a
 plain message (`phoenix9/repair/safety.py`). Every repair is recorded as a `repair.applied` event with who `agent`.
+### Search, the bell and the daily report (agent v3 build 5)
+All three are plain rules over typed data: no AI runs in Phoenix. Anything said in plain English about them comes
+from the agent, which reads them as quoted data. Every text goes through `phoenix9/scrub.py` first and no money
+amount is ever shown (`strip_money` hides any figure).
+
+**Search** (`ops/search.py`, `GET /api/search`, `phoenix search`). Read-only, through Phoenix's own data: projects,
+runs, logs (scrubbed), project notes and research folders. Each result is a card with a title, a snippet and the
+page it opens (`{to, params, hash, label}`). A query is 2 to 100 plain characters; `kind` narrows it.
+
+**The bell** (`phoenix9/bell.py`, `ops/bell.py`, `GET /api/bell`, `phoenix bell`). One list of what needs Alex:
+build questions, failed or stopped builds, held merge requests, services not running, the allowance getting low,
+and the newest daily report. Each item has an id `kind:project:key`, a plain title and the page to open. The top bar
+shows the count; the agent tool `open_bell` opens the list and the agent can explain each item.
+
+**The daily report** (`phoenix9/dailyreport.py`, `ops/report.py`, `phoenix report daily`). A short plain-English
+summary built from the same data as the bell. Settings are `[report]` in `global.toml` (section 5.2b): `enabled`,
+`time` (default `08:00`) and `timezone` (default `Australia/Melbourne`). The runner loop (`watch.check_daily_report`)
+checks every minute; when the time has passed and today has not been sent (`daily-state.json`, `last_sent_date`) it
+builds the text, saves it under `HOME/reports/daily/<date>.md` (the newest 30 are kept) and sends it. It is sent
+through the notify adapter, which writes the file `/usr/local/bin/ph-notify` writes; `phoenix-notify.path` sends it
+to Telegram. If the send fails the file stays and the next minute tries again. The report also shows in the bell.
+
+**The allowance.** Shown to Alex in words and as a bar, never as money. `watch.check_allowance` (every 5 minutes)
+tells Alex once per month, in the bell and on Telegram, when use reaches 80 percent, and once more when it is used up
+(`allowance-state.json`). At the monthly cap the agent service hard-stops model calls. The agentkit price table stays
+and must still be filled in before the agent runs.
+
 ## 9. Adapters (everything external, each with a fake in tests/fakes/)
 
 | Adapter | Real | Fake |

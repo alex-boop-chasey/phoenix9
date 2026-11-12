@@ -77,7 +77,7 @@ export const globalView: GlobalView = {
 // Phoenix agent (docs/api.md "Agent items").
 import type {
   AgentMessages, AgentSessionRow, AgentState, AgentStatus,
-} from "@/features/agent/useAgent"
+} from "@/lib/agentTypes"
 
 export function agentStatus(state: AgentState, over: Partial<AgentStatus> = {}): AgentStatus {
   const asleep = state === "asleep"

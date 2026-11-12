@@ -243,9 +243,9 @@ def test_check_files_needs_a_name_or_all_and_a_real_project(env, capsys):
 def chat_import(env, tmp_path, monkeypatch, mode):
     """Import an unlisted folder with a host whose chat unit comes up (or fails)."""
     from fakes.chathost import chat_adapters
-    from phoenix9 import agentlink
-    monkeypatch.setattr(agentlink, "send_to", lambda found, text, *a, **k: {"sent": True})
-    agentlink.forget()
+    from phoenix9 import chatlink
+    monkeypatch.setattr(chatlink, "send_to", lambda found, text, *a, **k: {"sent": True})
+    chatlink.forget()
     folder = env["projects"] / "loose"
     (folder / "notes").mkdir(parents=True)
     fakes = chat_adapters(tmp_path, mode, folder, tmp_path / "claude.json")

@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
@@ -250,6 +250,26 @@ def get_builds(req, name):
 def get_run(req, project, run_id):
     """Reply with one run's detail."""
     return runs.detail(check_name(project), check_run_id(run_id))
+
+
+def get_bell(req):
+    """Reply with {count, items}: what needs Alex right now."""
+    return ops_bell.show()
+
+
+def get_report_daily(req):
+    """Reply with the newest saved daily report ({date, text})."""
+    return ops_report.daily_latest()
+
+
+def get_report_daily_now(req):
+    """Reply with a daily report built right now (nothing is sent or saved)."""
+    return ops_report.daily_now()
+
+
+def get_search(req):
+    """Reply with search results for ?q= (optional ?kind= and ?limit=); a bad query is a 400."""
+    return ops_search.run(req.query.get("q", ""), req.query.get("kind") or None, int_param(req, "limit", 20))
 
 
 def get_run_events(req, project, run_id):
@@ -1176,6 +1196,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)", get_run),
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),
+    ("GET", r"/api/bell", get_bell),
+    ("GET", r"/api/search", get_search),
     ("GET", r"/api/docs/list", get_docs_list),
     ("GET", r"/api/docs/show", get_docs_show),
     ("GET", r"/api/docs/download", get_docs_download),
@@ -1243,6 +1265,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
     ("GET", r"/api/report/status", get_report_status),
+    ("GET", r"/api/report/daily", get_report_daily),
+    ("GET", r"/api/report/daily/now", get_report_daily_now),
     ("GET", r"/api/suggest", get_suggest),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/snooze", post_suggest_snooze),
     ("POST", r"/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss", post_suggest_dismiss),

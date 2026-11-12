@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
 from agentkit.packs.phoenix.tools import (build_card, diagnose_card, events_card, job_card, keys_card, options_list,
-                                        plan_check_card, project_card, repair_card, run_card, session_card,
+                                        bell_card, plan_check_card, project_card, repair_card, report_card, run_card, search_card, session_card,
                                         settings_card, specs_card, task_list, tries_card, update_card)
 
 CONTROLS_FILE = Path(__file__).with_name("controls.json")
@@ -101,6 +101,12 @@ def _card_data(entry: dict, data: Any, values: dict) -> dict:
         return tries_card(project, data)
     if card == "session_card":
         return session_card(project, data)
+    if card == "search_card":
+        return search_card(data)
+    if card == "report_card":
+        return report_card(data)
+    if card == "bell_card":
+        return bell_card(data)
     if card == "diagnose_card":
         return diagnose_card(project, data)
     if card == "repair_card":

@@ -23,7 +23,7 @@ def ts_routes():
 
 
 def test_python_and_ts_lists_match():
-    assert ts_routes() == [(n, p) for n, p in routes.ROUTES] and len(ts_routes()) == 7
+    assert ts_routes() == [(n, p) for n, p in routes.ROUTES] and len(ts_routes()) == 8
 
 
 def test_simple_routes(proj):

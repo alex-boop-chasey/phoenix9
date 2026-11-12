@@ -120,7 +120,7 @@ def test_refusal_is_a_plain_error():
 def test_cards_use_the_pack_card_names():
     pack = build_pack(FakePhoenix().client())
     assert pack.components["builds-list"] == "RunCards" and pack.components["projects-list"] == "project_cards"
-    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file"]
+    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file", "open_bell"]
 
 
 def test_build_tools_return_build_card_data():

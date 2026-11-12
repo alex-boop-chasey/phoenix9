@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 57363ddab20a599e -->
+<!-- phoenix 9.1.0 inputs b734dde85de06d5d -->
 # Dashboard pages
 
 Link with `phoenix ui open` style routes; params go in the hash in this order.
@@ -44,3 +44,9 @@ One project's settings (sections: project, build); `key` jumps to one setting.
 Phoenix's own settings (sections: services, models, updates, addresses).
 
 - params: section
+
+## `doc`
+
+The document viewer: one notes or research document; `path` is its id, like notes:<project>/<file>.md.
+
+- params: path

@@ -3,7 +3,7 @@ import type {
   DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectQueryResult, ProjectRow, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
+  Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
   ChatInfo, ChatOpenResult,
 } from "@/lib/types"
@@ -82,6 +82,7 @@ const e = encodeURIComponent
 export const api = {
   info: () => get<Info>("info"),
   projects: () => get<ProjectRow[]>("projects"),
+  bell: () => get<BellData>("bell"),
   searchProjects: (params: Record<string, string>) => get<ProjectQueryResult>("projects", params),
   importCandidates: () => get<ImportCandidate[]>("import/candidates"),
   folders: (path: string) => get<FolderListing>("folders", { path }),

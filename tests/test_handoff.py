@@ -6,7 +6,7 @@ import pytest
 
 from helpers import scripted
 from helpers.scripted import fail, on
-from phoenix9 import agentlink, failmodes, gates, paths, runs, state
+from phoenix9 import chatlink, failmodes, gates, paths, runs, state
 from phoenix9.ops import gates as ops_gates
 from phoenix9.runner import Runner
 
@@ -50,7 +50,7 @@ def sent(monkeypatch):
     def fake_send(text, context=None, who="cli", **kw):
         box.append({"text": text, "context": context, "who": who})
         return {"sent": True}
-    monkeypatch.setattr(agentlink, "send", fake_send)
+    monkeypatch.setattr(chatlink, "send", fake_send)
     return box
 
 
@@ -73,7 +73,7 @@ def test_one_message_and_flag_and_no_notify(tmp_path, runner, adapters, sent):
     assert g["kind"] == "escalation" and failmodes.HANDOFF_FLAG in g["flags"]
     assert [m["text"] for m in sent] == [f"[Phoenix · escalation] {run_dir.name} task 1"]
     assert sent[0]["who"] == failmodes.HANDOFF_WHO == "build escalation"
-    assert agentlink.from_name(sent[0]["who"]) == "Phoenix (build escalation)"
+    assert chatlink.from_name(sent[0]["who"]) == "Phoenix (build escalation)"
     assert adapters.notify.messages == []
     assert runner.drive(run_dir) == "waiting" and len(sent) == 1
 
@@ -88,8 +88,8 @@ def test_agent_answer_runs_one_more_attempt(tmp_path, runner, sent):
 
 def test_asleep_agent_falls_back_to_pause(tmp_path, runner, adapters, monkeypatch):
     def asleep(*a, **k):
-        raise agentlink.SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
-    monkeypatch.setattr(agentlink, "send", asleep)
+        raise chatlink.SendError("The Phoenix agent is asleep (no running session found). Nothing was sent.")
+    monkeypatch.setattr(chatlink, "send", asleep)
     on("builder", 1, 1, fail("broken"))
     run_dir = start(tmp_path)
     assert runner.drive(run_dir) == "waiting"

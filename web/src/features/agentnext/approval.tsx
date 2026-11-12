@@ -125,6 +125,10 @@ const REFUSED = { ok: false, error: "That page does not exist, so I did not go t
 /** Build the go_to handler: moves to a known page and answers; refuses an unknown one. */
 export function makeGoTo(navigate: (hash: string) => void) {
   return async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    if (name === "open_bell") {
+      window.dispatchEvent(new Event("phoenix:open-bell"))
+      return { status: "opened" }
+    }
     if (name !== "go_to") return { ok: false, error: "This page cannot do that." }
     const page = typeof args.page === "string" ? args.page : ""
     const params = (args.params ?? {}) as Record<string, unknown>

@@ -106,14 +106,14 @@ def test_atomic_write(project, monkeypatch):
 # ---- state ----
 import json  # noqa: E402
 
-from phoenix9 import agentlink  # noqa: E402
+from phoenix9 import chatlink  # noqa: E402
 from tests.fakes import FakeHost, fake_adapters  # noqa: E402
 
 HOME = "/root/.claude"
 
 
 def make_adapters(tmp_path, unit, status=None, bridge=None, sid=SID, parent=100):
-    agentlink.forget()
+    chatlink.forget()
     host = FakeHost()
     host.script(["systemctl", "is-active"], rc=0 if unit == "active" else 3, out=unit + "\n")
     host.script(["systemctl", "show"], out="100\n")

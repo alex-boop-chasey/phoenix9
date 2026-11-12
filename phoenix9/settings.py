@@ -247,6 +247,12 @@ def suggestion_mode() -> str:
     return value if value in SUGGESTION_MODES else "on"
 
 
+def remember_suite_passes() -> bool:
+    """The global `remember_suite_passes` setting: skip a whole-suite run on code that already passed it (default on)."""
+    value = read_global().get("remember_suite_passes", True)
+    return value if isinstance(value, bool) else True
+
+
 AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
 
 

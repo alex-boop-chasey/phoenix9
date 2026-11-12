@@ -433,7 +433,10 @@ pass of the run (the list is `suite_pending` in `state.json`, so it survives a p
 checkpoint names those tasks); `full` = the whole suite after every task. `test-report.json` gains `mode`
 (`checks`, `affected` or `suite`) and `picked` (the test files picked). Presets: `simple` and `quick` use
 `task`; `full` uses `affected` with `suite_every = 5`. The run-finish `full-suite` step still runs the whole
-suite before the merge.
+suite before the merge, unless that exact code (git tree id + command + image + profile) already passed it:
+`phoenix9/suitepass.py` keeps passes only (newest 50 per project, `cache/suite-passes/<project>.json`; global
+setting `remember_suite_passes`, default on). Branch (baseline `{"ran": false, "passed": true, "remembered": true}`)
+and Full suite skip on a hit with a plain note and a `suite.skipped` event; Verify and both steps remember passes.
 
 When Verify is on, Acceptance runs the task's checks once, on a clean checkout (`git.fresh_checkout`), with the
 report files, and records the results in `tasks/<n>/attempt-<k>/acceptance-results.json` (run, task, attempt, the

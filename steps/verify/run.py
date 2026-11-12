@@ -1,7 +1,7 @@
 """Verify: runs the task's checks (and in full scope the whole suite) in a fresh container and writes the test report."""
 import shutil
 
-from phoenix9 import affected, atomic, checklock, checkrun, docker, git, reports, settings, state
+from phoenix9 import affected, atomic, checklock, checkrun, docker, git, reports, settings, state, suitepass
 from phoenix9.aistep import profile_test
 from phoenix9.stepctx import StepResult
 
@@ -118,6 +118,7 @@ def run(ctx):
         else:
             parts, logs = _run_jobs(ctx, jobs, checkout, out_dir, n)
         broken = checklock.verify(ctx.run.folder, n, checkout)
+        tree = suitepass.tree_of(checkout) if plan["mode"] == "suite" and suitepass.enabled() else ""
     finally:
         git.remove_checkout(ctx.worktree, checkout)
     report = reports.combine(parts)
@@ -128,6 +129,8 @@ def run(ctx):
         report.notes.append("the task's checks were run by acceptance on a clean checkout")
     atomic.write_json(out_dir / "test-report.json", {**report.to_dict(), "mode": plan["mode"], "picked": plan["picked"],
                                                      "checks_run_by": "acceptance" if reused else "verify"})
+    if report.ok and tree and not broken:
+        suitepass.remember(ctx.project.name, suitepass.key_for(ctx, tree, test["cmd"]), {"step": "verify", "task": n})
     if scope == "affected" and report.ok:
         _record_pass(ctx, n, (ctx.task or {}).get("title", ""), plan["mode"] == "suite")
     if report.ok:

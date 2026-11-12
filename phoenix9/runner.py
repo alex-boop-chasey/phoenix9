@@ -29,7 +29,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, events, failmodes, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, checklock, events, failmodes, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
@@ -85,6 +85,14 @@ class Outcome:
     """
     status: str
     reasons: list = field(default_factory=list)
+
+
+REPAIR_STEPS = ("acceptance", "verify", "reviewer", "secret-scan")
+
+
+def _retry_keeps(task: dict, k: int, max_tries) -> bool:
+    """True when the next try after attempt k may start on the kept work: not an escalation rerun, not the last try."""
+    return not task.get("rerun") and not task.get("escalations", 0) and k + 1 < max(1, int(max_tries))
 
 
 class Runner:
@@ -440,13 +448,19 @@ class Runner:
                 failmodes._finish_task(run_dir, n, "passed")
                 return "passed"
             if last is not None and not t.get("rerun") and not failmodes.should_retry(run_dir, n, max_tries):
+                if last.get("kept"):
+                    self._drop_kept_work(run_dir, n)  # no repair try follows: do not leave the work lying about
                 return failmodes.after_last_try(self, run_dir, n, last.get("reasons") or [])
             if k == 0 or last is not None:
+                start = "kept" if last is not None and last.get("kept") and _retry_keeps(t, k, max_tries) else "clean"
                 k += 1                                # the last attempt is over: start the next one
                 state.set_task(run_dir, n, tries=k, rerun=False, status="running")
+                self._record_start(run_dir, n, k, start)
                 taskfile.refresh(run_dir, n)
             else:
                 state.set_task(run_dir, n, status="running")   # attempt k was cut short: go on with it
+                if not (t.get("attempt_starts") or {}).get(str(k)):
+                    self._record_start(run_dir, n, k, "clean")
             out = self._run_attempt(run_dir, setup, things, task_data, k)
             taskfile.refresh(run_dir, n)             # the task file shows this attempt's result
             if out.status in ("waiting", "stopped"):
@@ -474,23 +488,53 @@ class Runner:
                 continue
             if name not in once and not based:
                 based = True
-                if self._line_index(state.load(run_dir), "task", n, name, k) is None and worktree:
+                if (self._line_index(state.load(run_dir), "task", n, name, k) is None and worktree
+                        and not state.attempt_kept(run_dir, n, k)):      # a kept try measures from the task's start
                     state.set_task(run_dir, n, attempt_base=self.adapters.git.head(worktree))
             out = self._do_step(run_dir, setup, things, "task", name, task, k)
             if out.status == "failed":
-                self._end_attempt(run_dir, n, k, out.reasons, worktree, start_head)
+                self._end_attempt(run_dir, n, k, out.reasons, worktree, start_head, name, setup)
                 return out
             if out.status in ("waiting", "stopped", "dropped"):
                 return out
         failmodes.write_attempt_result(run_dir, n, k, "passed", [])
         return Outcome("passed")
 
-    def _end_attempt(self, run_dir: Path, n: int, k: int, reasons, worktree, start_head) -> None:
-        """A failed attempt is thrown away: reset the worktree, then record that the attempt is over."""
+    def _end_attempt(self, run_dir: Path, n: int, k: int, reasons, worktree, start_head, step: str = "",
+                     setup: dict | None = None) -> None:
+        """A failed attempt is thrown away (reset the worktree) unless the builder's `retry` is `repair`, the
+        failing step is one that judges the work, the locked checks are untouched and another try may follow."""
         base = state.load(run_dir)["tasks"][str(n)].get("attempt_base") or start_head
+        keep = self._keeps_work(run_dir, n, k, step, worktree, setup or {})
+        if worktree and base and not keep:
+            self.adapters.git.reset_attempt(worktree, base)
+        failmodes.write_attempt_result(run_dir, n, k, "failed", reasons, kept=keep)
+
+    def _keeps_work(self, run_dir: Path, n: int, k: int, step: str, worktree, setup: dict) -> bool:
+        """True when the working folder stays for the next try (repair, not restart)."""
+        if step not in REPAIR_STEPS or not worktree:
+            return False
+        if self._step_settings(setup, "builder").get("retry", "restart") != "repair":
+            return False
+        max_tries = (setup.get("settings") or {}).get("max_tries", 1)
+        if k + 1 >= max(1, int(max_tries)):
+            return False                                 # the last try always starts clean
+        return not checklock.verify(run_dir, n, worktree)
+
+    def _drop_kept_work(self, run_dir: Path, n: int) -> None:
+        """The task stopped retrying with work kept in the folder: reset it to the task's start."""
+        worktree = self._worktree(run_dir)
+        base = state.load(run_dir)["tasks"][str(n)].get("attempt_base")
         if worktree and base:
             self.adapters.git.reset_attempt(worktree, base)
-        failmodes.write_attempt_result(run_dir, n, k, "failed", reasons)
+
+    @staticmethod
+    def _record_start(run_dir: Path, n: int, k: int, start: str) -> None:
+        """Remember on the task whether attempt k began clean or kept (for the dashboard and timing)."""
+        def change(s):
+            t = s["tasks"][str(n)]
+            t["attempt_starts"] = {**(t.get("attempt_starts") or {}), str(k): start}
+        state.update(run_dir, change)
 
     def _worktree(self, run_dir: Path) -> Path | None:
         st = state.load(run_dir)
@@ -972,7 +1016,8 @@ def _restart_clean(ctx: StepContext, prompt_file: Path, prompt_text: str) -> Non
     the step line says so."""
     number = ctx.task["number"] if ctx.task else None
     base = (state.load(ctx.run.folder)["tasks"].get(str(number)) or {}).get("attempt_base") if number else None
-    if ctx.worktree and base:
+    kept = state.attempt_kept(ctx.run.folder, number, ctx.attempt) if number else False
+    if ctx.worktree and base and not kept:               # a kept try keeps the earlier work it was started with
         ctx.adapters.git.reset_attempt(ctx.worktree, base)
     prompt_file.write_text(prompt_text, encoding="utf-8")
     index = _step_line(ctx)

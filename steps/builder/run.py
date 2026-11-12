@@ -88,6 +88,23 @@ def fix_notes(ctx) -> str:
     return taskfile.prompt_notes(ctx.run.folder, ctx.task["number"]) if ctx.task else taskfile.NO_NOTES
 
 
+KEPT_WORK = """## Your earlier work is still here
+
+Try {previous} did not pass, but Phoenix kept its files: everything it wrote is still in /workspace. You are a
+fresh session and do not remember it, so read the files first. Fix the problems listed in the next section
+instead of starting over. If you judge some of that earlier work wrong, you may redo it. Phoenix checks the
+WHOLE change since the task began, not only what you add now.
+
+"""
+
+
+def _kept_work(ctx) -> str:
+    """The "earlier work is still here" section on a repair try; empty (no heading) on a clean one."""
+    if not state.attempt_kept(ctx.run.folder, ctx.task["number"], ctx.attempt):
+        return ""
+    return KEPT_WORK.format(previous=ctx.attempt - 1)
+
+
 def before(ctx) -> dict:
     """Fill the builder prompt's placeholders."""
     test = profile_test(ctx)
@@ -104,6 +121,7 @@ def before(ctx) -> dict:
         "suite_exception": _suite_exception(test),
         "git_log": _git_log(ctx),
         "services": _services(ctx),
+        "kept_work": _kept_work(ctx),
         "failures": _failures(ctx),
         "fix_notes": fix_notes(ctx),
         "attempt": ctx.attempt,

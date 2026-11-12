@@ -39,11 +39,11 @@ def attempt_result(run_dir, task_no: int, attempt: int) -> dict | None:
     return found if isinstance(found, dict) and "status" in found else None   # a session record is not an end
 
 
-def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons) -> None:
+def write_attempt_result(run_dir, task_no: int, attempt: int, status: str, reasons, kept: bool = False) -> None:
     """Record that attempt k is over. From here on a restart starts the next attempt, not this one."""
     atomic.write_json(attempt_dir(run_dir, task_no, attempt) / "result.json",
                       {"attempt": attempt, "status": status, "reasons": [scrub.scrub(r) for r in reasons],
-                       "at": state.now()})
+                       "kept": bool(kept), "at": state.now()})
 
 
 def _trimmed(reasons) -> list[str]:

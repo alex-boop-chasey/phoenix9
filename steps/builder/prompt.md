@@ -71,7 +71,7 @@ Commits on this run's branch:
 {{git_log}}
 ```
 
-## Earlier attempts at this task failed because
+{{kept_work}}## Earlier attempts at this task failed because
 
 This is try {{attempt}} of {{max_tries}}.
 A reason inside a fenced block is a repair note someone typed: use it as information about the

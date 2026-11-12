@@ -644,6 +644,14 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   - `once` steps (e.g. Check-writer, Red check) are skipped once all of them passed in earlier
     attempts; while any of them has not, they all run again (the failed attempt's checks commit is
     reset away, and the Check-writer prompt lists the earlier failures). attempt_base is taken before the first non-once step (fallback: HEAD at attempt start).
+- Repair, not restart (builder setting `retry`, `repair` default | `restart`): when an attempt fails at `acceptance`,
+  `verify`, `reviewer` or `secret-scan`, the working folder is kept and the next try's builder (a fresh session) is told
+  so in a "Your earlier work is still here" prompt section. It is reset as before after `diff-rules`, `red-check`,
+  `check-writer` or a builder failure, when a locked check was touched, and on the last allowed try. A kept try does
+  not move `attempt_base`, so every gate (diff rules, secret scan, acceptance, verify, the reviewer's patch, commit)
+  judges the whole change since the task began. `tasks.<n>.attempt_starts` = `{attempt: "clean" | "kept"}`; an attempt's
+  `result.json` has `kept` (its work was left in place). Pause/resume on a kept try never resets the folder; when the task
+  stops retrying with work still kept, the folder is reset to `attempt_base`.
 - Spending cap (`budget_usd`, frozen in the run's settings.json): at every step boundary the runner
   compares `usage.cost_usd` with the cap. When reached it opens a gate of kind `budget` ("Spending cap of
   $X reached at $Y", held by `current.gate` only) with actions `raise` (answer field `by` = dollars, added to

@@ -91,7 +91,8 @@ AI_SCHEMA: dict[str, Spec] = {
 }
 
 
-STEP_CHOICES = {"verify.scope": ("task", "affected", "full")}   # step settings with a fixed list of values
+STEP_CHOICES = {"verify.scope": ("task", "affected", "full"),
+                "builder.retry": ("repair", "restart")}   # step settings with a fixed list of values
 
 
 def step_specs(lib: Library) -> dict[str, Spec]:

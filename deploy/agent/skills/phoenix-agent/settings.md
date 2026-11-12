@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 5ed611ffdb20641a -->
+<!-- phoenix 9.1.0 inputs 94b61d67e53ba7a5 -->
 # Settings (phoenix.toml)
 
 Change with `phoenix settings`. Unknown keys are errors.
@@ -60,6 +60,7 @@ Lowest first; a later layer wins: library < profile < preset < project < run.
 | `steps.red-check.on` | bool | true |  |
 | `steps.red-check.once` | bool | true |  |
 | `steps.builder.on` | bool | true |  |
+| `steps.builder.retry` | str | 'repair' | repair, restart |
 | `steps.diff-rules.on` | bool | true |  |
 | `steps.secret-scan.on` | bool | true |  |
 | `steps.acceptance.on` | bool | true |  |

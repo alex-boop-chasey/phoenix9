@@ -74,11 +74,18 @@ def new_task(title: str = "", depends_on=()) -> dict:
     flagged = why it failed, shown on the Build tab; gate = the open gate it waits on;
     attempt_base = the commit each attempt starts from (failed attempts are reset to it);
     note = why it was skipped;
-    rerun = an escalation was acknowledged, so the next attempt runs whatever should_retry says.
+    rerun = an escalation was acknowledged, so the next attempt runs whatever should_retry says;
+    attempt_starts = {attempt: "clean" | "kept"}, whether it began on a clean folder or on the earlier try's work.
     """
     return {"title": title, "status": "pending", "tries": 0, "failures": [], "depends_on": list(depends_on),
             "escalations": 0, "flagged": "", "gate": None, "attempt_base": None, "note": "",
             "rerun": False}
+
+
+def attempt_kept(run_dir, n: int, k: int) -> bool:
+    """True when attempt k of task n started on the earlier try's work instead of a clean folder."""
+    t = ((load(Path(run_dir)) or {}).get("tasks") or {}).get(str(n)) or {}
+    return (t.get("attempt_starts") or {}).get(str(k)) == "kept"
 
 
 def _file(run_dir: Path) -> Path:

@@ -8,6 +8,9 @@ needs = ["task", "worktree", "failures", "plan", "checks", "service-notes"]
 produces = ["diff"]
 default = "always"
 
+[settings]
+retry = "repair"       # repair | restart: after a failed try, keep the work and fix it, or start clean
+
 [ai]
 model = "claude-fable-5-1"
 fallback_models = ["claude-opus-5-5"]

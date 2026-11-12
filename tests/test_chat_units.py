@@ -93,8 +93,12 @@ def test_chat_unit_template_has_the_settings_a_live_chat_needs():
     """Found live: with `env claude` and no PATH the unit failed (status 127) and restarted forever."""
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "deploy" / "claude-rc-chat@.service").read_text()
-    assert "ExecStart=/root/.local/bin/claude remote-control" in text and "/usr/bin/env claude" not in text
+    assert "ExecStart=/opt/phoenix9/deploy/chat-launch.sh %i" in text and "/usr/bin/env claude" not in text
     assert "Environment=PATH=/root/.local/bin:" in text
     assert "Environment=IS_SANDBOX=1" in text and "Environment=HOME=/root" in text
+    assert "Environment=PHOENIX_WHO=chat:%i" in text and "MemoryMax=" in text
     assert "StartLimitBurst=" in text and "[Install]" in text
-    assert "--create-session-in-dir" in text and "WorkingDirectory=/srv/projects/%i" in text
+    assert "KillMode=mixed" in text and "TimeoutStopSec=30" in text
+    assert "WorkingDirectory=/srv/projects/%i" in text
+    launcher = (Path(__file__).resolve().parent.parent / "deploy" / "chat-launch.sh").read_text()
+    assert "/root/.local/bin/claude" in launcher and "--create-session-in-dir" in launcher

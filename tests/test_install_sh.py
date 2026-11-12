@@ -254,11 +254,14 @@ def test_bad_proxy_ports_refused(box):
 
 def test_chat_template_command_line():
     text = (Path(__file__).resolve().parent.parent / "deploy" / "claude-rc-chat@.service").read_text()
-    assert "--create-session-in-dir" in text and "--bare" not in text
+    assert "ExecStart=/opt/phoenix9/deploy/chat-launch.sh %i" in text and "--bare" not in text
     assert "WorkingDirectory=/srv/projects/%i" in text
+    launcher = (Path(__file__).resolve().parent.parent / "deploy" / "chat-launch.sh").read_text()
+    assert "--create-session-in-dir" in launcher and "--bare" not in launcher
 
 
 def test_chat_template_installed_no_instance_enabled(box):
     assert install(box).returncode == 0
     assert (box["root"] / "units" / "claude-rc-chat@.service").is_file()
+    assert mode(box["root"] / "opt" / "deploy" / "chat-launch.sh") == 0o755
     assert "claude-rc-chat" not in box["log"].read_text()

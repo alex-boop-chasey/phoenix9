@@ -124,7 +124,8 @@ def _check_content(name: str, data: bytes) -> None:
 def add_file(project: str, filename: str, data: bytes, who: str, replace: bool = False) -> dict:
     """Validate and save one reference file; returns its list entry. `who` is the person or agent adding it."""
     name = clean_name(filename)
-    replace = replace or name == VISION_NAME  # there is only ever one vision document
+    # there is only ever one vision document; links.txt is only written by the links checks, never replaced by an upload
+    replace = (replace or name == VISION_NAME) and name != LINKS_NAME
     if len(data) > MAX_FILE:
         raise ReferenceError_(f"{name} is too big: files can be at most {MAX_FILE // (1024 * 1024)} MB.")
     _check_content(name, data)

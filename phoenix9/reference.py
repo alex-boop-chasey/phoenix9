@@ -150,3 +150,136 @@ def remove_file(project: str, filename: str) -> None:
     if path.is_symlink() or not path.is_file():
         raise ReferenceError_(f"There is no reference file called '{filename}'.")
     path.unlink()
+
+
+MAX_LINKS = 100
+MAX_URL = 500
+MAX_NOTE = 200
+_URL_RE = re.compile(r"https?://[^\s|]+", re.IGNORECASE)
+_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]")
+_LOCAL_SUFFIXES = (".internal", ".local", ".localhost", ".localdomain")
+
+
+def _clean_note(note: str) -> str:
+    """Plain-text note: control characters removed, spaces tidied, at most 200 characters."""
+    return _CONTROL_RE.sub(" ", note).strip()[:MAX_NOTE].strip()
+
+
+def _check_url(url: str) -> None:
+    """Refuse URLs that are too long, carry a password, or point at this server or a private network."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    if len(url) > MAX_URL:
+        raise ReferenceError_(f"A link is longer than {MAX_URL} characters: {url[:60]}...")
+    try:
+        parts = urlsplit(url)
+        host = (parts.hostname or "").rstrip(".").lower()
+        parts.port
+    except ValueError:
+        raise ReferenceError_(f"'{url[:80]}' is not a valid web address.")
+    if parts.scheme not in ("http", "https") or not host:
+        raise ReferenceError_(f"'{url[:80]}' is not a web address. Only http and https links are accepted.")
+    if parts.username is not None or parts.password is not None:
+        raise ReferenceError_(f"{url.split('@')[-1][:80]} has a user name or password in it. Remove it and try again.")
+    local = host == "localhost" or host.endswith(_LOCAL_SUFFIXES) or "." not in host and ":" not in host
+    try:
+        ip = ipaddress.ip_address(host)
+        local = local or not ip.is_global
+    except ValueError:
+        if re.fullmatch(r"[0-9.x]+|0x[0-9a-f]+", host):
+            local = True
+    if local:
+        raise ReferenceError_(f"{host} is a local or private address. Links must point at public websites.")
+
+
+def _parse_links(text: str) -> list[tuple[str, str]]:
+    """Pull (url, note) pairs out of text, line by line; refuses any non-web address. Order is kept."""
+    found: list[tuple[str, str]] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        left, bar, right = line.partition("|")
+        left = left.strip()
+        urls = _URL_RE.findall(left)
+        if not urls:
+            if _SCHEME_RE.match(left.split()[0]) or "://" in left:
+                raise ReferenceError_(f"'{left[:80]}' is not a web address. Only http and https links are accepted.")
+            continue
+        for first in left.split():
+            if _SCHEME_RE.match(first) and not first.lower().startswith(("http://", "https://")):
+                raise ReferenceError_(f"'{first[:80]}' is not a web address. Only http and https links are accepted.")
+        note = _clean_note(right) if bar and len(urls) == 1 else ""
+        for url in urls:
+            found.append((url, note))
+    return found
+
+
+def list_links(project: str) -> list[dict]:
+    """Saved links as [{url, note}] in file order; blank and # comment lines are skipped."""
+    path = folder(project) / LINKS_NAME
+    if path.is_symlink() or not path.is_file():
+        return []
+    out = []
+    for raw in path.read_text("utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        url, _, note = line.partition("|")
+        url = url.strip()
+        if url:
+            out.append({"url": url, "note": _clean_note(note)})
+    return out
+
+
+def _write_links(project: str, links: list[dict]) -> None:
+    """Rewrite links.txt from a list of {url, note}."""
+    ref = folder(project, create=True)
+    lines = [f"{l['url']} | {l['note']}" if l["note"] else l["url"] for l in links]
+    atomic.write_bytes(ref / LINKS_NAME, ("\n".join(lines) + "\n" if lines else "").encode(), 0o644)
+
+
+def add_links(project: str, text: str, who: str) -> dict:
+    """Add every http/https link in the text (URL or 'URL | note' per line); returns {added, skipped, links}."""
+    if (folder(project) / LINKS_NAME).is_symlink():
+        raise ReferenceError_("links.txt is a symbolic link, so nothing can be saved there.")
+    if scrub.mask_patterns(text) != text:
+        raise ReferenceError_("That text looks like it contains a secret (a key, token or password).")
+    pairs = _parse_links(text)
+    for url, _ in pairs:
+        _check_url(url)
+    current = list_links(project)
+    seen = {l["url"] for l in current}
+    added = []
+    for url, note in pairs:
+        if url not in seen:
+            seen.add(url)
+            added.append({"url": url, "note": note})
+    if not pairs:
+        raise ReferenceError_("No web links (starting http:// or https://) were found.")
+    if len(current) + len(added) > MAX_LINKS:
+        raise ReferenceError_(f"A project can hold at most {MAX_LINKS} links. Remove some first.")
+    if added:
+        _write_links(project, current + added)
+    return {"added": added, "skipped": len(pairs) - len(added), "links": current + added}
+
+
+def import_links_file(project: str, data: bytes, who: str) -> dict:
+    """Read an uploaded .txt of URLs as a links list (see add_links)."""
+    if len(data) > MAX_FILE:
+        raise ReferenceError_("That file is too big to be a list of links.")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ReferenceError_("That file is not readable text.")
+    return add_links(project, text, who)
+
+
+def remove_link(project: str, url: str) -> None:
+    """Remove one saved link by its exact URL; refuses when it is not in the list."""
+    current = list_links(project)
+    left = [l for l in current if l["url"] != url]
+    if len(left) == len(current):
+        raise ReferenceError_("That link is not in the list.")
+    _write_links(project, left)

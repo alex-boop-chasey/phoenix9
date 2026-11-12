@@ -29,7 +29,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, checklock, events, failmodes, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, checklock, events, failmodes, gatenotify, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
@@ -411,7 +411,7 @@ class Runner:
         why = "\n".join(x for x in (f"Task {n}: {task['title']}", task.get("goal", ""),
                                     f"Done when:\n{done}" if done else "") if x)
         _open_gate(run_dir, ("task", n), kind="human-task", title=f"Task {n} is for you: {task['title']}",
-                   why=why, task=n, actions=["approve", "skip", "stop"])
+                   why=why, task=n, actions=["approve", "skip", "stop"], adapters=self.adapters)
         return "waiting"
 
     def _answer_task_gate(self, run_dir: Path, n: int, gate_id: str) -> str:
@@ -592,7 +592,7 @@ class Runner:
         ctx.resume = resume                         # a paused step starts again in a fresh container (not a new try)
         result = self._call_with_proxies(ctx, step)
         if result.status == "gate":
-            return self._open_step_gate(run_dir, index, step, number, result)
+            return self._open_step_gate(run_dir, index, step, number, result, setup)
         heartbeat.mark_progress()                   # ...and so is it ending
         status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
         self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
@@ -632,7 +632,8 @@ class Runner:
                    f"(it stopped before saying), so ${spent:.2f} of the ${cap:.2f} cap is a low guess. "
                    "Raise the cap to carry on, or stop.")
             title = "Spending unknown"
-        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS)
+        _open_gate(run_dir, ("run",), kind="budget", title=title, why=why, actions=gates.BUDGET_ACTIONS,
+                   adapters=self.adapters)
         return Outcome("waiting")
 
     def _on_approved(self, run_dir: Path, setup: dict, things: dict, name: str, number, produces: dict) -> dict:
@@ -670,17 +671,32 @@ class Runner:
         state.update(run_dir, change)
 
     def _open_step_gate(self, run_dir: Path, index: int, step: Step, task: int | None,
-                        result: StepResult) -> Outcome:
+                        result: StepResult, setup: dict | None = None) -> Outcome:
         """Open the gate the step asked for. The line keeps what the step said (produces, reasons)
         so the answer can be acted on after a restart."""
         spec = dict(result.gate or {})
-        _open_gate(run_dir, ("line", index), extra={"produces": dict(result.produces),
+        auto = self._auto_approves(step, spec, setup)
+        gate = _open_gate(run_dir, ("line", index), extra={"produces": dict(result.produces),
                                                     "reasons": list(result.reasons)},
+                   adapters=None if auto else self.adapters,
                    kind=spec.get("kind", "step"), title=spec.get("title", step.title),
                    why=spec.get("why", "; ".join(result.reasons) or f"{step.title} needs you."),
                    task=task, step=step.name, links=spec.get("links", ()), actions=spec.get("actions"),
                    flags=spec.get("flags", ()), head=spec.get("head"), task_statuses=spec.get("task_statuses"))
+        if auto:
+            self._approve_plan_by_setting(run_dir, gate)
         return Outcome("waiting")
+
+    def _auto_approves(self, step: Step, spec: dict, setup: dict | None) -> bool:
+        """True only for the planner's plan question when the project set planner `auto_approve` (never any other gate)."""
+        return (setup is not None and step.name == "planner" and spec.get("kind") == "plan"
+                and self._step_settings(setup, "planner").get("auto_approve") is True)
+
+    def _approve_plan_by_setting(self, run_dir: Path, gate: dict) -> None:
+        """Answer the plan question as approved (who = setting) and tell Alex; the run goes on at once."""
+        gates.answer(gate["id"], "approve", who="setting",
+                     note="Approved automatically: the project setting planner.auto_approve is on.")
+        gatenotify.announce_auto_approved(self.adapters, run_dir, gate)
 
     def _handle_gate(self, run_dir: Path, setup: dict, things: dict, index: int, line: dict, number) -> Outcome | None:
         """The step's gate: no answer yet = still waiting; else act on it (STEP_ANSWERS).
@@ -804,12 +820,12 @@ class Runner:
 
 
 # ---------------------------------------------------------------------- gates held by the run
-def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -> dict:
+def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, adapters=None, **fields) -> dict:
     """Open a gate (gates.open_gate takes `fields`) and, in ONE state update, record who holds it:
     holder ("task", n) sets the task's `gate`; ("line", index) sets that step line's `gate` and
     status waiting. `extra` fields go onto the holder too. current.gate is set either way.
     Opening a gate is a boundary: an ended run or a stop request stops here, before anything is
-    written (runend.check)."""
+    written (runend.check). With `adapters`, Alex gets the one "a question is waiting" message."""
     runend.check(run_dir)
     try:
         gate = gates.open_gate(run_dir, **fields)
@@ -827,6 +843,8 @@ def _open_gate(run_dir, holder: tuple, *, extra: dict | None = None, **fields) -
                                          note=f"waiting for gate {gate['id']}", **(extra or {}))
         s["current"]["gate"] = gate["id"]
     state.update(Path(run_dir), change)
+    if adapters is not None:
+        gatenotify.announce(adapters, Path(run_dir), gate)
     return gate
 
 

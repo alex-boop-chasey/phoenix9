@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 94b61d67e53ba7a5 -->
+<!-- phoenix 9.1.0 inputs e20ab913d5bd9f0b -->
 # Settings (phoenix.toml)
 
 Change with `phoenix settings`. Unknown keys are errors.
@@ -54,6 +54,7 @@ Lowest first; a later layer wins: library < profile < preset < project < run.
 | `steps.spec-check.on` | bool | true |  |
 | `steps.branch.on` | bool | true |  |
 | `steps.planner.on` | bool | false |  |
+| `steps.planner.auto_approve` | bool | false |  |
 | `steps.service-setup.on` | bool | true |  |
 | `steps.check-writer.on` | bool | false |  |
 | `steps.check-writer.once` | bool | true |  |

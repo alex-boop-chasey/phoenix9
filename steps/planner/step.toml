@@ -9,6 +9,9 @@ needs = ["spec"]
 produces = ["plan"]
 default = "off"
 
+[settings]
+auto_approve = false    # true = the plan question is approved automatically (only this question, never merge)
+
 [ai]
 model = "claude-sonnet-5-5"
 fallback_models = ["claude-opus-5-5"]

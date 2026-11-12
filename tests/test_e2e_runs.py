@@ -256,7 +256,7 @@ def test_continue_mode_e2e(e2e):
     assert reason
     summary = e2e.cli("run", "log", run_id, "--summary")[1]
     assert "Task 1" in summary and reason.split(";")[0][:40] in summary
-    assert len(trailers(e2e, run_id)) == 1 and len(e2e.adapters.notify.messages) == 1
+    assert len(trailers(e2e, run_id)) == 1 and len(e2e.adapters.notify.messages) == 2   # the merge question + the run's end
 
 
 def test_pause_mode_e2e_ack_via_cli(e2e):
@@ -332,7 +332,7 @@ def test_runner_restart_mid_merge_gate_e2e(e2e):
     st = e2e.state(run_id)
     assert st["status"] == "done", st
     assert e2e.git("branch", "--list", f"phoenix/{run_id}").strip() == ""   # merged, so the branch is gone
-    assert len(e2e.adapters.notify.messages) == 1
+    assert len(e2e.adapters.notify.messages) == 2     # the merge question (told once, not again after the restart) + the end
 
 
 def test_quick_run_deploys_on_merge(e2e, tmp_path, monkeypatch):

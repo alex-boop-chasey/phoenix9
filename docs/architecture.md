@@ -806,6 +806,19 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   hand edits.
   Gate ids: `<run-id>.<n>`.
 
+
+### 8.3 Telling Alex a question is waiting (`phoenix9/gatenotify.py`)
+Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter: project, run
+title, the question's title in one scrubbed line (cut to ~200 characters; never plan text or files) and a link to
+`<dashboard_url>/p/<project>/build` (no dashboard address set: it says to look under Needs you). A Pause-mode
+escalation keeps its own message from failmodes and is only recorded. What was sent is kept in
+`gates/<id>.notified` (`first`, `reminders`, `last`), so a restart never repeats it. While the question is open,
+the runner loop (`watch.check_gate_reminders`, checked once a minute) reminds every global `[notify] remind_hours`
+(default 4; 0 = none), at most 6 times; an answer or the run ending stops them. Nothing inbound: answering is
+only in the dashboard or the CLI. Planner setting `auto_approve` (default false) answers ONLY the planner's
+`plan` question, as approve with who = `setting` and a plain note, and sends "plan approved automatically
+(project setting)" instead of the waiting message; it is a safety key (the agent may not change it).
+
 ## 8.4 Repairs: report and notes (`phoenix9/repair/`, `ops/repair.py`, `phoenix repair`)
 
 The repair kit is DOCUMENT BASED. Phoenix writes a plain-English **run report** from the real run state; a

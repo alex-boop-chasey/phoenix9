@@ -17,7 +17,7 @@ import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import atomic, chatlink, events, gates, paths, scrub, state, taskfile
+from phoenix9 import atomic, chatlink, events, gatenotify, gates, paths, scrub, state, taskfile
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
@@ -177,6 +177,7 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
     told = f"Phoenix: task {task_no} of run {run_id} ({project}) needs you: {why} (gate {gate['id']})"
     if mode != "delegate":
         runner.adapters.notify.send(told)
+        gatenotify.mark_sent(runner.adapters, run_dir, gate)     # this is its one message; reminders follow it
         return gate
     problem = _hand_to_agent(run_dir, gate, run_id, project, task_no)
     if problem:

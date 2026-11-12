@@ -51,6 +51,8 @@ if [ -n "$ID" ] && [ "$SIGNALLED" = no ]; then
     STARTED=$SECONDS
     "$CLAUDE" remote-control --session-id "$ID" --permission-mode bypassPermissions &
     CHILD=$!
+    # A stop signal that arrived before CHILD was set was not passed on yet.
+    [ "$SIGNALLED" = no ] || kill -TERM "$CHILD" 2>/dev/null
     # `wait` returns early when a signal arrives; keep waiting until Claude has really ended.
     while :; do
         wait "$CHILD"

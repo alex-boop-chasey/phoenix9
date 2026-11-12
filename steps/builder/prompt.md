@@ -56,6 +56,9 @@ tests. Only that run decides whether the task passed. Your own words do not coun
   already committed (a NEW `package.json` may and should have them). Do not create symlinks or git
   submodules. Never touch `.git`.
 - Never write a key, token or password into a file. Test keys are already in your environment.
+  A test that needs a key-shaped value must build it at run time from harmless pieces (for example by joining
+  two short strings) or use the test keys already in the environment. A literal key-shaped string in any file,
+  test files included, fails the task.
 - The network is firewalled to an allowlist. If something you need is blocked, say so at the end.
 - Pin exact versions when you add a package. Install with the package manager (not by editing the package list by hand) so the lockfile updates, and commit the lockfile with your change.
 

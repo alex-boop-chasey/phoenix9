@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, events, scrub, settings, state
+from phoenix9 import atomic, events, failmodes, scrub, settings, state
 
 TEMPLATE = Path(__file__).parent / "assets" / "summary.html"
 
@@ -47,6 +47,8 @@ def _task_flag(task: dict) -> str:
         return "FAILED: " + (task.get("flagged") or (task.get("failures") or ["it failed"])[-1])
     if task["status"] == "skipped":
         return "SKIPPED: " + (task.get("note") or "no reason given")
+    if task["status"] == "passed" and task.get("note") == failmodes.ALREADY_DONE:
+        return failmodes.ALREADY_DONE
     return ""
 
 

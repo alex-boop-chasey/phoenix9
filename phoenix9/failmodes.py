@@ -89,6 +89,14 @@ def _spec(run_dir: Path):
     return spec_mod.from_json(atomic.read_json(run_dir / "spec.json"))
 
 
+ALREADY_DONE = "already done: nothing needed changing"
+
+
+def already_done_marker(run_dir, task_no: int, attempt: int) -> Path:
+    """The file the builder leaves when the task needed no change (its checks are what decide)."""
+    return attempt_dir(run_dir, task_no, attempt) / "already-done.txt"
+
+
 def _finish_task(run_dir: Path, task_no: int, status: str, **fields) -> None:
     def change(s):
         s["tasks"][str(task_no)].update(status=status, gate=None, **fields)

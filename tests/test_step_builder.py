@@ -11,7 +11,7 @@ import pytest
 
 from helpers import scripted
 from helpers.scripted import on
-from phoenix9 import aistep, paths, runs, settings, state
+from phoenix9 import aistep, events, paths, runs, settings, state, summary
 from phoenix9.runner import Runner
 from phoenix9.stepctx import StepResult
 
@@ -34,8 +34,10 @@ def git(cwd, *args):
                           check=True, capture_output=True, text=True).stdout
 
 
-def make_lib(root, with_checks=True) -> Path:
+def make_lib(root, with_checks=True, red_check=False) -> Path:
     steps = {k: v for k, v in scripted.STEPS.items() if k != "builder" and (with_checks or k != "checks")}
+    if red_check:
+        steps["red-check"] = dict(level="task", order=20, needs=["checks"], produces=[], settings={"once": True})
     scripted.make_library(root, steps)
     shutil.copytree(REPO / "steps" / "builder", root / "steps" / "builder")
     shutil.copytree(REPO / "profiles", root / "profiles")
@@ -57,7 +59,7 @@ def project():
 @pytest.fixture
 def setup(tmp_path, adapters, project):
     scripted.reset()
-    yield lambda with_checks=True: Runner(adapters, make_lib(tmp_path / "lib", with_checks))
+    yield lambda with_checks=True, red_check=False: Runner(adapters, make_lib(tmp_path / "lib", with_checks, red_check))
     scripted.reset()
 
 
@@ -189,6 +191,40 @@ def test_spec_problem_reason(tmp_path, setup):
 def test_builder_ignores_step_done_claim(tmp_path, setup):
     runner = setup()
     runner.adapters.claude.sessions += [{"text": "All checks pass.\nSTEP DONE"}]
+    on("acceptance", 1, 1, StepResult("fail", ["check a failed"]))
+    run_dir = start(tmp_path, max_tries=1, on_failure="continue")
+    runner.drive(run_dir)
+    assert builder_line(run_dir)["status"] == "passed"      # the checks decide, not the claim
+    assert state.load(run_dir)["tasks"]["1"]["status"] == "failed"
+
+
+def test_no_change_passes_when_checks_pass(tmp_path, setup):
+    runner = setup()
+    runner.adapters.claude.sessions += [{"text": "Already there.\nSTEP DONE"}]
+    run_dir = start(tmp_path, max_tries=1)
+    runner.drive(run_dir)
+    task = state.load(run_dir)["tasks"]["1"]
+    assert task["status"] == "passed" and task["note"] == "already done: nothing needed changing"
+    assert "already done" in summary.markdown(summary.facts(run_dir))
+    assert any(e["type"] == "task.finished" and "already done" in e["data"].get("note", "")
+               for e in events.read(run_dir / "events.jsonl"))
+
+
+def test_no_change_without_checks_fails(tmp_path, setup):
+    runner = setup(with_checks=False)
+    runner.adapters.claude.sessions += [{"text": "STEP DONE"}]
+    text = SPEC.replace("- `python3 a.py`\n- it is documented", "- it is documented")
+    f = tmp_path / "spec2.md"
+    f.write_text(text)
+    run_dir = runs.create_run("proj", f, {"max_tries": 1, "on_failure": "continue"})
+    runner.drive(run_dir)
+    line = builder_line(run_dir)
+    assert line["status"] == "failed" and "changed no files" in line["note"]
+
+
+def test_no_change_after_red_check_fails(tmp_path, setup):
+    runner = setup(red_check=True)
+    runner.adapters.claude.sessions += [{"text": "STEP DONE"}]
     run_dir = start(tmp_path, max_tries=1, on_failure="continue")
     runner.drive(run_dir)
     line = builder_line(run_dir)
@@ -215,3 +251,10 @@ def test_finish_line_reading():
     assert aistep.finish_line("ok") == ("none", "")
     with pytest.raises(ValueError, match="nope"):
         aistep.render("a {{nope}}", {})
+
+
+def test_prompts_tell_how_to_build_key_shaped_values():
+    builder = (REPO / "steps" / "builder" / "prompt.md").read_text()
+    assert "build it at run time from harmless pieces" in builder and "test files included, fails the task" in builder
+    writer = (REPO / "steps" / "check-writer" / "prompt.md").read_text()
+    assert "build it at run time from harmless pieces" in writer

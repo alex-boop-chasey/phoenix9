@@ -3,6 +3,8 @@ from phoenix9 import keys, paths, scrub, state
 from phoenix9.stepctx import StepResult
 
 MAX_NEW_FILE = 5_000_000
+HOW_TO_FIX = ("Remove it: read the value from the environment, or in a test build any key-shaped value at run "
+              "time from harmless pieces, because a key-shaped string in any file, test files included, fails the task.")
 
 
 def _values(ctx) -> list[str]:
@@ -30,7 +32,7 @@ def run(ctx):
     base = state.load(ctx.run.folder)["tasks"][str(n)].get("attempt_base") or git.head(ctx.worktree)
     forms = git.secret_forms(_values(ctx))
     found = git.scan_added_lines(git.diff_text(ctx.worktree, base), forms)
-    bad = [f"A secret was written into {path} (line {line}): it looks like {what}. "
-           "Remove it and read the value from the environment instead." for path, line, what in found]
+    bad = [scrub.scrub(f"A secret was written into {path} (line {line}): it looks like {what}. " + HOW_TO_FIX)
+           for path, line, what in found]
     bad += _binary_files(ctx, git, git.diff_changes(ctx.worktree, base), forms)
     return StepResult("fail", bad) if bad else StepResult("pass")

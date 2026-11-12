@@ -72,3 +72,11 @@ def test_only_added_lines_count(tmp_path, adapters, work, secret_file):
     git(work, "commit", "-q", "-m", "older")
     ctx = make_ctx(tmp_path, adapters, work, "secret-scan")
     assert mod.run(ctx).status == "pass"
+
+
+def test_reason_names_file_line_and_says_how_to_fix(tmp_path, adapters, work, secret_file):
+    write(work, {"tests/t.py": f'x = 1\nKEY = "sk-ant-{"d" * 30}"\nV = "{VALUE}"\n'})
+    result = scan(tmp_path, adapters, work)
+    text = "\n".join(result.reasons)
+    assert "tests/t.py (line 2)" in text and "from harmless pieces" in text
+    assert "d" * 30 not in text and VALUE not in text

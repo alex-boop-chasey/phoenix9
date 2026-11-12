@@ -445,7 +445,8 @@ class Runner:
             k = t.get("tries", 0)
             last = failmodes.attempt_result(run_dir, n, k) if k else None
             if last is not None and last["status"] == "passed":
-                failmodes._finish_task(run_dir, n, "passed")
+                done = failmodes.already_done_marker(run_dir, n, k).is_file()
+                failmodes._finish_task(run_dir, n, "passed", **({"note": failmodes.ALREADY_DONE} if done else {}))
                 return "passed"
             if last is not None and not t.get("rerun") and not failmodes.should_retry(run_dir, n, max_tries):
                 if last.get("kept"):

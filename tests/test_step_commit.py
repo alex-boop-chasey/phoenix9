@@ -2,6 +2,7 @@
 import pytest
 
 from helpers.stepunit import git, load, make_ctx, make_work, write
+from phoenix9 import failmodes
 from phoenix9 import git as pgit
 
 mod = load("commit")
@@ -50,3 +51,15 @@ def test_passed_tasks_from_trailers(tmp_path, work):
     assert pgit.passed_tasks(work, base) == [1, 3]
     with pytest.raises(pgit.GitError):
         pgit.passed_tasks(work, "nonsense")
+
+
+def test_commit_already_done_records_no_new_commit(tmp_path, adapters, work):
+    ctx = make_ctx(tmp_path, adapters, work, "commit")
+    marker = failmodes.already_done_marker(ctx.run.folder, 1, ctx.attempt)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text("x\n")
+    head = git(work, "rev-parse", "HEAD").strip()
+    res = mod.run(ctx)
+    assert res.status == "pass" and res.produces["commit"] == head
+    assert git(work, "rev-parse", "HEAD").strip() == head
+    assert "already done: nothing needed changing" in (ctx.run.folder / "progress.md").read_text()

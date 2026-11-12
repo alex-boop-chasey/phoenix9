@@ -1,7 +1,7 @@
 """Builder: Claude writes the code for one task; Phoenix judges only the files it left behind."""
 from pathlib import Path
 
-from phoenix9 import atomic, checklock, state, taskfile
+from phoenix9 import atomic, checklock, failmodes, state, taskfile
 from phoenix9.aistep import failures_list, finish_line, profile_test, task_text
 from phoenix9.reports import NO_SERVICES_TEXT
 from phoenix9.stepctx import StepResult
@@ -129,6 +129,26 @@ def before(ctx) -> dict:
     }
 
 
+def _has_checks(ctx) -> bool:
+    """True when the task has locked checks or Done-when commands to judge it by."""
+    checks = ctx.things.get("checks")
+    if isinstance(checks, list) and checks:
+        return True
+    return any(c.get("command") for c in (ctx.task or {}).get("done_when", []))
+
+
+def _red_check_ran(ctx) -> bool:
+    """True when Red check passed or failed for this task in any try."""
+    n = ctx.task["number"]
+    return any(x["task"] == n and x["step"] == "red-check" and x["status"] in ("passed", "failed")
+               for x in state.load(ctx.run.folder)["steps"])
+
+
+def _may_be_done_already(ctx) -> bool:
+    """No change is fine only when real checks will judge it and Red check did not expect new code."""
+    return _has_checks(ctx) and not _red_check_ran(ctx)
+
+
 def after(ctx, session) -> StepResult:
     """Judge the session from its files: write diff.patch; the builder's own words never pass a task."""
     if session.kind in EARLY_END:
@@ -140,9 +160,14 @@ def after(ctx, session) -> StepResult:
     n = ctx.task["number"]
     base = state.load(ctx.run.folder)["tasks"][str(n)].get("attempt_base") or ctx.adapters.git.head(ctx.worktree)
     patch = ctx.adapters.git.diff_text(ctx.worktree, base, binary=True)
+    out = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}" / "diff.patch"
     if not patch.strip():
+        if kind == "done" and _may_be_done_already(ctx):
+            atomic.write_text(out, "")
+            atomic.write_text(failmodes.already_done_marker(ctx.run.folder, n, ctx.attempt),
+                              failmodes.ALREADY_DONE + "\n")
+            return StepResult("pass", produces={"diff": str(out)})
         why = "The builder changed no files"
         return StepResult("fail", [f"{why}. It said: {detail}" if kind == "blocked" else why])
-    out = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}" / "diff.patch"
     atomic.write_text(out, patch)
     return StepResult("pass", produces={"diff": str(out)})

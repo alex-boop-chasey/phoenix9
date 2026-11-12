@@ -58,7 +58,7 @@ def test_quick_preset(lib, tmp_path):
 def test_full_preset(lib, tmp_path):
     plan, eff = plan_for(lib, tmp_path, "full")
     assert sorted(n for g in plan.groups.values() for n in g) == sorted(s.name for s in lib.steps)
-    assert eff.get("steps.verify.scope") == "full"
+    assert eff.get("steps.verify.scope") == "affected"
     assert plan.sources["builder"]["plan"] == "step:planner"
     assert plan.sources["commit"]["verdict"] == "step:reviewer"
 

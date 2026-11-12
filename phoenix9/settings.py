@@ -485,6 +485,11 @@ PROFILE_SCHEMA: dict[str, Spec] = {
     "test.check_files": _spec(""),
     "test.check_command": _spec(""),
     "test.report_args": _spec(""),
+    "test.affected_cmd": _spec(""),
+    "test.affected_takes": _spec("tests", ("tests", "sources")),
+    "test.affected_max": _spec(40),
+    "test.test_globs": _spec(""),
+    "test.affected_all_globs": _spec(""),
 }
 
 

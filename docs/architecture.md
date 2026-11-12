@@ -312,7 +312,12 @@ committed lockfile),
   into main never land in a later run's task folder; the builder is told `<checks_dir>/<run-id>/` is
   read-only), `check_files` (glob(s), space-separated, the
   check writer must use), `check_command` (runs given check files; `{files}` = space-joined paths) and
-  `report_args` (appended so the report reader finds its file in `/out`).
+  `report_args` (appended so the report reader finds its file in `/out`);
+- optional "run only the affected tests" keys (`phoenix9/affected.py`; none set = run the whole suite as before):
+  `affected_cmd` (a command with `{files}`), `affected_takes` (`tests`, the default, or `sources` for tools that
+  find related tests themselves), `affected_max` (default 40; more files than this means everything),
+  `test_globs` (which paths are test files) and `affected_all_globs` (paths whose change always means everything;
+  both space-separated globs).
 
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.

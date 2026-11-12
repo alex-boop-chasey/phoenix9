@@ -85,7 +85,7 @@ describe("ProjectPage", () => {
 
   it("header Chat button shows the row's chat state", async () => {
     mockApi({
-      "GET /api/projects/demo-site": { ...projects[0], chat: { state: "live", bridge_session_id: "s1", web_url: null, app_url: null, last_active: null } },
+      "GET /api/projects/demo-site": { ...projects[0], chat: { state: "awake", bridge_session_id: "s1", web_url: null, app_url: null, last_active: null } },
       "GET /api/gates": [],
       "GET /api/projects/demo-site/runs": [],
       "GET /api/projects/demo-site/changelog": [],
@@ -93,7 +93,22 @@ describe("ProjectPage", () => {
     })
     renderAt("/p/demo-site/overview")
     await screen.findByRole("heading", { name: "demo-site" })
-    expect(document.querySelector(".phead .chatdot")).toHaveClass("chatdot-live")
+    expect(document.querySelector(".phead .chatdot")).toHaveClass("chatdot-awake")
+    expect(screen.getByRole("button", { name: "Sleep" })).toBeInTheDocument()
+  })
+
+  it("header has no Sleep button when the chat is asleep", async () => {
+    mockApi({
+      "GET /api/projects/demo-site": { ...projects[0], chat: { state: "asleep", bridge_session_id: "s1", web_url: null, app_url: null, last_active: null } },
+      "GET /api/gates": [],
+      "GET /api/projects/demo-site/runs": [],
+      "GET /api/projects/demo-site/changelog": [],
+      "GET /api/events/recent": { events: [], next: 0 },
+    })
+    renderAt("/p/demo-site/overview")
+    await screen.findByRole("heading", { name: "demo-site" })
+    expect(document.querySelector(".phead .chatdot")).toHaveClass("chatdot-asleep")
+    expect(screen.queryByRole("button", { name: "Sleep" })).toBeNull()
   })
 
   it("VS Code is greyed out with a tooltip when its address is not set", async () => {

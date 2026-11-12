@@ -5,7 +5,7 @@ import type {
   DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
-  ChatInfo, ChatOpenResult, ReferenceView,
+  ChatChange, ChatInfo, ChatOpenResult, ReferenceView,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -130,8 +130,8 @@ export const api = {
 
   getChat: (project: string) => get<ChatInfo>(`chat/${e(project)}`),
   openChat: (project: string) => post<ChatOpenResult>(`chat/${e(project)}/open`),
-  sleepChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/sleep`),
-  offChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/off`, { confirm: true }),
+  sleepChat: (project: string) => post<ChatChange>(`chat/${e(project)}/sleep`),
+  forgetChat: (project: string) => post<ChatChange>(`chat/${e(project)}/forget`, { confirm: true }),
 
   reference: (name: string) => get<ReferenceView>(`projects/${e(name)}/reference`),
   addReferenceFile: (name: string, filename: string, dataBase64: string) =>

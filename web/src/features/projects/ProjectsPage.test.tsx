@@ -219,7 +219,7 @@ test("phoenix9 shows the can't-be-removed dialog and never calls the API", async
 
 const chatInfo = (state: string) => ({ state, bridge_session_id: "s1", web_url: "https://claude.ai/code/s1", app_url: null, last_active: null })
 
-test.each(["starting", "sleeping", "live", "working"])("a %s chat shows its dot on the row", async (state) => {
+test.each(["asleep", "awake", "working"])("a %s chat shows its dot on the row", async (state) => {
   const rows = projects.map((p) => (p.name === "demo-site" ? { ...p, chat: chatInfo(state) } : p))
   mockApi(routes(rows as ProjectRow[]))
   renderPage()
@@ -227,10 +227,11 @@ test.each(["starting", "sleeping", "live", "working"])("a %s chat shows its dot 
   const dot = rowOf("demo-site").querySelector(".chatdot")
   expect(dot).toHaveClass(`chatdot-${state}`)
   expect(within(rowOf("demo-site")).getByRole("button", { name: /Chat/ })).toBeInTheDocument()
+  expect(within(rowOf("demo-site")).queryByRole("button", { name: "Sleep" })).toBeNull()
 })
 
-test("an off chat shows a Chat button without a dot", async () => {
-  const rows = projects.map((p) => (p.name === "demo-site" ? { ...p, chat: chatInfo("off") } : p))
+test("a project with no chat yet shows a Chat button without a dot", async () => {
+  const rows = projects.map((p) => (p.name === "demo-site" ? { ...p, chat: chatInfo("none") } : p))
   mockApi(routes(rows as ProjectRow[]))
   renderPage()
   await screen.findByText("4 projects")
@@ -241,7 +242,7 @@ test("an off chat shows a Chat button without a dot", async () => {
 test("pressing Chat opens that project's chat and not the row", async () => {
   vi.stubGlobal("open", vi.fn())
   const { calls } = mockApi(routes(projects, {
-    "POST /api/chat/demo-site/open": { state: "live", web_url: null, app_url: null, bridge_session_id: null, message: "ok" },
+    "POST /api/chat/demo-site/open": { state: "awake", web_url: null, app_url: null, bridge_session_id: null, message: "ok" },
   }))
   renderPage()
   await screen.findByText("4 projects")

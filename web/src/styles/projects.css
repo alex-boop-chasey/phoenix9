@@ -76,6 +76,9 @@
 .ph-r .chatbtn .btn{--h:38px; padding:0 12px; font-size:13px}
 .chatbtn .chaterr{font-size:12px; color:var(--bad)}
 .chatdot{display:inline-block; width:8px; height:8px; margin-left:8px; border-radius:50%; background:var(--text-3, #888)}
-.chatdot-live,.chatdot-working{background:var(--ok)}
-.chatdot-starting{background:var(--accent-3)}
-.chatdot-working{animation:pulse 1.6s ease-in-out infinite}
+.chatdot-awake{background:var(--ok)}
+.chatdot-working{background:var(--accent)}
+.chatdot-asleep,.chatdot-waking{background:var(--text-3)}
+.chatdot-waking{animation:pulse 1.6s ease-in-out infinite}
+.chatbtn .btn .wheel{width:12px; height:12px; border-width:2px}
+@media (prefers-reduced-motion:reduce){.chatdot-waking{animation:none}}

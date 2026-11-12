@@ -1,7 +1,10 @@
+/// <reference types="node" />
 import { fireEvent, screen, waitFor } from "@testing-library/react"
+import { readdirSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
 import { vi } from "vitest"
 
-import { ChatButton } from "@/components/ChatButton"
+import { ChatButton, ChatSleepButton } from "@/components/ChatButton"
 import type { ChatInfo, ChatState } from "@/lib/types"
 import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -10,68 +13,90 @@ const info = (state: ChatState): ChatInfo => ({
   state, bridge_session_id: "sess1", web_url: "https://claude.ai/code/sess1", app_url: null, last_active: null,
 })
 const OPENED = {
-  state: "live", web_url: "https://claude.ai/code/sess1", app_url: null, bridge_session_id: "sess1", message: "ok",
+  state: "awake", web_url: "https://claude.ai/code/sess1", app_url: null, bridge_session_id: "sess1", message: "ok",
+  woke: true, fresh: false,
 }
 const PHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+
+test.each(["asleep", "awake", "working"] as const)("%s shows its dot", (state) => {
+  renderWithProviders(<ChatButton project="demo" chat={info(state)} />)
+  expect(document.querySelector(".chatdot")).toHaveClass(`chatdot-${state}`)
+})
+
+test("waking shows the waking dot", () => {
+  mockApi({ "GET /api/chat/demo": info("waking") })
+  renderWithProviders(<ChatButton project="demo" chat={info("waking")} />)
+  expect(document.querySelector(".chatdot")).toHaveClass("chatdot-waking")
+})
 
 test.each([
-  ["sleeping", "chatdot-sleeping"], ["live", "chatdot-live"],
-  ["working", "chatdot-working"], ["starting", "chatdot-starting"],
-] as const)("%s shows the %s dot", (state, cls) => {
+  ["none", "No chat yet: press to start one"], ["asleep", "Asleep: press to wake it"],
+  ["awake", "Awake"], ["working", "Awake, working"],
+] as const)("%s has its tooltip", (state, tip) => {
   renderWithProviders(<ChatButton project="demo" chat={info(state)} />)
-  expect(document.querySelector(".chatdot")).toHaveClass(cls)
+  expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", tip)
 })
 
-test("off and null show no dot, with the off tooltip", () => {
-  renderWithProviders(<ChatButton project="demo" chat={info("off")} />)
+test("none and null show no dot", () => {
+  const { unmount } = renderWithProviders(<ChatButton project="demo" chat={info("none")} />)
   expect(document.querySelector(".chatdot")).toBeNull()
-  expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute(
-    "title", "off: pressing Chat starts a fresh conversation")
-})
-
-test("null chat is treated as off", () => {
+  unmount()
   renderWithProviders(<ChatButton project="demo" chat={null} />)
   expect(document.querySelector(".chatdot")).toBeNull()
+  expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", "No chat yet: press to start one")
 })
 
-test("sleeping has its tooltip", () => {
-  renderWithProviders(<ChatButton project="demo" chat={info("sleeping")} />)
-  expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", "asleep: it wakes when you write to it")
+test("a waking chat is fetched again until it is awake", async () => {
+  let n = 0
+  const { calls } = mockApi({ "GET /api/chat/demo": () => (++n > 1 ? info("awake") : info("waking")) })
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  try {
+    renderWithProviders(<ChatButton project="demo" chat={info("waking")} />)
+    await waitFor(() => expect(calls.length).toBe(1))
+    await vi.advanceTimersByTimeAsync(3100)
+    await waitFor(() => expect(document.querySelector(".chatdot")).toHaveClass("chatdot-awake"))
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
-test("desktop opens the app link and shows the browser link", async () => {
+test("desktop opens the app link and shows Open chat and the browser link", async () => {
   mockApi({ "POST /api/chat/demo/open": OPENED })
   const open = vi.spyOn(window, "open").mockImplementation(() => null)
-  renderWithProviders(<ChatButton project="demo" chat={info("off")} />)
+  renderWithProviders(<ChatButton project="demo" chat={info("none")} />)
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
   await waitFor(() => expect(open).toHaveBeenCalledWith("claude://claude.ai/code/sess1"))
-  expect(await screen.findByRole("link", { name: "Open in browser instead" }))
-    .toHaveAttribute("href", "https://claude.ai/code/sess1")
+  expect(await screen.findByRole("link", { name: "Open chat" })).toHaveAttribute("href", "claude://claude.ai/code/sess1")
+  expect(screen.getByRole("link", { name: "Open in browser instead" })).toHaveAttribute("href", "https://claude.ai/code/sess1")
 })
 
-test("a phone opens the https link", async () => {
+test("a phone opens the https link and Open chat points at it", async () => {
   mockApi({ "POST /api/chat/demo/open": OPENED })
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue(PHONE)
   const open = vi.spyOn(window, "open").mockImplementation(() => null)
-  renderWithProviders(<ChatButton project="demo" chat={info("sleeping")} />)
+  renderWithProviders(<ChatButton project="demo" chat={info("asleep")} />)
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
   await waitFor(() => expect(open).toHaveBeenCalledWith("https://claude.ai/code/sess1"))
+  expect(await screen.findByRole("link", { name: "Open chat" })).toHaveAttribute("href", "https://claude.ai/code/sess1")
 })
 
-test("shows Starting chat… while the reply is pending", async () => {
-  vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})))
-  renderWithProviders(<ChatButton project="demo" chat={info("off")} />)
-  fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
-  expect(await screen.findByText("Starting chat…")).toBeInTheDocument()
-})
+test.each([["none", "Starting chat…"], ["asleep", "Waking chat…"]] as const)(
+  "pending from %s reads %s, disabled, with a spinner", async (state, words) => {
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})))
+    renderWithProviders(<ChatButton project="demo" chat={info(state)} />)
+    fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
+    const button = (await screen.findByText(words)).closest("button")!
+    expect(button).toBeDisabled()
+    expect(button.querySelector('[data-testid="spinner"]')).not.toBeNull()
+  })
 
 test("an error shows the API's plain message", async () => {
-  mockApi({ "POST /api/chat/demo/open": failure(409, "The chat could not start.") })
-  renderWithProviders(<ChatButton project="demo" chat={info("off")} />)
+  mockApi({ "POST /api/chat/demo/open": failure(503, "The chat didn't wake in 60 seconds. Press Chat again.") })
+  renderWithProviders(<ChatButton project="demo" chat={info("asleep")} />)
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
-  expect(await screen.findByText("The chat could not start.")).toBeInTheDocument()
+  expect(await screen.findByRole("alert")).toHaveTextContent("The chat didn't wake in 60 seconds. Press Chat again.")
 })
 
 test("is an outlined button; compact is the small sidebar size", () => {
@@ -81,4 +106,35 @@ test("is an outlined button; compact is the small sidebar size", () => {
   unmount()
   renderWithProviders(<ChatButton project="demo" chat={null} compact />)
   expect(screen.getByRole("button", { name: /Chat/ })).toHaveClass("btn", "btn-secondary", "btn-sm")
+})
+
+test.each(["none", "asleep", "waking"] as const)("Sleep is hidden when the chat is %s", (state) => {
+  renderWithProviders(<ChatSleepButton project="demo" chat={info(state)} />)
+  expect(screen.queryByRole("button", { name: "Sleep" })).toBeNull()
+})
+
+test.each(["awake", "working"] as const)("Sleep shows when %s and says so while pending", async (state) => {
+  let answer: (r: Response) => void = () => {}
+  const fetch = vi.fn((_url: RequestInfo | URL) => new Promise<Response>((r) => { answer = r }))
+  vi.stubGlobal("fetch", fetch)
+  renderWithProviders(<ChatSleepButton project="demo" chat={info(state)} />)
+  fireEvent.click(screen.getByRole("button", { name: "Sleep" }))
+  expect(await screen.findByText("Putting the chat to sleep…")).toBeInTheDocument()
+  expect(String(fetch.mock.calls[0]?.[0])).toContain("/api/chat/demo/sleep")
+  answer(new Response(JSON.stringify({ ok: true, data: { state: "asleep", changed: true, message: "ok" } })))
+})
+
+/** Every .ts/.tsx file under src. */
+function sources(dir: string): string[] {
+  return readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f)
+    return statSync(p).isDirectory() ? sources(p) : /\.tsx?$/.test(f) ? [p] : []
+  })
+}
+
+test("no old chat state words are left in the web code", () => {
+  const old = /chatdot-(off|sleeping|starting|live)\b|state: "(sleeping|starting|live)"|offChat|\/off`/
+  const hits = sources(join(process.cwd(), "src"))   // vitest runs in web/
+    .filter((f) => !f.endsWith("ChatButton.test.tsx") && old.test(readFileSync(f, "utf8")))
+  expect(hits).toEqual([])
 })

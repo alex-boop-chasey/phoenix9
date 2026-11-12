@@ -312,18 +312,40 @@ export function useAnswerGate(project?: string) {
   })
 }
 
-/** The chat state of one project. */
-export const useChat = (name: string) =>
-  useQuery({ queryKey: keys.chat(name), queryFn: () => api.getChat(name), enabled: !!name })
+/** How often a waking chat's state is fetched again. */
+export const CHAT_WAKING_MS = 3_000
+
+/** The chat state of one project; fetched again every 3 seconds while it is waking. */
+export const useChat = (name: string, enabled = true) =>
+  useQuery({
+    queryKey: keys.chat(name), queryFn: () => api.getChat(name), enabled: !!name && enabled,
+    refetchInterval: (q) => (q.state.data?.state === "waking" ? CHAT_WAKING_MS : false),
+  })
 
 /** Open (start or wake) a project's chat, then refresh the projects list. */
 export function useOpenChat() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (name: string) => api.openChat(name),
-    onSettled: (_data, _err, name) => {
-      void qc.invalidateQueries({ queryKey: keys.projects() })
-      void qc.invalidateQueries({ queryKey: keys.chat(name) })
-    },
+    onSettled: (_data, _err, name) => refreshChat(qc, name),
   })
+}
+
+/** Refresh everything that shows a project's chat. */
+function refreshChat(qc: QueryClient, name: string) {
+  void qc.invalidateQueries({ queryKey: keys.projects() })
+  void qc.invalidateQueries({ queryKey: keys.project(name) })
+  void qc.invalidateQueries({ queryKey: keys.chat(name) })
+}
+
+/** Put a project's chat to sleep (it can take up to the wrap-up time), then refresh its state. */
+export function useSleepChat() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (name: string) => api.sleepChat(name), onSettled: (_d, _e, name) => refreshChat(qc, name) })
+}
+
+/** Forget a project's saved chat (the next Chat press starts a new one), then refresh its state. */
+export function useForgetChat() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (name: string) => api.forgetChat(name), onSettled: (_d, _e, name) => refreshChat(qc, name) })
 }

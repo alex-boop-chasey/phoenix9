@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react"
 import { Link, NavLink, useLocation } from "react-router"
 
-import { ChatButton } from "@/components/ChatButton"
+import { ChatButton, ChatSleepButton } from "@/components/ChatButton"
 import { Icon, type IconName } from "@/components/Icon"
 import { StateBadge } from "@/features/projects/ProjectTile"
 import { formatBytes } from "@/lib/format"
@@ -49,6 +49,7 @@ export function ProjectHeader({ row }: { row: ProjectRow }) {
         <StateBadge row={row} />
         <div className="ph-r">
           <ChatButton project={row.name} chat={row.chat ?? null} />
+          <ChatSleepButton project={row.name} chat={row.chat ?? null} />
           <Dock row={row} />
           <Link className="btn btn-primary" to={`${base}/build?new=1`}><Icon name="hammer" />Start new build</Link>
         </div>

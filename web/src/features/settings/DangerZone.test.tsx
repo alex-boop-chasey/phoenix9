@@ -13,7 +13,7 @@ const plan: DeletePlan = {
   open_prs: [{ number: 7, title: "Add login", url: "https://github.com/me/demo/pull/7" }],
   unpushed: 3, unsaved_edits: 2, runs: { count: 4 }, keys: ["API_KEY"], keep_days: 14,
   keys_note: "The saved keys are deleted and NOT kept in the safety copy.",
-  chat: { unit: "claude-rc-chat@demo", state: "off" },
+  chat: { unit: "claude-rc-chat@demo", state: "none" },
   deployments: [{ target: "vercel", note: "still live, take it down yourself", links: ["https://demo.example.com"] }],
   refusals: [], safety_copy: "/root/deleted-projects",
 }

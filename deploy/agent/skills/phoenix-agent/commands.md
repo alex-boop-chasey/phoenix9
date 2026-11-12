@@ -1,8 +1,48 @@
-<!-- phoenix 9.1.0 inputs 3338f4233e734f57 -->
+<!-- phoenix 9.1.0 inputs c085d8f37e6ab7d4 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
 Destructive commands need `--yes`.
+
+## `phoenix reference`
+
+a project's reference files and links
+
+### `phoenix reference list`
+
+show the reference files and links
+
+- `<project>`
+
+### `phoenix reference add`
+
+save a file as reference material
+
+- `<project>`
+- `<file>`
+- `--replace`: overwrite a file with the same name
+
+### `phoenix reference remove`
+
+delete one reference file
+
+- `<project>`
+- `<file>`: the file's name as listed
+
+### `phoenix reference link`
+
+save a web link as reference material
+
+- `<project>`
+- `<url>`
+- `--note NOTE` (default ): a few words about the link
+
+### `phoenix reference unlink`
+
+remove one saved link
+
+- `<project>`
+- `<url>`
 
 ## `phoenix run`
 

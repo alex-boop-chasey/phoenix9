@@ -61,7 +61,7 @@ def test_risk_and_agent_values_are_valid():
     for c in controls.CONTROLS:
         assert c.risk in controls.RISKS, c.name
         assert c.agent in controls.AGENTS, c.name
-        assert c.method in ("GET", "POST"), c.name
+        assert c.method in ("GET", "POST", "DELETE"), c.name
         if c.agent != "tool":
             assert c.why.strip(), f"{c.name} needs a why"
 

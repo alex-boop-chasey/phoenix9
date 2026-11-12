@@ -215,7 +215,7 @@ def test_api_doc_lists_every_route():
         return re.sub(r"<\w+>", "<>", path.split("?")[0])
 
     text = (Path(__file__).resolve().parent.parent / "docs" / "api.md").read_text()
-    documented = {(m, norm(p)) for m, p in re.findall(r"^\| (GET|POST) \| `([^`]+)`", text, re.M)}
+    documented = {(m, norm(p)) for m, p in re.findall(r"^\| (GET|POST|DELETE) \| `([^`]+)`", text, re.M)}
     for method, pattern, _ in ROUTES:
         assert (method, norm(pattern)) in documented, f"{method} {pattern} is not in docs/api.md"
 

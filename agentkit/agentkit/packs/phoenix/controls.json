@@ -1688,6 +1688,192 @@
     "confirm_with": ""
   },
   {
+    "name": "reference-file-add",
+    "description": "Save one reference file in the project; returns its entry.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Uploading reference files is Alex's alone (not an agent tool); point Alex to the Reference material card.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/files",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "reference-file-delete",
+    "description": "The same as reference-file-remove; agents use that POST route because their client sends only GET and POST.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "The same as reference-file-remove; agents use that POST route because their client sends only GET and POST.",
+    "method": "DELETE",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/files/(?P<filename>[^/]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "reference-file-remove",
+    "description": "Remove one reference file from a project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "filename",
+        "type": "string",
+        "required": true,
+        "description": "The file's name, as listed.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/files/remove",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "filename"
+  },
+  {
+    "name": "reference-link-delete",
+    "description": "The same as reference-link-remove; agents use that POST route because their client sends only GET and POST.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "The same as reference-link-remove; agents use that POST route because their client sends only GET and POST.",
+    "method": "DELETE",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/links",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "reference-link-remove",
+    "description": "Remove one saved reference link from a project.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "url",
+        "type": "string",
+        "required": true,
+        "description": "The link's address, exactly as listed.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "destructive",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/links/remove",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "url"
+  },
+  {
+    "name": "reference-links-add",
+    "description": "Add the web links in some text to the project; returns what was added and the full list.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Adding reference links is Alex's alone (not an agent tool); point Alex to the Reference material card.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/reference/links",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "reference-list",
+    "description": "List a project's reference material: the uploaded files and the saved links (names only).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/reference",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "repair-apply",
     "description": "Save posted note text in the run's repairs/notes and apply it; unreadable notes are OpsError, refusals Conflict.",
     "inputs": [],

@@ -120,6 +120,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
   run gate settings steps profiles presets project doctor api   phases 1-3
   services list|connect|test|disconnect|recipes   account services and their keys (section 4.6)
   keys audit                                  which keys exist, where used, problems (never a value)
+  reference list|add|remove|link|unlink       a project's reference files and links (notes/reference); add/link are Alex's, not the agent's
   models list|set                             Phoenix's default models per AI step (global.toml [models])
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes

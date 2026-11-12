@@ -588,23 +588,53 @@ def check_agent_rules(ctx):
     return _result(ok, detail, "Run an update to rebuild the agent's rules file from deploy/agent/agent-rules.md.")
 
 
+CHAT_UNIT_FILE = "claude-rc-chat@.service"
+
+
+def _chat_launcher_problems(ctx) -> list[str]:
+    """What is wrong with the installed chat launcher and the chat unit file that starts it ([] when fine)."""
+    launcher = paths.install() / "deploy" / "chat-launch.sh"
+    st = ctx.ad.host.stat(launcher)
+    if st is None:
+        problems = [f"the chat launcher {launcher} is missing"]
+    elif not st["mode"] & 0o111:
+        problems = [f"the chat launcher {launcher} is not executable"]
+    else:
+        problems = []
+    rc, out, _ = ctx.ad.host.systemctl("cat", CHAT_UNIT_FILE)
+    starts = [ln for ln in (out or "").splitlines() if ln.strip().startswith("ExecStart=")] if rc == 0 else []
+    if not any(str(launcher) in ln for ln in starts):
+        problems.append(f"the installed {CHAT_UNIT_FILE} does not start {launcher}")
+    return problems
+
+
 def check_project_chats(ctx):
-    """Lists each project's chat unit and its state; warns about failed units and unreadable chat documents."""
+    """Each project's chat: problems for a failed unit, an unreadable chat document or a broken launcher; a
+    warning for chats running for projects that are not listed."""
     from phoenix9 import chat, projectchat
-    lines, warnings = [], []
+    lines, problems, fixes = [], [], []
     for name in project.project_names():
-        word = projectchat.state(name, ctx.ad)["state"]
-        lines.append(f"{name}: {word}")
-        if chat.unit_state(ctx.ad.host, name) == "failed":
-            warnings.append(f"{name}: the chat unit failed")
         _, reason = projectchat.read_chat_doc(name)
         if reason and reason != "no chat document":
-            warnings.append(f"{name}: the chat document is unreadable ({reason})")
+            problems.append(f"{name}: the chat document is unreadable ({reason})")
+            fixes.append(f"`phoenix chat forget {name} --yes`, then press Chat")
+            continue
+        lines.append(f"{name}: {projectchat.state(name, ctx.ad)['state']}")
+        if chat.unit_state(ctx.ad.host, name) == "failed":
+            problems.append(f"{name}: the chat unit failed")
+            fixes.append(f"press Chat to try again; if it repeats: phoenix chat forget {name} --yes")
+    launcher = _chat_launcher_problems(ctx)
+    if launcher:
+        problems += launcher
+        fixes.append("`phoenix update` or re-run the installer")
     detail = "; ".join(lines) if lines else "no projects yet"
-    if warnings:
-        detail += "\nWarning: " + "; ".join(warnings)
-    fix = "; ".join(f"`phoenix chat forget {w.split(':')[0]} --yes`, then press Chat" for w in warnings)
-    return _result(not warnings, detail, fix)
+    if problems:
+        detail += "\nProblem: " + "; ".join(problems)
+    stray = chat.stray_units(ctx.ad.host)
+    if stray:
+        detail += ("\nWarning: chats running for projects that are not listed: " + ", ".join(stray)
+                   + ". Fix: `phoenix chat tidy --yes`")
+    return _result(not problems, detail, "; ".join(fixes))
 
 
 def check_access(ctx):

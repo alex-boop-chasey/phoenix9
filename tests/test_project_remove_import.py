@@ -1,4 +1,4 @@
-"""Remove a project from Phoenix and import it back: nothing is deleted, no service is touched."""
+"""Remove a project from Phoenix and import it back: nothing is deleted; only the chat unit is stopped."""
 import json
 
 import pytest
@@ -36,11 +36,36 @@ def test_remove_keeps_files_and_hides_from_list(env):
     assert all(after[k] == v for k, v in before.items() if k != "notes/changelog.md")
     assert "removed from Phoenix" in after["notes/changelog.md"].decode()
     assert r["name"] == "alpha" and r["removed_on"]
-    assert not calls(env["host"], "systemctl")          # Phoenix no longer runs per-project chat services
+    assert [c[1:] for c in calls(env["host"], "systemctl")] == [   # the chat stops while alpha is still listed
+        ["stop", "claude-rc-chat@alpha"], ["disable", "claude-rc-chat@alpha"], ["daemon-reload"]]
     assert not trusted(env, folder)
     assert [x["name"] for x in projects.list_()] == []
     assert settings.read_global()["removed_projects"][0]["name"] == "alpha"
     assert (paths.logs() / "commands.jsonl").read_text().count("project remove alpha") == 1
+
+
+def test_remove_stops_the_chat_unit_and_drops_its_drop_ins_first(env):
+    from phoenix9 import project_delete
+    make(env, "alpha")
+    dropin = project_delete.SYSTEMD_DIR / "claude-rc-chat@alpha.service.d"
+    dropin.mkdir(parents=True)
+    (dropin / "x.conf").write_text("x")
+    listed_at_stop = []
+    real = env["host"].systemctl
+    env["host"].systemctl = lambda *a: (listed_at_stop.append("alpha" in project.project_names()), real(*a))[1]
+    projects.remove("alpha", "tester")
+    assert not dropin.exists() and listed_at_stop and all(listed_at_stop)
+    assert ["remove_tree", str(dropin)] in env["host"].calls
+
+
+def test_remove_stops_with_a_plain_message_when_the_chat_will_not_stop(env):
+    folder = make(env, "alpha")
+    project.trust(env["host"], folder)
+    env["host"].script(["systemctl", "disable"], rc=1, err="Access denied")
+    with pytest.raises(OpsError, match="couldn't stop alpha's chat, so the project was not removed.*Access denied"):
+        projects.remove("alpha", "tester")
+    assert [x["name"] for x in projects.list_()] == ["alpha"]
+    assert "removed_projects" not in settings.read_global() and trusted(env, folder)
 
 
 def test_remove_refuses_phoenix9_and_home(env):

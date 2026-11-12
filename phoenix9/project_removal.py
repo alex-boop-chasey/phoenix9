@@ -85,8 +85,18 @@ def _folder_repo(folder: Path) -> str:
     return repo
 
 
+def _stop_chat_first(name: str, host) -> None:
+    """Stop the project's chat unit while it is still listed (the same helper delete uses); a plain OpsError if not."""
+    from phoenix9 import project_delete
+    try:
+        project_delete.stop_chat(name, host)
+    except OpsError as err:
+        raise OpsError(f"Phoenix couldn't stop {name}'s chat, so the project was not removed: {err}. "
+                       "Try again; if it repeats, run `phoenix doctor`.")
+
+
 def remove(name: str, who: str, adapters) -> dict:
-    """Take a project off Phoenix's list; keeps every file. Holds the per-project lock."""
+    """Take a project off Phoenix's list after stopping its chat; keeps every file. Holds the per-project lock."""
     with common.project_lock(name):
         return _remove(name, who, adapters)
 
@@ -97,6 +107,7 @@ def _remove(name: str, who: str, adapters) -> dict:
     folder = common.project_dir(name)
     if name in removed_names():
         raise Conflict(f"{name} is already removed.")
+    _stop_chat_first(name, adapters.host)
     untrust(adapters.host, folder)
     row = {"name": name, "path": str(folder), "repo": _folder_repo(folder),
            "removed_on": datetime.now(timezone.utc).strftime("%Y-%m-%d")}

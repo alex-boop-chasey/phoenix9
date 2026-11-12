@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 59f54562e5ae8fd6 -->
+<!-- phoenix 9.1.0 inputs ba17029500166617 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -687,7 +687,7 @@ move the dashboard to a page
 
 ## `phoenix chat`
 
-project chats: status, open, sleep, forget
+project chats: status, open, sleep, forget, tidy
 
 ### `phoenix chat status`
 
@@ -713,6 +713,12 @@ stop the chat and forget its saved conversation (needs --yes)
 
 - `<project>`: the project
 - `--yes`: confirm that you mean it
+
+### `phoenix chat tidy`
+
+list chats running for projects that are not listed; --yes stops them
+
+- `--yes`: stop them
 
 ## `phoenix repair`
 

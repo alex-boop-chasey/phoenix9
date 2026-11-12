@@ -1,4 +1,4 @@
-"""The `phoenix chat` commands: status, open, sleep or forget a project's chat."""
+"""The `phoenix chat` commands: status, open, sleep or forget a project's chat, and tidy stray chats."""
 import argparse
 import sys
 import time
@@ -12,7 +12,7 @@ WORDS = {"none": "No chat yet", "asleep": "Asleep", "waking": "Waking", "awake":
 
 def add(sub, common_parser) -> None:
     """Register the chat group."""
-    p = sub.add_parser("chat", parents=[common_parser], help="project chats: status, open, sleep, forget")
+    p = sub.add_parser("chat", parents=[common_parser], help="project chats: status, open, sleep, forget, tidy")
     cmds = p.add_subparsers(dest="chat_cmd", metavar="COMMAND", title="commands")
     t = cmds.add_parser("status", parents=[common_parser], help="show one project's chat, or every project's")
     t.add_argument("project", nargs="?", help="the project (leave out for all)")
@@ -28,6 +28,10 @@ def add(sub, common_parser) -> None:
     f.add_argument("project", help="the project")
     f.add_argument("--yes", action="store_true", help="confirm that you mean it")
     f.set_defaults(func=run_forget)
+    y = cmds.add_parser("tidy", parents=[common_parser],
+                        help="list chats running for projects that are not listed; --yes stops them")
+    y.add_argument("--yes", action="store_true", help="stop them")
+    y.set_defaults(func=run_tidy)
     # Old name, kept so scripts don't break; no help= so it is not listed.
     off = cmds.add_parser("off", parents=[common_parser])
     off.add_argument("project", help="the project")
@@ -88,6 +92,24 @@ def run_forget(args) -> int:
                              "fresh one. Run it again with --yes to do it." % args.project)
     data = chat.forget_chat(args.project, args.who)
     return show(args, data, data["message"])
+
+
+def run_tidy(args) -> int:
+    """List stray chats; with --yes stop them."""
+    if not args.yes:
+        names = chat.stray_chats()
+        if not names:
+            return show(args, {"stray": []}, "No stray chats: every running chat belongs to a listed project.")
+        text = ("Chats running for projects that are not listed:\n" + "\n".join("  " + n for n in names)
+                + "\nRun `phoenix chat tidy --yes` to stop them.")
+        return show(args, {"stray": names}, text)
+    data = chat.tidy(args.who)
+    lines = ["Stopped the chat for " + n + "." for n in data["stopped"]]
+    lines += ["Could not stop the chat for %s: %s" % (f["name"], f["error"]) for f in data["failed"]]
+    text = "\n".join(lines) if lines else "No stray chats to stop."
+    if data["failed"]:
+        return problem(args, text)
+    return show(args, data, text)
 
 
 def run_off(args) -> int:

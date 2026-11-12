@@ -553,7 +553,7 @@ def _unit_ok(rc: int, out: str, err: str) -> bool:
     return rc == 0 or any(w in f"{out} {err}".lower() for w in UNIT_GONE)
 
 
-def _stop_chat(name: str, host) -> str:
+def stop_chat(name: str, host) -> str:
     """Stop and disable the chat unit, remove its drop-ins, reload systemd; raises OpsError if systemctl refuses."""
     unit = f"claude-rc-chat@{name}"
     for args in (("stop", unit), ("disable", unit)):
@@ -684,7 +684,7 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
         untrust(host, folder)
         return "Removed Claude Code's folder trust entry."
 
-    _step(steps, who, name, "chat unit", lambda: _stop_chat(name, host))
+    _step(steps, who, name, "chat unit", lambda: stop_chat(name, host))
     if steps[-1]["ok"]:                 # the chat could still be working in the folder: never remove it then
         _step(steps, who, name, "records and runs", records)
         _step(steps, who, name, "project folder", remove_folder)

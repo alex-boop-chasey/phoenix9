@@ -1,4 +1,4 @@
-"""Ops for project chats: state, open, sleep, forget and the status of all; shared by the CLI and the API."""
+"""Ops for project chats: state, open, sleep, forget, the status of all and tidying stray chats; shared by the CLI and the API."""
 from phoenix9 import projectchat
 from phoenix9.ops import common
 
@@ -59,5 +59,26 @@ def status_all() -> dict:
         except Exception:       # one unreadable chat must not hide the others
             current = {"state": "unknown", "last_active": None}
         rows.append({"name": name, "state": current["state"], "last_active": current.get("last_active")})
-    unlisted = [n for n in chat.active_chat_names(adapters.host) if n not in names]
-    return {"projects": rows, "unlisted": unlisted}
+    return {"projects": rows, "unlisted": chat.stray_units(adapters.host)}
+
+
+def stray_chats() -> list[str]:
+    """Names with a running chat unit that are not listed projects."""
+    from phoenix9 import chat
+    return chat.stray_units(common.make_adapters().host)
+
+
+def tidy(who: str = "cli") -> dict:
+    """Stop every stray chat unit (one command event each); returns {stopped, failed: [{name, error}]}."""
+    from phoenix9 import chat
+    host = common.make_adapters().host
+    stopped, failed = [], []
+    for name in chat.stray_units(host):
+        try:
+            chat.stop_stray(host, name)
+        except (ValueError, RuntimeError) as err:
+            failed.append({"name": name, "error": str(err)})
+            continue
+        stopped.append(name)
+        common.record_command(who, "chat tidy %s" % name)
+    return {"stopped": stopped, "failed": failed}

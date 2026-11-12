@@ -34,6 +34,11 @@ def tag_install(adapters, tag="v9.1"):
         subprocess.run(["git", *argv], cwd=inst, check=True, env=env)
 
 
+def LAUNCHER():
+    """Where the doctor expects the installed chat launcher."""
+    return paths.install() / "deploy" / "chat-launch.sh"
+
+
 AGENT_SOCK = "/tmp/cc-socks-0/x.sock"
 AGENT_FOLDER = "/srv/projects/home"
 AGENT_SID = "aaaaaaaa-1111-4111-8111-111111111111"
@@ -71,6 +76,8 @@ def healthy(adapters, phoenix_env, monkeypatch):
     host = adapters.host
     host.script(["systemctl", "is-active"], 0, "active\nactive\n")
     host.script(["systemctl", "cat"], 0, "[Unit]\n")
+    host.script(["systemctl", "cat", doctor.CHAT_UNIT_FILE], 0, f"[Service]\nExecStart={LAUNCHER()} %i\n")
+    host.stats[str(LAUNCHER())] = {"mode": 0o755, "uid": 0}
     for pid, name in ((101, "phoenix-api"), (102, "phoenix-runner")):
         host.script(["systemctl", "show", "-p", "MainPID", "--value", name], 0, f"{pid}\n")
         host.files[f"/proc/{pid}/environ"] = "PATH=/usr/bin\0HOME=/root\0PHOENIX_HOME=/var/lib/phoenix9\0"
@@ -558,3 +565,50 @@ def test_project_chats_check_warns_for_failed_unit_with_the_fix(healthy, phoenix
     healthy.host.script(["systemctl", "is-active"], rc=3, out="failed\n")
     check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
     assert not check["ok"] and "phoenix chat forget demo --yes" in check["fix"]
+    assert "press Chat to try again; if it repeats: phoenix chat forget demo --yes" in check["fix"]
+
+
+@pytest.mark.parametrize("state", ["asleep", "awake", "working"])
+def test_project_chats_check_says_nothing_for_a_healthy_chat(healthy, phoenix_env, monkeypatch, state):
+    from phoenix9 import projectchat
+    (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
+    monkeypatch.setattr(projectchat, "state", lambda name, ad: {"state": state})
+    healthy.host.script(["systemctl", "is-active"], 0, "active\n")
+    check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
+    assert check["ok"] and check["detail"] == f"demo: {state}" and not check["fix"]
+
+
+def test_project_chats_check_reports_an_unreadable_chat_document(healthy, phoenix_env):
+    folder = phoenix_env["projects"] / "demo"
+    (folder / "CLAUDE.md").write_text("# demo\n")
+    (folder / ".phoenix").mkdir()
+    (folder / ".phoenix" / "chat.md").write_bytes(b"\xff\xfe not text")
+    healthy.host.script(["systemctl", "is-active"], rc=3, out="inactive\n")
+    check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
+    assert not check["ok"] and "demo: the chat document is unreadable" in check["detail"]
+    assert "phoenix chat forget demo --yes" in check["fix"]
+
+
+def test_project_chats_check_warns_about_stray_chats_with_the_tidy_fix(healthy, phoenix_env):
+    (phoenix_env["projects"] / "demo" / "CLAUDE.md").write_text("# demo\n")
+    healthy.host.script(["systemctl", "is-active"], rc=3, out="inactive\n")
+    healthy.host.script(["systemctl", "list-units"], 0, "claude-rc-chat@demo.service loaded active running x\n"
+                                                         "claude-rc-chat@gone.service loaded active running x\n")
+    check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
+    assert check["ok"] and "Warning: chats running for projects that are not listed: gone." in check["detail"]
+    assert "`phoenix chat tidy --yes`" in check["detail"] and "demo," not in check["detail"]
+
+
+@pytest.mark.parametrize("breaker, words", [
+    (lambda h: h.stats.pop(str(LAUNCHER())), "is missing"),
+    (lambda h: h.stats.update({str(LAUNCHER()): {"mode": 0o644, "uid": 0}}), "is not executable"),
+    (lambda h: h.script(["systemctl", "cat", doctor.CHAT_UNIT_FILE], 0,
+                        "[Service]\nExecStart=/usr/bin/claude remote-control\n"), "does not start"),
+    (lambda h: h.script(["systemctl", "cat", doctor.CHAT_UNIT_FILE], 1, "", "No files found"), "does not start"),
+])
+def test_project_chats_check_reports_a_broken_launcher(healthy, phoenix_env, breaker, words):
+    healthy.host.script(["systemctl", "is-active"], rc=3, out="inactive\n")
+    breaker(healthy.host)
+    check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
+    assert not check["ok"] and words in check["detail"] and "chat-launch.sh" in check["detail"]
+    assert "`phoenix update` or re-run the installer" in check["fix"]

@@ -413,6 +413,8 @@ HELPERS = {
     "logs.render_commands": "Internal: log page helper.",
     # chat
     "chat.status_all": "CLI-only: `phoenix chat status` without a project.",
+    "chat.stray_chats": "CLI-only: `phoenix chat tidy` without --yes.",
+    "chat.tidy": "CLI-only: `phoenix chat tidy --yes`.",
     # images
     "images.build": "CLI-only: builds step images (the dashboard goes through images.choose).",
     # projects

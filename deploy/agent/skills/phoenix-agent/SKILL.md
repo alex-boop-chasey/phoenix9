@@ -58,7 +58,7 @@ Follow every block with one plain fallback line. `phoenix card|choice|confirm|na
 
 - merges, deploys, pushes to main
 - builds on client projects
-- deleting unmerged work (`phoenix run discard`, `phoenix project delete`, `phoenix chat off`)
+- deleting unmerged work (`phoenix run discard`, `phoenix project delete`, `phoenix chat forget`)
 - installing or rolling back an update, restarting Phoenix services
 - keys and services (`phoenix services connect`, `phoenix keys`)
 - project new or close

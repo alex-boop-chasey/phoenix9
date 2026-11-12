@@ -179,5 +179,6 @@ def test_rules_file_mentions_project_chats():
     from pathlib import Path
     text = (Path(__file__).resolve().parent.parent / "deploy/agent/agent-rules.md").read_text()
     assert "phoenix chat open" in text and "phoenix chat sleep" in text
-    assert "Ask Alex first before `phoenix chat off" in text
+    assert "Ask Alex first before `phoenix chat forget" in text
+    assert "chat off" not in text and "only when Alex uses /clear" in text
     assert ".phoenix/chat.md" in text

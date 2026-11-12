@@ -126,6 +126,31 @@ CONTROLS = (
           inputs=(P_NAME, _in("on", "boolean", True, "True to turn notifications on, false to turn them off.",
                               into=("set", "steps.notify.on"))),
           card="settings_card"),
+    # ---- reference material ----
+    _get("reference-list", "reference.show", rf"/api/projects/{NAME}/reference", "tool", inputs=(P_NAME,),
+         text="List a project's reference material: the uploaded files and the saved links (names only)."),
+    _post("reference-file-add", "reference.add", rf"/api/projects/{NAME}/reference/files", "change", "later",
+          "Uploading reference files is Alex's alone (not an agent tool); point Alex to the Reference material card.", inputs=(P_NAME,)),
+    Control("reference-vision-set", "reference.set_vision", "PUT", rf"/api/projects/{NAME}/reference/vision",
+            "change", "later", "Writing the owner's vision is Alex's alone (not an agent tool); point Alex to the "
+            "Reference material card.", inputs=(P_NAME,)),
+    _post("reference-file-remove", "reference.remove", rf"/api/projects/{NAME}/reference/files/remove",
+          "destructive", "tool", text="Remove one reference file from a project.",
+          inputs=(P_NAME, _in("filename", required=True, description="The file's name, as listed.")),
+          confirm_with="filename"),
+    Control("reference-file-delete", "", "DELETE", rf"/api/projects/{NAME}/reference/files/(?P<filename>[^/]+)",
+            "destructive", "later", "The same as reference-file-remove; agents use that POST route because "
+            "their client sends only GET and POST.", inputs=(P_NAME,)),
+    _post("reference-links-add", "reference.add_links", rf"/api/projects/{NAME}/reference/links", "change",
+          "later", "Adding reference links is Alex's alone (not an agent tool); point Alex to the Reference material card.",
+          inputs=(P_NAME,)),
+    _post("reference-link-remove", "reference.remove_link", rf"/api/projects/{NAME}/reference/links/remove",
+          "destructive", "tool", text="Remove one saved reference link from a project.",
+          inputs=(P_NAME, _in("url", required=True, description="The link's address, exactly as listed.")),
+          confirm_with="url"),
+    Control("reference-link-delete", "", "DELETE", rf"/api/projects/{NAME}/reference/links", "destructive", "later",
+            "The same as reference-link-remove; agents use that POST route because their client sends only "
+            "GET and POST.", inputs=(P_NAME,)),
     # ---- keys ----
     _get("keys-list", "keys.rows", rf"/api/projects/{NAME}/keys", "tool", inputs=(P_NAME,), card="keys_card",
          text="List a project's key names and whether each is set; values are never shown."),
@@ -338,6 +363,8 @@ CONTROLS = (
 )
 
 HELPERS = {
+    "reference.files": "Internal: the files half of the reference list (reference-list answers both).",
+    "reference.links": "Internal: the links half of the reference list (reference-list answers both).",
     # repair ops the agent controls will wrap (registered as controls in a later task)
     "repair.rerun_step": "Internal: re-run a task or finish step through a repair note.",
     "repair.resume_from": "Internal: retry a task and resume the run through a repair note.",

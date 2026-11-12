@@ -16,7 +16,7 @@ stop and commits them itself.
 ### Done when
 {{done_when}}
 
-## The checks are the gate
+{{reference_note}}## The checks are the gate
 
 Phoenix locked the checks for this task before you started:
 

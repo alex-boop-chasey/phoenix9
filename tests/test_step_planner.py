@@ -160,7 +160,7 @@ def test_planner_prompt_has_whole_description_fenced(tmp_path, adapters, project
     ctx = unit_ctx(tmp_path, adapters, True, FREE)
     ctx.step.name = "planner"
     values = load("planner").before(ctx)
-    text = aistep.render((REPO / "steps" / "planner" / "prompt.md").read_text(), {**values, "spec_title": "Recipe box"})
+    text = aistep.render((REPO / "steps" / "planner" / "prompt.md").read_text(), {**values, "reference_note": "", "spec_title": "Recipe box"})
     for part in ("Text before the first heading.", "## Non-negotiable: works offline", "## Stack (recommended)",
                  "## Build order (MVP → full)", "### Later", "Use `sqlite`"):
         assert part in text
@@ -174,7 +174,7 @@ def test_planner_prompt_contains_spec_format_and_no_placeholders(tmp_path, adapt
     ctx.answer = {"action": "back", "notes": ["use fewer tasks", "name the files"]}
     values = load("planner").before(ctx)
     text = aistep.render((REPO / "steps" / "planner" / "prompt.md").read_text(),
-                         {**values, "spec_title": "Tiny tool"})
+                         {**values, "reference_note": "", "spec_title": "Tiny tool"})
     assert "{{" not in text and "PLAN DONE" in text
     assert "## Task 1: <title>" in text and "Depends on: none | 2, 3" in text and "For you: no | yes" in text
     assert "Make a small tool" in text and "python3 -m pytest -q" in text
@@ -302,3 +302,10 @@ def test_planner_prompts_have_sizing_guidance():
         text = (REPO / "steps" / name / "prompt.md").read_text()
         assert "fewer, larger tasks" in text
         assert "accurate and minimal" in text
+
+
+def test_planner_prompt_calls_out_the_vision():
+    from phoenix9 import refsnapshot
+    line = "vision.md, when present, is the owner's own description of what they want: treat it as the primary intent."
+    assert line in refsnapshot._section("planner")
+    assert "vision.md" not in refsnapshot._section("builder")

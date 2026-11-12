@@ -1,4 +1,5 @@
 """The dashboard API server: JSON under /api, the built web app as static files, nothing else."""
+import base64
 import json
 import mimetypes
 import os
@@ -14,9 +15,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
+MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
 MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
@@ -240,6 +242,58 @@ def get_explain(req, name):
 def get_specs(req, name):
     """Reply with a project's spec files."""
     return projects.specs(check_name(name))
+
+
+def get_reference(req, name):
+    """Reply with a project's reference files and links."""
+    return ops_reference.show(check_name(name))
+
+
+def post_reference_file(req, name):
+    """Upload one reference file ({filename, data_base64, replace?})."""
+    filename = body_text(req, "filename")
+    encoded = body_text(req, "data_base64")
+    try:
+        data = base64.b64decode(encoded, validate=True)
+    except ValueError:
+        raise BadRequest("'data_base64' should be the file's bytes in base64.") from None
+    with req.server.write_lock:
+        return ops_reference.add(check_name(name), filename, data, req.who, replace=req.body.get("replace") is True)
+
+
+def put_reference_vision(req, name):
+    """Save the owner's vision text ({text}) as vision.md."""
+    text = body_text(req, "text")
+    with req.server.write_lock:
+        return ops_reference.set_vision(check_name(name), text, req.who)
+
+
+def delete_reference_file(req, name, filename):
+    """Remove one reference file."""
+    with req.server.write_lock:
+        return ops_reference.remove(check_name(name), unquote(filename), req.who)
+
+
+def post_reference_file_remove(req, name):
+    """Remove one reference file named in the body (for callers that only send GET and POST)."""
+    with req.server.write_lock:
+        return ops_reference.remove(check_name(name), body_text(req, "filename"), req.who)
+
+
+def post_reference_links(req, name):
+    """Add the links in some text ({text})."""
+    text = body_text(req, "text")
+    with req.server.write_lock:
+        return ops_reference.add_links(check_name(name), text, req.who)
+
+
+def delete_reference_link(req, name):
+    """Remove one reference link ({url})."""
+    with req.server.write_lock:
+        return ops_reference.remove_link(check_name(name), body_text(req, "url"), req.who)
+
+
+post_reference_link_remove = delete_reference_link  # the same remove, for callers that only send GET and POST
 
 
 def get_builds(req, name):
@@ -1194,6 +1248,14 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/settings", get_settings),
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
+    ("GET", rf"/api/projects/{NAME}/reference", get_reference),
+    ("POST", rf"/api/projects/{NAME}/reference/files", post_reference_file),
+    ("PUT", rf"/api/projects/{NAME}/reference/vision", put_reference_vision),
+    ("POST", rf"/api/projects/{NAME}/reference/files/remove", post_reference_file_remove),
+    ("DELETE", rf"/api/projects/{NAME}/reference/files/(?P<filename>[^/]+)", delete_reference_file),
+    ("POST", rf"/api/projects/{NAME}/reference/links", post_reference_links),
+    ("POST", rf"/api/projects/{NAME}/reference/links/remove", post_reference_link_remove),
+    ("DELETE", rf"/api/projects/{NAME}/reference/links", delete_reference_link),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
@@ -1288,6 +1350,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
+UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]
 
 
@@ -1494,6 +1557,11 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             length = -1
         limit = MAX_AGENT_BODY if self.path_only.rstrip("/") == "/api/agent/send" else MAX_BODY
+        if self.command == "POST" and UPLOAD_PATH.match(self.path_only):
+            limit = MAX_UPLOAD_BODY
+        if length == 0 and self.command == "DELETE":
+            self.body = {}
+            return self.body
         if length < 0 or length > limit:
             self.close_connection = True  # don't read a body we refuse
             self.fail(400, "The request was too big.")

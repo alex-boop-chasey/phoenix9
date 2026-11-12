@@ -5,7 +5,7 @@ import type {
   DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
-  ChatInfo, ChatOpenResult,
+  ChatInfo, ChatOpenResult, ReferenceView,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -72,6 +72,15 @@ export function post<T>(path: string, body: unknown = {}): Promise<T> {
   })
 }
 
+/** PUT a JSON body to a path under api/ and return its `data`. */
+export function put<T>(path: string, body: unknown = {}): Promise<T> {
+  return send<T>(urlFor(path), {
+    method: "PUT",
+    headers: { "X-Phoenix": "1", "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
 /** The address for an EventSource (all projects, or one). */
 export function eventsUrl(project?: string): string {
   return urlFor("events", { project })
@@ -124,6 +133,13 @@ export const api = {
   sleepChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/sleep`),
   offChat: (project: string) => post<ChatInfo>(`chat/${e(project)}/off`, { confirm: true }),
 
+  reference: (name: string) => get<ReferenceView>(`projects/${e(name)}/reference`),
+  addReferenceFile: (name: string, filename: string, dataBase64: string) =>
+    post<unknown>(`projects/${e(name)}/reference/files`, { filename, data_base64: dataBase64 }),
+  saveVision: (name: string, text: string) => put<unknown>(`projects/${e(name)}/reference/vision`, { text }),
+  removeReferenceFile: (name: string, filename: string) => post<unknown>(`projects/${e(name)}/reference/files/remove`, { filename }),
+  addReferenceLinks: (name: string, text: string) => post<unknown>(`projects/${e(name)}/reference/links`, { text }),
+  removeReferenceLink: (name: string, url: string) => post<unknown>(`projects/${e(name)}/reference/links/remove`, { url }),
   removeProject: (name: string) => post<RemoveResult>(`projects/${e(name)}/remove`, { confirm: true }),
   deletePlan: (name: string) => get<DeletePlan>(`projects/${e(name)}/delete-plan`),
   deleteProject: (name: string, confirm: string) => post<DeleteResult>(`projects/${e(name)}/delete`, { confirm }),

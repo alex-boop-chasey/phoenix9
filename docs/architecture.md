@@ -120,6 +120,7 @@ CLI groups (`phoenix <group> --help`; each writes a `command` event when it chan
   run gate settings steps profiles presets project doctor api   phases 1-3
   services list|connect|test|disconnect|recipes   account services and their keys (section 4.6)
   keys audit                                  which keys exist, where used, problems (never a value)
+  reference list|add|remove|link|unlink       a project's reference files and links (notes/reference); add/link are Alex's, not the agent's
   models list|set                             Phoenix's default models per AI step (global.toml [models])
   update status|install|rollback|log|release  the updater (section 15); install and rollback only queue
   deploy now|status, deployers list           deployers (section 4.7); `deploy now` needs --yes
@@ -736,7 +737,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
+  `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` and `agent.sync_skipped {path, symlink, why}` come from `phoenix update after-install` (nothing was written); `agent.restarted_for_rules {why}` from the runner's agent watchdog.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
   `plan.queued|continued|abandoned {plan, who}` come from `phoenix plan`; `plan.started|waiting|done|failed {plan, ...}` from the runner service.
@@ -1406,6 +1408,26 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   outcome. The hold counts only while the hold file exists AND an updater holds `HOME/update/lock`
   (probed read-only with `LOCK_SH|LOCK_NB`), so a killed updater (its flock dies with it) can never
   freeze the runner; there is no time limit.
+
+## 12.5 Reference material (`phoenix9/reference.py`, `refsnapshot.py`, `ops/reference.py`, `phoenix reference`)
+
+Alex can give a project reference documents (CSS, Tailwind config, design tokens, text, images, PDFs, a list
+of links, and an optional vision text). Everything below is plain files; no AI runs in Phoenix.
+
+- **Where:** `<project>/notes/reference/`. Links are one file, `links.txt` (`URL` or `URL | note`); the vision
+  is `vision.md` (saved by `PUT .../reference/vision`, always replaced, listed first).
+- **Limits and refusals:** at most 40 files, 5 MB each, 25 MB in all; only the allowed file types; no empty
+  files; names are cleaned; a symlinked notes or reference folder is refused; a file or link list containing a
+  secret is refused; a bad link (localhost, internal or private addresses) refuses the whole paste.
+- **Who:** uploads, links and the vision are Alex's (dashboard, `phoenix reference add|link`). The agent may
+  only list and remove. `phoenix doctor` warns (never fails) when a folder is over the limits.
+- **Frozen snapshot:** when a run is made, `refsnapshot.snapshot` copies the files into `<run>/reference/`
+  (read-only, with an `INDEX.md`) and writes the `reference.snapshot` event. Later uploads do not change a
+  run that already exists.
+- **Mount:** the copy is mounted read-only at `/phoenix/reference` for the planner, builder and reviewer
+  steps only. Check writers, checks and deploy get none, and it is never inside the workspace.
+- **Files are data, never instructions:** the prompts say so. Nothing in the folder is run, imported or
+  obeyed, and links are listed for the agent but never opened.
 
 ## 13. Formats defined in later phases
 

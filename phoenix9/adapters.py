@@ -299,7 +299,7 @@ class Claude:
     def launch(self, docker, *, ai: dict, project: str, run_id: str, task, attempt: int, role: str,
                image: str, workspace, prompt_file, step_dir, project_dir, spec_dir=None,
                domains_file=None, env_files=(), workspace_ro=False, extra_mounts=(), extra_env=None,
-               resume_session=None, session_dir=None, log_file=None):
+               resume_session=None, session_dir=None, log_file=None, reference_dir=None):
         """Run one Claude session in a step container (trying fallback models) and return its Result.
 
         `resume_session` continues that Claude session (`--resume <id>`) instead of starting a new one.
@@ -319,7 +319,7 @@ class Claude:
                 docker, project, run_id, task, attempt, role, image, workspace, prompt_file, cmd,
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
                 spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env,
-                session_dir=session_dir, log_file=log_file)
+                session_dir=session_dir, log_file=log_file, reference_dir=reference_dir)
             return cl.parse(log, rc, model=model)
         return cl.run_with_fallback(ai, one)
 

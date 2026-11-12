@@ -126,6 +126,14 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/keys/save` | `ops.keys.save` (added in step 03) | `{rows: [{name, value?, secret}]}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/reveal` | `ops.keys.reveal` (added in step 03) | `{name}` | `{name, value}` | 400, 404 |
 | POST | `/api/projects/<name>/keys/remove` | `ops.keys.remove` | `{name}` | masked key rows | 400, 404 |
+| GET | `/api/projects/<name>/reference` | `ops.reference.show` | - | `{files: [{name, size, modified, kind}], links: [{url, note}]}` | 404 |
+| POST | `/api/projects/<name>/reference/files` | `ops.reference.add` | `{filename, data_base64, replace?}` (body up to 8 MB, the only route above 64 KB) | the file's entry | 400, 404 |
+| PUT | `/api/projects/<name>/reference/vision` | `ops.reference.set_vision` | `{text}` (saved as `vision.md`, replacing the old one) | the file's entry | 400, 404 |
+| DELETE | `/api/projects/<name>/reference/files/<filename>` | `ops.reference.remove` | none | `{project, name, removed}` | 400, 404 |
+| POST | `/api/projects/<name>/reference/files/remove` | `ops.reference.remove` | `{filename}` (the agent's way: its client sends only GET and POST) | `{project, name, removed}` | 400, 404 |
+| POST | `/api/projects/<name>/reference/links` | `ops.reference.add_links` | `{text}` (a URL per line, or `URL \| note`) | `{added, skipped, links}` | 400, 404 |
+| DELETE | `/api/projects/<name>/reference/links` | `ops.reference.remove_link` | `{url}` | `{project, url, removed}` | 400, 404 |
+| POST | `/api/projects/<name>/reference/links/remove` | `ops.reference.remove_link` | `{url}` (the agent's way) | `{project, url, removed}` | 400, 404 |
 | POST | `/api/projects/<name>/settings` | `ops.settings.set_many` (added in step 03) | `{"set": {"steps.builder.model": "..."}}` | fresh settings data | 400, 404 |
 | POST | `/api/projects/<name>/settings/preset` | `ops.settings.preset` | `{preset}` | fresh settings data | 400, 404 |
 | POST | `/api/projects/<name>/settings/check` | `ops.settings.check` | `{}` | fresh settings data | 404 |

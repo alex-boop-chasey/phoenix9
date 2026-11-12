@@ -1,4 +1,5 @@
 """Pins that no code, script or config points into the removed reference/ folder."""
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -6,10 +7,15 @@ SUFFIXES = {".py", ".sh", ".ts", ".tsx", ".toml", ".json"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".grunt", ".pytest_cache", "dist", ".venv"}
 
 
+# The reference-uploads feature (a project's own notes/reference/ folder) is a different thing from the
+# removed repo folder: its API routes, the builds' read-only copy and the dashboard's feature folder are fine.
+FEATURE = re.compile(r"/reference/(?:files|links|vision)\b|/phoenix/reference/|notes/reference/|features/reference/")
+
+
 def _allowed(line: str) -> bool:
-    """A mention is fine only in a comment line or a 'Ported from' docstring line."""
+    """A mention is fine in a comment line, a 'Ported from' docstring line, or as the uploads feature."""
     text = line.strip()
-    return text.startswith(("#", "//", "Ported from"))
+    return text.startswith(("#", "//", "Ported from")) or "reference/" not in FEATURE.sub("", text)
 
 
 def test_no_code_uses_reference_folder():

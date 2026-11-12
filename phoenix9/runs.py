@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import atomic, events, git as git_mod, paths, spec as spec_mod, state
+from . import atomic, events, git as git_mod, paths, refsnapshot, spec as spec_mod, state
 
 
 def slugify(text: str, limit: int = 30) -> str:
@@ -49,6 +49,7 @@ def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> 
         atomic.write_json(folder / "overrides.json", overrides)
     atomic.write_json(folder / "state.json", state.new_state(run_id, project, _tasks_from_spec(parsed)))
     events.emit("run.queued", project=project, run=run_id, title=title)
+    refsnapshot.snapshot(project, folder)
     return folder
 
 

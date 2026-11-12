@@ -32,7 +32,7 @@ Earlier feedback on your plan (from Alex; fix every point):
 
 {{feedback}}
 
-## What to write
+{{reference_note}}## What to write
 
 Write the full spec to `/out/spec.md`, in exactly this format (this is the template; keep the headings
 and the line names word for word):

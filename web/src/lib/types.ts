@@ -695,3 +695,9 @@ export interface BellItem {
 }
 /** The bell: how many things need Alex and the list. */
 export interface BellData { count: number; items: BellItem[] }
+
+/** What is saved in a project's notes/reference folder. */
+export interface ReferenceView {
+  files: { name: string; size: number; modified: string; kind: string }[]
+  links: { url: string; note: string }[]
+}

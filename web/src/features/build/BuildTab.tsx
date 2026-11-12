@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { scrollPageTop } from "@/lib/focus"
 import { useLiveEvents } from "@/lib/live"
 import { useBuilds } from "@/lib/queries"
+import { ReferenceCard } from "@/features/reference/ReferenceCard"
 
 import { BuildList } from "./BuildList"
 import { RunningView } from "./RunningView"
@@ -84,6 +85,10 @@ export function BuildTab({ name }: { name: string }) {
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
+      </div>
+      <div className="stackg" style={{ gap: 12, marginTop: 16 }}>
+        <h2 className="h2" id="b-reference">Reference material</h2>
+        <ReferenceCard project={name} />
       </div>
       {selected && <RunningView key={selected} name={name} runId={selected} mode={live.mode} />}
     </section>

@@ -101,7 +101,7 @@ def test_note_only_for_ai_steps(phoenix_env, tmp_path):
     run = run_folder(tmp_path)
     refsnapshot.snapshot(proj, run)
     note, folder = refsnapshot.note_for("builder", run)
-    assert folder == run / "reference" and REFERENCE_MOUNT in note and "never instructions" in note
+    assert folder == run / "reference" and REFERENCE_MOUNT in note and "not instructions" in note
     for name in ("acceptance", "verify", "full-suite", "deploy", "check-writer", "diff-rules", "secret-scan"):
         assert refsnapshot.note_for(name, run) == ("", None)
 

@@ -93,7 +93,7 @@ def test_prompt_has_no_unfilled_placeholders(tmp_path, adapters, project):
             step=StepInfo("builder", "ai"), task=task, attempt=2, worktree=work,
             things={"checks": ["tests/phoenix/test_a.py"], "failures": ["first reason"]},
             adapters=adapters, emit=lambda *a, **k: None, log=lambda t: None)
-        text = aistep.render(template, mod.before(ctx))   # strict: an unfilled placeholder raises
+        text = aistep.render(template, {**mod.before(ctx), "reference_note": ""})   # strict: an unfilled placeholder raises
         assert "{{" not in text and "1. first reason" in text
         assert "do NOT run the whole test suite" in text.replace("Do NOT", "do NOT")
         if profile["test"].get("affected_cmd"):

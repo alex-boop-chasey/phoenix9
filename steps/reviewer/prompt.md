@@ -28,7 +28,7 @@ The checks that were run:
 
 Passing checks are not enough, and Phoenix has already counted them. You are the second reader.
 
-## Do not run the tests
+{{reference_note}}## Do not run the tests
 
 Do NOT run the project's test suite, the checks, a build or a package install. Phoenix already ran them
 on a clean copy and the results are above. Reading files, searching, and running a short read-only

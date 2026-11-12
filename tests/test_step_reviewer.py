@@ -75,7 +75,7 @@ def test_prompt_no_unfilled_placeholders(tmp_path, adapters):
     ctx = unit_ctx(tmp_path, adapters)
     ctx.task["done_when"] = [{"text": "it works", "command": None}]
     ctx.things = {"test-report": {"reader": "exit-codes-only", "passed": 1, "failed": 0}}
-    text = aistep.render((REPO / "steps" / "reviewer" / "prompt.md").read_text(), mod.before(ctx))
+    text = aistep.render((REPO / "steps" / "reviewer" / "prompt.md").read_text(), {**mod.before(ctx), "reference_note": ""})
     assert "{{" not in text and "/inputs/diff.patch" in text and "REVIEW DONE" in text
     assert "Only exit codes were checked" in text
 
@@ -184,7 +184,7 @@ def _rendered(tmp_path, adapters, report):
     mod = load("reviewer")
     ctx = unit_ctx(tmp_path, adapters)
     ctx.things = {"test-report": report}
-    return aistep.render((REPO / "steps" / "reviewer" / "prompt.md").read_text(), mod.before(ctx))
+    return aistep.render((REPO / "steps" / "reviewer" / "prompt.md").read_text(), {**mod.before(ctx), "reference_note": ""})
 
 
 @pytest.mark.parametrize("report,expected", [

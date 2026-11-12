@@ -43,12 +43,17 @@ def unit_main_pid(host, project: str) -> int | None:
 
 
 def start_unit(host, project: str) -> None:
-    """Enable and start the project's chat unit; a plain NotReady-style error when systemd refuses."""
-    rc, _out, err = host.systemctl("enable", "--now", chat_unit(project))
+    """Start (never enable) the project's chat unit, so a server reboot wakes no chat; a leftover enable is
+    removed first. A plain NotReady-style error when systemd refuses."""
+    unit = chat_unit(project)
+    _, enabled, _ = host.systemctl("is-enabled", unit)
+    if enabled.strip() == "enabled":
+        host.systemctl("disable", unit)
+    rc, _out, err = host.systemctl("start", unit)
     if rc != 0:
         from phoenix9.projectchat import NotReady
         first = (err or "").strip().splitlines()[0] if (err or "").strip() else "systemctl exit %d" % rc
-        raise NotReady("Phoenix couldn't start the chat service %s: %s" % (chat_unit(project), first))
+        raise NotReady("Phoenix couldn't start the chat service %s: %s" % (unit, first))
 
 
 def stop_unit(host, project: str) -> None:

@@ -40,8 +40,16 @@ def test_state_pid_start_stop(projects):
     assert chat.unit_main_pid(h, "alpha") == 42
     chat.start_unit(h, "alpha")
     chat.stop_unit(h, "alpha")
-    assert h.calls[-2] == ["systemctl", "enable", "--now", U]
-    assert h.calls[-1] == ["systemctl", "disable", "--now", U]
+    assert h.calls[-3:] == [["systemctl", "is-enabled", U], ["systemctl", "start", U],
+                            ["systemctl", "disable", "--now", U]]
+
+
+def test_start_unit_never_enables_and_removes_a_leftover_enable(projects):
+    """Waking a chat must not make a server reboot wake it too; an old enable is taken away."""
+    h = FakeHost()
+    h.script(["systemctl", "is-enabled", U], out="enabled\n")
+    chat.start_unit(h, "alpha")
+    assert h.calls == [["systemctl", "is-enabled", U], ["systemctl", "disable", U], ["systemctl", "start", U]]
 
 
 def test_stop_conversation_rules(projects):

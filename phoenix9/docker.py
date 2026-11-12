@@ -22,6 +22,7 @@ DOMAINS_MOUNT = "/etc/hands/allowed-domains"        # where image/init-firewall.
 ALLOWED_PROXY_MOUNT = "/etc/hands/allowed-proxy"    # `IP PORT` lines: the only host ports init-firewall.sh opens
 PROMPT_MOUNT = "/phoenix/prompt.md"
 SPEC_MOUNT = "/phoenix/spec"
+REFERENCE_MOUNT = "/phoenix/reference"
 STORE_MOUNT = "/pnpm-store"
 LABEL = "phoenix9"
 FALLBACK_UID = 1000                                 # entry.sh refuses uid 0; the image's `node` user
@@ -403,7 +404,8 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
                workspace: Path, prompt_file: Path, cmd: list[str], env_files: list[Path] = (),
                domains_file: Path | None = None, spec_dir: Path | None = None, scrub_env: bool = False,
                pnpm_store: Path | None = None, mounts=(), workspace_ro: bool = False,
-               extra_env: dict | None = None, session_dir: Path | None = None) -> Run:
+               extra_env: dict | None = None, session_dir: Path | None = None,
+               reference_dir: Path | None = None) -> Run:
     """Describe the container for one Claude session (only the transcript folder is created).
 
     The spec folder, when given, is mounted read-only (hard rule 4); so is the workspace when `workspace_ro`.
@@ -416,6 +418,8 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
                   Mount(tdir, "/home/node/.claude/projects", ro=False)]
     if spec_dir:
         all_mounts.append(Mount(Path(spec_dir), SPEC_MOUNT, ro=True))
+    if reference_dir:
+        all_mounts.append(Mount(Path(reference_dir), REFERENCE_MOUNT, ro=True))
     if pnpm_store:
         all_mounts.append(Mount(Path(pnpm_store), STORE_MOUNT, ro=False))
     if domains_file:
@@ -433,7 +437,8 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
                          spec_dir: Path | None = None, scrub_env: bool = False, limits: dict | None = None,
                          pnpm_store: Path | None = None, mounts=(),
                          workspace_ro: bool = False, extra_env: dict | None = None,
-                         session_dir: Path | None = None, log_file: Path | None = None) -> tuple[int, Path]:
+                         session_dir: Path | None = None, log_file: Path | None = None,
+                         reference_dir: Path | None = None) -> tuple[int, Path]:
     """Run one Claude session in a fresh firewalled container. Returns (exit code, log file).
 
     The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl (or `log_file`) with secret
@@ -441,7 +446,7 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
     A read-only workspace is not handed to the session user (it only has to be readable).
     """
     r = claude_run(project, run_id, task, attempt, role, image, workspace, prompt_file, cmd, env_files,
-                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env, session_dir)
+                   domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env, session_dir, reference_dir)
     argv = build_argv(r, limits)
     out = Path(log_file) if log_file else log_path(project, run_id, task, attempt, role, "jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)

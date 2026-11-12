@@ -29,7 +29,7 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, checklock, events, failmodes, gatenotify, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
+from phoenix9 import atomic, checklock, refsnapshot, events, failmodes, gatenotify, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
@@ -934,6 +934,8 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
               for k, v in ctx.things.items() if v is not None}
     values.update({"task": task_text(ctx.task), "checks": checks_text(ctx),
                    "spec_title": ctx.run.spec.get("title", "")})
+    note, reference_dir = refsnapshot.note_for(ctx.step.name, ctx.run.folder)
+    values["reference_note"] = note
     if code is not None and hasattr(code, "before"):
         values.update({k: str(v) for k, v in (code.before(ctx) or {}).items()})
     number = ctx.task["number"] if ctx.task else 0
@@ -963,7 +965,7 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
             return ctx.adapters.claude.launch(
                 ctx.adapters.docker, ai=ctx.step.ai, project=ctx.project.name, run_id=ctx.run.id, task=number,
                 attempt=ctx.attempt, role=ctx.step.name, image=profile.get("image", ""), workspace=ctx.worktree,
-                prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir,
+                prompt_file=out_prompt, step_dir=folder, project_dir=ctx.project.dir, spec_dir=mount_dir, reference_dir=reference_dir,
                 domains_file=domains, workspace_ro=bool(extra.get("workspace_ro")),
                 extra_mounts=extra_mounts, env_files=[key_file] if key_file else [],
                 extra_env=stepproxy.container_env(ctx.proxies), **more)

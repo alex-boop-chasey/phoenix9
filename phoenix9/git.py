@@ -222,6 +222,12 @@ def _stage_all(worktree: Path) -> None:
     git(worktree, "add", "-A")
 
 
+def tree_id(checkout: Path) -> str:
+    """The id of the exact file contents in a checkout (everything staged, then `write-tree`)."""
+    _stage_all(Path(checkout))
+    return git(Path(checkout), "write-tree").strip()
+
+
 def _binary_paths(worktree: Path, base: str) -> set[str]:
     """Return the paths git treats as binary in the diff against base."""
     out = git(worktree, "diff", "--cached", "--numstat", "-z", "-M", base)

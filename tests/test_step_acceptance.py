@@ -108,3 +108,42 @@ def test_checklock_check_commands():
     assert checklock.check_commands({"check_command": "python3 -m pytest -q {files}"}, SH) == \
         ["python3 -m pytest -q " + " ".join(SH)]
     assert checklock.check_commands({"check_command": "sh {files}"}, ["a b.sh"]) == ["sh 'a b.sh'"]
+
+
+# ---- Verify on: the checks run once, on a clean checkout, and are recorded for Verify
+def verify_on(ctx):
+    from phoenix9 import atomic
+    atomic.write_json(ctx.run.folder / "plan.json", {"groups": {"task": ["acceptance", "verify"]}})
+
+
+def test_verify_on_runs_checks_on_a_clean_checkout_and_records_results(tmp_path, adapters, work):
+    write(work, {FILES[0]: "x\n"})
+    ctx = ctx_for(tmp_path, adapters, work, things={"checks": FILES})
+    verify_on(ctx)
+    checklock.lock(ctx.run.folder, 1, work, FILES)
+    write(work, {"leftover.txt": "from the builder\n"})
+    res = mod.run(ctx)
+    assert res.status == "pass" and len(adapters.docker.argvs) == 1
+    argv = " ".join(adapters.docker.argvs[0])
+    assert "--junitxml=/out/pytest.xml" in argv and "accept-checkout" in argv and str(work) + ",dst" not in argv
+    assert (ctx.run.folder / "tasks/1/attempt-1/acceptance-results.json").exists()
+    assert res.produces["exit-codes"][0]["command"].startswith("python3 -m pytest")
+
+
+def test_verify_on_failing_check_fails_with_the_same_reason(tmp_path, adapters, work):
+    adapters.docker.exit_codes += [1]
+    adapters.docker.outputs += ["...\nFAILED tests/test_a.py::test_x - boom\n"]
+    ctx = ctx_for(tmp_path, adapters, work, [cmd("pytest a")])
+    verify_on(ctx)
+    res = mod.run(ctx)
+    assert res.status == "fail"
+    assert res.reasons == ["Check `pytest a` failed (exit 1): FAILED tests/test_a.py::test_x - boom"]
+
+
+def test_verify_off_writes_no_record_and_uses_the_worktree(tmp_path, adapters, work):
+    write(work, {FILES[0]: "x\n"})
+    ctx = ctx_for(tmp_path, adapters, work, things={"checks": FILES})
+    checklock.lock(ctx.run.folder, 1, work, FILES)
+    assert mod.run(ctx).status == "pass"
+    assert not (ctx.run.folder / "tasks/1/attempt-1/acceptance-results.json").exists()
+    assert "--junitxml" not in " ".join(adapters.docker.argvs[0])

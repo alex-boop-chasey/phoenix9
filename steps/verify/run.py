@@ -1,46 +1,21 @@
 """Verify: runs the task's checks (and in full scope the whole suite) in a fresh container and writes the test report."""
 import shutil
 
-from phoenix9 import affected, atomic, checklock, docker, git, keys, reports, scrub, settings, state
-from phoenix9.aistep import profile_test, project_domains
+from phoenix9 import affected, atomic, checklock, checkrun, docker, git, reports, settings, state
+from phoenix9.aistep import profile_test
 from phoenix9.stepctx import StepResult
 
-DEFAULT_ARGS = {"pytest-junit": "--junitxml=/out/pytest.xml",
-                "vitest-json": "--reporter=json --outputFile=/out/vitest.json"}
+_readers = checkrun.readers
+_report_args = checkrun.report_args
+_stash = checkrun.stash
 
 
-def _readers(test) -> list:
-    """The profile's report reader names, checked against the known readers."""
-    names = test.get("report", "exit-code")
-    names = [names] if isinstance(names, str) else list(names)
-    reports.check_names(names)
-    return names
-
-
-def _report_args(test, readers) -> str:
-    """The profile's report_args, or the usual ones for the readers when it has none."""
-    return test.get("report_args") or " ".join(DEFAULT_ARGS[r] for r in readers if r in DEFAULT_ARGS)
-
-
-def _jobs(ctx, test, readers, scope) -> list:
+def _jobs(ctx, test, names, scope) -> list:
     """The things to run: (label, command, reader names, expected check files)."""
-    args = _report_args(test, readers)
     jobs = []
     if scope == "full" and test.get("cmd"):
-        jobs.append(("suite", f"{test['cmd']} {args}".strip(), readers, []))
-    files = ctx.things.get("checks")
-    if isinstance(files, (list, tuple)) and files:
-        names = [str(f) for f in files]
-        commands = checklock.check_commands(test, names)
-        if len(commands) == 1:
-            jobs.append(("checks", f"{commands[0]} {args}".strip(), readers, names))
-        else:                                       # one shell check per run (`sh a.sh b.sh` runs a.sh only)
-            jobs += [(f"checks-{i}", f"{c} {args}".strip(), readers, [f])
-                     for i, (c, f) in enumerate(zip(commands, names), 1)]
-    else:
-        done = (ctx.task or {}).get("done_when", [])
-        jobs += [(f"check-{i}", c["command"], ["exit-code"], []) for i, c in enumerate(done, 1) if c.get("command")]
-    return jobs
+        jobs.append(("suite", f"{test['cmd']} {checkrun.report_args(test, names)}".strip(), names, []))
+    return jobs + checkrun.check_jobs(ctx, test, names)
 
 
 def _suite_job(test, readers) -> tuple:
@@ -103,15 +78,6 @@ def _checkpoint_reason(ctx, n) -> str:
             f"whole-suite pass: {names}.")
 
 
-def _stash(out_dir, label) -> None:
-    """Move the report files of one command into out_dir/<label>/ so the next command cannot overwrite them."""
-    dest = out_dir / label
-    dest.mkdir(exist_ok=True)
-    for name in reports.REPORT_FILES.values():
-        if (out_dir / name).exists():
-            shutil.move(str(out_dir / name), str(dest / name))
-
-
 def run(ctx):
     """Run the checks in a fresh check container on a clean checkout, judge the reports, write test-report.json."""
     n = ctx.task["number"] if ctx.task else 0
@@ -136,6 +102,7 @@ def run(ctx):
     git.rmtree(checkout)
     git.fresh_checkout(ctx.worktree, checkout)
     try:
+        reused = None
         plan = {"mode": "suite" if scope == "full" and test.get("cmd") else "checks", "picked": [],
                 "jobs": [], "checkpoint": False}
         if scope == "affected":
@@ -143,7 +110,13 @@ def run(ctx):
             jobs = plan["jobs"] + jobs
         if not jobs:
             return StepResult("fail", [f"Task {n} has nothing Phoenix can run to verify it"])
-        parts, logs = _run_jobs(ctx, jobs, checkout, out_dir, n)
+        reused = _reuse(ctx, folder, checkout, out_dir, jobs)
+        if reused:
+            jobs = [j for j in jobs if not checkrun.is_check_job(j)] + reused[0]
+            parts, logs = _run_jobs(ctx, jobs[:len(jobs) - len(reused[0])], checkout, out_dir, n)
+            parts, logs = parts + [p for p, _ in reused[1]], logs + [log for _, log in reused[1]]
+        else:
+            parts, logs = _run_jobs(ctx, jobs, checkout, out_dir, n)
         broken = checklock.verify(ctx.run.folder, n, checkout)
     finally:
         git.remove_checkout(ctx.worktree, checkout)
@@ -151,7 +124,10 @@ def run(ctx):
     if broken:
         report.ok = False
         report.notes.insert(0, "during verify: " + "; ".join(broken))
-    atomic.write_json(out_dir / "test-report.json", {**report.to_dict(), "mode": plan["mode"], "picked": plan["picked"]})
+    if reused:
+        report.notes.append("the task's checks were run by acceptance on a clean checkout")
+    atomic.write_json(out_dir / "test-report.json", {**report.to_dict(), "mode": plan["mode"], "picked": plan["picked"],
+                                                     "checks_run_by": "acceptance" if reused else "verify"})
     if scope == "affected" and report.ok:
         _record_pass(ctx, n, (ctx.task or {}).get("title", ""), plan["mode"] == "suite")
     if report.ok:
@@ -164,25 +140,21 @@ def run(ctx):
 
 
 def _run_jobs(ctx, jobs, checkout, out_dir, n, log_dir=None):
-    """Run each job in its own check container; return (the reports, the log files). Logs go to log_dir/<i>.txt when given."""
-    profile = ctx.project.profile
-    domains = docker.write_domains_file(ctx.project.name, profile.get("allowed_domains", ()), project_domains(ctx))
-    secrets = keys.secret_values(ctx.project.name)
-    parts, logs = [], []
-    for i, (label, command, readers, expected) in enumerate(jobs, 1):
-        log = log_dir / f"{i}.txt" if log_dir else ctx.run.folder / "logs" / f"verify-{n}-{i}.txt"
-        with keys.env_file(ctx.project.name) as env_file:
-            rc, _ = docker.run_check_container(
-                ctx.adapters.docker, ctx.project.name, ctx.run.id, n, ctx.attempt, profile.get("image", ""),
-                checkout, command, env_file, domains, 30, stdout_path=log, role=f"verify-{i}",
-                mounts=[docker.Mount(out_dir, "/out", ro=False)])
-        if "exit-code" in readers:
-            atomic.write_text(out_dir / reports.REPORT_FILES["exit-code"], f"{rc}\n")   # Phoenix writes this itself
-        reports.redact_reports(out_dir, secrets)
-        scrubbed = scrub.scrub(log.read_text(errors="replace")) if log.exists() else ""
-        atomic.write_text(log, scrubbed)
-        ctx.log(f"{command} -> exit {rc}")
-        parts.append(reports.judge(rc, out_dir, readers, expected, rc == docker.TIMEOUT_RC))
-        _stash(out_dir, label)
-        logs.append(log)
+    """Run each job in its own check container; return (the reports, the log files)."""
+    parts, logs, _ = checkrun.run_jobs(ctx, jobs, checkout, out_dir, n, log_dir)
     return parts, logs
+
+
+def _reuse(ctx, folder, checkout, out_dir, jobs):
+    """Acceptance's recorded results for the task's checks, copied into out_dir, or None to run them here."""
+    mine = [j for j in jobs if checkrun.is_check_job(j)]
+    if not mine or not (folder / checkrun.RESULTS_FILE).exists():
+        return None
+    saved = checkrun.load_results(folder, ctx, git.tree_id(checkout), mine)
+    if saved is None:
+        return None
+    for job in mine:
+        src = folder / "acceptance-out" / job[0]
+        if src.is_dir():
+            shutil.copytree(src, out_dir / job[0], dirs_exist_ok=True)
+    return mine, saved

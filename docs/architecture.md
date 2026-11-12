@@ -435,6 +435,12 @@ checkpoint names those tasks); `full` = the whole suite after every task. `test-
 `task`; `full` uses `affected` with `suite_every = 5`. The run-finish `full-suite` step still runs the whole
 suite before the merge.
 
+When Verify is on, Acceptance runs the task's checks once, on a clean checkout (`git.fresh_checkout`), with the
+report files, and records the results in `tasks/<n>/attempt-<k>/acceptance-results.json` (run, task, attempt, the
+tree id of that checkout and each check's report). Verify reuses them only when its own clean checkout has the same
+tree id and the record is for the same attempt; otherwise it runs the checks itself. `test-report.json` then has
+`checks_run_by` (`acceptance` or `verify`). With Verify off, Acceptance runs on the worktree as before.
+
 ### 5.2 `phoenix.toml` (per project; unknown keys are errors)
 
 When Phoenix creates a new GitHub repo (empty or non-GitHub template source), it writes `code/.github/dependabot.yml` before the first commit, so it is in the first push: one weekly entry (directory `/`, 5 open PRs) per ecosystem found in code/ (package.json → npm, Cargo.toml → cargo, pyproject.toml/requirements.txt → pip), else from the profile (web/mobile/platform → npm, desktop → npm+cargo, python-script → pip). Nothing is written when none is found, and existing repos and `--code` folders are never touched.

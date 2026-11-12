@@ -1,7 +1,8 @@
 """Acceptance: runs the task's checks in check containers; exit codes are the gate."""
+import shutil
 import time
 
-from phoenix9 import atomic, checklock, docker, keys, scrub
+from phoenix9 import atomic, checklock, checkrun, docker, git, keys, scrub, settings
 from phoenix9.aistep import profile_test, project_domains
 from phoenix9.stepctx import StepResult
 
@@ -32,6 +33,31 @@ def _reason_line(tail):
     return lines[-1][:200] if lines else "no output"
 
 
+def _shared(ctx, commands, folder):
+    """Run the checks on a clean checkout with their reports, record the results for Verify; return (codes, problems)."""
+    test = profile_test(ctx)
+    n = ctx.task["number"]
+    jobs = checkrun.check_jobs(ctx, test, checkrun.readers(test))
+    out_dir = folder / "acceptance-out"
+    shutil.rmtree(out_dir, ignore_errors=True)
+    out_dir.mkdir(parents=True)
+    docker.hand_to_agent(ctx.adapters.docker, out_dir)
+    checkout = folder / "accept-checkout"
+    git.rmtree(checkout)
+    git.fresh_checkout(ctx.worktree, checkout)
+    try:
+        tree = git.tree_id(checkout)
+        parts, logs, rcs = checkrun.run_jobs(ctx, jobs, checkout, out_dir, n, prefix="acceptance")
+        broken = checklock.verify(ctx.run.folder, n, checkout)
+    finally:
+        git.remove_checkout(ctx.worktree, checkout)
+    if not broken:
+        checkrun.save_results(folder, ctx, tree, jobs, parts, logs, rcs)
+    codes = [{"command": c, "exit_code": rc, "duration": 0.0, "output": _tail(log)}
+             for c, rc, log in zip(commands, rcs, logs)]
+    return codes, broken
+
+
 def run(ctx):
     """Run every check command in a fresh check container and record the exit codes."""
     n = ctx.task["number"] if ctx.task else 0
@@ -46,6 +72,8 @@ def run(ctx):
     folder = ctx.run.folder / "tasks" / str(n) / f"attempt-{ctx.attempt}"
     folder.mkdir(parents=True, exist_ok=True)
     codes, failed, report = [], [], []
+    if checkrun.verify_is_on(ctx.run.folder):
+        return _run_shared(ctx, commands, shown, folder)
     for i, command in enumerate(commands, 1):
         out_path = ctx.run.folder / "logs" / f"acceptance-{n}-{i}.txt"
         started = time.monotonic()
@@ -62,5 +90,22 @@ def run(ctx):
             failed.append(f"Check `{command}` failed (exit {rc}): {_reason_line(tail)}")
     report += [f"shown, not run: {text}" for text in shown]
     atomic.write_text(folder / "checks.txt", scrub.scrub("\n".join(report)) + "\n")
+    produced = {"exit-codes": codes}
+    return StepResult("fail", failed, produces=produced) if failed else StepResult("pass", produces=produced)
+
+
+def _run_shared(ctx, commands, shown, folder):
+    """Verify is on: the checks run once here, on a clean checkout, and Verify reads the results."""
+    (folder / checkrun.RESULTS_FILE).unlink(missing_ok=True)
+    try:
+        codes, broken = _shared(ctx, commands, folder)
+    except settings.SettingsError as err:
+        return StepResult("fail", [str(err)])
+    if broken:
+        return StepResult("fail", broken)
+    report = [f"$ {c['command']}\nexit {c['exit_code']}\n{c['output']}\n" for c in codes]
+    atomic.write_text(folder / "checks.txt", scrub.scrub("\n".join(report + [f"shown, not run: {t}" for t in shown])) + "\n")
+    failed = [f"Check `{c['command']}` failed (exit {c['exit_code']}): {_reason_line(c['output'])}"
+              for c in codes if c["exit_code"] != 0]
     produced = {"exit-codes": codes}
     return StepResult("fail", failed, produces=produced) if failed else StepResult("pass", produces=produced)

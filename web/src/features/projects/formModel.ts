@@ -78,3 +78,38 @@ export function toCreateForm(v: FormValues, keys: KeyInput[], githubConnected: b
     services: v.services, keys,
   }
 }
+
+/** The New project wizard's slides, in order, with the note shown under each in the outline. */
+export const NEW_SLIDES = [
+  { title: "Name and source", note: "Name, code and repo" },
+  { title: "Type and services", note: "What it is and what it uses" },
+  { title: "Keys", note: "Values the project needs" },
+] as const
+
+/** Something still missing, the slide it is on, and where to send the cursor. */
+export interface Missing {
+  slide: number
+  text: string
+  target: string
+  focus: string
+}
+
+/** What is still missing on one slide of the New project wizard (empty when Next can go on). */
+export function slideMissing(n: number, v: FormValues, nameOk: boolean, pending: boolean): Missing[] {
+  const out: Missing[] = []
+  if (n === 1) {
+    if (!nameOk) out.push({ slide: 1, text: "Choose a name that is free.", target: "np-step-name", focus: "pf-name" })
+    if (!sourceComplete(v)) {
+      const what = v.source === "repo" ? "Choose the GitHub repo." : v.source === "template" ? "Type the GitHub template, owner/name." : "Type the folder path."
+      out.push({ slide: 1, text: what, target: "np-step-source", focus: v.source === "code" ? "pf-path" : "" })
+    }
+  }
+  if (n === 2 && !v.profile) out.push({ slide: 2, text: "Choose a type.", target: "np-step-services", focus: "" })
+  if (n === 3 && pending) out.push({ slide: 3, text: "Press Save under Project keys before creating.", target: "np-step-keys", focus: "" })
+  return out
+}
+
+/** Everything still missing before Create can run, slide by slide. */
+export function allMissing(v: FormValues, nameOk: boolean, pending: boolean): Missing[] {
+  return NEW_SLIDES.flatMap((_, i) => slideMissing(i + 1, v, nameOk, pending))
+}

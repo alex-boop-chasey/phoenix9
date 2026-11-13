@@ -99,7 +99,7 @@
   },
   {
     "name": "bell",
-    "description": "Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance), with a count.",
+    "description": "Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance, suggestions from the status report), with a count.",
     "inputs": [],
     "risk": "read",
     "agent": "tool",

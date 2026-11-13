@@ -201,3 +201,67 @@ def test_every_source_has_since_and_newest_first(quiet, monkeypatch):
     stamps = [sr._epoch(i["since"]) for i in found]
     assert all(stamps), [i["since"] for i in found]
     assert stamps == sorted(stamps, reverse=True)
+
+
+# ---- suggestions from the status report ----
+
+def write_report(*lines, at=NOW - 600):
+    """Save a status report holding these (section, line, key) rows, written at `at`."""
+    import os
+    body = "".join(f"\n## {s}\n- {text} <!-- id: {key} -->\n" for s, text, key in lines)
+    path = sr.report_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("# Phoenix status\n" + body)
+    os.utime(path, (at, at))
+
+
+def test_every_current_suggestion_is_a_row(quiet):
+    from phoenix9 import suggest
+    make_project()
+    write_report(("Projects with problems", "demo: these keys are empty: A, B. Fill them in with `phoenix project keys demo`.", "keys-empty:demo:3fa91c02b7de"),
+                 ("Phoenix", "The worker is not responding.", "worker-stuck"), ("Phoenix", "Disk low.", "disk-low"),
+                 ("Phoenix", "Update.", "update-available:v9.9"), ("Projects with problems", "1 commit.", "unpushed:demo:1"))
+    suggest.mark("disk-low", "dismissed")
+    suggest.mark("unpushed:demo:1", "snoozed", now=NOW)
+    found = {i["id"]: i for i in bell.items(quiet, NOW)}
+    assert set(found) == {"suggestion:demo:keys-empty:demo:3fa91c02b7de", "suggestion:phoenix:worker-stuck",
+                          "suggestion:phoenix:update-available:v9.9"}  # no limit of three; dismissed and snoozed left out
+    keys = found["suggestion:demo:keys-empty:demo:3fa91c02b7de"]
+    assert keys["kind"] == "suggestion" and keys["project"] == "demo" and keys["title"] == "demo: some keys are empty"
+    assert keys["detail"].startswith("demo: these keys are empty: A, B.") and "`" not in keys["detail"]
+    assert keys["page"] == {"to": "p/demo/settings", "params": {"section": "project"}}
+    assert found["suggestion:phoenix:worker-stuck"]["page"]["to"] == "settings"
+    assert keys["since"] == bell._iso(NOW - 600)
+    for i in found.values():
+        routes.resolve(i["page"]["to"], i["page"]["params"])
+
+
+def test_suggestion_since_is_when_the_report_first_carried_it(quiet):
+    write_report(("Phoenix", "The worker is not responding.", "worker-stuck"), at=NOW - 3600)
+    bell.items(quiet, NOW)
+    write_report(("Phoenix", "The worker is not responding.", "worker-stuck"), at=NOW - 60)
+    assert [i["since"] for i in bell.items(quiet, NOW)] == [bell._iso(NOW - 3600)]
+
+
+def test_no_two_rows_about_the_same_thing(quiet):
+    make_project()
+    run = make_run("r1", "running")
+    gate = gates.open_gate(run, kind="escalation", title="Q", why="w")
+    make_run("r2", "failed", ago_s=3600)
+    quiet.host.script(["systemctl", "is-active"], 0, "active\ninactive")
+    write_report(("Waiting for Alex", "Q.", f"escalation-waiting:demo:{gate['id']}"), ("Builds", "Failed.", "build-failed:demo:r2"),
+                 ("Phoenix", "Doctor: services.", "doctor:services"), ("Builds", "Running.", "build-running:demo:r1"))
+    assert sorted(kinds(quiet)) == ["build", "question", "service", "suggestion"]
+    assert "suggestion:demo:build-running:demo:r1" in ids_of(quiet)
+    bell.dismiss("build:demo:r2")  # a dismissed build row does not come back as a suggestion
+    assert sorted(kinds(quiet)) == ["question", "service", "suggestion"]
+
+
+def test_dismissing_a_suggestion_row_dismisses_the_suggestion(quiet):
+    from phoenix9 import suggest
+    write_report(("Phoenix", "The worker is not responding.", "worker-stuck"), ("Builds", "Same reason.", "build-repeat:0123456789ab"))
+    bell.dismiss("suggestion:phoenix:worker-stuck")
+    assert suggest.load()["worker-stuck"]["dismissed"] and ids_of(quiet) == ["suggestion:phoenix:build-repeat:0123456789ab"]
+    bell.dismiss_all(ids_of(quiet))
+    assert suggest.load()["build-repeat:0123456789ab"]["dismissed"] and ids_of(quiet) == []
+    assert suggest.pick(sr.report_path().read_text()) == []

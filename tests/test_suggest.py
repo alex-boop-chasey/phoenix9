@@ -139,6 +139,18 @@ def test_api_key_is_decoded_once_then_checked(quiet, monkeypatch):
     assert set(suggest.load()) == {"run:a+b"}
 
 
+def test_route_decodes_a_key_with_colon_and_plus(quiet, monkeypatch):
+    key = "keys-empty:rebirth-web-design:3fa91c02b7de+x"
+    with_lines(monkeypatch, ("Projects with problems", key))
+    lock = SimpleNamespace(write_lock=__import__("threading").RLock())
+    req = SimpleNamespace(server=lock, body={}, query={})
+    for what, sent in (("snooze", key.replace(":", "%3A").replace("+", "%2B")), ("dismiss", key)):
+        path = f"/api/suggest/{sent}/{what}"
+        method, pattern, handler = next(r for r in server.COMPILED if r[0] == "POST" and r[1].fullmatch(path))
+        assert handler(req, **pattern.fullmatch(path).groupdict())["key"] == key
+    assert suggest.load()[key]["dismissed"] and suggest.load()[key]["snoozed_until"]
+
+
 def test_agent_rule():
     text = RULES.read_text()
     section = text.split("## Suggestions", 1)[1].split("\n## ", 1)[0]

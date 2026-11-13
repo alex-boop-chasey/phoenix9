@@ -201,7 +201,7 @@ CONTROLS = (
          inputs=(P_PROJECT, P_RUN, _in("after", "integer", description="Only events after this number.", where="query"),
                  _in("limit", "integer", description="How many events at most (50 if left out).", where="query"))),
     _get("bell", "bell.show", "/api/bell", "tool", card="bell_card",
-         text="Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance), with a count."),
+         text="Read the bell: everything that needs Alex (open questions, failed builds, held merge requests, services down, allowance, suggestions from the status report), with a count."),
     _post("bell-dismiss", "bell.dismiss", "/api/bell/dismiss", "change", "later", "Dismissing a bell item is Alex's choice; he does it from the bell.",
           inputs=(_in("id", required=True, description="The bell item's id (from the bell list)."),)),
     _post("bell-dismiss-all", "bell.dismiss_all", "/api/bell/dismiss-all", "change", "later",

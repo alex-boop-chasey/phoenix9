@@ -198,3 +198,31 @@ def test_get_route_reads_the_saved_copy(quiet, monkeypatch):
     monkeypatch.setattr(statusreport, "build", lambda a, now=None: pytest.fail("a GET rebuilt the report"))
     got = server.get_report_status(SimpleNamespace(server=None, body={}, query={}))
     assert got["markdown"] == before and got["saved"] is True
+
+
+def test_every_key_is_short_and_plain_with_many_empty_keys(quiet, monkeypatch):
+    from phoenix9 import keys, project_services, services, suggest
+    make_project()
+    names = [f"SERVICE_NUMBER_{i}_API_KEY" for i in range(40)]
+    monkeypatch.setattr(project_services, "chosen", lambda p: ["acme"])
+    monkeypatch.setattr(services, "load_library", lambda: {"acme": {"project_keys": [{"name": n, "secret": True} for n in names]}})
+    for n in names:
+        keys.add_empty("demo", n)
+    for i in range(40):
+        make_run(f"run-{i:02d}-with-a-rather-long-name", "failed", ago_s=3600 + i, flagged="the tests failed")
+    found = suggest.parse(build(quiet))
+    assert any(r["key"].startswith("keys-empty:demo:") for r in found) and any(r["key"].startswith("build-repeat:") for r in found)
+    for r in found:
+        assert suggest.check_key(r["key"]) == r["key"]
+    import hashlib
+    assert f"keys-empty:demo:{hashlib.sha256(chr(10).join(sorted(names)).encode()).hexdigest()[:12]}" in [r["key"] for r in found]
+
+
+def test_odd_ids_make_plain_keys(quiet, monkeypatch):
+    from phoenix9 import suggest
+    monkeypatch.setattr(statusreport, "_open_prs", lambda a: [{"project": "demo", "number": "4 + x/y", "title": "Old", "created": _iso(4 * 86400)}])
+    monkeypatch.setattr(updater, "status", lambda a: {"update_available": True, "newest": "v9.9 " + "z" * 500})
+    keys_found = [r["key"] for r in suggest.parse(build(quiet))]
+    assert "mr-old:demo:4-x-y" in keys_found and len(keys_found) == 2
+    for key in keys_found:
+        suggest.check_key(key)

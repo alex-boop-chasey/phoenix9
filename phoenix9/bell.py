@@ -1,4 +1,5 @@
-"""The bell: one plain list of what needs Alex (questions, failed builds, held merge requests, services, allowance, the newest daily report).
+"""The bell: one plain list of what needs Alex (questions, failed builds, held merge requests, services, allowance, the newest daily report
+and every current suggestion from the status report).
 
 Plain rules over Phoenix's own data, no AI. Every text is scrubbed and has no money figure; a source that fails is skipped.
 Every item has a date (`since`), newest first; Alex can dismiss an item, and a later, separate event has a new id so it shows again.
@@ -10,7 +11,7 @@ import re
 import time
 from datetime import datetime, timezone
 
-from phoenix9 import allowance, atomic, doctor, gates, paths, routes, runs, scrub, statusreport as sr
+from phoenix9 import allowance, atomic, doctor, gates, paths, routes, runs, scrub, statusreport as sr, suggest
 from phoenix9.ops.common import OpsError
 
 MONEY = re.compile(r"(?:US|AU|A)?\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|AUD|dollars?)\b|\b(?:USD|AUD)\s?\d[\d,]*(?:\.\d+)?", re.I)
@@ -56,16 +57,26 @@ def dismissed() -> dict:
     return _load(store_path())
 
 
+def suggestion_key(item_id: str) -> str | None:
+    """The suggestion key inside a bell id of kind suggestion ('suggestion:<project>:<key>'), else None."""
+    kind, _, rest = str(item_id).partition(":")
+    key = rest.partition(":")[2]
+    return key if kind == "suggestion" and suggest.KEY_RE.fullmatch(key) else None
+
+
 def dismiss_all(ids, now: float | None = None) -> int:
-    """Hide these items from the bell; returns how many ids were given."""
+    """Hide these items from the bell (a suggestion is also dismissed in the suggest store); returns how many ids were given."""
     ids = [check_id(i) for i in ids]
     if not ids:
         return 0
-    stamp = _iso(time.time() if now is None else now)
+    now = time.time() if now is None else now
+    stamp = _iso(now)
     data = dismissed()
     for item_id in ids:
         data[fingerprint(item_id)] = stamp
     atomic.write_json(store_path(), data)
+    for key in filter(None, map(suggestion_key, ids)):
+        suggest.mark(key, "dismissed", now=now)
     return len(ids)
 
 
@@ -101,11 +112,11 @@ def _item(kind: str, project: str, key, title, detail, page: dict, since: str = 
             "project": project, "page": page, "since": since}
 
 
-def _first_seen(prefix: str, wrong: list[str], now: float) -> dict:
-    """{key: ISO time first seen} for the things now wrong under this prefix; ones that are fine again are forgotten."""
+def _first_seen(prefix: str, wrong: list[str], now: float, stamp: str = "") -> dict:
+    """{key: ISO time first seen (stamp, else now)} for the things now wrong under this prefix; ones that are fine again are forgotten."""
     data = _load(seen_path())
     mine = {k: v for k, v in data.items() if k.startswith(prefix)}
-    kept = {k: mine.get(k) or _iso(now) for k in wrong}
+    kept = {k: mine.get(k) or stamp or _iso(now) for k in wrong}
     if kept != mine:
         atomic.write_json(seen_path(), {**{k: v for k, v in data.items() if not k.startswith(prefix)}, **kept})
     return kept
@@ -182,6 +193,78 @@ def _reports() -> list[dict]:
     return [_item("report", "phoenix", found["date"], f"Daily report for {found['date']}", found["text"], _page("projects"), since)]
 
 
+PROJECT_KINDS = ("build-running", "build-failed", "mr-old", "edit-stalled", "toml-invalid", "keys-empty", "unpushed")
+SUGGESTION_TITLES = {
+    "waiting": "{p}: a question is waiting", "build-running": "{p}: a build is running",
+    "build-failed": "{p}: a build failed", "mr-old": "{p}: a merge request is waiting",
+    "edit-stalled": "{p}: a quick edit has stalled", "toml-invalid": "{p}: the project settings file is not valid",
+    "keys-empty": "{p}: some keys are empty", "unpushed": "{p}: commits not pushed to GitHub",
+    "build-repeat": "Several builds failed for the same reason", "update-available": "A Phoenix update is available",
+    "worker-stuck": "The worker is not responding", "disk-low": "The disk is nearly full", "doctor": "A Phoenix health check failed",
+}
+
+
+def _suggestion_kind(key: str) -> str:
+    """The kind of report line a suggestion key names: its first part ('…-waiting' for every kind of question)."""
+    head = key.split(":", 1)[0]
+    return "waiting" if head.endswith("-waiting") else head
+
+
+def _suggestion_project(key: str) -> str:
+    """The project a suggestion key names, or '' when it names none (or the project is not there)."""
+    parts = key.split(":")
+    if len(parts) < 2 or _suggestion_kind(key) not in ("waiting", *PROJECT_KINDS):
+        return ""
+    return parts[1] if (paths.projects() / parts[1]).is_dir() else ""
+
+
+def _suggestion_page(key: str, project: str) -> dict:
+    """The most useful page for a suggestion: the project's Keys or Build tab, the project, or Phoenix settings."""
+    kind, parts = _suggestion_kind(key), key.split(":")
+    if project and kind in ("keys-empty", "toml-invalid"):
+        return _page(f"p/{project}/settings", section="project")
+    if project and kind in ("build-running", "build-failed"):
+        return _page(f"p/{project}/build", run=parts[2] if len(parts) > 2 else "")
+    if project:
+        return _page(f"p/{project}/overview")
+    if kind == "update-available":
+        return _page("settings", section="updates")
+    if kind in ("doctor", "worker-stuck", "disk-low"):
+        return _page("settings", section="services")
+    return _page("projects")
+
+
+def _same_as(key: str) -> str:
+    """The id of the bell item from another source that is about the same thing, or '' when there is none."""
+    kind, parts = _suggestion_kind(key), key.split(":")
+    other = {"waiting": "question", "build-failed": "build", "mr-old": "merge"}.get(kind)
+    if other and len(parts) == 3:
+        return f"{other}:{parts[1]}:{parts[2]}"
+    return "service" if key == "doctor:services" else ""
+
+
+def _suggestions(others: list[dict], now: float) -> list[dict]:
+    """One item per current suggestion in the saved status report that is not dismissed or snoozed and is not
+    already listed by another source; dated from when the report first carried it."""
+    path = sr.report_path()
+    try:
+        text, written = path.read_text(encoding="utf-8"), _iso(path.stat().st_mtime)
+    except (OSError, UnicodeError):
+        return []
+    seen = _first_seen("suggestion:", [f"suggestion:{r['key']}" for r in suggest.parse(text)], now, written)
+    listed = {i["id"] for i in others} | {i["kind"] for i in others}
+    out = []
+    for row in suggest.pick(text, now=now, limit=None):
+        key = row["key"]
+        if _same_as(key) in listed:
+            continue
+        project = _suggestion_project(key)
+        title = SUGGESTION_TITLES.get(_suggestion_kind(key), "{p}: a suggestion" if project else "A suggestion").format(p=project or "A project")
+        out.append(_item("suggestion", project or "phoenix", key, title, row["text"].replace("`", ""),
+                         _suggestion_page(key, project), seen.get(f"suggestion:{key}") or written))
+    return out
+
+
 def _prune(store: dict, found: list[dict]) -> None:
     """Forget dismissed entries whose item is gone (so the file never grows); writes only when something went."""
     live = {fingerprint(i["id"]) for i in found}
@@ -204,6 +287,9 @@ def items(adapters, now: float | None = None) -> list[dict]:
         got = sr._safe(source)
         broken = broken or got is None
         found += got or []
+    got = sr._safe(_suggestions, found, now)
+    broken = broken or got is None
+    found += got or []
     store = dismissed()
     if not broken:  # a source that failed hides its items for now; their dismissals must survive that
         _prune(store, found)

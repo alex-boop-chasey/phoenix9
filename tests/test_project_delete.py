@@ -1419,3 +1419,21 @@ def test_delete_and_remove_refuse_home_plainly(env):
     from phoenix9 import project_removal
     with pytest.raises(Exception, match="agent's folder"):
         project_removal.remove("home", "cli", env["fakes"])
+
+
+@pytest.mark.parametrize("meta, made", [
+    (OWN_META, True),
+    ({**OWN_META, "source": "template", "repo": "https://github.com/Me/Alpha.git"}, True),
+    ({**OWN_META, "source": "repo"}, False),
+    ({"repo": "me/alpha", "source": "empty"}, False),
+    ({**OWN_META, "phoenix_made_repo": "me/other"}, False),
+    (None, False),
+])
+def test_show_says_whether_phoenix_made_the_repo(env, meta, made):
+    from phoenix9.ops import projects
+    make(env, "alpha", meta=meta)
+    before = len(env["host"].calls)
+    data = projects.show("alpha")
+    assert data["repo_made_by_phoenix"] is made
+    assert "repo" in data
+    assert not [c for c in env["host"].calls[before:] if c and c[0] in ("git", "gh")]   # cheap: no git or gh

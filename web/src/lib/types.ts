@@ -198,6 +198,8 @@ export interface Project extends ProjectRow {
   setup?: ProjectSetup
   changelog: ChangelogLine[]
   gates: Gate[]
+  /** True when project.json says Phoenix created the repo (a cheap guess; the delete plan is the final word). */
+  repo_made_by_phoenix?: boolean
 }
 
 export interface KeyRow {

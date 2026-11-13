@@ -70,6 +70,14 @@ def _users_of(key: str, name: str, host) -> list:
     return users
 
 
+def made_by_phoenix(folder: Path) -> bool:
+    """Cheap guess (project.json only, no git or gh) whether Phoenix created the project's recorded repo;
+    repo_verdict stays the final word."""
+    meta = project._meta(folder)
+    key = _key(meta.get("repo"))
+    return bool(key and meta.get("source") in OWN_SOURCES and _key(meta.get("phoenix_made_repo")) == key)
+
+
 def repo_verdict(name: str, folder: Path, host) -> dict:
     """Whether Phoenix may delete the project's GitHub repo: {repo, delete, why}.
 

@@ -2,7 +2,7 @@ import { Icon } from "@/components/Icon"
 import { RelativeTime } from "@/components/RelativeTime"
 import type { LogEntry } from "@/lib/types"
 
-import { KIND_INFO, taskLabel } from "./LogFilters"
+import { kindInfo, taskLabel } from "./LogFilters"
 
 /** "build · task · attempt · step" in muted words. */
 function where(e: LogEntry): string {
@@ -27,7 +27,7 @@ export function LogList({
   return (
     <div className="lglist" role="listbox" aria-label="Logs">
       {entries.map((e) => {
-        const info = KIND_INFO[e.kind]
+        const info = kindInfo(e.kind)
         return (
           <button key={e.id} type="button" className="lgi" role="option" aria-selected={e.id === selected} onClick={() => onSelect(e.id)}>
             <b>{e.title}</b>

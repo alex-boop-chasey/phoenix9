@@ -452,7 +452,7 @@ export interface DeployStatus {
 
 export interface LogEntry {
   id: string
-  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service" | "repair-note" | "repair-report"
+  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service" | "repair-note" | "repair-report" | "task-file" | "report"
   run: string
   task: number | null
   attempt: number | null

@@ -8,7 +8,7 @@ import { Wheel } from "@/components/Indicator"
 import { api } from "@/lib/api"
 
 import { DiffView } from "./DiffView"
-import { KIND_INFO } from "./LogFilters"
+import { kindInfo } from "./LogFilters"
 
 /** The open log: header with kind tag, title and Copy, then the text (newest at the bottom, diffs coloured). */
 export function LogViewer({ project, id }: { project: string; id: string }) {
@@ -33,7 +33,7 @@ export function LogViewer({ project, id }: { project: string; id: string }) {
       ) : (
         <>
           <div className="reader-h">
-            <span className="tag"><Icon name={KIND_INFO[log.kind].icon} />{KIND_INFO[log.kind].label}</span>
+            <span className="tag"><Icon name={kindInfo(log.kind).icon} />{kindInfo(log.kind).label}</span>
             <b>{log.title}</b>
             {log.truncated && <span className="help">Showing the last 2 MB</span>}
             <span style={{ marginLeft: "auto" }}><CopyButton text={log.text} /></span>

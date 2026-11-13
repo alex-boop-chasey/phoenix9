@@ -32,6 +32,7 @@ def proj(phoenix_env):
     (run / "logs/delegate-g1.log").write_text("delegated\n")
     (run / "tasks/1/attempt-1/checks.txt").write_text("PASS\n")
     (run / "tasks/1/attempt-1/diff.patch").write_text("diff --git a/x b/x\n")
+    (run / "tasks/1/task.md").write_text("# Task 1\n")
     (run / "gates/g1.json").write_text(json.dumps({"id": "g1", "title": "Stuck", "why": "Because", "task": 1,
                                                     "step": "builder", "created": "T0"}))
     (run / "gates/g1.answer.json").write_text(json.dumps({"action": "skip", "who": "alex", "at": "T1", "note": "ok"}))
@@ -46,7 +47,9 @@ def ids(entries):
 
 def test_list_kinds_and_filters(proj):
     entries = logs.list_("demo")
-    assert {e["kind"] for e in entries} == {"session", "check", "diff", "step", "gate", "service"}
+    assert {e["kind"] for e in entries} == {"session", "check", "diff", "step", "gate", "service", "task-file"}
+    task_file = next(e for e in entries if e["id"] == f"{RUN}/tasks/1/task.md")
+    assert task_file["kind"] == "task-file" and task_file["task"] == 1
     assert f"{RUN}/logs/1-1-builder.jsonl" in ids(entries)
     assert f"{RUN}/logs/1-1-builder.jsonl.stderr" not in ids(entries)  # empty
     assert ids(logs.list_("demo", kind="diff")) == {f"{RUN}/tasks/1/attempt-1/diff.patch"}

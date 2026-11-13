@@ -309,3 +309,17 @@ def test_planner_prompt_calls_out_the_vision():
     line = "vision.md, when present, is the owner's own description of what they want: treat it as the primary intent."
     assert line in refsnapshot._section("planner")
     assert "vision.md" not in refsnapshot._section("builder")
+
+
+def test_planner_default_tools_are_read_and_write_only():
+    """The Planner reads the project and writes /out/spec.md: no shell, no web (O34)."""
+    import tomllib
+    from phoenix9 import claude
+    ai = tomllib.loads((REPO / "steps" / "planner" / "step.toml").read_text())["ai"]
+    assert ai["tools"] == ["Read", "Glob", "Grep", "Write"]
+    assert ai["tools_denied"] == ["Bash", "WebFetch", "WebSearch"]
+    known = {name for name, _, _ in claude.SUPPORTED_TOOLS}
+    assert set(ai["tools"]) <= known and set(ai["tools_denied"]) <= known
+    cmd = claude.build_command(ai, "/phoenix/prompt.md", "/workspace")
+    assert cmd[cmd.index("--allowedTools") + 1] == "Read,Glob,Grep,Write"
+    assert cmd[cmd.index("--disallowedTools") + 1] == "Bash,WebFetch,WebSearch"

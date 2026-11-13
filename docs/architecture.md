@@ -820,7 +820,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 
 
 ### 8.3 Telling Alex a question is waiting (`phoenix9/gatenotify.py`)
-Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter: project, run
+Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter, after a quiet
+wait: global `[notify] quiet_minutes` (default 10; 0 = at once) holds it (`gates/<id>.notified` = `held`), and the
+runner loop (`watch.check_gate_reminders` -> `gatenotify.send_held`) sends it only if the question is still open
+after that many minutes, so a question a chat answers soon sends nothing. The message has: project, run
 title, the question's title in one scrubbed line (cut to ~200 characters; never plan text or files) and a link to
 `<dashboard_url>/p/<project>/build` (no dashboard address set: it says to look under Needs you). A Pause-mode
 escalation keeps its own message from failmodes and is only recorded. What was sent is kept in

@@ -65,3 +65,22 @@ test("advisor fields", async () => {
   expect(onChange).toHaveBeenCalledWith("steps.builder.advisor.instructions", "y")
   expect(screen.getByLabelText("Advisor model")).toHaveAttribute("placeholder", "claude-opus-5-5")
 })
+
+test("tool switches show the step's real tools from the library layer", async () => {
+  const toolList = ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "WebFetch", "WebSearch"].map((name) => ({ name, label: name, help: "" }))
+  const plannerEffective = { ...effective, tools: ["Read", "Glob", "Grep", "Write"], tools_denied: ["Bash", "WebFetch", "WebSearch"] }
+  const onChange = vi.fn()
+  render(
+    <AiStepEditor
+      step="planner" title="Planner" effective={plannerEffective} changes={{}} onChange={onChange} toolList={toolList}
+      source={{ "steps.planner.tools": "library", "steps.planner.tools_denied": "library" }}
+    />,
+  )
+  await userEvent.click(screen.getByRole("button", { name: "Planner settings" }))
+  for (const t of ["Read", "Glob", "Grep", "Write"]) expect(screen.getByRole("switch", { name: t })).toBeChecked()
+  for (const t of ["Edit", "Bash", "WebFetch", "WebSearch"]) expect(screen.getByRole("switch", { name: t })).not.toBeChecked()
+  expect(screen.queryByText(/Using this step's default tools/)).toBeNull()
+  await userEvent.click(screen.getByRole("switch", { name: "Bash" }))
+  expect(onChange).toHaveBeenCalledWith("steps.planner.tools", ["Read", "Glob", "Grep", "Write", "Bash"])
+  expect(onChange).toHaveBeenCalledWith("steps.planner.tools_denied", ["WebFetch", "WebSearch"])
+})

@@ -48,7 +48,7 @@ def only_gate(run_dir):
 
 
 def test_one_message_with_link_when_a_question_opens(tmp_path, runner, adapters):
-    write_global('[dashboard]\ndashboard_url = "https://dash.example.com/"\n')
+    write_global('[dashboard]\ndashboard_url = "https://dash.example.com/"\n[notify]\nquiet_minutes = 0\n')
     run_dir = waiting_run(tmp_path, runner, title="Is this ok?   sk-ant-abcdefghijkl1234 please")
     (msg,) = adapters.notify.messages
     assert "proj" in msg and "One task" in msg and "Is this ok?" in msg
@@ -58,6 +58,7 @@ def test_one_message_with_link_when_a_question_opens(tmp_path, runner, adapters)
 
 
 def test_no_address_says_where_to_look_and_long_questions_are_cut(tmp_path, runner, adapters):
+    write_global("[notify]\nquiet_minutes = 0\n")
     waiting_run(tmp_path, runner, title="x" * 500)
     (msg,) = adapters.notify.messages
     assert "http" not in msg and "Needs you" in msg
@@ -65,6 +66,7 @@ def test_no_address_says_where_to_look_and_long_questions_are_cut(tmp_path, runn
 
 
 def test_reminders_every_four_hours_capped_and_not_repeated_after_reload(tmp_path, runner, adapters):
+    write_global("[notify]\nquiet_minutes = 0\n")
     run_dir = waiting_run(tmp_path, runner)
     clock = adapters.clock
     sent = lambda: len(adapters.notify.messages)           # noqa: E731
@@ -95,6 +97,7 @@ def test_no_reminder_after_an_answer_or_when_the_run_ends(tmp_path, runner, adap
 
 
 def test_remind_hours_zero_and_custom(tmp_path, runner, adapters):
+    write_global("[notify]\nquiet_minutes = 0\n")
     waiting_run(tmp_path, runner)
     write_global("[notify]\nremind_hours = 0\n")
     adapters.clock.t += 50 * 3600
@@ -106,6 +109,7 @@ def test_remind_hours_zero_and_custom(tmp_path, runner, adapters):
 
 
 def test_watch_loop_sends_reminders_once_a_minute(tmp_path, runner, adapters):
+    write_global("[notify]\nquiet_minutes = 0\n")
     waiting_run(tmp_path, runner)
     memory = watch.Memory()
     adapters.clock.t += 4 * 3600
@@ -121,6 +125,69 @@ def test_escalation_gate_is_told_once_by_failmodes_then_reminded(tmp_path, runne
     assert len(adapters.notify.messages) == 1
     adapters.clock.t += 4 * 3600
     assert gatenotify.send_reminders(adapters) == 1
+
+
+# ---- quiet wait: a question is told only if it is still open after [notify] quiet_minutes
+def test_a_new_question_is_held_by_default(tmp_path, runner, adapters):
+    run_dir = waiting_run(tmp_path, runner)
+    assert adapters.notify.messages == []
+    record = gatenotify.read_record(run_dir, only_gate(run_dir)["id"])
+    assert record["held"] == adapters.clock.t and "first" not in record
+
+
+def test_held_question_is_told_once_after_the_wait_then_reminded(tmp_path, runner, adapters):
+    run_dir = waiting_run(tmp_path, runner)
+    adapters.clock.t += 9 * 60
+    assert gatenotify.send_held(adapters) == 0 and gatenotify.send_reminders(adapters) == 0
+    adapters.clock.t += 60
+    assert gatenotify.send_held(adapters) == 1
+    (msg,) = adapters.notify.messages
+    assert "is waiting for you" in msg and "Reminder" not in msg
+    assert gatenotify.read_record(run_dir, only_gate(run_dir)["id"])["first"] == adapters.clock.t
+    assert gatenotify.send_held(adapters) == 0 and gatenotify.send_reminders(adapters) == 0
+    adapters.clock.t += 4 * 3600
+    assert gatenotify.send_held(adapters) == 0 and gatenotify.send_reminders(adapters) == 1
+
+
+def test_question_answered_in_the_wait_sends_nothing(tmp_path, runner, adapters):
+    run_dir = waiting_run(tmp_path, runner)
+    adapters.clock.t += 60
+    gates.answer(only_gate(run_dir)["id"], "approve", who="chat")
+    adapters.clock.t += 5 * 3600
+    watch.check_gate_reminders(adapters, watch.Memory())
+    assert gatenotify.send_held(adapters) == 0 and gatenotify.send_reminders(adapters) == 0
+    assert adapters.notify.messages == []
+
+
+def test_quiet_minutes_zero_tells_at_once_and_custom_wait(tmp_path, runner, adapters):
+    write_global("[notify]\nquiet_minutes = 0\n")
+    waiting_run(tmp_path, runner)
+    assert len(adapters.notify.messages) == 1
+    write_global("[notify]\nquiet_minutes = 2\n")
+    on("builder", None, None, gate(title="again"))
+    waiting_run(tmp_path, runner)
+    assert len(adapters.notify.messages) == 1
+    adapters.clock.t += 2 * 60
+    assert gatenotify.send_held(adapters) == 1 and len(adapters.notify.messages) == 2
+
+
+def test_runner_restart_neither_loses_nor_repeats_a_held_question(tmp_path, runner, adapters):
+    run_dir = waiting_run(tmp_path, runner)
+    restarted = Runner(adapters, tmp_path / "lib")                # the old runner is gone; a new one starts
+    assert restarted.drive(run_dir) == "waiting"
+    assert adapters.notify.messages == []                       # not sent early by the restart
+    adapters.clock.t += 10 * 60
+    watch.check_gate_reminders(adapters, watch.Memory())       # a fresh loop after the restart still sends it
+    assert len(adapters.notify.messages) == 1
+    watch.check_gate_reminders(adapters, watch.Memory())       # and another restart does not send it again
+    assert len(adapters.notify.messages) == 1
+
+
+def test_bad_quiet_minutes_means_the_default():
+    write_global("[notify]\nquiet_minutes = -3\n")
+    assert gatenotify.quiet_minutes() == 10
+    write_global("[notify]\nquiet_minutes = true\n")
+    assert gatenotify.quiet_minutes() == 10
 
 
 # ---- auto-approve

@@ -97,7 +97,9 @@ export function AiStepEditor(props: AiStepEditorProps) {
 
   const toolSwitches = (list: LibraryTool[]) => {
     const asList = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [])
-    const lists = { tools: asList(current("tools")), denied: asList(current("tools_denied")) }
+    // The step's real effective lists (library, preset or project), so the switches show what it can use.
+    const listOf = (k: string) => asList(current(k) ?? getPath(effective, k))
+    const lists = { tools: listOf("tools"), denied: listOf("tools_denied") }
     return (
       <fieldset className="space-y-1 md:col-span-2" aria-label="Tools it may use">
         <legend className="text-sm font-medium">Tools it may use</legend>

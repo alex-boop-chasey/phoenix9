@@ -349,12 +349,13 @@ def check_daily_report(adapters, memory: Memory) -> None:
 
 
 def check_gate_reminders(adapters, memory: Memory) -> None:
-    """Remind Alex of questions still open (every `[notify] remind_hours`, at most 6 times), looking once a minute; never raises."""
+    """Tell Alex of questions still open after the quiet wait, then remind (every `[notify] remind_hours`, at most 6 times), looking once a minute; never raises."""
     try:
         now = adapters.clock.now()
         if memory.reminders_checked is not None and now - memory.reminders_checked < DAILY_CHECK_S:
             return
         memory.reminders_checked = now
+        gatenotify.send_held(adapters)
         gatenotify.send_reminders(adapters)
     except Exception:  # noqa: BLE001 - reminders must not stop the loop
         pass

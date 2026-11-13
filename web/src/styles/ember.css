@@ -162,6 +162,7 @@ svg.i.sm{width:16px; height:16px} svg.i.xs{width:14px; height:14px} svg.i.lg{wid
 .input:focus,.textarea:focus,.select:focus{outline:none; border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft)}
 .input::placeholder,.textarea::placeholder{color:var(--text-3)}
 .input.mono{font-family:var(--f-mono); font-size:14px}
+@media (max-width:719px){ .input,.textarea,.select,.input.mono{font-size:16px} } /* under 16px makes iPhones zoom in */
 .input[readonly]{background:var(--surface-2); border-color:transparent}
 .with-ico{position:relative}
 .with-ico svg.i{position:absolute; left:12px; top:50%; translate:0 -50%; color:var(--text-3); pointer-events:none}

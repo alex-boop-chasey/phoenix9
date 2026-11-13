@@ -209,3 +209,20 @@ test("the foot links to the full status report and closes the list", async () =>
   expect(screen.getByTestId("where")).toHaveTextContent("/p/home/logs?log=reports%2Fstatus.md")
   expect(screen.queryByTestId("bell-list")).toBeNull()
 })
+
+test("on a phone the list is pinned under the top bar between both edges", async () => {
+  vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("max-width: 719px"), media: q, addEventListener() {}, removeEventListener() {} }))
+  show({ count: 2, items })
+  fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+  const list = screen.getByTestId("bell-list")
+  expect(list).toHaveClass("bell-phone", "fixed", "left-4", "right-4")
+  expect(list).not.toHaveClass("absolute")
+})
+
+test("on a computer the list hangs under the bell as before", async () => {
+  show({ count: 2, items })
+  fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+  const list = screen.getByTestId("bell-list")
+  expect(list).toHaveClass("absolute", "right-0")
+  expect(list).not.toHaveClass("fixed")
+})

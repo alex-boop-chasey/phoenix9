@@ -12,7 +12,7 @@ import { Composer } from "@/features/agent/Composer"
 import { ContextChip } from "@/features/agent/ContextChip"
 import { MessageList } from "@/features/agent/messages"
 import type { UiMove } from "@/features/agent/uiGo"
-import { readWide, writeWide } from "@/features/agent/panelState"
+import { readWide, usePhoneWidth, writeWide } from "@/features/agent/panelState"
 
 const LOOK: Record<AgentState, { cls: string; word: string }> = {
   idle: { cls: "b-ok", word: "Idle" },
@@ -30,6 +30,33 @@ function StatusPill() {
   const waiting = (messages?.items ?? []).filter((i) => i.type === "queued" && i.pending).length
   const text = data.state === "queued" ? `Queued ${Math.max(waiting, 1)}` : look.word
   return <span className={`badge ${look.cls}`} data-testid="agent-state">{text}</span>
+}
+
+/** Height of the top bar the panel sits under. */
+const TOP_BAR_PX = 60
+
+/** While open on a phone: lock the page behind and size the panel to the part of the screen above the keyboard. */
+function usePhoneSheet(open: boolean, phone: boolean, panel: RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    if (!open) return
+    document.body.classList.add("agent-open")
+    return () => document.body.classList.remove("agent-open")
+  }, [open])
+
+  useEffect(() => {
+    const el = panel.current
+    const vv = window.visualViewport
+    if (!open || !phone || !el || !vv) return
+    const fit = () => el.style.setProperty("--ag-vh", `${Math.max(vv.height + vv.offsetTop - TOP_BAR_PX, 0)}px`)
+    fit()
+    vv.addEventListener("resize", fit)
+    vv.addEventListener("scroll", fit)
+    return () => {
+      vv.removeEventListener("resize", fit)
+      vv.removeEventListener("scroll", fit)
+      el.style.removeProperty("--ag-vh")
+    }
+  }, [open, phone, panel])
 }
 
 /** The slide-in Phoenix agent panel; focus goes to the message box on open and back to `opener` on close. */
@@ -52,6 +79,9 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
   const [confirmNew, setConfirmNew] = useState(false)
   const fresh = useNewConversation()
   const starting = fresh.isPending
+  const phone = usePhoneWidth()
+  const aside = useRef<HTMLElement>(null)
+  usePhoneSheet(open, phone, aside)
 
   const startNew = () => {
     setConfirmNew(false)
@@ -74,6 +104,7 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
 
   return (
     <aside
+      ref={aside}
       className={`drawer${open ? " open" : ""}${wide ? " wide" : ""}`}
       aria-label="Phoenix agent panel"
       aria-hidden={!open}

@@ -183,3 +183,15 @@ test("a still-queued message asks first; Cancel keeps it, Send anyway sends", as
   fireEvent.click(await screen.findByRole("button", { name: "Send anyway" }))
   await waitFor(() => expect(sends(calls)).toHaveLength(1))
 })
+
+test("the message box asks phones for sentence typing, no autofill and a Send key", () => {
+  mockApi(calm())
+  renderWithProviders(<Composer />)
+  const el = box()
+  expect(el).toHaveAttribute("name", "message")
+  expect(el).toHaveAttribute("autocomplete", "off")
+  expect(el).toHaveAttribute("autocorrect", "on")
+  expect(el).toHaveAttribute("autocapitalize", "sentences")
+  expect(el).toHaveAttribute("spellcheck", "true")
+  expect(el).toHaveAttribute("enterkeyhint", "send")
+})

@@ -251,7 +251,9 @@ def _suggestions(others: list[dict], now: float) -> list[dict]:
         text, written = path.read_text(encoding="utf-8"), _iso(path.stat().st_mtime)
     except (OSError, UnicodeError):
         return []
-    seen = _first_seen("suggestion:", [f"suggestion:{r['key']}" for r in suggest.parse(text)], now, written)
+    current = [r["key"] for r in suggest.parse(text)]
+    seen = _first_seen("suggestion:", [f"suggestion:{k}" for k in current], now, written)
+    suggest.forget_gone(current)
     listed = {i["id"] for i in others} | {i["kind"] for i in others}
     out = []
     for row in suggest.pick(text, now=now, limit=None):

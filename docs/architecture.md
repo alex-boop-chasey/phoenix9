@@ -1164,7 +1164,8 @@ when it was dismissed, and entries whose item is gone are dropped when the bell 
 answered). Every current suggestion in the saved status report that is not dismissed or snoozed is an item too (kind
 `suggestion`, id `suggestion:<project or phoenix>:<suggestion key>`, `since` = when the report first carried it), all
 of them, except one about a question, failed build, merge request or service the bell already lists. Dismissing a
-suggestion item also dismisses it in `cache/suggestions.json`. Suggestion keys stay short and plain: a part built from a
+suggestion item also dismisses it in `cache/suggestions.json`; when the bell reads the report it forgets entries there
+whose line is gone, so the same problem coming back later shows again. Suggestion keys stay short and plain: a part built from a
 list of names (empty keys, repeated failures) is the first 12 hex characters of a sha256 of the sorted names, and
 every other part is plain characters cut to 60. The top bar shows the count of items shown; the agent tool `open_bell` opens the list and the agent can
 explain each item.

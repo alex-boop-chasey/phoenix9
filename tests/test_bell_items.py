@@ -265,3 +265,14 @@ def test_dismissing_a_suggestion_row_dismisses_the_suggestion(quiet):
     bell.dismiss_all(ids_of(quiet))
     assert suggest.load()["build-repeat:0123456789ab"]["dismissed"] and ids_of(quiet) == []
     assert suggest.pick(sr.report_path().read_text()) == []
+
+
+def test_dismissed_suggestion_shows_again_when_it_comes_back_later(quiet):
+    from phoenix9 import suggest
+    write_report(("Phoenix", "Disk low.", "disk-low"))
+    bell.dismiss("suggestion:phoenix:disk-low")
+    assert ids_of(quiet) == []
+    write_report(("Phoenix", "Update.", "update-available:v9.9"))  # the disk is fine again: the old entry is forgotten
+    assert ids_of(quiet) == ["suggestion:phoenix:update-available:v9.9"] and "disk-low" not in suggest.load()
+    write_report(("Phoenix", "Disk low.", "disk-low"))  # a new disk problem later is a new row
+    assert ids_of(quiet) == ["suggestion:phoenix:disk-low"]

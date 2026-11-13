@@ -196,6 +196,8 @@ interface Props {
   run: RunDetail
   gates?: Gate[]
   renderUnderStep?: (line: StepLine) => ReactNode
+  /** Show the "Planned steps" line and the "At the start" heading on top (default yes). */
+  lead?: boolean
 }
 
 function timeOf(line: StepLine | undefined, shown: Shown): string {
@@ -206,8 +208,18 @@ function timeOf(line: StepLine | undefined, shown: Shown): string {
   return took(line) || (shown.status === "skipped" ? "Skipped" : "")
 }
 
+/** The lines above the first step: a note while the plan is not fixed yet, and the "At the start" heading. */
+export function StepListLead({ run }: { run: RunDetail }) {
+  return (
+    <>
+      {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
+      <h3 className="stack-h">At the start</h3>
+    </>
+  )
+}
+
 /** The stacked blocks of a run: the start steps, one group per task, the end steps. */
-export function StepList({ run, gates, renderUnderStep }: Props) {
+export function StepList({ run, gates, renderUnderStep, lead = true }: Props) {
   const open = gates ?? run.gates
   const title = (name: string) => planRow(run, name)?.title || name
   const repairs = run.repairs ?? []
@@ -302,8 +314,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
   const hasOpenGate = (n: number) => groupNames(run, "task").some((s) => gateFor(run, open, n, allLines(run, n, s).at(-1)))
   return (
     <div className="stack" aria-live="polite">
-      {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
-      <h3 className="stack-h">At the start</h3>
+      {lead && <StepListLead run={run} />}
       {(anchors.get(undefined) ?? []).map((r) => <RepairLine key={`repair-${r.n}`} run={run} repair={r} />)}
       {blocks("run-start", null)}
       {taskNumbers.map((n) => {

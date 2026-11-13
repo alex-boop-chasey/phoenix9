@@ -1,17 +1,20 @@
 // The Build tab in three modes: the list of builds, the wizard (?new=1), or one build live (?run=<id>).
-import { useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useLocation, useNavigate, useSearchParams } from "react-router"
 
 import { ErrorState } from "@/components/ErrorState"
 import { Icon } from "@/components/Icon"
+import { RelativeTime } from "@/components/RelativeTime"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { scrollPageTop } from "@/lib/focus"
 import { useLiveEvents } from "@/lib/live"
 import { useBuilds } from "@/lib/queries"
+import type { BuildRow } from "@/lib/types"
 import { ReferenceCard } from "@/features/reference/ReferenceCard"
 
 import { BuildList } from "./BuildList"
+import { rowResult } from "./parts"
 import { RunningView } from "./RunningView"
 import { activeRun } from "./useRunLive"
 import { SLIDE_COUNT } from "./wizard/model"
@@ -28,6 +31,67 @@ export function modeFrom(params: URLSearchParams): Mode | null {
   if (run) return { kind: "run", runId: run }
   if (params.get("list") === "1") return { kind: "list" }
   return null
+}
+
+const DRAWER_KEY = "phoenix.build.previousOpen"
+const FINISHED = ["done", "failed", "stopped"]
+
+/** Whether the previous-builds drawer was open last time; null when never set or storage is off. */
+function readDrawer(): boolean | null {
+  try {
+    const v = window.localStorage.getItem(DRAWER_KEY)
+    return v === null ? null : v === "1"
+  } catch {
+    return null
+  }
+}
+
+/** Remember whether the previous-builds drawer is open; does nothing when storage is off. */
+function writeDrawer(open: boolean) {
+  try {
+    window.localStorage.setItem(DRAWER_KEY, open ? "1" : "0")
+  } catch {
+    /* storage is off: the drawer just is not remembered */
+  }
+}
+
+/** The newest finished build (passed, failed or stopped), if any. */
+export function lastFinished(rows: BuildRow[]): BuildRow | undefined {
+  const when = (r: BuildRow) => r.finished || r.started || r.created || ""
+  return rows.filter((r) => FINISHED.includes(r.status)).sort((a, b) => when(b).localeCompare(when(a)))[0]
+}
+
+/** The folded list of all builds; its closed line says how many and how the last finished one went. */
+function PreviousBuilds({ name, rows, selected }: { name: string; rows: BuildRow[]; selected?: string }) {
+  const [chosen, setChosen] = useState<boolean | null>(readDrawer)
+  // With nothing shown above, the drawer starts open so the page is never empty.
+  const open = selected ? (chosen ?? false) : (chosen ?? true)
+  const last = lastFinished(rows)
+  return (
+    <details
+      className="prev-builds" open={open}
+      onToggle={(e) => {
+        const now = e.currentTarget.open
+        if (now !== open) {
+          setChosen(now)
+          writeDrawer(now)
+        }
+      }}
+    >
+      <summary data-testid="previous-summary">
+        <Icon name="caret-right" size="sm" className="car" />
+        <span className="h2 prev-h" id="b-list">Previous builds ({rows.length})</span>
+        {last && (
+          <span className="small">
+            {" · "}last: {rowResult(last)}, <RelativeTime iso={last.finished || last.started || last.created} />
+          </span>
+        )}
+      </summary>
+      <div className="prev-in">
+        <BuildList name={name} rows={rows} selected={selected} />
+      </div>
+    </details>
+  )
 }
 
 /** The Build tab. A project with a queued, running or waiting build opens on that build. */
@@ -53,6 +117,13 @@ export function BuildTab({ name }: { name: string }) {
     if (justStarted && selectedRun) scrollPageTop()
   }, [justStarted, selectedRun])
 
+  const shownRun = useRef(selectedRun)
+  useEffect(() => {
+    // Choosing another build from the list shows it from its top (it sits above the list).
+    if (selectedRun && shownRun.current !== selectedRun) scrollPageTop()
+    shownRun.current = selectedRun
+  }, [selectedRun])
+
   if (asked?.kind === "wizard") {
     return (
       <Wizard
@@ -73,15 +144,17 @@ export function BuildTab({ name }: { name: string }) {
 
   return (
     <section className="build-tab" data-project={name}>
-      <div className="stackg" style={{ gap: 12 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <h2 className="h2" id="b-list">Builds</h2>
-          {startNew}
+      {selected && (
+        <div style={{ marginBottom: 24 }}>
+          <RunningView key={selected} name={name} runId={selected} mode={live.mode} />
         </div>
+      )}
+      <div className="stackg" style={{ gap: 12 }}>
+        <div className="row" style={{ justifyContent: "flex-end" }}>{startNew}</div>
         {builds.error ? (
           <ErrorState error={builds.error} onRetry={() => void builds.refetch()} />
         ) : builds.data && !(!asked && active) ? (
-          <BuildList name={name} rows={builds.data} selected={selected} />
+          <PreviousBuilds name={name} rows={builds.data} selected={selected} />
         ) : (
           <Skeleton className="h-24 w-full" />
         )}
@@ -90,7 +163,6 @@ export function BuildTab({ name }: { name: string }) {
         <h2 className="h2" id="b-reference">Reference material</h2>
         <ReferenceCard project={name} />
       </div>
-      {selected && <RunningView key={selected} name={name} runId={selected} mode={live.mode} />}
     </section>
   )
 }

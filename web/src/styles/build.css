@@ -15,7 +15,17 @@
 .tbar i.pend{background:var(--surface-3)}
 .tbar i.run{animation:pulse 1.6s ease-in-out infinite}
 .run{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
-@container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:0} }
+@container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:0; grid-column:2; grid-row:2} .run-lead{grid-column:1; grid-row:1} .run-steps{grid-column:1; grid-row:2} }
+/* The lead ("At the start") is its own grid row; pull the steps back up to the stack's 6px gap (grid gap is 20px). */
+.run-lead{margin-bottom:-14px}
+.run-steps{min-width:0}
+/* Previous builds drawer on the Build tab. */
+.prev-builds > summary{list-style:none; cursor:pointer; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-height:44px; padding:8px 0}
+.prev-builds > summary::-webkit-details-marker{display:none}
+.prev-builds > summary .car{align-self:center; transition:transform var(--dur-base); color:var(--text-3)}
+.prev-builds[open] > summary .car{transform:rotate(90deg)}
+.prev-builds .prev-h{font-size:20px}
+.prev-builds .prev-in{padding-top:4px}
 .stack{display:flex; flex-direction:column; gap:6px; min-width:0}
 .stack-h{font-size:13px; font-weight:700; color:var(--text-2); margin:12px 0 2px; display:flex; gap:8px; align-items:center}
 .stack-h:first-child{margin-top:0}

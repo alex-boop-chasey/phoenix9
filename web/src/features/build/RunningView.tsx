@@ -18,7 +18,7 @@ import type { RunDetail } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
 import { edgeOf, ResultBadge } from "./parts"
-import { StepList } from "./StepList"
+import { StepList, StepListLead } from "./StepList"
 import { runSummary, useRunLive } from "./useRunLive"
 
 interface Props {
@@ -163,7 +163,9 @@ export function RunningView({ name, runId, mode }: Props) {
       )}
       {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} />)}
       <div className="run">
-        <StepList run={d} />
+        {/* The lead sits above both columns' second row, so the card's top lines up with the first step (O42). */}
+        <div className="stack run-lead"><StepListLead run={d} /></div>
+        <div className="run-steps"><StepList run={d} lead={false} /></div>
         <Summary
           d={d} name={name} cost={cost} started={started} duration={row?.duration || "-"} taskLine={s.taskLine}
           live={s.active ? (mode === "live" ? "Live" : "Updating every few seconds") : null}

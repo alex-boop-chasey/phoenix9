@@ -51,6 +51,14 @@ def mark(key: str, what: str, hours: float = SNOOZE_HOURS, now: float | None = N
     return entry
 
 
+def forget_gone(keys) -> None:
+    """Forget stored entries whose line is no longer in the report, so the store stays small and a later, new problem shows again."""
+    data, keys = load(), set(keys)
+    kept = {k: v for k, v in data.items() if k in keys}
+    if len(kept) != len(data):
+        atomic.write_json(store_path(), kept)
+
+
 def parse(text: str) -> list[dict]:
     """[{key, text, section, attention}] for every report line that carries an id comment."""
     out, section = [], ""

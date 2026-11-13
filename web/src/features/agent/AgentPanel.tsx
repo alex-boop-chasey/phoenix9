@@ -9,7 +9,6 @@ import { AsleepCard } from "@/features/agent/AsleepCard"
 import { HistoryMenu } from "@/features/agent/HistoryMenu"
 import { useAgentMessages, useAgentStatus, useEarlierSession, useNewConversation, type AgentState } from "@/features/agent/useAgent"
 import { Composer } from "@/features/agent/Composer"
-import { Suggestions } from "@/features/agent/Suggestions"
 import { ContextChip } from "@/features/agent/ContextChip"
 import { MessageList } from "@/features/agent/messages"
 import type { UiMove } from "@/features/agent/uiGo"
@@ -112,7 +111,6 @@ export function AgentPanel({ open, onClose, opener, moved = null, onBack }: {
         </p>
       )}
       {viewing === null && !offline && !asleep && <ContextChip on={contextOn} onChange={setContextOn} />}
-      {viewing === null && !offline && !asleep && <Suggestions />}
       {viewing !== null && (
         <div className="ag-banner" role="status">
           <span>An earlier conversation (read-only).</span>

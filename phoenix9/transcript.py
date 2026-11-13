@@ -162,7 +162,7 @@ def _user(state: dict, number: int, obj: dict, at) -> None:
     if _is_peer(obj):
         text = _unwrap(text)                # just what Alex typed: no wrapper or [Phoenix panel · ...] line
     _clear_delivered(state, [content, text])
-    text, found = _harness(text)
+    text, found = _stripped(text)
     line = _command_line(found, text)
     if line:
         _add(state, number, {"type": "notice", "text": line, "at": at})
@@ -202,6 +202,17 @@ def _harness(text: str) -> tuple[str, dict]:
             found.setdefault(match.group(1), match.group(2).strip())
             text = text[:match.start()] + text[match.end():] if pattern is _TRAIL else text[match.end():]
     return text.strip(), found
+
+
+def _stripped(text: str) -> tuple[str, dict]:
+    """Like _harness, but a message that is only harness blocks written escaped (&lt;tag&gt;) is taken apart too;
+    escaped tags next to other words stay as they are."""
+    left, found = _harness(text)
+    if "&lt;" in text:
+        plain, plain_found = _harness(text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+        if plain_found and (not plain or _command_line(plain_found, plain)):
+            return plain, plain_found
+    return left, found
 
 
 def _command_line(found: dict, text: str) -> str | None:
@@ -350,4 +361,9 @@ def _system(state: dict, number: int, obj: dict, at) -> None:
     text = obj.get("content")
     if not isinstance(text, str):
         text = SYSTEM_WORDS.get(subtype) or str(subtype or "")
+    else:
+        text, found = _stripped(text)           # slash commands and their (often empty) output come as system lines too
+        text = _command_line(found, text) or text
+        if not text:
+            return
     _add(state, number, {"type": "notice", "text": scrub.scrub(text), "at": at})

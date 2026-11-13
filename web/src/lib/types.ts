@@ -696,9 +696,11 @@ export interface GateReview {
 /** One thing that needs Alex, as GET /api/bell sends it. */
 export interface BellItem {
   id: string
-  kind: string
+  kind: "question" | "build" | "merge" | "service" | "allowance" | "report" | "suggestion" | (string & {})
   title: string
   detail: string
+  /** When it started (ISO time); empty when not known. */
+  since: string
   page: { to: string; params?: Record<string, unknown>; hash?: string; label?: string }
 }
 /** The bell: how many things need Alex and the list. */

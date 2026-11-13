@@ -31,7 +31,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const current = matchPath("/p/:name/*", pathname)?.params.name ?? matchPath("/p/:name", pathname)?.params.name
   const update = info?.update
-  const inProjects = pathname === "/" || pathname.startsWith("/p/") || pathname === "/new" || pathname === "/import"
 
   useEffect(() => {
     setWire(true)
@@ -70,10 +69,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             <b>Phoenix</b>
             {info && <span title="Installed release">{info.label ?? info.version}</span>}
           </span>
-        </Link>
-        <Link className="navlink" to="/" aria-current={inProjects ? "page" : undefined}>
-          <Icon name="squares-four" size="sm" />
-          Projects
         </Link>
         <div className="top-r">
           {update?.supported && update.available && (

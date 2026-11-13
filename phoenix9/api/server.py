@@ -311,6 +311,22 @@ def get_bell(req):
     return ops_bell.show()
 
 
+def post_bell_dismiss(req):
+    """Dismiss one bell item ({id} in the body) and reply with the new {count, items}."""
+    item_id = body_text(req, "id")
+    with req.server.write_lock:
+        try:
+            return ops_bell.dismiss(item_id, WHO)
+        except common.OpsError as e:
+            raise BadRequest(str(e)) from None
+
+
+def post_bell_dismiss_all(req):
+    """Dismiss every bell item shown now and reply with the new {count, items}."""
+    with req.server.write_lock:
+        return ops_bell.dismiss_all(WHO)
+
+
 def get_report_daily(req):
     """Reply with the newest saved daily report ({date, text})."""
     return ops_report.daily_latest()
@@ -1265,6 +1281,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/events/recent", get_events_recent),
     ("GET", r"/api/cards", get_cards),
     ("GET", r"/api/bell", get_bell),
+    ("POST", r"/api/bell/dismiss", post_bell_dismiss),
+    ("POST", r"/api/bell/dismiss-all", post_bell_dismiss_all),
     ("GET", r"/api/search", get_search),
     ("GET", r"/api/docs/list", get_docs_list),
     ("GET", r"/api/docs/show", get_docs_show),

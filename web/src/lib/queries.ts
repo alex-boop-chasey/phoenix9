@@ -1,10 +1,11 @@
 // react-query hooks with stable keys, and mutations that refresh the right keys.
 import { keepPreviousData, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query"
 import { useCallback } from "react"
+import { toast } from "sonner"
 
 import { api } from "@/lib/api"
 import type {
-  CreateForm, EditBody, GateAction, KeyInput, Overrides, StartRunBody,
+  BellData, BellItem, CreateForm, EditBody, GateAction, KeyInput, Overrides, StartRunBody,
 } from "@/lib/types"
 
 /** Whether the event stream is connected ("live") or we are polling; set by useLiveEvents, read by refreshMs(). */
@@ -60,6 +61,62 @@ export const useProjects = () =>
 /** What needs Alex (the bell); refetched on the live events and on a timer. */
 export const useBell = () =>
   useQuery({ queryKey: keys.bell(), queryFn: api.bell, refetchInterval: () => refreshMs() })
+const BELL_MUTATION = ["bell-dismiss"] as const
+
+/** Refetch the bell once no other dismiss is still on its way (so a row being dismissed never flashes back). */
+function settleBell(qc: QueryClient) {
+  if (qc.isMutating({ mutationKey: BELL_MUTATION }) <= 1) void qc.invalidateQueries({ queryKey: keys.bell() })
+}
+
+/** Dismiss one bell row: it leaves the list at once and comes back with a message if the server says no. */
+export function useBellDismiss() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: BELL_MUTATION,
+    mutationFn: (item: BellItem) => api.bellDismiss(item.id),
+    onMutate: async (item: BellItem) => {
+      await qc.cancelQueries({ queryKey: keys.bell() })
+      const before = qc.getQueryData<BellData>(keys.bell())
+      const index = before ? before.items.findIndex((i) => i.id === item.id) : -1
+      if (before && index >= 0) {
+        qc.setQueryData<BellData>(keys.bell(), {
+          count: Math.max(0, before.count - 1), items: before.items.filter((i) => i.id !== item.id),
+        })
+      }
+      return { index }
+    },
+    onError: (error, item, context) => {
+      const now = qc.getQueryData<BellData>(keys.bell())
+      if (now && context && context.index >= 0 && !now.items.some((i) => i.id === item.id)) {
+        const items = [...now.items]
+        items.splice(Math.min(context.index, items.length), 0, item)
+        qc.setQueryData<BellData>(keys.bell(), { count: now.count + 1, items })
+      }
+      toast.error(`Could not dismiss "${item.title}": ${error.message}`)
+    },
+    onSettled: () => settleBell(qc),
+  })
+}
+
+/** Dismiss every bell row at once; the list comes back with a message if the server says no. */
+export function useBellDismissAll() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: BELL_MUTATION,
+    mutationFn: () => api.bellDismissAll(),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: keys.bell() })
+      const before = qc.getQueryData<BellData>(keys.bell())
+      if (before) qc.setQueryData<BellData>(keys.bell(), { count: 0, items: [] })
+      return { before }
+    },
+    onError: (error, _vars, context) => {
+      if (context?.before) qc.setQueryData<BellData>(keys.bell(), context.before)
+      toast.error(`Could not dismiss them: ${error.message}`)
+    },
+    onSettled: () => settleBell(qc),
+  })
+}
 export const useProjectSearch = (params: Record<string, string>) =>
   useQuery({ queryKey: [...keys.projects(), "search", params], queryFn: () => api.searchProjects(params), refetchInterval: () => refreshMs(), placeholderData: keepPreviousData })
 /** The sub-folders of a folder under the projects folder (empty path = the projects folder). */

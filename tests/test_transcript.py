@@ -249,3 +249,45 @@ def test_peer_without_envelope_and_other_meta_lines():
     other = j(type="user", isMeta=True, message={"role": "user", "content": "<local-command-caveat>x"})
     items, _ = transcript.parse([line, other])
     assert [(u["origin"], u["text"]) for u in of(items, "user")] == [("peer:helper-7", "hi")]
+
+
+EMPTY_STDOUT = "<local-command-stdout></local-command-stdout>"
+ESCAPED_STDOUT = "&lt;local-command-stdout&gt;&lt;/local-command-stdout&gt;"
+CLEAR = "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"
+
+
+def test_message_that_is_only_an_empty_harness_block_is_dropped():
+    lines = [j(type="user", message={"role": "user", "content": EMPTY_STDOUT}),
+             j(type="user", message={"role": "user", "content": [{"type": "text", "text": EMPTY_STDOUT}]})]
+    items, _ = transcript.parse(lines)
+    assert items == []
+
+
+def test_escaped_harness_blocks_are_dropped_too():
+    lines = [j(type="user", message={"role": "user", "content": ESCAPED_STDOUT}),
+             j(type="user", message={"role": "user", "content": [{"type": "text", "text": ESCAPED_STDOUT}]}),
+             j(type="user", message={"role": "user", "content": "&lt;system-reminder&gt;x&lt;/system-reminder&gt;\n"})]
+    items, _ = transcript.parse(lines)
+    assert items == []
+
+
+def test_escaped_slash_command_becomes_the_app_line():
+    escaped = CLEAR.replace("<", "&lt;").replace(">", "&gt;")
+    items, _ = transcript.parse([j(type="user", message={"role": "user", "content": escaped})])
+    assert [(i["type"], i["text"]) for i in items] == [("notice", "/clear was run in the Claude app")]
+
+
+def test_system_local_command_lines_drop_empty_output_and_name_the_command():
+    lines = [j(type="system", subtype="local_command", content=CLEAR),
+             j(type="system", subtype="local_command", content=EMPTY_STDOUT),
+             j(type="system", subtype="local_command", content=ESCAPED_STDOUT)]
+    items, _ = transcript.parse(lines)
+    assert [(i["type"], i["text"]) for i in items] == [("notice", "/clear was run in the Claude app")]
+
+
+def test_tags_inside_typed_words_stay():
+    typed = "why does the panel show <local-command-stdout></local-command-stdout> after clear?"
+    escaped = "show me &lt;b&gt;bold&lt;/b&gt; please"
+    items, _ = transcript.parse([j(type="user", message={"role": "user", "content": typed}),
+                                 j(type="user", message={"role": "user", "content": escaped})])
+    assert [u["text"] for u in of(items, "user")] == [typed, escaped]

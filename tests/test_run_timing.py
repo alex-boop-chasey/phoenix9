@@ -83,3 +83,107 @@ def test_cli_and_registry(phoenix_env, tmp_path, capsys):
     assert "30 minutes waiting on a person" in capsys.readouterr().out
     c = next(c for c in controls.CONTROLS if c.name == "run-timing")
     assert c.risk == "read" and c.agent == "tool"
+
+
+def _past_run(project, run_id, status="done", builder_min=10, gate_min=0, planner_min=None, tasks=1):
+    """A finished run folder with only state.json and events.jsonl: planner (optional), then builder per task."""
+    from phoenix9 import paths
+    d = paths.runs(project) / run_id
+    d.mkdir(parents=True)
+    atomic.write_json(d / "state.json", {"run_id": run_id, "project": project, "status": status,
+                                         "created": run_id[:15], "updated": run_id[:15], "tasks": {}})
+    lines, t = [], 0
+
+    def ev(minute, type_, task=None, step=None, **data):
+        return json.dumps({"ts": f"2026-11-08T{10 + minute // 60:02d}:{minute % 60:02d}:00+00:00", "type": type_,
+                           "project": project, "run": run_id, "task": task, "step": step, "data": data})
+    if planner_min is not None:
+        lines += [ev(t, "run.step.started", None, "planner"), ev(t + planner_min, "run.step.finished", None, "planner")]
+        t += planner_min
+    for n in range(1, tasks + 1):
+        lines.append(ev(t, "run.step.started", n, "builder"))
+        if gate_min:
+            lines += [ev(t + 1, "gate.opened", n, "builder", gate=f"q-{n}"),
+                      ev(t + 1 + gate_min, "gate.answered", n, "builder", gate=f"q-{n}")]
+        t += builder_min + gate_min
+        lines.append(ev(t, "run.step.finished", n, "builder"))
+    (d / "events.jsonl").write_text("\n".join(lines) + "\n")
+    return d
+
+
+def _project(name):
+    from phoenix9 import paths
+    (paths.projects() / name).mkdir(parents=True, exist_ok=True)
+
+
+def _fresh():
+    timing._estimate_cache.clear()
+    timing._run_cache.clear()
+
+
+def test_estimates_median_of_several_runs(phoenix_env):
+    _fresh()
+    _project("alpha")
+    for i, minutes in enumerate((10, 20, 30, 40, 50)):
+        _past_run("alpha", f"20261108-07000{i}-alpha-run", builder_min=minutes, planner_min=2, tasks=2)
+    _past_run("alpha", "20261108-080000-alpha-run", status="running", builder_min=999)
+    r = timing.estimates("alpha")
+    assert r["steps"]["builder"] == {"seconds": 1800.0, "samples": 5, "source": "project", "per_task": True}
+    assert r["steps"]["planner"] == {"seconds": 120.0, "samples": 5, "source": "project", "per_task": False}
+    assert r["task"] == {"seconds": 1800.0, "samples": 5, "source": "project"}
+
+
+def test_estimates_use_newest_ten(phoenix_env):
+    _fresh()
+    _project("alpha")
+    for i in range(12):
+        _past_run("alpha", f"20261108-0700{i:02d}-alpha-run", builder_min=100 if i < 2 else 5)
+    assert timing.estimates("alpha")["steps"]["builder"]["seconds"] == 300 and \
+        timing.estimates("alpha")["steps"]["builder"]["samples"] == 10
+
+
+def test_estimates_fall_back_to_all_projects(phoenix_env):
+    _fresh()
+    _project("alpha"), _project("beta")
+    _past_run("alpha", "20261108-070000-alpha-run", builder_min=1)
+    for i in range(3):
+        _past_run("beta", f"20261108-07000{i + 1}-beta-run", builder_min=20)
+    r = timing.estimates("alpha")
+    assert r["steps"]["builder"] == {"seconds": 1200.0, "samples": 4, "source": "all projects", "per_task": True}
+    assert timing.estimates("beta")["steps"]["builder"]["source"] == "project"
+
+
+def test_estimates_empty_history_has_no_entries(phoenix_env):
+    _fresh()
+    _project("alpha")
+    assert timing.estimates("alpha") == {"project": "alpha", "steps": {}}
+
+
+def test_estimates_leave_out_gate_waiting(phoenix_env):
+    _fresh()
+    _project("alpha")
+    for i in range(3):
+        _past_run("alpha", f"20261108-07000{i}-alpha-run", builder_min=10, gate_min=30)
+    assert timing.estimates("alpha")["steps"]["builder"]["seconds"] == 600
+
+
+def test_estimates_cached(phoenix_env, monkeypatch):
+    _fresh()
+    _project("alpha")
+    for i in range(3):
+        _past_run("alpha", f"20261108-07000{i}-alpha-run", builder_min=10)
+    first = timing.estimates("alpha")
+    _past_run("alpha", "20261108-070009-alpha-run", builder_min=500)
+    assert timing.estimates("alpha") == first
+    real = timing.time.monotonic
+    monkeypatch.setattr(timing.time, "monotonic", lambda: real() + timing.ESTIMATE_CACHE_S + 1)
+    assert timing.estimates("alpha")["steps"]["builder"]["samples"] == 4
+
+
+def test_estimates_registry_and_route(phoenix_env):
+    from phoenix9.api import server
+    c = next(c for c in controls.CONTROLS if c.name == "run-estimates")
+    assert c.risk == "read" and c.ops == "timing.estimates"
+    import re
+    matches = [h for m, p, h in server.ROUTES if m == "GET" and re.fullmatch(p, "/api/runs/alpha/estimates")]
+    assert matches[0] is server.get_run_estimates

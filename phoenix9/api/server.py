@@ -360,6 +360,11 @@ def get_run_timing(req, project, run_id):
     return timing.timing(check_name(project), check_run_id(run_id))
 
 
+def get_run_estimates(req, project):
+    """Reply with typical step and task times from the project's past builds."""
+    return timing.estimates(check_name(project))
+
+
 def get_run_session(req, project, run_id):
     """Reply with the scrubbed last lines of one step's AI session."""
     task = req.query.get("task")
@@ -1283,6 +1288,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/reference/links/remove", post_reference_link_remove),
     ("DELETE", rf"/api/projects/{NAME}/reference/links", delete_reference_link),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/estimates", get_run_estimates),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/timing", get_run_timing),

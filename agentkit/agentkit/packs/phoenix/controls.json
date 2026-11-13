@@ -2304,6 +2304,30 @@
     "confirm_with": ""
   },
   {
+    "name": "run-estimates",
+    "description": "Read how long each build step and each task usually takes, from the project's last finished builds (all projects when it has too few).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/estimates",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "run-events",
     "description": "Read one run's events, oldest first.",
     "inputs": [

@@ -1,13 +1,20 @@
 """Where a run's time went: clock, waiting on a person, working, per step, tests against AI (read-only)."""
 import json
+import statistics
+import time
 from datetime import datetime, timezone
 
-from phoenix9 import events as events_core, scrub, state
+from phoenix9 import events as events_core, runs as runs_core, scrub, state
 from phoenix9.ops import common
 from phoenix9.ops.runs import FINISHED, _run_folder
 
 TEST_STEPS = ("branch", "acceptance", "verify", "full-suite", "red-check")   # script steps that run tests
 SUITE_STEPS = ("branch", "full-suite")                                       # script steps that run the whole suite
+ESTIMATE_RUNS = 10          # newest finished runs a typical time is taken from
+ESTIMATE_MIN_SAMPLES = 3    # fewer than this in the project: use all projects instead
+ESTIMATE_CACHE_S = 300      # how long one project's estimates are kept in memory
+_estimate_cache: dict = {}  # project -> (time, answer)
+_run_cache: dict = {}       # events.jsonl path -> ((mtime, size), one finished run's step times)
 
 
 def _when(text) -> datetime | None:
@@ -61,6 +68,11 @@ def _gate_spans(found: list, end: datetime) -> list:
 
 def _step_runs(found: list, waits: list) -> list:
     """One (name, seconds) per finished step, with the time a person was being waited for taken out."""
+    return [(name, secs) for _, name, secs in _step_runs_by_task(found, waits)]
+
+
+def _step_runs_by_task(found: list, waits: list) -> list:
+    """Like `_step_runs`, but each finished step as (task, name, seconds)."""
     started, runs = {}, []
     for when, e in found:
         key = (e.get("task"), e.get("step"))
@@ -69,7 +81,7 @@ def _step_runs(found: list, waits: list) -> list:
         elif e.get("type") == "run.step.finished" and key in started and e.get("step"):
             begin = started.pop(key)
             secs = max(0.0, (when - begin).total_seconds() - _overlap(begin, when, waits))
-            runs.append((e["step"], secs))
+            runs.append((e.get("task"), e["step"], secs))
     return runs
 
 
@@ -155,6 +167,87 @@ def timing(project: str, run_id: str) -> dict:
             **_tasks(st), "suite_runs_made": max(0, suite_runs - skipped), "suite_runs_skipped": skipped}
 
 
+def _run_sample(folder, run_id: str) -> dict:
+    """One finished run's typical times: per step name the average of one run of it, and per task.
+
+    Kept in memory per events file and only read again when that file changes."""
+    path = folder / "events.jsonl"
+    try:
+        info = path.stat()
+    except OSError:
+        return {"steps": {}, "per_task": None}
+    stamp = (info.st_mtime_ns, info.st_size)
+    hit = _run_cache.get(path)
+    if hit and hit[0] == stamp:
+        return hit[1]
+    found = _read_events(folder, run_id)
+    runs = _step_runs_by_task(found, _gate_spans(found, found[-1][0]) if found else [])
+    totals, tasks = {}, {}
+    for task, name, secs in runs:
+        totals.setdefault(name, []).append(secs)
+        if task is not None:
+            tasks[task] = tasks.get(task, 0.0) + secs
+    sample = {"steps": {n: sum(v) / len(v) for n, v in totals.items()},
+              "task_steps": sorted({n for t, n, _ in runs if t is not None}),
+              "per_task": sum(tasks.values()) / len(tasks) if tasks else None}
+    _run_cache[path] = (stamp, sample)
+    return sample
+
+
+def _samples(rows: list) -> list:
+    """The step times of finished runs (newest first), skipping runs whose folder is gone."""
+    out = []
+    for r in rows:
+        if r["status"] not in FINISHED:
+            continue
+        folder = runs_core.run_dir(r["project"], r["run_id"])
+        if folder.is_dir():
+            out.append(_run_sample(folder, r["run_id"]))
+    return out
+
+
+def _typical(own: list, every: list) -> dict | None:
+    """The median of the newest values from this project, or from all projects when it has too few; None if none."""
+    source, values = "project", own[:ESTIMATE_RUNS]
+    if len(values) < ESTIMATE_MIN_SAMPLES and len(every) > len(values):
+        source, values = "all projects", every[:ESTIMATE_RUNS]
+    if not values:
+        return None
+    return {"seconds": round(statistics.median(values), 1), "samples": len(values), "source": source}
+
+
+def _work_estimates(project: str) -> dict:
+    """Estimates worked out from the run folders (no cache)."""
+    own = _samples(runs_core.list_runs(project))
+    every = _samples(runs_core.list_runs())
+    names = sorted({n for s in every + own for n in s["steps"]})
+    steps = {}
+    for name in names:
+        typical = _typical([s["steps"][name] for s in own if name in s["steps"]],
+                           [s["steps"][name] for s in every if name in s["steps"]])
+        if typical:
+            in_loop = any(name in s["task_steps"] for s in own + every if name in s["steps"])
+            steps[name] = {**typical, "per_task": in_loop}
+    out = {"project": project, "steps": steps}
+    per_task = _typical([s["per_task"] for s in own if s["per_task"] is not None],
+                        [s["per_task"] for s in every if s["per_task"] is not None])
+    if per_task:
+        out["task"] = per_task
+    return out
+
+
+def estimates(project: str) -> dict:
+    """Typical seconds for one run of each step and for one task, from past finished builds (kept 5 minutes)."""
+    common.project_dir(project)
+    now = time.monotonic()
+    hit = _estimate_cache.get(project)
+    if hit and now - hit[0] < ESTIMATE_CACHE_S:
+        return hit[1]
+    answer = _work_estimates(project)
+    _estimate_cache[project] = (now, answer)
+    return answer
+
+
 def _span(secs: float) -> str:
     """Seconds as plain words: seconds under two minutes, else minutes (and hours when long)."""
     secs = int(round(secs))
@@ -186,3 +279,4 @@ def lines(r: dict) -> list:
     out.append(tries + f"; {r['already_done']} recorded as already done.")
     out.append(f"Whole-suite runs made: {r['suite_runs_made']}; skipped because remembered: {r['suite_runs_skipped']}.")
     return [scrub.scrub(x) for x in out]
+

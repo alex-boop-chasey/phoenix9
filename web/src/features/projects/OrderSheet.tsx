@@ -331,7 +331,7 @@ export function OrderSheet({
       <div hidden={slide !== 3} data-slide-body={3}>
         <div className="np-slide-b" id="np-step-keys">
           <span className="lbl">Project keys</span>
-          <KeysForm mode="local" draft onRowsChange={onRows} wanted={wanted} />
+          <KeysForm mode="local" draft envUpload onRowsChange={onRows} wanted={wanted} />
         </div>
       </div>
     </>

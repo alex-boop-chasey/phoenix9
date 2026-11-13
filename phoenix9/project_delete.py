@@ -30,6 +30,7 @@ CHAIN_DEPTH = 64           # parents followed at most when sorting a process
 PTY_HOST = "--type=ptyHost"     # code-server's terminal host: every VS Code terminal shell is its child
 GRUNT_RE = re.compile(r"(^|[\s/])\.?grunt(\s|/|$)")    # grunt's engine, its tmux server or its files
 INSTALLED = "/opt/phoenix9/"
+CLAUDE = "claude"           # the Claude Code program name (only matched in ps output, never run)
 
 
 OWN_SOURCES = ("empty", "template")   # project.json sources where Phoenix itself made the GitHub repo
@@ -275,8 +276,9 @@ def _program(cmd: str) -> str:
 def _is_claude(cmd: str, name: str = "") -> bool:
     """True for a Claude Code process (its program, or the script node runs, is claude)."""
     words = [os.path.basename(w) for w in cmd.split()[:2]]
-    return name == "claude" or words[:1] == ["claude"] or (
-        len(words) == 2 and words[0] in ("node", "bun") and words[1] in ("claude", "cli.js") and "claude" in cmd)
+    first = words[0] if words else ""
+    return CLAUDE in (name, first) or (
+        len(words) == 2 and first in ("node", "bun") and words[1] in ("cli.js", CLAUDE) and CLAUDE in cmd)
 
 
 def _is_phoenix(cmd: str) -> bool:

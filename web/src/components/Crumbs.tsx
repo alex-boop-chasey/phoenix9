@@ -41,9 +41,9 @@ export function Crumbs() {
   const items = crumbsFor(pathname)
   if (pathname === "/settings") {
     const section = params.get("section") ?? params.get("tab")   // "tab" is the older name
-    if (section && SECTIONS[section]) {
+    if (section && Object.hasOwn(SECTIONS, section)) {
       items[0] = { label: "Phoenix settings", to: "/settings" }
-      items.push({ label: SECTIONS[section] })
+      items.push({ label: SECTIONS[section]! })
     }
   }
   const rest = items[0]?.label === "Projects" ? items.slice(1) : items

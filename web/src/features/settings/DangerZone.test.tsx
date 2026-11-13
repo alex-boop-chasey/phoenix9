@@ -68,6 +68,18 @@ test("shows the dry run in plain words", async () => {
   expect(screen.getByRole("link", { name: "https://demo.example.com" })).toBeInTheDocument()
 })
 
+test("the dry run lists what the delete will close first", async () => {
+  await open({ "GET /api/projects/demo/delete-plan": { ...plan, will_close: ["VS Code terminal (bash)", "project chat"] } })
+  expect(await screen.findByTestId("will-close")).toHaveTextContent("Will be closed: VS Code terminal (bash), project chat.")
+  expect(screen.getByLabelText("Type demo to confirm")).toBeInTheDocument()
+})
+
+test("nothing to close shows no such line", async () => {
+  await open({})
+  expect(await screen.findByText("/srv/projects/demo")).toBeInTheDocument()
+  expect(screen.queryByTestId("will-close")).toBeNull()
+})
+
 test("refusals are shown and the button stays disabled", async () => {
   await open({ "GET /api/projects/demo/delete-plan": { ...plan, refusals: ["A build is running (r1). Stop it or let it finish first."] } })
   expect(await screen.findByText(/A build is running/)).toBeInTheDocument()

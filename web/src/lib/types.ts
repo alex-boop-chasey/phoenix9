@@ -165,6 +165,8 @@ export interface DeletePlan {
   keep_days?: number
   chat: { unit: string; state: string }; deployments: DeleteLink[]
   refusals: string[]; safety_copy: string
+  /** Terminals, Claude sessions and the chat the delete closes first (plain words). */
+  will_close?: string[]
 }
 export interface DeleteStep { step: string; ok: boolean; words: string; kept?: boolean }
 export interface DeleteResult {

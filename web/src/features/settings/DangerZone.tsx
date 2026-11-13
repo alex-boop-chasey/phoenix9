@@ -71,6 +71,9 @@ function PlanView({ plan }: { plan: DeletePlan }) {
         </li>
         <li>The chat connection ({plan.chat.unit})</li>
       </ul>
+      {plan.will_close?.length ? (
+        <p data-testid="will-close"><b>Will be closed:</b> {plan.will_close.join(", ")}. Phoenix closes these itself before deleting.</p>
+      ) : null}
       <StillLive items={plan.deployments} />
     </div>
   )

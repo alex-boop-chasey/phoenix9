@@ -1619,7 +1619,7 @@
   },
   {
     "name": "project-show",
-    "description": "All info of one project, plus recent changelog lines and open gates.",
+    "description": "All info of one project, plus recent changelog lines, open gates and whether Phoenix made its repo.",
     "inputs": [
       {
         "name": "name",

@@ -372,6 +372,22 @@ export interface RunDetail {
   image?: { tag: string; id: string }
 }
 
+/** Typical time of one step run, from past builds (`GET /api/runs/<project>/estimates`). */
+export interface StepEstimate {
+  seconds: number
+  samples: number
+  source: "project" | "all projects"
+  /** The step runs once per task (inside the task loop). */
+  per_task?: boolean
+}
+
+/** Typical step and task times of a project; a step with no history is left out. */
+export interface RunEstimates {
+  project: string
+  steps: Record<string, StepEstimate>
+  task?: Omit<StepEstimate, "per_task">
+}
+
 export type Overrides = Record<string, unknown>
 
 export interface JobStep {

@@ -1,6 +1,6 @@
 // One build, live: title with Stop build, the stacked blocks, and the sticky summary beside them.
 import { RunDocs } from "@/features/docs/RunDocs"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
@@ -13,12 +13,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
-import { useBuilds, usePauseRun, useResumeRun, useStopRun } from "@/lib/queries"
-import type { RunDetail } from "@/lib/types"
+import { useBuilds, usePauseRun, useResumeRun, useRunEstimates, useStopRun } from "@/lib/queries"
+import type { RunDetail, RunEstimates } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
 import { edgeOf, ResultBadge } from "./parts"
-import { StepList, StepListLead } from "./StepList"
+import { currentLine, buildLeft, stepProgress, toGo } from "./progress"
+import { liveClock, StepList, StepListLead } from "./StepList"
 import { runSummary, useRunLive } from "./useRunLive"
 
 interface Props {
@@ -46,8 +47,15 @@ function sumLine(d: RunDetail, total: number, passed: number): string {
   }
 }
 
-function Summary({ d, name, cost, started, duration, taskLine, live }: {
+/** The ring's fill when no step is being timed: full when done, else the share of tasks passed. */
+function restingFill(d: RunDetail, total: number, passed: number): number {
+  if (d.status === "done") return 1
+  return total ? passed / total : 0
+}
+
+function Summary({ d, name, cost, started, duration, taskLine, live, estimates, now }: {
   d: RunDetail; name: string; cost: string; started: string; duration: string; taskLine: string; live: string | null
+  estimates: RunEstimates | undefined; now: number
 }) {
   const tasks = Object.values(d.tasks)
   const total = tasks.length
@@ -56,25 +64,37 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
   const failed = tasks.filter((t) => t.status === "failed").length
   const text = d.status === "running" && taskLine ? `Running ${taskLine.toLowerCase()}` : undefined
   const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "paused" ? "Paused" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
+  // The ring follows the step the build is on now; with no history for it, it just turns calmly (O41).
+  const moving = d.status === "running" || d.status === "queued"
+  const step = moving ? stepProgress(d, estimates, now) : { fill: restingFill(d, total, passed), line: "" }
+  const left = d.status === "running" ? buildLeft(d, estimates, now) : null
+  const current = d.status === "running" || d.status === "waiting" ? currentLine(d) : undefined
   return (
     <aside className="card run-sum" aria-label="Build summary">
       <div className="row" style={{ gap: 16 }}>
-        <div className="sum-ring" style={{ ["--ring-colour" as string]: RING_COLOUR[edge] }}>
+        <div
+          className={`sum-ring${step.fill === null ? " calm" : ""}`} data-testid="sum-ring"
+          data-fill={step.fill === null ? "calm" : step.fill.toFixed(3)}
+          style={{ ["--ring-colour" as string]: RING_COLOUR[edge] }}
+        >
           <svg viewBox="0 0 84 84" aria-hidden="true">
             <circle className="tr" cx="42" cy="42" r="36" />
-            <circle className="vl" cx="42" cy="42" r="36" strokeDasharray={`${total ? RING * (passed / total) : 0} ${RING}`} />
+            <circle className="vl" cx="42" cy="42" r="36" strokeDasharray={`${RING * (step.fill ?? 0.25)} ${RING}`} />
           </svg>
-          <b data-testid="ring-text">{passed}/{total}</b>
         </div>
         <div className="stackg" style={{ gap: 6 }}>
           <ResultBadge status={d.status} text={result} />
           <span className="small" data-testid="sum-line">{sumLine(d, total, passed)}</span>
+          {step.line && <span className="small" data-testid="step-to-go">{step.line}</span>}
+          {left !== null && left > 0 && <span className="small" data-testid="build-to-go">Whole build: {toGo(left)}</span>}
         </div>
       </div>
+      {total > 0 && <p className="small" data-testid="task-count">Tasks {passed} of {total} done</p>}
       <dl className="kv">
         <dt>Preset</dt><dd><Tag>{d.preset}</Tag></dd>
         <dt>Started</dt><dd><RelativeTime iso={started} /></dd>
-        <dt>Duration</dt><dd className="mono">{duration}</dd>
+        <dt>Build running</dt><dd className="mono">{duration}</dd>
+        {current && <><dt>This step</dt><dd data-testid="this-step">{liveClock(current)}</dd></>}
         <dt>Cost</dt><dd className="mono">{cost}</dd>
       </dl>
       {live && <span className="live" data-testid="live-mode"><i />{live}</span>}
@@ -82,6 +102,17 @@ function Summary({ d, name, cost, started, duration, taskLine, live }: {
       <Link to={`/p/${encodeURIComponent(name)}/logs?run=${encodeURIComponent(d.run_id)}`}>See this build's logs</Link>
     </aside>
   )
+}
+
+/** Re-render every few seconds while on, so the clocks and the ring keep moving. */
+function useTick(on: boolean, ms = 2000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!on) return
+    const id = window.setInterval(() => setNow(Date.now()), ms)
+    return () => window.clearInterval(id)
+  }, [on, ms])
+  return now
 }
 
 /** The running (or finished) view of one build. */
@@ -93,6 +124,9 @@ export function RunningView({ name, runId, mode }: Props) {
   const resume = useResumeRun(name)
   const [confirming, setConfirming] = useState(false)
   const [pausing, setPausing] = useState(false)
+  const going = run.data?.status === "running" || run.data?.status === "queued"
+  const estimates = useRunEstimates(name, going)
+  const now = useTick(going || run.data?.status === "waiting")
 
   // A failed background refresh keeps the last good view; the error box is only for "never loaded".
   if (run.error && !run.data) return <ErrorState error={run.error} onRetry={() => void run.refetch()} />
@@ -169,6 +203,7 @@ export function RunningView({ name, runId, mode }: Props) {
         <Summary
           d={d} name={name} cost={cost} started={started} duration={row?.duration || "-"} taskLine={s.taskLine}
           live={s.active ? (mode === "live" ? "Live" : "Updating every few seconds") : null}
+          estimates={estimates.data} now={now}
         />
       </div>
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}

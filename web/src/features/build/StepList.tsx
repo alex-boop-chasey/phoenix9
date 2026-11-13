@@ -200,11 +200,17 @@ interface Props {
   lead?: boolean
 }
 
-function timeOf(line: StepLine | undefined, shown: Shown): string {
-  if (!line) return shown.status === "skipped" ? "Off" : "Pending"
+/** The clock of a running or waiting step ("Started 3 minutes ago"); the build summary shows the same words. */
+export function liveClock(line: StepLine): string {
   if (line.status === "running" && line.answered) return "Answered"
   if (line.status === "running") return line.started ? `Started ${relativeTime(line.started)}` : "Running"
   if (line.status === "waiting") return line.started ? `Waiting ${relativeTime(line.started).replace(/ ago$/, "")}` : "Waiting"
+  return ""
+}
+
+function timeOf(line: StepLine | undefined, shown: Shown): string {
+  if (!line) return shown.status === "skipped" ? "Off" : "Pending"
+  if (line.status === "running" || line.status === "waiting") return liveClock(line)
   return took(line) || (shown.status === "skipped" ? "Skipped" : "")
 }
 

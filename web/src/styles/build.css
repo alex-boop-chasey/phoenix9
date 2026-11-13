@@ -63,7 +63,9 @@ details.tg .tg-in{display:flex; flex-direction:column; gap:6px; padding:6px 0 4p
 .sum-ring svg{width:84px; height:84px; transform:rotate(-90deg)}
 .sum-ring circle{fill:none; stroke-width:8}
 .sum-ring .tr{stroke:var(--surface-3)} .sum-ring .vl{stroke:var(--ring-colour, var(--accent)); stroke-linecap:round; transition:stroke-dasharray .9s var(--ease)}
-.sum-ring b{position:absolute; inset:0; display:grid; place-items:center; font:700 22px/1 var(--f-display)}
+/* no history for the step: a calm turning quarter ring, no number (O41) */
+.sum-ring.calm .vl{transform-box:fill-box; transform-origin:center; animation:spin 2.4s linear infinite; transition:none}
+@media (prefers-reduced-motion:reduce){.sum-ring.calm .vl{animation:none; opacity:.6}}
 .live{display:inline-flex; gap:8px; align-items:center; font-size:13px; color:var(--text-2)}
 .live i{width:8px; height:8px; border-radius:50%; background:var(--accent-3); animation:pulse 1.6s ease-in-out infinite}
 .run-head{display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; border-top:1px solid var(--line); padding-top:20px}

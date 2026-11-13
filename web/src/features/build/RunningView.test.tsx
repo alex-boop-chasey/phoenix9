@@ -40,6 +40,7 @@ const routes = (over: Record<string, unknown> = {}) => ({
   "GET /api/projects/demo-site/runs": BUILDS,
   [`GET ${RUN}`]: runDetail(),
   "GET /api/events/recent": { events: [], next: 0 },
+  "GET /api/runs/demo-site/estimates": { project: "demo-site", steps: {} },
   ...over,
 })
 
@@ -71,7 +72,9 @@ test("summary aside shows the ring, badge, preset, cost and logs link", async ()
   show()
   await screen.findByRole("heading", { name: "Pricing page" })
   const aside = screen.getByRole("complementary", { name: "Build summary" })
-  expect(within(aside).getByTestId("ring-text")).toHaveTextContent("1/3")
+  // no number in the ring any more (O41): the task count is a text line in the card
+  expect(within(aside).getByTestId("sum-ring")).not.toHaveTextContent(/\d/)
+  expect(within(aside).getByTestId("task-count")).toHaveTextContent("Tasks 1 of 3 done")
   expect(within(aside).getByText("Waiting for you")).toBeInTheDocument()
   expect(within(aside).getByText("full")).toBeInTheDocument()
   expect(await within(aside).findByText("$0.80")).toBeInTheDocument()
@@ -282,4 +285,84 @@ test("the run's exact image id shows small in the header", async () => {
   const id = screen.getByTestId("image-id")
   expect(id).toHaveTextContent("0123456789ab")
   expect(id).toHaveAttribute("title", "phoenix9-step-web:1 sha256:0123456789abcdef")
+})
+
+describe("progress ring and clocks (O41)", () => {
+  const ago = (secs: number) => new Date(Date.now() - secs * 1000).toISOString()
+  const ESTIMATES = {
+    project: "demo-site",
+    steps: {
+      planner: { seconds: 120, samples: 5, source: "project" },
+      builder: { seconds: 300, samples: 5, source: "project", per_task: true },
+      summary: { seconds: 60, samples: 5, source: "project" },
+    },
+    task: { seconds: 600, samples: 5, source: "project" },
+  }
+  const planning = () => runDetail({
+    status: "running", tasks: {}, gates: [],
+    current: { group: "run-start", task: null, step: "planner", attempt: 1 },
+    steps: [line({ group: "run-start", task: null, step: "planner", status: "running", started: ago(30), finished: "" })],
+  })
+  const building = (secs: number) => runDetail({
+    status: "running", gates: [],
+    current: { group: "task", task: 2, step: "builder", attempt: 1 },
+    tasks: {
+      "1": { title: "Pricing table", status: "passed", tries: 1, failures: [], depends_on: [] },
+      "2": { title: "Plan cards", status: "running", tries: 1, failures: [], depends_on: [1] },
+      "3": { title: "Footer", status: "pending", tries: 0, failures: [], depends_on: [2] },
+    } as never,
+    steps: [
+      line({ group: "run-start", task: null, step: "planner" }),
+      line({ task: 1 }), line({ task: 1, step: "check" }),
+      line({ task: 2, status: "running", started: ago(secs), finished: "" }),
+    ],
+  })
+  const aside = async () => {
+    await screen.findByRole("heading", { name: "Pricing page" })
+    return screen.getByRole("complementary", { name: "Build summary" })
+  }
+
+  test("while the Planner works there is no 0/0 and, without history, a calm moving ring", async () => {
+    mockApi(routes({ [`GET ${RUN}`]: planning() }))
+    show()
+    const a = await aside()
+    expect(a).not.toHaveTextContent("0/0")
+    const ring = within(a).getByTestId("sum-ring")
+    expect(ring).toHaveClass("calm")
+    expect(ring).toHaveAttribute("data-fill", "calm")
+    expect(within(a).queryByTestId("step-to-go")).toBeNull()
+    expect(within(a).queryByTestId("task-count")).toBeNull()
+  })
+
+  test("with history the ring follows the current step and says about how long is left", async () => {
+    mockApi(routes({ [`GET ${RUN}`]: building(60), "GET /api/runs/demo-site/estimates": ESTIMATES }))
+    show()
+    const a = await aside()
+    expect(await within(a).findByTestId("step-to-go")).toHaveTextContent("about 4 min to go")
+    const ring = within(a).getByTestId("sum-ring")
+    expect(ring).not.toHaveClass("calm")
+    expect(Number(ring.getAttribute("data-fill"))).toBeCloseTo(0.2, 1)
+    // tasks 2 (10 min less 1 min) and 3 (10 min) + summary (1 min) = 20 min
+    expect(within(a).getByTestId("build-to-go")).toHaveTextContent("Whole build: about 20 min to go")
+    expect(within(a).getByTestId("task-count")).toHaveTextContent("Tasks 1 of 3 done")
+  })
+
+  test("past the estimate it says so and the ring holds short of full", async () => {
+    mockApi(routes({ [`GET ${RUN}`]: building(900), "GET /api/runs/demo-site/estimates": ESTIMATES }))
+    show()
+    const a = await aside()
+    expect(await within(a).findByTestId("step-to-go")).toHaveTextContent("taking longer than usual")
+    expect(Number(within(a).getByTestId("sum-ring").getAttribute("data-fill"))).toBeLessThan(0.95)
+  })
+
+  test("\"This step\" and the step tile tell the same time; the build time is \"Build running\"", async () => {
+    mockApi(routes({ [`GET ${RUN}`]: building(300) }))
+    show()
+    const a = await aside()
+    expect(within(a).getByText("Build running")).toBeInTheDocument()
+    expect(within(a).queryByText("Duration")).toBeNull()
+    const clock = within(a).getByTestId("this-step").textContent!
+    expect(clock).toBe("Started 5 minutes ago")
+    expect(stepRow(2, "builder")).toHaveTextContent(clock)
+  })
 })

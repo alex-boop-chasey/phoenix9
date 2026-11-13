@@ -7,18 +7,31 @@
 .ledger tr.sel td{background:var(--surface-2)}
 .ledger tr{cursor:pointer}
 .ledger tr:hover td{background:var(--surface-2)}
-.ledger .tbar{width:90px}
+/* The Tasks cell keeps a fixed width; the bar never spills over the Result pill. */
+.ledger td.tcell{width:114px; min-width:114px; max-width:114px; overflow:hidden}
+.ledger .tbar{width:90px; max-width:100%; overflow:hidden}
 .ledger b{font-weight:600}
 .ledger small{display:block; color:var(--text-3); font-size:12px}
 .ledger a{color:inherit; text-decoration:none}
 .tscroll{overflow-x:auto; max-width:100%; min-width:0; position:relative}
 .tbar i.pend{background:var(--surface-3)}
+/* A skipped task: grey with a diagonal stripe, so it does not read as an empty slot. */
+.tbar i.skip{background:repeating-linear-gradient(135deg, var(--surface-3) 0 3px, var(--text-3) 3px 4px)}
+/* Many tasks: one thin continuous bar split by colour. */
+.tbar.thin{gap:0; border-radius:2px; background:var(--surface-3)}
+.tbar.thin i{flex-basis:0; min-width:2px; height:4px; border-radius:0}
 .tbar i.run{animation:pulse 1.6s ease-in-out infinite}
 .run{display:grid; gap:20px; grid-template-columns:minmax(0,1fr)}
 @container well (min-width:960px){ .run{grid-template-columns:minmax(0,1fr) 280px; align-items:start} .run-sum{position:sticky; top:0; grid-column:2; grid-row:2} .run-lead{grid-column:1; grid-row:1} .run-steps{grid-column:1; grid-row:2} }
 /* The lead ("At the start") is its own grid row; pull the steps back up to the stack's 6px gap (grid gap is 20px). */
 .run-lead{margin-bottom:-14px}
 .run-steps{min-width:0}
+/* A task's tries ("Passed on try 3 of 5"): tap to list each try. */
+.tries-btn{display:inline-flex; align-items:center; min-height:28px; padding:0 2px; color:var(--text-2); text-decoration:underline dotted; text-underline-offset:3px; cursor:pointer; background:none; border:0; font-weight:400}
+.tries-btn:hover{color:var(--text)}
+@media (max-width:719px){ .tries-btn{min-height:44px} }
+.tries-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px}
+.tries-list .try-failed{color:var(--bad)}
 /* Previous builds drawer on the Build tab. */
 .prev-builds > summary{list-style:none; cursor:pointer; display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 8px; min-height:44px; padding:8px 0}
 .prev-builds > summary::-webkit-details-marker{display:none}

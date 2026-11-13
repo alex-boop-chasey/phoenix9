@@ -63,17 +63,59 @@ export function Muted({ children }: { children: ReactNode }) {
   return <p className="text-sm text-muted-foreground">{children}</p>
 }
 
-/** The bar pieces for a build: one per task (done, failed, the running one), plus an orange piece when only the merge waits. */
-export function taskPieces(status: RunStatus, total: number, passed: number, failed: number): string[] {
+/** The bar pieces for a build: one per task (done, failed, skipped, the running one), plus an orange piece when only the merge waits. */
+export function taskPieces(status: RunStatus, total: number, passed: number, failed: number, skipped = 0): string[] {
   const pieces: string[] = []
   for (let i = 0; i < total; i++) {
     if (i < passed) pieces.push("ok")
     else if (i < passed + failed) pieces.push("bad")
-    else if (status === "running" && i === passed + failed) pieces.push("run")
+    else if (i < passed + failed + skipped) pieces.push("skip")
+    else if (status === "running" && i === passed + failed + skipped) pieces.push("run")
     else pieces.push("")
   }
-  if (status === "waiting" && passed >= total) pieces.push("need")
+  if (status === "waiting" && passed + skipped >= total) pieces.push("need")
   return pieces
+}
+
+/** Above this many pieces the bar becomes one thin bar split by colour. */
+export const MANY_TASKS = 12
+
+/** Pieces grouped into runs of the same colour: [colour, how many]. */
+function runsOf(pieces: string[]): [string, number][] {
+  const out: [string, number][] = []
+  for (const c of pieces) {
+    const last = out.at(-1)
+    if (last && last[0] === c) last[1] += 1
+    else out.push([c, 1])
+  }
+  return out
+}
+
+/** The hover words for a task bar, e.g. "5 passed, 1 skipped · 2 tasks needed more than one try". */
+export function taskBarHint(c: { total: number; passed: number; failed?: number; skipped?: number; retried?: number }): string {
+  const left = c.total - c.passed - (c.failed ?? 0) - (c.skipped ?? 0)
+  const parts = [
+    `${c.passed} passed`,
+    c.failed ? `${c.failed} failed` : "",
+    c.skipped ? `${c.skipped} skipped` : "",
+    left > 0 && left < c.total ? `${left} not done yet` : "",
+  ].filter(Boolean)
+  const head = c.total === 0 ? "No tasks yet" : parts.join(", ")
+  const r = c.retried ?? 0
+  if (r === 0) return head
+  return `${head} · ${r} ${r === 1 ? "task" : "tasks"} needed more than one try`
+}
+
+/** A build's task bar: one piece per task, or one thin bar split by colour when there are many tasks. */
+export function TaskBar({ pieces, label, hint }: { pieces: string[]; label: string; hint?: string }) {
+  const many = pieces.length > MANY_TASKS
+  return (
+    <div className={many ? "tbar thin" : "tbar"} aria-label={label} title={hint}>
+      {many
+        ? runsOf(pieces).map(([c, n], i) => <i key={i} className={c} style={{ flexGrow: n }} data-count={n} />)
+        : pieces.map((c, i) => <i key={i} className={c} />)}
+    </div>
+  )
 }
 
 /** The colour word of a build's left edge and ring. */

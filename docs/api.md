@@ -209,7 +209,8 @@ available, can_install, reason, endpoints {install, rollback}}`, `github {connec
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,
 tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished` (ISO or `""`),
-`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `discarded` (true once the run's work was discarded).
+`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `tasks_skipped` (tasks whose status is skipped; `tasks_total` still counts them),
+`tasks_retried` (tasks that needed more than one try), `discarded` (true once the run's work was discarded).
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has

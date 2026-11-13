@@ -264,6 +264,10 @@ export interface BuildRow {
   duration: string
   cost: string
   tasks_failed: number
+  /** Tasks whose status is skipped (still counted in tasks_total). */
+  tasks_skipped?: number
+  /** Tasks that needed more than one try. */
+  tasks_retried?: number
   carrying_on?: boolean
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
@@ -280,6 +284,15 @@ export interface RunTask {
   gate?: string | null
   note?: string | null
   answered?: boolean
+}
+
+/** One try of a task (`try_lines` in run detail): the ending step, overall result, when and a short reason. */
+export interface TryLine {
+  attempt: number
+  step: string | null
+  status: "passed" | "failed" | "running" | "skipped"
+  at: string | null
+  reason: string
 }
 
 export interface StepLine {
@@ -356,6 +369,10 @@ export interface RunDetail {
   title: string
   preset: string
   max_tries: number
+  /** How many tries each task has had, by task number. */
+  tries?: Record<string, number>
+  /** One line per try of each task, oldest first, by task number. */
+  try_lines?: Record<string, TryLine[]>
   /** The spending cap in dollars (frozen once the build starts); empty = no cap. */
   budget_usd?: number | null
   /** Dollars spent so far. */

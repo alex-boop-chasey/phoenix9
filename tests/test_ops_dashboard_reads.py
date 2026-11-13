@@ -157,6 +157,20 @@ def test_builds_have_title_preset_duration_cost(env):
     assert build["tasks_failed"] == 0 and build["status"] == "queued"
 
 
+def test_builds_count_skipped_and_retried_tasks(env):
+    make(env)
+    run_id = queue_run(env)
+    folder = runs_core.find_run(run_id)
+
+    def tasks(s):
+        s["tasks"] = {"1": {"title": "a", "status": "passed", "tries": 1},
+                      "2": {"title": "b", "status": "passed", "tries": 3},
+                      "3": {"title": "c", "status": "skipped", "tries": 0}}
+    state.update(folder, tasks)
+    [build] = runs_ops.builds("demo")
+    assert build["tasks_skipped"] == 1 and build["tasks_retried"] == 1 and build["tasks_total"] == 3
+
+
 def test_detail_of_queued_run_has_preview_plan(env):
     make(env)
     run_id = queue_run(env, overrides={"max_tries": 4})

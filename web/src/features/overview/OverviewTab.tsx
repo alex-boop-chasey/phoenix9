@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router"
 import { Icon } from "@/components/Icon"
 import { StatusBadge } from "@/components/StatusBadge"
 import { Tag } from "@/components/Tag"
+import { TaskBar, taskBarHint, taskPieces } from "@/features/build/parts"
 import { DeployCard } from "@/features/deploy/DeployCard"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import { useBuilds, useChangelog, useGates, useProject } from "@/lib/queries"
@@ -14,20 +15,15 @@ import type { BuildRow, ProjectRow } from "@/lib/types"
 
 import { AboutCard } from "./AboutCard"
 
-/** One bar piece per task (done, failed, the running one), plus an orange piece when the merge is waiting. */
+/** One bar piece per task (done, failed, skipped, the running one), plus an orange piece when the merge is waiting. */
 function taskBar(build: BuildRow | undefined, run: NonNullable<ProjectRow["run"]>) {
   const total = build?.tasks_total ?? run.tasks
   const passed = build?.tasks_passed ?? 0
   const failed = build?.tasks_failed ?? 0
-  const pieces: string[] = []
-  for (let i = 0; i < total; i++) {
-    if (i < passed) pieces.push("ok")
-    else if (i < passed + failed) pieces.push("bad")
-    else if (run.status === "running" && i === passed + failed) pieces.push("run")
-    else pieces.push("")
-  }
-  if (run.status === "waiting" && passed >= total) pieces.push("need")
-  return { pieces, total, passed }
+  const skipped = build?.tasks_skipped ?? 0
+  const pieces = taskPieces(run.status, total, passed, failed, skipped)
+  const hint = taskBarHint({ total, passed, failed, skipped, retried: build?.tasks_retried })
+  return { pieces, total, passed, hint }
 }
 
 function CurrentBuild({ name, row, builds, loaded }: { name: string; row: ProjectRow | undefined; builds: BuildRow[]; loaded: boolean }) {
@@ -47,9 +43,10 @@ function CurrentBuild({ name, row, builds, loaded }: { name: string; row: Projec
             <b className="h3">{build?.title || run.run_id}</b>
             <StatusBadge status={run.status} />
           </div>
-          <div className="tbar" aria-label={`${bar.passed} of ${bar.total} tasks done${waiting ? ", merge waiting" : ""}`}>
-            {bar.pieces.map((c, i) => <i key={i} className={c} />)}
-          </div>
+          <TaskBar
+            pieces={bar.pieces} hint={bar.hint}
+            label={`${bar.passed} of ${bar.total} tasks done${waiting ? ", merge waiting" : ""}`}
+          />
           <p className="small mono">
             {[`${bar.passed} of ${bar.total} tasks`, build?.cost, build?.duration].filter(Boolean).join(" · ")}
           </p>

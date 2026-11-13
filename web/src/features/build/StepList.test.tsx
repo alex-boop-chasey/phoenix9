@@ -9,6 +9,8 @@ import { StepList, gatesShownInSteps } from "./StepList"
 
 afterEach(() => vi.unstubAllGlobals())
 
+const T = "2026-10-31T10:03:00Z"
+
 const show = (run = runDetail(), props = {}) => {
   mockApi({})
   return renderWithProviders(<StepList run={run} {...props} />)
@@ -34,8 +36,44 @@ test("finished tasks collapse into one block, the failed one stays open", () => 
   expect(done).toHaveTextContent("2 steps passed")
   expect(headings()).toHaveLength(3)
   expect(headings()[1]).toContain("Task 2 · Plan cards")
-  expect(headings()[1]).toContain("attempt 2 of 3")
+  expect(headings()[1]).toContain("Failed after 2 tries")
   expect(taskBox(3)).toHaveTextContent("depends on task 2, which failed")
+})
+
+test("every task says its tries: first try, on try N of M, failed after N, running Try N of M", () => {
+  const base = runDetail()
+  show(runDetail({
+    status: "running",
+    tasks: {
+      "1": { ...base.tasks["1"]! },
+      "2": { ...base.tasks["2"]!, status: "passed", tries: 3, gate: null },
+      "3": { ...base.tasks["3"]!, status: "running", tries: 2, note: null },
+    },
+    steps: [
+      line({ task: 1 }), line({ task: 2, attempt: 3 }),
+      line({ task: 3, attempt: 2, status: "running", finished: "" }),
+    ],
+    gates: [],
+  }))
+  expect(taskBox(1)).toHaveTextContent("Passed first try")
+  expect(taskBox(2)).toHaveTextContent("Passed on try 3 of 3")
+  expect(headings().join(" ")).toContain("Try 2 of 3")
+  expect(document.body.textContent).not.toMatch(/attempt \d of/)
+})
+
+test("tapping the tries text lists each try with its result and reason", async () => {
+  show(runDetail({
+    try_lines: {
+      "2": [
+        { attempt: 1, step: "check", status: "failed", at: T, reason: "tests did not pass" },
+        { attempt: 2, step: "builder", status: "failed", at: T, reason: "" },
+      ],
+    },
+  }))
+  const open = within(taskBox(2)).getByRole("button", { name: /Failed after 2 tries/ })
+  await userEvent.click(open)
+  expect(await screen.findByText("Try 1: failed at Check · tests did not pass")).toBeInTheDocument()
+  expect(screen.getByText("Try 2: failed at Builder")).toBeInTheDocument()
 })
 
 test("every attempt gets its own block", () => {

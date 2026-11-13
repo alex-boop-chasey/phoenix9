@@ -10,6 +10,7 @@ import type { Gate, ItemStatus, PlanStep, RunDetail, RunRepair, RunTask, StepGro
 
 import { NoteButton } from "./NoteDialog"
 import { Muted } from "./parts"
+import { TaskTries } from "./TaskTries"
 
 /** The latest attempt's line for a step (of one task, or of the run when task is null). */
 function latestLine(run: RunDetail, task: number | null, step: string): StepLine | undefined {
@@ -291,6 +292,7 @@ export function StepList({ run, gates, renderUnderStep, lead = true }: Props) {
           <div className="blk-t">
             <b>Task {n} · {t.title}</b>
             <span>{count} {count === 1 ? "step" : "steps"} passed</span>
+            <TaskTries run={run} n={n} stepTitle={title} />
           </div>
           <div className="blk-r"><Icon name="caret-right" size="sm" className="car" /></div>
         </summary>
@@ -332,7 +334,7 @@ export function StepList({ run, gates, renderUnderStep, lead = true }: Props) {
           <div className="stack" key={n} data-task={n}>
             <h3 className="stack-h">
               Task {n} · {t.title}
-              {t.tries > 0 && <span className="small">attempt {t.tries} of {run.max_tries}</span>}
+              <TaskTries run={run} n={n} stepTitle={title} />
             </h3>
             <div className="row" style={{ gap: 12 }}>
               <TaskFileLink run={run} n={n} />

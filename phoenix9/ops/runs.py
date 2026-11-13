@@ -559,7 +559,8 @@ def builds(project: str, limit: int = 10) -> list:
         task, reason = _failure_line(folder)
         rows.append({**r, "title": f["title"], "preset": f["preset"], "started": f["started"],
                      "finished": f["finished"], "duration": f["duration"], "cost": f["cost"],
-                     "tasks_failed": f["counts"]["failed"], "failed_task": task, "failed_reason": reason})
+                     "tasks_failed": f["counts"]["failed"], "tasks_skipped": f["counts"]["skipped"],
+                     "tasks_retried": sum(1 for t in f["tasks"] if (t.get("tries") or 0) > 1), "failed_task": task, "failed_reason": reason})
     return rows
 
 

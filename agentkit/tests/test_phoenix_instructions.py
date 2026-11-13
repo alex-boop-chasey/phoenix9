@@ -29,7 +29,10 @@ def test_no_tool_deletes_a_project_or_repo():
 def test_no_code_edit_tools():
     pack = build_pack(FakePhoenix().client())
     names = [t.name for t in pack.server_tools] + [t.name for t in pack.browser_tools]
-    allowed = {"ask_env_file"}  # the browser upload card: the model gets no file content
+    # ask_env_file: the browser upload card, the model gets no file content.
+    # reference-file-remove: removes one uploaded reference document after a typed confirmation; it writes
+    # nothing and cannot touch code (uploading stays Alex's alone).
+    allowed = {"ask_env_file", "reference-file-remove"}
     for name in names:
         for word in ("write-file", "edit", "file", "patch", "apply", "note"):
             assert name in allowed or word not in name.lower().replace("profiles", ""), name

@@ -49,3 +49,28 @@ export function relativeTime(iso: string, now: number = Date.now()): string {
   const days = Math.round(hours / 24)
   return `${days} day${days === 1 ? "" : "s"} ago`
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+function clock(d: Date): string {
+  const h = d.getHours() % 12 || 12
+  return `${h}:${String(d.getMinutes()).padStart(2, "0")} ${d.getHours() < 12 ? "am" : "pm"}`
+}
+
+/** An ISO time in local time: "3:42 pm" today, "9 Nov, 3:42 pm" this year, "9 Nov 2025, 3:42 pm" before; "" when unknown. */
+export function shortWhen(iso: string | null | undefined, now: Date = new Date()): string {
+  const d = iso ? new Date(iso) : null
+  if (!d || Number.isNaN(d.getTime())) return ""
+  const day = `${d.getDate()} ${MONTHS[d.getMonth()]}`
+  if (d.getFullYear() !== now.getFullYear()) return `${day} ${d.getFullYear()}, ${clock(d)}`
+  if (d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) return clock(d)
+  return `${day}, ${clock(d)}`
+}
+
+/** An ISO time in full local words, e.g. "Monday 9 November 2026, 3:42 pm"; "" when unknown. */
+export function fullWhen(iso: string | null | undefined): string {
+  const d = iso ? new Date(iso) : null
+  if (!d || Number.isNaN(d.getTime())) return ""
+  const date = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
+  return `${date.replace(",", "")}, ${clock(d)}`
+}

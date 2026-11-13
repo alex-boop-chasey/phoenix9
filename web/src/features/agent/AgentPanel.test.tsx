@@ -112,3 +112,15 @@ test("the panel is marked hidden while closed", async () => {
   await act(async () => {})
   await waitFor(() => expect(screen.getByText("Idle")).toBeInTheDocument())
 })
+
+test("the drawer shows no Suggestions strip, even when there are suggestions", async () => {
+  const suggestion = { key: "k1", text: "Fill in empty keys", section: "x", attention: false, shown: false }
+  const { calls } = mockApi({ ...agentRoutes(), "GET /api/suggest": { mode: "on", suggestions: [suggestion] } })
+  renderWithProviders(<Harness />)
+  openIt()
+  await screen.findByText("Idle")
+  await waitFor(() => expect(calls.some((c) => c.path === "/api/suggest")).toBe(true))
+  expect(screen.queryByText("Suggestions")).toBeNull()
+  expect(screen.queryByRole("region", { name: "Suggestions" })).toBeNull()
+  expect(screen.queryByText("Fill in empty keys")).toBeNull()
+})

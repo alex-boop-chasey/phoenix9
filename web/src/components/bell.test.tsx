@@ -199,3 +199,13 @@ test("Tab goes from a row to its Dismiss button", async () => {
   expect(order[1]).toHaveAccessibleName("Dismiss: demo needs an answer: Which colour?")
   expect(order[1]!.closest("a")).toBeNull()
 })
+
+test("the foot links to the full status report and closes the list", async () => {
+  show({ count: 0, items: [] })
+  fireEvent.click(await screen.findByRole("button", { name: /nothing waiting/ }))
+  const link = screen.getByRole("link", { name: "Full report" })
+  expect(link).toHaveAttribute("href", "/p/home/logs?log=reports%2Fstatus.md")
+  fireEvent.click(link)
+  expect(screen.getByTestId("where")).toHaveTextContent("/p/home/logs?log=reports%2Fstatus.md")
+  expect(screen.queryByTestId("bell-list")).toBeNull()
+})

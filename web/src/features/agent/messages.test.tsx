@@ -54,6 +54,22 @@ describe("messages", () => {
     expect(screen.getAllByRole("separator")).toHaveLength(2)
     expect(screen.getAllByText("Running tests").length).toBeGreaterThan(0)
   })
+  it("a message that is only an empty Claude Code tag pair is not shown", () => {
+    const items: AgentItem[] = [
+      user({ line: 1, origin: "app", text: "<local-command-stdout></local-command-stdout>" }),
+      { type: "notice", line: 2, text: "&lt;local-command-stdout&gt;&lt;/local-command-stdout&gt;" },
+      { type: "agent", line: 3, markdown: " <system-reminder></system-reminder>\n", at: "2026-11-07T14:02:00" },
+    ]
+    const { container } = render(<MessageList items={items} state="idle" />)
+    expect(container.textContent).not.toContain("local-command")
+    expect(container.textContent).not.toContain("system-reminder")
+    expect(screen.getByText(/Ask about your projects/)).toBeTruthy()
+  })
+  it("tags inside other words are still shown", () => {
+    const text = "why is <local-command-stdout></local-command-stdout> there?"
+    render(<MessageList items={[user({ text })]} state="idle" />)
+    expect(screen.getByText(text)).toBeTruthy()
+  })
   it("thinking alone shows the indicator", () => {
     render(<MessageList items={[{ type: "thinking", line: 1, duration_s: 1, at: "2026-11-07T14:00:00" }]} state="working" />)
     expect(screen.getByTestId("agent-working")).toBeTruthy()

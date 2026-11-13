@@ -268,20 +268,11 @@ export function useNewConversation() {
 /** One report line worth a mention, as `/api/suggest` lists it. */
 export interface Suggestion { key: string; text: string; section: string; attention: boolean; shown: boolean }
 
-/** The strip's suggestions (up to three), re-read every minute. */
+/** The current suggestions (up to three; the composer counts new ones for the context), re-read every minute. */
 export function useSuggestions() {
   return useQuery({
     queryKey: ["agent", "suggest"] as const,
     queryFn: () => get<{ mode: string; suggestions: Suggestion[] }>("suggest"),
     refetchInterval: 60_000,
-  })
-}
-
-/** Snooze or dismiss one suggestion, then re-read the list. */
-export function useMarkSuggestion() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ key, what }: { key: string; what: "snooze" | "dismiss" }) => post(`suggest/${encodeURIComponent(key)}/${what}`, {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["agent", "suggest"] }),
   })
 }

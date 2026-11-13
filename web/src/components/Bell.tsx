@@ -6,6 +6,9 @@ import { fullWhen, shortWhen } from "@/lib/format"
 import { useBell, useBellDismiss, useBellDismissAll } from "@/lib/queries"
 import type { BellItem } from "@/lib/types"
 
+/** The saved status report, shown in the home logs view. */
+const REPORT_LINK = "/p/home/logs?log=reports%2Fstatus.md"
+
 /** The top-bar bell: a button with the count that opens the list of what needs Alex. */
 export function Bell() {
   const { data } = useBell()
@@ -73,6 +76,9 @@ export function Bell() {
                 onOpen={() => { dismiss.mutate(item); setOpen(false) }}
                 onDismiss={() => onDismiss(item)} />
             ))}
+          </div>
+          <div className="border-t px-3 py-2 text-xs">
+            <Link to={REPORT_LINK} className="underline-offset-2 hover:underline" onClick={() => setOpen(false)}>Full report</Link>
           </div>
         </div>
       )}

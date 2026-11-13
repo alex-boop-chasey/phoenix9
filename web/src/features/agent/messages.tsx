@@ -94,6 +94,15 @@ function pendingQueued(items: AgentItem[]): Set<number> {
   return out
 }
 
+const HARNESS_TAGS = "system-reminder|local-command-stdout|local-command-stderr|local-command-caveat|task-notification|command-name|command-message|command-args"
+const EMPTY_TAG = new RegExp(`^\\s*(?:<(${HARNESS_TAGS})\\b[^>]*>\\s*</\\1>|&lt;(${HARNESS_TAGS})\\b.*?&gt;\\s*&lt;/\\2&gt;)\\s*$`)
+
+/** True when an item's whole text is one empty Claude Code markup pair (such as the output of /clear); the server drops these too. */
+function emptyHarness(item: AgentItem): boolean {
+  const text = item.type === "agent" ? item.markdown : "text" in item ? item.text : ""
+  return typeof text === "string" && EMPTY_TAG.test(text)
+}
+
 /** Texts of the user items after position idx. */
 function laterUsers(items: AgentItem[], idx: number): string[] {
   return items.slice(idx + 1).flatMap((o) => (o.type === "user" ? [o.text] : []))
@@ -114,7 +123,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
   const pinned = useRef(true)
   const [away, setAway] = useState(false)
   const pending = useMemo(() => pendingQueued(items), [items])
-  const shown = items.filter((i) => i.type !== "thinking")
+  const shown = items.filter((i) => i.type !== "thinking" && !emptyHarness(i))
   const working = state === "working"
 
   const jump = () => {
@@ -153,7 +162,7 @@ export function MessageList({ items, state }: { items: AgentItem[]; state?: Agen
   for (let idx = 0; idx < items.length; idx++) {
     const it = items[idx] as AgentItem
     const key = `${it.type}-${it.line}-${idx}`
-    if (it.type === "thinking") continue
+    if (it.type === "thinking" || emptyHarness(it)) continue
     if (it.type === "action") {
       const run: ActionItem[] = [it]
       while (items[idx + 1]?.type === "action" || items[idx + 1]?.type === "thinking") {

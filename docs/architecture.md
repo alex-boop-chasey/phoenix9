@@ -37,6 +37,8 @@ this file records a deliberate simplification (section 12).
 ```
 check.sh, check-browser.sh     the check commands (never weaken them)
 bin/phoenix                    wrapper: exec python3 -m phoenix9 "$@" (PYTHONPATH = repo root)
+bin/check-template-pins        run by hand (needs the internet, not part of the tests): asks the npm registry
+                               whether every package version pinned in templates/*/template.toml exists
 pyproject.toml                 name phoenix9, no runtime deps, pytest testpaths = ["tests"]
 docs/architecture.md           this file
 phoenix9/                      the Python package
@@ -103,7 +105,10 @@ presets/<name>.toml            simple, quick, full (custom = no file; it is "sta
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
 services/<name>/service.toml   expected project keys + hosts (phase 2); recipes, proxy rules (phase 4)
 deployers/<name>/deployer.toml deployers library, section 4.7 (+ deploy.py)
-templates/<name>/template.toml project templates menu (phase 2)
+templates/<name>/template.toml project templates menu (phase 2); recipe `run` commands pin npm versions
+                               (`create astro@5.1.0` = package create-astro 5.1.0): check them with
+                               bin/check-template-pins; a step that fails on a missing version tells the owner
+                               "This template points at a version of <package> that does not exist."
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        phoenix-api.service, phoenix-runner.service, phoenix9-update.service, install.sh,
                                update.sh, self-project.toml (section 15); README.md for the server owner;

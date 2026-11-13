@@ -2,7 +2,7 @@ import { Icon, type IconName } from "@/components/Icon"
 import type { BuildRow, LogEntry } from "@/lib/types"
 
 export const ALL = ""
-export const KINDS: LogEntry["kind"][] = ["session", "check", "diff", "step", "gate", "command", "service", "repair-note", "repair-report", "task-file"]
+export const KINDS: LogEntry["kind"][] = ["session", "check", "diff", "step", "gate", "command", "repair-note", "repair-report", "task-file"]
 
 /** Plain words and an icon for each kind of log. */
 export const KIND_INFO: Record<LogEntry["kind"], { label: string; icon: IconName }> = {

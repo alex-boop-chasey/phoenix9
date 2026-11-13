@@ -147,8 +147,15 @@ describe("LogsTab", () => {
 
   it("empty filters message", async () => {
     mockApi(routes({ "GET /api/logs": [] }))
-    renderWithProviders(<LogsTab name="demo-site" />)
+    renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?kind=diff" })
     expect(await screen.findByText("No logs match these filters.")).toBeInTheDocument()
+  })
+
+  it("a project with no logs says when they will appear", async () => {
+    mockApi(routes({ "GET /api/logs": [] }))
+    renderWithProviders(<LogsTab name="demo-site" />)
+    expect(await screen.findByText("No logs yet. Logs appear here once this project's first build starts.")).toBeInTheDocument()
+    expect(screen.queryByText("No logs match these filters.")).not.toBeInTheDocument()
   })
 
   it("error state", async () => {

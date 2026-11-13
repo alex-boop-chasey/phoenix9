@@ -111,6 +111,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/blocks/check` | `ops.blocks.check` | `{kind: card\|choice\|confirm\|nav, json: text}` | `{ok, reason, resolved}` (not ok gives a plain reason; nav `resolved` is `{links: [{hash, label}], dropped: [{link, to, reason}]}`) | 400 (kind or json missing) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
+| GET | `/api/service-logs` | `ops.logs.service_list` | | Phoenix's own logs (`api.log`, `updater.log`): list of `{id, kind, run, task, attempt, step, title, size, modified}` | |
+| GET | `/api/service-logs/read?id=` | `ops.logs.service_read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed); only `api.log` and `updater.log` | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |
 | POST | `/api/services/<name>/test` | `ops.services.test` (nothing saved; pasted key, else the saved one) | `{values?: {NAME: value}}` | `{name, ok, message}` | 400 |
 | POST | `/api/services/<name>/disconnect` | `ops.services.disconnect` | `{yes: true}` | `{name, connected, used_by, warning}` | 400 |
@@ -323,8 +325,11 @@ else at the end of the file; polls every `PHOENIX_API_TAIL_SECONDS` (0.5); sends
 
 ## Logs
 
-Log ids are paths: `<run id>/<path inside the run folder>` or `logs/<file>` (inside HOME). Anything else is
-refused (400). Kinds: `session`, `check`, `diff`, `step`, `gate`, `command`, `service`.
+Log ids are paths: `<run id>/<path inside the run folder>`, `logs/commands.jsonl` (this project's lines) or,
+for the `home` project only, `reports/<file>` (inside HOME). Anything else is refused (400). Project lists never
+hold Phoenix's own logs; those are `/api/service-logs` (ids `api.log` and `updater.log`, kind `service`), shown in
+Global settings > Logs. Kinds: `session`, `check`, `diff`, `step`, `gate`, `command`, `task-file`, `report`,
+`repair-note`, `repair-report`, `service`.
 
 ## Demo data
 

@@ -129,6 +129,8 @@ export const api = {
   logs: (params: { project: string; run?: string; task?: number; step?: string; kind?: string }) =>
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
+  serviceLogs: () => get<LogEntry[]>("service-logs"),
+  readServiceLog: (id: string) => get<LogText>("service-logs/read", { id }),
 
   getChat: (project: string) => get<ChatInfo>(`chat/${e(project)}`),
   openChat: (project: string) => post<ChatOpenResult>(`chat/${e(project)}/open`),

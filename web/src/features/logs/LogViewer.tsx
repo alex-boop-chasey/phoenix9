@@ -10,10 +10,15 @@ import { api } from "@/lib/api"
 import { DiffView } from "./DiffView"
 import { kindInfo } from "./LogFilters"
 
-/** The open log: header with kind tag, title and Copy, then the text (newest at the bottom, diffs coloured). */
-export function LogViewer({ project, id }: { project: string; id: string }) {
+/** The open log: header with kind tag, title and Copy, then the text (newest at the bottom, diffs coloured).
+ *  `service` reads one of Phoenix's own logs instead of a project's. */
+export function LogViewer({ project, id, service = false }: { project: string; id: string; service?: boolean }) {
   // Not under the "logs" key, so live events refetch the list but not the open text.
-  const q = useQuery({ queryKey: ["logtext", project, id], queryFn: () => api.readLog(project, id), enabled: !!id })
+  const q = useQuery({
+    queryKey: service ? ["servicelogtext", id] : ["logtext", project, id],
+    queryFn: () => (service ? api.readServiceLog(id) : api.readLog(project, id)),
+    enabled: !!id,
+  })
   const box = useRef<HTMLDivElement>(null)
   const text = q.data?.text
 

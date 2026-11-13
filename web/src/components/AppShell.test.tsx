@@ -172,6 +172,11 @@ test("the settings trail reads Projects / Phoenix settings / Updates", () => {
   expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Updates")
 })
 
+test("the settings trail follows ?section= too", () => {
+  setup({ route: "/settings?section=logs" })
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Logs")
+})
+
 test("crumbs per route", () => {
   const labels = (p: string) => crumbsFor(p).map((c) => c.label)
   expect(labels("/")).toEqual(["Projects"])

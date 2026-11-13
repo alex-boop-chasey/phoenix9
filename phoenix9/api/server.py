@@ -439,6 +439,16 @@ def get_logs_read(req):
     return logs.read(need_project(req), req.query.get("id") or "")
 
 
+def get_service_logs(req):
+    """Reply with Phoenix's own logs (API and updater)."""
+    return logs.service_list()
+
+
+def get_service_logs_read(req):
+    """Reply with one of Phoenix's own logs as scrubbed text."""
+    return logs.service_read(req.query.get("id") or "")
+
+
 def get_routes(req):
     """Reply with the dashboard pages the agent may point at (routes.ROUTES)."""
     return agentaccess.pages()
@@ -1292,6 +1302,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/agent/sessions", get_agent_sessions),
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
+    ("GET", r"/api/service-logs", get_service_logs),
+    ("GET", r"/api/service-logs/read", get_service_logs_read),
     ("GET", r"/api/gates", get_gates),
     ("GET", r"/api/gates/(?P<gate_id>[^/]+)/review", get_gate_review),
     ("GET", r"/api/library/steps", get_steps),

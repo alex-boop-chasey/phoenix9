@@ -57,6 +57,7 @@ export function LogsTab({ name }: { name: string }) {
     queryFn: () => api.logs({ project: name, ...filter }),
   })
 
+  const filtered = !!(values.run || values.task || values.step || values.kinds.length)
   const shown = (entries.data ?? []).filter((e) => !values.kinds.length || values.kinds.includes(e.kind))
   const all = scope.data ?? []
   const tasks = [...new Set(all.flatMap((e) => (e.task === null ? [] : [e.task])))].sort((a, b) => a - b)
@@ -91,7 +92,10 @@ export function LogsTab({ name }: { name: string }) {
           ) : !entries.data ? (
             <div className="lglist"><p className="loading help" style={{ padding: 16 }}>Loading logs…</p></div>
           ) : (
-            <LogList entries={shown} selected={id} onSelect={select} />
+            <LogList
+              entries={shown} selected={id} onSelect={select}
+              empty={filtered ? undefined : "No logs yet. Logs appear here once this project's first build starts."}
+            />
           )}
         </div>
         <div ref={viewer} className="min-w-0">

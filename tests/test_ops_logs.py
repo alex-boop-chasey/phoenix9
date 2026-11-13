@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from phoenix9 import keys, paths
-from phoenix9.ops import logs
+from phoenix9 import keys, paths, routes
+from phoenix9.ops import common, logs
 from phoenix9.ops.common import OpsError
 
 RUN = "20260101-000000-demo"
@@ -47,7 +47,8 @@ def ids(entries):
 
 def test_list_kinds_and_filters(proj):
     entries = logs.list_("demo")
-    assert {e["kind"] for e in entries} == {"session", "check", "diff", "step", "gate", "service", "task-file"}
+    # Phoenix's own logs (api.log, updater.log) are not a project's logs: they live in Global settings.
+    assert {e["kind"] for e in entries} == {"session", "check", "diff", "step", "gate", "task-file"}
     task_file = next(e for e in entries if e["id"] == f"{RUN}/tasks/1/task.md")
     assert task_file["kind"] == "task-file" and task_file["task"] == 1
     assert f"{RUN}/logs/1-1-builder.jsonl" in ids(entries)
@@ -103,3 +104,52 @@ def test_command_log_only_this_project(proj):
     out = logs.read("demo", "logs/commands.jsonl")
     assert "phoenix a" in out["text"] and "phoenix b" not in out["text"]
     assert "logs/commands.jsonl" in ids(logs.list_("demo", kind="command"))
+
+
+def test_project_list_never_holds_service_logs(proj):
+    (paths.logs() / "updater.log").write_text("updated\n")
+    assert not [e for e in logs.list_("demo") if e["id"].startswith("logs/api") or e["kind"] == "service"]
+    for bad in ("logs/api.log", "logs/updater.log"):
+        with pytest.raises(OpsError):
+            logs.read("demo", bad)
+
+
+def test_reports_listed_only_for_home(proj, phoenix_env):
+    (phoenix_env["projects"] / "home").mkdir()
+    (paths.home() / "reports").mkdir(parents=True, exist_ok=True)
+    (paths.home() / "reports/status.md").write_text("# Status\nAll fine\n")
+    assert "reports/status.md" in ids(logs.list_("home"))
+    assert logs.read("home", "reports/status.md")["kind"] == "report"
+    routes._check_log("home", "reports/status.md")    # the bell's "Full report" link is accepted
+    assert "reports/status.md" not in ids(logs.list_("demo"))
+    with pytest.raises(OpsError):
+        logs.read("demo", "reports/status.md")
+
+
+def test_service_list_and_read(proj):
+    (paths.logs() / "updater.log").write_text("updated to v2\n")
+    (paths.logs() / "commands.jsonl").write_text("")
+    entries = logs.service_list()
+    assert ids(entries) == {"api.log", "updater.log"}
+    assert all(e["kind"] == "service" and e["size"] > 0 and e["modified"] for e in entries)
+    out = logs.service_read("updater.log")
+    assert out["text"] == "updated to v2\n" and out["kind"] == "service" and out["truncated"] is False
+
+
+def test_service_read_truncates_and_scrubs(proj, monkeypatch):
+    monkeypatch.setattr(logs.scrub, "known_secrets", lambda: ["sekrit-value-12345"])
+    (paths.logs() / "api.log").write_text(("a" * 99 + "\n") * (logs.MAX_BYTES // 100 + 5) + "key sekrit-value-12345\n")
+    out = logs.service_read("api.log")
+    assert out["truncated"] is True and len(out["text"]) <= logs.MAX_BYTES and "sekrit-value-12345" not in out["text"]
+
+
+@pytest.mark.parametrize("bad", ["commands.jsonl", "logs/api.log", "../logs/api.log", "", "/etc/passwd", "events.jsonl",
+                                 "api", "runner.log"])
+def test_service_read_refuses_other_ids(proj, bad):
+    with pytest.raises(OpsError):
+        logs.service_read(bad)
+
+
+def test_service_read_missing_is_not_found(proj):
+    with pytest.raises(common.NotFound):
+        logs.service_read("updater.log")

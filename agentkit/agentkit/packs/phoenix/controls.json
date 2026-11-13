@@ -2497,6 +2497,34 @@
     "confirm_with": ""
   },
   {
+    "name": "service-logs-list",
+    "description": "Phoenix's own logs (the API log and the updater log) with size and last change.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/service-logs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-logs-read",
+    "description": "One of Phoenix's own logs as scrubbed text (last 2 MB): {id, kind, title, text, truncated, is_diff}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/service-logs/read",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "service-restart",
     "description": "Ask systemd to restart phoenix-api without waiting (used from inside the API, which the restart stops).",
     "inputs": [],

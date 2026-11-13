@@ -341,6 +341,8 @@ CONTROLS = (
     _get("docs-download", "docs.download", "/api/docs/download", "later", LATER),
     _get("logs-list", "logs.list_", "/api/logs", "later", LATER),
     _get("logs-read", "logs.read", "/api/logs/read", "later", LATER),
+    _get("service-logs-list", "logs.service_list", "/api/service-logs", "later", LATER),
+    _get("service-logs-read", "logs.service_read", "/api/service-logs/read", "later", LATER),
     _get("library-steps", "library.steps", "/api/library/steps", "later", LATER),
     _get("library-profiles", "library.profiles", "/api/library/profiles", "tool"),
     _get("library-presets", "library.presets", "/api/library/presets", "later", LATER),

@@ -17,22 +17,24 @@ const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)}
 
 /** The entries that match the filters; click one to open it. */
 export function LogList({
-  entries, selected, onSelect,
+  entries, selected, onSelect, empty = "No logs match these filters.", label = "Logs",
 }: {
   entries: LogEntry[]
   selected: string
   onSelect: (id: string) => void
+  empty?: string
+  label?: string
 }) {
-  if (!entries.length) return <p className="help" style={{ padding: 16 }}>No logs match these filters.</p>
+  if (!entries.length) return <p className="help" style={{ padding: 16 }}>{empty}</p>
   return (
-    <div className="lglist" role="listbox" aria-label="Logs">
+    <div className="lglist" role="listbox" aria-label={label}>
       {entries.map((e) => {
         const info = kindInfo(e.kind)
         return (
           <button key={e.id} type="button" className="lgi" role="option" aria-selected={e.id === selected} onClick={() => onSelect(e.id)}>
             <b>{e.title}</b>
             <span className="k"><Icon name={info.icon} />{info.label}</span>
-            <small>{where(e)}</small>
+            {where(e) && <small>{where(e)}</small>}
             <small>{size(e.size)} · <RelativeTime iso={e.modified} /></small>
           </button>
         )

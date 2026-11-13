@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs ba17029500166617 -->
+<!-- phoenix 9.1.0 inputs 57eb6b606eb19956 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -191,6 +191,13 @@ answer a question
 ## `phoenix bell`
 
 list what needs you (questions, failed builds, held merges, services, allowance)
+
+### `phoenix bell dismiss`
+
+hide a bell item (it shows again only as a new event)
+
+- `<id>`: the item's id (from `phoenix bell --json`)
+- `--all`: hide every item shown now
 
 ## `phoenix settings`
 

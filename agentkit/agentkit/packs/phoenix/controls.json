@@ -112,6 +112,44 @@
     "confirm_with": ""
   },
   {
+    "name": "bell-dismiss",
+    "description": "Dismiss one bell item and return the new {count, items}; an id that is already gone is fine.",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "string",
+        "required": true,
+        "description": "The bell item's id (from the bell list).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Dismissing a bell item is Alex's choice; he does it from the bell.",
+    "method": "POST",
+    "route": "/api/bell/dismiss",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "bell-dismiss-all",
+    "description": "Dismiss every item the bell shows now and return the new {count, items}.",
+    "inputs": [],
+    "risk": "change",
+    "agent": "later",
+    "why": "Dismissing bell items is Alex's choice; he does it from the bell.",
+    "method": "POST",
+    "route": "/api/bell/dismiss-all",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "blocks-check",
     "description": "Check a {kind, json} block; return {ok, reason, resolved} (resolved is None when not ok).",
     "inputs": [],

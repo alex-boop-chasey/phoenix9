@@ -1154,8 +1154,15 @@ page it opens (`{to, params, hash, label}`). A query is 2 to 100 plain character
 
 **The bell** (`phoenix9/bell.py`, `ops/bell.py`, `GET /api/bell`, `phoenix bell`). One list of what needs Alex:
 build questions, failed or stopped builds, held merge requests, services not running, the allowance getting low,
-and the newest daily report. Each item has an id `kind:project:key`, a plain title and the page to open. The top bar
-shows the count; the agent tool `open_bell` opens the list and the agent can explain each item.
+and the newest daily report. Each item has an id `kind:project:key`, a plain title, the page to open and `since` (an
+ISO time: run end, question asked, merge request opened, report written, or when Phoenix first saw a service down or
+the allowance low; those first-seen times live in `cache/bell-seen.json`). Items are newest first. The key names the
+event, not just the project (run id, gate id, PR number, report date, service or allowance state plus its first-seen
+time), so a later, separate event is a new item. Alex can dismiss an item (`POST /api/bell/dismiss`, `phoenix bell
+dismiss <id>` or `--all`); `cache/bell-dismissed.json` maps a sha256 fingerprint of the id (24 hex characters) to
+when it was dismissed, and entries whose item is gone are dropped when the bell is read (only when every source
+answered). The top bar shows the count of items shown; the agent tool `open_bell` opens the list and the agent can
+explain each item.
 
 **The daily report** (`phoenix9/dailyreport.py`, `ops/report.py`, `phoenix report daily`). A short plain-English
 summary built from the same data as the bell. Settings are `[report]` in `global.toml` (section 5.2b): `enabled`,

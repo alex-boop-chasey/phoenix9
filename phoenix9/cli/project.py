@@ -258,8 +258,6 @@ def import_(args) -> int:
         return show(args, found, table(rows, ["name", "path", "repo", "status"]) if rows else "Nothing to import.")
     r = projects.import_(args.target, args.who)
     text = f"Imported {r['name']}. It is back on Phoenix's list."
-    if r.get("chat_message"):
-        text += " (" + r["chat_message"] + ")"
     return show(args, r, text)
 
 

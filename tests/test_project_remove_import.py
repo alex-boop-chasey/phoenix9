@@ -1,4 +1,4 @@
-"""Remove a project from Phoenix and import it back: nothing is deleted, no service is touched."""
+"""Remove a project from Phoenix and import it back: nothing is deleted; only the chat unit is stopped."""
 import json
 
 import pytest
@@ -36,11 +36,36 @@ def test_remove_keeps_files_and_hides_from_list(env):
     assert all(after[k] == v for k, v in before.items() if k != "notes/changelog.md")
     assert "removed from Phoenix" in after["notes/changelog.md"].decode()
     assert r["name"] == "alpha" and r["removed_on"]
-    assert not calls(env["host"], "systemctl")          # Phoenix no longer runs per-project chat services
+    assert [c[1:] for c in calls(env["host"], "systemctl")] == [   # the chat stops while alpha is still listed
+        ["stop", "claude-rc-chat@alpha"], ["disable", "claude-rc-chat@alpha"], ["daemon-reload"]]
     assert not trusted(env, folder)
     assert [x["name"] for x in projects.list_()] == []
     assert settings.read_global()["removed_projects"][0]["name"] == "alpha"
     assert (paths.logs() / "commands.jsonl").read_text().count("project remove alpha") == 1
+
+
+def test_remove_stops_the_chat_unit_and_drops_its_drop_ins_first(env):
+    from phoenix9 import project_delete
+    make(env, "alpha")
+    dropin = project_delete.SYSTEMD_DIR / "claude-rc-chat@alpha.service.d"
+    dropin.mkdir(parents=True)
+    (dropin / "x.conf").write_text("x")
+    listed_at_stop = []
+    real = env["host"].systemctl
+    env["host"].systemctl = lambda *a: (listed_at_stop.append("alpha" in project.project_names()), real(*a))[1]
+    projects.remove("alpha", "tester")
+    assert not dropin.exists() and listed_at_stop and all(listed_at_stop)
+    assert ["remove_tree", str(dropin)] in env["host"].calls
+
+
+def test_remove_stops_with_a_plain_message_when_the_chat_will_not_stop(env):
+    folder = make(env, "alpha")
+    project.trust(env["host"], folder)
+    env["host"].script(["systemctl", "disable"], rc=1, err="Access denied")
+    with pytest.raises(OpsError, match="couldn't stop alpha's chat, so the project was not removed.*Access denied"):
+        projects.remove("alpha", "tester")
+    assert [x["name"] for x in projects.list_()] == ["alpha"]
+    assert "removed_projects" not in settings.read_global() and trusted(env, folder)
 
 
 def test_remove_refuses_phoenix9_and_home(env):
@@ -79,7 +104,7 @@ def test_import_removed_project_restores_it(env):
     projects.remove("alpha", "tester")
     env["host"].calls.clear()
     r = projects.import_("alpha", "tester")
-    assert r["was_removed"] and r["chat"] == "not set up yet"
+    assert r["was_removed"] and "chat" not in r
     assert [x["name"] for x in projects.list_()] == ["alpha"]
     assert "removed_projects" not in settings.read_global()
     assert not calls(env["host"], "systemctl", "start")
@@ -252,27 +277,21 @@ def chat_import(env, tmp_path, monkeypatch, mode):
     return folder, fakes
 
 
-def test_import_chat_asleep_after_import(env, tmp_path, monkeypatch):
+def test_import_sets_up_no_chat(env, tmp_path, monkeypatch):
+    from phoenix9 import projectchat
     folder, fakes = chat_import(env, tmp_path, monkeypatch, "ok")
     r = project_removal.import_("loose", "tester", fakes)
-    assert r["chat"] == "sleeping" and "chat_message" not in r
-    assert (folder / ".phoenix" / "chat.md").is_file()
-    assert fakes.host.stopped == [10]
+    assert "chat" not in r and "chat_message" not in r
+    assert not (folder / ".phoenix" / "chat.md").exists()
+    assert not [c for c in fakes.host.calls if c[:2] in (["systemctl", "enable"], ["systemctl", "start"])]
+    assert projectchat.state("loose", fakes)["state"] == "none"
 
 
-def test_import_chat_not_set_up_still_imports(env, tmp_path, monkeypatch, capsys):
-    folder, fakes = chat_import(env, tmp_path, monkeypatch, "fail")
-    r = project_removal.import_("loose", "tester", fakes)
-    assert (folder / "CLAUDE.md").is_file()
-    assert r["chat"] == "not set up yet"
-    assert "chat not set up yet: press Chat to try again" in r["chat_message"]
-
-
-def test_import_cli_shows_chat_words(env, tmp_path, monkeypatch, capsys):
-    folder, fakes = chat_import(env, tmp_path, monkeypatch, "fail")
+def test_import_cli_says_imported_without_chat_words(env, tmp_path, monkeypatch, capsys):
+    folder, fakes = chat_import(env, tmp_path, monkeypatch, "ok")
     monkeypatch.setattr(common, "make_adapters", lambda: fakes)
     code, out, _ = run_cmd(capsys, "project", "import", "loose")
-    assert code == 0 and "chat not set up yet: press Chat to try again" in out
+    assert code == 0 and "Imported loose" in out and "chat" not in out.lower()
 
 
 def test_import_forgets_phoenix_made_repo(env):

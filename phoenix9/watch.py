@@ -27,7 +27,8 @@ class Memory:
 
     crashes: dict = field(default_factory=dict)
     agent_checked: float | None = None    # when the agent watchdog last ran
-    chats_checked: float | None = None    # when the chats were last checked for sleep/off
+    chats_checked: float | None = None    # when the chats were last checked for sleep
+    chats_waking: dict = field(default_factory=dict)   # project -> when its chat was first seen waking
     report_written: float | None = None   # when the status report was last written
     daily_checked: float | None = None    # when the daily report was last looked at
     allowance_checked: float | None = None   # when the allowance was last read
@@ -228,34 +229,39 @@ CHAT_CHECK_S = 600
 BUSY_RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "paused")
 
 
-def _chat_action(project: str, info: dict, now: float, cfg: dict) -> str | None:
-    """Which action ("sleep" or "off") an idle chat is due for, or None."""
+CHAT_SKIP = ("home", "phoenix9")
+STUCK_WAKING_S = 600     # a chat still waking after this long gets its unit stopped
+
+
+def _chat_action(project: str, info: dict, now: float, cfg: dict, memory: Memory) -> str | None:
+    """Which action ("sleep" or "stop-stuck") a chat is due for, or None; remembers when it was first seen waking."""
+    if info["state"] != "waking":
+        memory.chats_waking.pop(project, None)
+    elif now - memory.chats_waking.setdefault(project, now) >= STUCK_WAKING_S:
+        return "stop-stuck"
     last = info.get("last_active")
-    if last is None:
-        return None
-    idle = now - last
-    if info["state"] == "live" and idle >= cfg["sleep_after_minutes"] * 60:
+    if info["state"] == "awake" and last is not None and now - last >= cfg["sleep_after_minutes"] * 60:
         return "sleep"
-    if info["state"] == "sleeping" and idle >= cfg["off_after_days"] * 86400:
-        return "off"
     return None
 
 
-def _check_chat(project: str, adapters, now: float, cfg: dict) -> None:
-    """Put one project's chat to sleep or off if it is idle long enough, and record the command."""
+def _check_chat(project: str, adapters, now: float, cfg: dict, memory: Memory) -> None:
+    """Put one project's idle awake chat to sleep, or stop a chat stuck waking, and record the command."""
+    from phoenix9 import chat
     from phoenix9.ops import common
-    action = _chat_action(project, projectchat.state(project, adapters), now, cfg)
+    action = _chat_action(project, projectchat.state(project, adapters), now, cfg, memory)
     if action == "sleep":
         projectchat.sleep(project, adapters, who="runner")
-    elif action == "off":
-        projectchat.off(project, adapters, who="runner")
+    elif action == "stop-stuck":
+        chat.stop_unit(adapters.host, project)
+        memory.chats_waking.pop(project, None)
     else:
         return
     common.record_command("runner", f"chat {action} {project}", project)
 
 
 def check_chats(adapters, memory: Memory) -> None:
-    """About every 10 minutes put idle live chats to sleep and old sleeping chats off; never raises."""
+    """About every 10 minutes put idle awake chats to sleep and stop chats stuck waking; never raises."""
     try:
         now = adapters.clock.now()
         if memory.chats_checked is not None and now - memory.chats_checked < CHAT_CHECK_S:
@@ -265,10 +271,10 @@ def check_chats(adapters, memory: Memory) -> None:
         cfg = settings.chat_settings()
         busy = {s["project"] for s in all_states() if s.get("status") in BUSY_RUN_STATUSES}
         for name in project_mod.project_names():
-            if name == "home" or name in busy or projectchat.read_chat_doc(name)[0] is None:
+            if name in CHAT_SKIP or name in busy:
                 continue
             try:
-                _check_chat(name, adapters, now, cfg)
+                _check_chat(name, adapters, now, cfg, memory)
             except Exception:  # noqa: BLE001 - one project must not stop the others
                 continue
     except Exception:  # noqa: BLE001 - chat upkeep must not stop the loop

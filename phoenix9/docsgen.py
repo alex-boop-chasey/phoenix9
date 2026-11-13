@@ -56,6 +56,8 @@ def _walk(parser: argparse.ArgumentParser, path: str, out: list[str], depth: int
             continue
         helps = {a.dest: a.help for a in action._choices_actions}
         for name, sub in action.choices.items():
+            if name not in helps:       # a hidden old name (no help text), e.g. `phoenix chat off`
+                continue
             full = f"{path} {name}".strip()
             out.append(f"{'#' * depth} `phoenix {full}`")
             out.append("")

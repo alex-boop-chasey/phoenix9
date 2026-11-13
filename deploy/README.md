@@ -128,9 +128,13 @@ named `CLAUDE.md`.
 
 ## Project chats
 
-Each project can have its own chat: a Claude remote-control conversation in `/srv/projects/<name>`. It runs as an
-instance of the template unit `claude-rc-chat@.service` (for example `claude-rc-chat@myproject`). `install.sh` copies
-the template into `/etc/systemd/system` next to the other units; you never enable instances by hand, because
-`phoenix chat open|sleep|off` (and the runner, which puts idle chats to sleep every 10 minutes) start and stop them.
-After changing the template run `systemctl daemon-reload`. Existing projects get their chat with
-`phoenix chat catch-up --all`. Settings live in the `[chat]` table of `global.toml`.
+Each project has one chat: a Claude remote-control conversation in `/srv/projects/<name>`. It runs as an
+instance of the template unit `claude-rc-chat@.service` (for example `claude-rc-chat@myproject`), whose
+`ExecStart` is the launcher `deploy/chat-launch.sh`: it re-attaches the conversation saved in
+`.phoenix/chat.md`, or starts a new one when there is none or it can't be re-attached (the old document is kept
+as `chat.old.md`). `install.sh` copies the template into `/etc/systemd/system` next to the other units; you never
+enable instances by hand. Pressing Chat (`phoenix chat open`) starts the unit and wakes the same conversation;
+Sleep (`phoenix chat sleep`, and the runner for chats idle too long) stops it; nothing is lost. A project gets no
+chat until Alex first presses Chat. `phoenix chat status` lists every chat; `phoenix chat tidy --yes` stops chats
+of folders that are no longer projects. After changing the template run `systemctl daemon-reload`. Settings live
+in the `[chat]` table of `global.toml`.

@@ -184,12 +184,12 @@ def _deployments(name: str, folder) -> list:
 
 
 def _chat(name: str, adapters) -> dict:
-    """The chat unit's name and state (off when it cannot be read)."""
+    """The chat unit's name and state (unknown when it cannot be read)."""
     unit = f"claude-rc-chat@{name}"
     try:
         return {"unit": unit, "state": projectchat.state(name, adapters)["state"]}
     except Exception:       # a broken chat doc must not hide the rest of the plan
-        return {"unit": unit, "state": "off"}
+        return {"unit": unit, "state": "unknown"}
 
 
 def _folder_refusals(name: str, folder: Path | None) -> list:
@@ -553,7 +553,7 @@ def _unit_ok(rc: int, out: str, err: str) -> bool:
     return rc == 0 or any(w in f"{out} {err}".lower() for w in UNIT_GONE)
 
 
-def _stop_chat(name: str, host) -> str:
+def stop_chat(name: str, host) -> str:
     """Stop and disable the chat unit, remove its drop-ins, reload systemd; raises OpsError if systemctl refuses."""
     unit = f"claude-rc-chat@{name}"
     for args in (("stop", unit), ("disable", unit)):
@@ -684,7 +684,7 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
         untrust(host, folder)
         return "Removed Claude Code's folder trust entry."
 
-    _step(steps, who, name, "chat unit", lambda: _stop_chat(name, host))
+    _step(steps, who, name, "chat unit", lambda: stop_chat(name, host))
     if steps[-1]["ok"]:                 # the chat could still be working in the folder: never remove it then
         _step(steps, who, name, "records and runs", records)
         _step(steps, who, name, "project folder", remove_folder)

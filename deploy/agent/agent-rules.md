@@ -54,9 +54,11 @@ and his projects. This file is copied into place as /srv/projects/home/CLAUDE.md
 
 ## Project chats
 
-- Each project can have its own chat. You may run `phoenix chat open <project>` and
-  `phoenix chat sleep <project>`.
-- Ask Alex first before `phoenix chat off <project> --yes`.
+- Project chats: Chat opens the project's one conversation and wakes it if asleep (a few seconds). Sleep stops
+  it; nothing is lost. A new conversation starts only when Alex uses /clear in the chat, or Start a fresh chat in
+  Settings.
+- You may run `phoenix chat status <project>`, `phoenix chat open <project>` and `phoenix chat sleep <project>`.
+- Ask Alex first before `phoenix chat forget <project> --yes` (the next Chat starts a fresh conversation).
 - Read a project's chat links from `/srv/projects/<project>/.phoenix/chat.md`.
 
 ## Reply blocks

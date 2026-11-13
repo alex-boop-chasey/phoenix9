@@ -6,6 +6,8 @@ through the Host adapter, and never starts Claude (planning sessions run in step
 """
 from __future__ import annotations
 
+import re
+
 
 def agent_restart(adapters, why: str) -> None:
     """Restart the Phoenix agent's systemd service (the `agent.unit` setting) and tell Alex why, once."""
@@ -43,12 +45,57 @@ def unit_main_pid(host, project: str) -> int | None:
 
 
 def start_unit(host, project: str) -> None:
-    """Enable and start the project's chat unit; a plain NotReady-style error when systemd refuses."""
-    rc, _out, err = host.systemctl("enable", "--now", chat_unit(project))
+    """Start (never enable) the project's chat unit, so a server reboot wakes no chat; a leftover enable is
+    removed first. A plain NotReady-style error when systemd refuses."""
+    unit = chat_unit(project)
+    _, enabled, _ = host.systemctl("is-enabled", unit)
+    if enabled.strip() == "enabled":
+        host.systemctl("disable", unit)
+    rc, _out, err = host.systemctl("start", unit)
     if rc != 0:
         from phoenix9.projectchat import NotReady
         first = (err or "").strip().splitlines()[0] if (err or "").strip() else "systemctl exit %d" % rc
-        raise NotReady("Phoenix couldn't start the chat service %s: %s" % (chat_unit(project), first))
+        raise NotReady("Phoenix couldn't start the chat service %s: %s" % (unit, first))
+
+
+UNIT_PREFIX = "claude-rc-chat@"
+
+
+def active_chat_names(host) -> list[str]:
+    """Names of every active claude-rc-chat@<name> unit, listed or not (asks systemd through the Host adapter)."""
+    rc, out, _ = host.systemctl("list-units", UNIT_PREFIX + "*", "--state=active", "--plain", "--no-legend")
+    names = []
+    for line in (out or "").splitlines() if rc == 0 else []:
+        unit = line.split()[0] if line.split() else ""
+        if unit.startswith(UNIT_PREFIX) and unit.endswith(".service"):
+            name = unit[len(UNIT_PREFIX):-len(".service")]
+            if name and name not in names:
+                names.append(name)
+    return sorted(names)
+
+
+LAUNCH_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")   # the name check in deploy/chat-launch.sh
+
+
+def stray_units(host) -> list[str]:
+    """Names with an active claude-rc-chat@<name> unit that are not listed projects."""
+    from phoenix9 import project as project_mod
+    listed = set(project_mod.project_names())
+    return [n for n in active_chat_names(host) if n not in listed]
+
+
+def stop_stray(host, name: str) -> None:
+    """Stop and disable the chat unit of a name that is NOT a listed project; refuses bad or listed names."""
+    from phoenix9 import project as project_mod
+    if not isinstance(name, str) or not LAUNCH_NAME_RE.match(name):
+        raise ValueError(f"not a valid chat name: {name!r}")
+    if name in project_mod.project_names():
+        raise ValueError(f"{name} is a listed project; use `phoenix chat sleep {name}` instead")
+    unit = UNIT_PREFIX + name
+    for args in (("stop", unit), ("disable", unit)):
+        rc, out, err = host.systemctl(*args)
+        if rc != 0:
+            raise RuntimeError(f"systemctl {args[0]} {unit} failed: {(err or out).strip()[:200]}")
 
 
 def stop_unit(host, project: str) -> None:

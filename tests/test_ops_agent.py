@@ -99,8 +99,8 @@ def test_send_records_and_wraps_errors(host, monkeypatch):
 
 
 def test_project_line_shows_chat_state():
-    row = {"name": "phoenix9", "repo": "github.com/x/y", "chat": {"state": "sleeping"}}
-    assert agent._project_line(row).endswith(" · chat: sleeping")
+    row = {"name": "phoenix9", "repo": "github.com/x/y", "chat": {"state": "asleep"}}
+    assert agent._project_line(row).endswith(" · chat: asleep")
 
 
 def test_project_line_leaves_chat_out_when_null_or_missing():

@@ -370,8 +370,8 @@
     "confirm_with": ""
   },
   {
-    "name": "chat-off",
-    "description": "Turn a project's chat off (Alex types the project name to confirm).",
+    "name": "chat-forget",
+    "description": "Forget a project's saved chat so Chat starts a fresh one (Alex types the project name to confirm).",
     "inputs": [
       {
         "name": "name",
@@ -387,7 +387,7 @@
     "agent": "tool",
     "why": "",
     "method": "POST",
-    "route": "/api/chat/(?P<name>[^/]+)/off",
+    "route": "/api/chat/(?P<name>[^/]+)/forget",
     "fixed": {
       "confirm": true
     },
@@ -397,7 +397,7 @@
   },
   {
     "name": "chat-open",
-    "description": "Open a project's chat (starting it if needed).",
+    "description": "Open a project's chat, waking it if asleep (the same conversation).",
     "inputs": [
       {
         "name": "name",
@@ -421,7 +421,7 @@
   },
   {
     "name": "chat-show",
-    "description": "Say whether a project's chat is on, awake or asleep, and its links.",
+    "description": "Say whether a project's chat is awake, working, waking, asleep or not started yet, and its links.",
     "inputs": [
       {
         "name": "name",
@@ -445,7 +445,7 @@
   },
   {
     "name": "chat-sleep",
-    "description": "Put a project's chat to sleep.",
+    "description": "Put a project's chat to sleep: it wraps up, then stops; nothing is lost.",
     "inputs": [
       {
         "name": "name",

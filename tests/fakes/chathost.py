@@ -10,11 +10,12 @@ BRIDGE = "session_BBB_2"
 
 
 class ChatHost(FakeHost):
-    """mode 'ok': enabling the unit starts it and the conversation appears; 'fail': systemctl enable fails."""
+    """mode 'ok': starting the unit starts it and the conversation (id .bridge) appears; 'fail': start fails.
+    Stopping the unit (stop, or disable --now) ends the conversation."""
 
     def __init__(self, mode, folder, claude_json):
         super().__init__()
-        self.mode, self.folder, self.unit = mode, folder, "inactive"
+        self.mode, self.folder, self.unit, self.bridge = mode, folder, "inactive", BRIDGE
         self.files[str(claude_json)] = json.dumps({"projects": {}})
 
     def systemctl(self, *args):
@@ -23,15 +24,19 @@ class ChatHost(FakeHost):
             return (0 if self.unit == "active" else 3), self.unit + "\n", ""
         if args[0] == "show":
             return 0, ("100\n" if self.unit == "active" else "0\n"), ""
-        if args[0] == "enable":
+        if args[0] == "start" or args[:2] == ("enable", "--now"):
             if self.mode == "fail":
                 return 1, "", "boom"
             self.unit = "active"
+        if args[0] == "stop" or args[:2] == ("disable", "--now"):
+            self.unit = "inactive"
+            self.files.pop("%s/sessions/10.json" % HOME, None)
+            self.pids.difference_update({100, 10})
         return 0, "", ""
 
     def add_session(self):
         data = {"pid": 10, "cwd": str(self.folder), "name": "x", "status": "idle", "messagingSocketPath": SOCK,
-                "kind": "interactive", "sessionId": SID, "startedAt": 1, "bridgeSessionId": BRIDGE}
+                "kind": "interactive", "sessionId": SID, "startedAt": 1, "bridgeSessionId": self.bridge}
         self.files["%s/sessions/10.json" % HOME] = json.dumps(data)
         self.files[SOCK] = ""
         self.pids.update({100, 10})

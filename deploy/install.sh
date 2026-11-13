@@ -228,6 +228,7 @@ for unit in phoenix-api.service phoenix-runner.service phoenix9-update.service; 
 done
 # The project chat template: instances are started later by `phoenix chat`, never here.
 install -m 644 "$INSTALL/deploy/claude-rc-chat@.service" "$SYSTEMD_DIR/claude-rc-chat@.service"
+chmod 755 "$INSTALL/deploy/chat-launch.sh"   # the chat unit's ExecStart (re-attaches the saved conversation)
 "$SYSTEMCTL" daemon-reload
 if [ "$NO_START" = yes ]; then
     say "Not starting the services (--no-start). Start them with: systemctl enable --now phoenix-runner phoenix-api"

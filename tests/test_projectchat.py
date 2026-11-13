@@ -142,28 +142,27 @@ def listed(project):
 
 
 @pytest.mark.parametrize("unit", ["inactive", "failed"])
-def test_state_off(listed, tmp_path, unit):
-    assert pc.state("alpha", make_adapters(tmp_path, unit))["state"] == "off"
-
-
-def test_state_starting(listed, tmp_path):
-    assert pc.state("alpha", make_adapters(tmp_path, "activating"))["state"] == "starting"
-    s = pc.state("alpha", make_adapters(tmp_path, "active"))
-    assert s["state"] == "starting" and s["web_url"] is None and s["app_url"] is None
-
-
-def test_state_sleeping(listed, tmp_path):
+def test_state_none_and_asleep(listed, tmp_path, unit):
+    assert pc.state("alpha", make_adapters(tmp_path, unit))["state"] == "none"
     put_doc()
-    s = pc.state("alpha", make_adapters(tmp_path, "active"))
-    assert s["state"] == "sleeping" and s["bridge_session_id"] == B2
+    s = pc.state("alpha", make_adapters(tmp_path, unit))
+    assert s["state"] == "asleep" and s["bridge_session_id"] == B2
     assert s["web_url"] == "https://claude.ai/code/" + B2
     assert s["app_url"] == "claude://claude.ai/code/" + B2
     assert s["last_active"] == T0
 
 
-def test_state_live_and_working(listed, tmp_path):
+def test_state_waking(listed, tmp_path):
+    assert pc.state("alpha", make_adapters(tmp_path, "activating"))["state"] == "waking"
+    s = pc.state("alpha", make_adapters(tmp_path, "active"))
+    assert s["state"] == "waking" and s["web_url"] is None and s["app_url"] is None
+    # The conversation is up but Claude Code has not written its claude.ai id yet.
+    assert pc.state("alpha", make_adapters(tmp_path, "active", "idle"))["state"] == "waking"
+
+
+def test_state_awake_and_working(listed, tmp_path):
     s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))
-    assert s["state"] == "live" and s["bridge_session_id"] == B1
+    assert s["state"] == "awake" and s["bridge_session_id"] == B1
     assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B1
     assert pc.state("alpha", make_adapters(tmp_path, "active", "busy", B1))["state"] == "working"
 
@@ -179,17 +178,144 @@ def test_state_registry_beats_document(listed, tmp_path):
 def test_state_unreadable_document(listed, tmp_path):
     doc().parent.mkdir(exist_ok=True)
     doc().write_text("garbage\x00")
+    assert pc.state("alpha", make_adapters(tmp_path, "inactive"))["state"] == "none"
     s = pc.state("alpha", make_adapters(tmp_path, "active"))
-    assert s["state"] == "starting" and s["bridge_session_id"] is None
+    assert s["state"] == "waking" and s["bridge_session_id"] is None
     s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))
-    assert s["state"] == "live" and pc.read_chat_doc("alpha")[0] is not None
+    assert s["state"] == "awake" and pc.read_chat_doc("alpha")[0] is not None
 
 
 def test_state_foreign_process_is_not_live(listed, tmp_path):
     s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1, parent=999))
-    assert s["state"] == "starting"
+    assert s["state"] == "waking"
 
 
 def test_state_unknown_project(listed, tmp_path):
     with pytest.raises(ValueError):
         pc.state("ghost", make_adapters(tmp_path, "active", "idle", B1))
+
+
+# ---- open, sleep, forget ----
+from tests.fakes import FakeClock  # noqa: E402
+from tests.fakes.chathost import chat_adapters  # noqa: E402
+
+U = "claude-rc-chat@alpha"
+
+
+@pytest.fixture
+def sent(monkeypatch):
+    """Messages sent into the chat, recorded instead of written to a socket."""
+    out = []
+    monkeypatch.setattr(chatlink, "send_to", lambda found, text, *a, **k: out.append(text) or {"sent": True})
+    return out
+
+
+def woken(tmp_path, bridge=B2):
+    """Adapters whose chat unit starts on `systemctl start` and then shows a conversation with this id."""
+    chatlink.forget()
+    a = chat_adapters(tmp_path, "ok", paths.projects() / "alpha", tmp_path / "claude.json")
+    a.host.bridge = bridge
+    (paths.projects() / "alpha" / "notes").mkdir(exist_ok=True)
+    return a
+
+
+def saved(bridge=B2):
+    pc.write_chat_doc("alpha", pc.build_fields("alpha", bridge, SID, T0, T0))
+
+
+def test_open_asleep_wakes_the_same_conversation_without_priming(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    assert pc.state("alpha", a)["state"] == "asleep"
+    r = pc.open_("alpha", a, "alex")
+    assert r["state"] == "awake" and r["bridge_session_id"] == B2 and r["web_url"] == pc.WEB_PREFIX + B2
+    assert r["woke"] is True and r["fresh"] is False and r["message"] == "The chat is awake."
+    assert ["systemctl", "start", U] in a.host.calls
+    assert not [c for c in a.host.calls if c[1] == "enable"]
+    assert sent == []
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+
+
+def test_open_none_starts_a_fresh_primed_conversation(listed, tmp_path, sent):
+    a = woken(tmp_path)
+    assert pc.state("alpha", a)["state"] == "none"
+    r = pc.open_("alpha", a, "alex")
+    assert r["state"] == "awake" and r["woke"] is True and r["fresh"] is True
+    assert sent == [pc.PRIME_TEXT]
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+
+
+def test_open_primes_when_the_woken_id_differs(listed, tmp_path, sent):
+    saved(B1)
+    a = woken(tmp_path, B2)
+    r = pc.open_("alpha", a, "alex")
+    assert r["bridge_session_id"] == B2 and r["fresh"] is True
+    assert sent == [pc.PRIME_TEXT]
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+
+
+def test_open_awake_returns_links_at_once(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    a.host.unit = "active"
+    a.host.add_session()
+    r = pc.open_("alpha", a, "alex")
+    assert r == {"state": "awake", "web_url": pc.WEB_PREFIX + B2, "app_url": pc.DESKTOP_PREFIX + B2,
+                 "bridge_session_id": B2, "message": "The chat is awake.", "woke": False, "fresh": False}
+    assert not [c for c in a.host.calls if c[1] in ("start", "enable")] and sent == []
+
+
+def test_open_waking_does_not_start_again(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    a.host.unit = "active"
+    r = pc.open_("alpha", a, "alex")
+    assert r["state"] == "awake" and r["fresh"] is False and sent == []
+    assert not [c for c in a.host.calls if c[1] in ("start", "enable")]
+
+
+def test_open_not_ready_and_refused(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    a.clock = FakeClock()          # the conversation never appears
+    with pytest.raises(pc.NotReady) as e:
+        pc.open_("alpha", a, "alex")
+    assert str(e.value) == "The chat didn't wake in 60 seconds. Press Chat again."
+    a = chat_adapters(tmp_path, "fail", paths.projects() / "alpha", tmp_path / "claude.json")
+    with pytest.raises(pc.NotReady) as e:
+        pc.open_("alpha", a, "alex")
+    assert "couldn't start the chat service" in str(e.value)
+
+
+def test_sleep_stops_the_unit_and_reads_asleep(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    pc.open_("alpha", a, "alex")
+    r = pc.sleep("alpha", a, "alex")
+    assert r == {"state": "asleep", "changed": True, "message": "The chat is asleep. Press Chat to wake it."}
+    assert sent == [pc.WRAP_UP_TEXT]
+    assert ["systemctl", "disable", "--now", U] in a.host.calls
+    assert a.host.stopped == []    # the whole unit stops, not just the conversation process
+    assert pc.state("alpha", a)["state"] == "asleep"
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+    again = pc.sleep("alpha", a, "alex")
+    assert again["changed"] is False and again["state"] == "asleep"
+
+
+def test_sleep_without_a_chat_changes_nothing(listed, tmp_path, sent):
+    a = woken(tmp_path)
+    r = pc.sleep("alpha", a, "alex")
+    assert r["state"] == "none" and r["changed"] is False
+    assert not [c for c in a.host.calls if c[1] in ("stop", "disable")] and sent == []
+
+
+def test_forget_moves_the_document(listed, tmp_path, sent):
+    saved()
+    a = woken(tmp_path)
+    pc.open_("alpha", a, "alex")
+    r = pc.forget("alpha", a, "alex")
+    assert r["state"] == "none" and r["message"] == "The saved chat is forgotten. Press Chat to start a fresh one."
+    assert not doc().exists() and (doc().parent / "chat.old.md").is_file()
+    assert pc.state("alpha", a)["state"] == "none"
+    r = pc.open_("alpha", a, "alex")
+    assert r["fresh"] is True and sent == [pc.PRIME_TEXT]

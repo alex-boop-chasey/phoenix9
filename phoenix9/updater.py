@@ -34,6 +34,7 @@ SERVICES = ("phoenix-runner", "phoenix-api")
 UNIT = "phoenix9-update.service"
 UNIT_FILES = ("phoenix-api.service", "phoenix-runner.service", UNIT)   # the ones install.sh copies
 DEFAULT_SYSTEMD_DIR = "/etc/systemd/system"
+CHAT_LAUNCHER = "chat-launch.sh"   # deploy/ script the chat unit (claude-rc-chat@.service) starts
 CRED = ("-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")   # host gh login
 CHECKS_S, PNPM_S, IMAGES_S, DOCTOR_S = 30 * 60, 15 * 60, 60 * 60, 5 * 60
 HEALTH_TRIES, HEALTH_GAP_S, POLL_S, LOG_TAIL = 3, 10, 5, 40
@@ -297,6 +298,10 @@ class _Update:
                 atomic.write_text(target / name, text, 0o644)
                 self.log(f"unit file {name} updated in {target} from {source}")
                 changed.append(name)
+        launcher = source / CHAT_LAUNCHER
+        if launcher.is_file() and not launcher.stat().st_mode & 0o100:
+            launcher.chmod(0o755)        # the chat unit runs it directly; git keeps the bit, this is a safeguard
+            self.log(f"made {launcher} executable")
         if changed:
             rc, _, err = self.ad.host.systemctl("daemon-reload")
             self.log(f"systemctl daemon-reload: exit {rc}{' ' + err.strip() if rc and err else ''}")

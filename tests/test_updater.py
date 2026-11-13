@@ -976,3 +976,25 @@ def test_install_also_installs_new_unit_files_the_release_ships(tmp_path, monkey
         (units / name).write_text(text)
     assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
     assert (units / "claude-rc-chat@.service").read_text() == chat
+
+
+def test_install_replaces_a_changed_chat_unit_and_makes_the_launcher_executable(tmp_path, monkeypatch, adapters):
+    """A release that changes claude-rc-chat@.service (not in the fixed list) re-installs it; its launcher runs."""
+    old, new = "[Service]\nExecStart=claude %i\n", "[Service]\nExecStart=/opt/phoenix9/deploy/chat-launch.sh %i\n"
+    origin = make_origin(tmp_path, units={0: {**UNITS_V0, "claude-rc-chat@.service": old},
+                                          1: {**UNITS_V0, "claude-rc-chat@.service": new,
+                                              "chat-launch.sh": "#!/bin/sh\n"}})
+    inst = tmp_path / "opt" / "phoenix9"
+    inst.parent.mkdir()
+    git(tmp_path, "clone", "-q", str(origin), str(inst))
+    git(inst, "checkout", "-q", "--detach", "v9.0")
+    monkeypatch.setenv("PHOENIX_INSTALL", str(inst))
+    units = updater.systemd_dir()
+    units.mkdir()
+    for name, text in {**UNITS_V0, "claude-rc-chat@.service": old}.items():
+        (units / name).write_text(text)
+    assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
+    assert (units / "claude-rc-chat@.service").read_text() == new
+    assert ["systemctl", "daemon-reload"] in adapters.host.calls
+    assert (inst / "deploy" / "chat-launch.sh").stat().st_mode & 0o111
+    assert "unit file claude-rc-chat@.service updated" in (paths.logs() / "updater.log").read_text()

@@ -225,7 +225,7 @@ def answer(gate_id: str, action: str, *, note: str = "", who: str = "cli", by: f
 def close_questions(run_dir, reason: str, who: str = "phoenix", only: str | None = None) -> list[str]:
     """Close every unanswered question of a run that ended (or just `only` this one): answer file {action: closed, reason, who, at}.
 
-    Called by every way a run ends (and by the runner's start-up catch-up); returns the ids it closed."""
+    Called by every way a run ends (and by the runner's start-up check, `watch.catch_up`); returns the ids it closed."""
     run_dir = Path(run_dir)
     closed = []
     for path in sorted(_gates_dir(run_dir).glob("*.json")):

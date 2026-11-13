@@ -1,5 +1,6 @@
-"""A project's chat: its document (.phoenix/chat.md) and its state (off, starting, sleeping, live, working)."""
+"""A project's chat: its document (.phoenix/chat.md) and its state (none, asleep, waking, awake, working)."""
 import calendar
+import os
 import re
 import time
 
@@ -149,24 +150,23 @@ def state(project: str, adapters) -> dict:
         sync_chat_doc(project, found, time.time())
     fields, _ = read_chat_doc(project)
     # A live conversation's own id only: the document may still hold an older conversation's id (found live:
-    # the first press returned before Claude Code had written the new id). Sleeping/off use the document.
+    # the first press returned before Claude Code had written the new id). Otherwise the document's id.
     bridge = found.get("bridge_session_id") if found else (fields or {}).get("Conversation id")
     if unit in ("inactive", "failed"):
-        word = "off"
-    elif unit == "activating":
-        word = "starting"
-    elif found:
-        word = "working" if found.get("status") == "busy" else "live"
+        word = "asleep" if fields else "none"
+    elif found and found.get("bridge_session_id"):
+        word = "working" if found.get("status") == "busy" else "awake"
     else:
-        word = "sleeping" if fields else "starting"
+        word = "waking"
     return {"state": word, "bridge_session_id": bridge,
             "web_url": WEB_PREFIX + bridge if bridge else None,
             "app_url": DESKTOP_PREFIX + bridge if bridge else None,
             "last_active": _newest(host, found, fields)}
 
 
-SLEEPING_WORDS = "sleeping: it wakes when you write to it"
-PRIME_FAILED = "started, but the notes message could not be sent"
+LIVE = ("awake", "working")
+AWAKE_WORDS = "The chat is awake."
+PRIME_FAILED = "The chat is awake, but the notes message could not be sent."
 PRIME_TEXT = ("This is a fresh conversation for this project. Before anything else, read notes/NOW.md "
               "and the files in notes/sessions/ so you know where things stand.")
 
@@ -176,16 +176,16 @@ class NotReady(Exception):
 
 
 def _wait_ready(project: str, adapters, seconds: int) -> dict:
-    """Poll until the chat has a live registry entry WITH its claude.ai conversation id (Claude Code writes the
-    id a few seconds after the session appears), up to `seconds` on the adapter clock; NotReady if not."""
+    """Poll until the chat is awake WITH its claude.ai conversation id (Claude Code writes the id a few seconds
+    after the session appears), up to `seconds` on the adapter clock; NotReady if not."""
     clock = adapters.clock
     deadline = clock.now() + seconds
     while True:
         current = state(project, adapters)
-        if current["state"] in ("live", "working") and current.get("bridge_session_id"):
+        if current["state"] in LIVE and current.get("bridge_session_id"):
             return current
         if clock.now() >= deadline:
-            raise NotReady("Starting chat… not ready after %d s: press Chat again in a minute" % seconds)
+            raise NotReady("The chat didn't wake in %d seconds. Press Chat again." % seconds)
         clock.sleep(1)
 
 
@@ -203,30 +203,38 @@ def _prime(project: str, adapters, who: str) -> str | None:
     return None
 
 
-def _answer(current: dict, message: str) -> dict:
-    """The open answer: {state, web_url, app_url, bridge_session_id, message}."""
+def _answer(current: dict, message: str, woke: bool, fresh: bool) -> dict:
+    """The open answer: {state, web_url, app_url, bridge_session_id, message, woke, fresh}."""
     return {"state": current["state"], "web_url": current["web_url"], "app_url": current["app_url"],
-            "bridge_session_id": current["bridge_session_id"], "message": message}
+            "bridge_session_id": current["bridge_session_id"], "message": message, "woke": woke, "fresh": fresh}
+
+
+def _saved_id(project: str) -> str | None:
+    """The conversation id the chat document holds, or None."""
+    fields, _ = read_chat_doc(project)
+    return fields["Conversation id"] if fields else None
 
 
 def open_(project: str, adapters, who: str = "cli") -> dict:
-    """Open a project's chat: start it when off, wait while starting, and return its links and a message."""
-    wait = settings.chat_settings()["start_wait_seconds"]
+    """Open a project's chat: wake its unit when needed (the same conversation), wait, and return its links."""
     current = state(project, adapters)
-    if current["state"] == "sleeping":
-        return _answer(current, SLEEPING_WORDS)
-    note = None
-    if current["state"] in ("off", "starting"):
-        fresh = current["state"] == "off"
-        if fresh:
-            chat.start_unit(adapters.host, project)
-        current = _wait_ready(project, adapters, wait)
-        note = _prime(project, adapters, who) if fresh else None
-    return _answer(current, note or "The chat is %s." % current["state"])
+    if current["state"] in LIVE:
+        return _answer(current, AWAKE_WORDS, woke=False, fresh=False)
+    before, saved = current["state"], _saved_id(project)
+    if chat.unit_state(adapters.host, project) not in ("active", "activating"):
+        chat.start_unit(adapters.host, project)
+    current = _wait_ready(project, adapters, settings.chat_settings()["start_wait_seconds"])
+    # Only a brand-new conversation gets the notes message; a woken one already knows where things stand.
+    fresh = before == "none" or current["bridge_session_id"] != saved
+    note = _prime(project, adapters, who) if fresh else None
+    return _answer(current, note or AWAKE_WORDS, woke=True, fresh=fresh)
 
 
 WRAP_UP_TEXT = "Wrap up: write a short summary of this conversation into notes/NOW.md and notes/sessions/"
 WRAP_UP_STEP = 2
+ASLEEP_WORDS = "The chat is asleep. Press Chat to wake it."
+UNCHANGED_WORDS = {"asleep": "The chat is already asleep.", "none": "There is no chat yet.",
+                   "waking": "The chat is still waking."}
 
 
 def _wait_not_busy(project: str, adapters, seconds: float) -> None:
@@ -249,11 +257,11 @@ def _touch_doc(project: str, now: float) -> None:
 
 
 def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dict:
-    """Put a live chat to sleep: ask for a wrap-up, wait, stop the conversation only; {state, message}."""
+    """Put an awake chat to sleep: ask for a wrap-up, wait, then stop its whole unit; {state, changed, message}."""
     current = state(project, adapters)
-    if current["state"] not in ("live", "working"):
+    if current["state"] not in LIVE:
         word = current["state"]
-        return {"state": word, "changed": False, "message": "The chat is already %s." % word}
+        return {"state": word, "changed": False, "message": UNCHANGED_WORDS.get(word, "The chat is " + word + ".")}
     host = adapters.host
     found = _session_process(host, project)
     if found is not None and wrap_up:
@@ -262,33 +270,17 @@ def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dic
             _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
         except chatlink.SendError:
             pass
-        found = _session_process(host, project)
-    if found is not None:
-        chat.stop_conversation(host, project, found["pid"])
+    chat.stop_unit(host, project)
     _touch_doc(project, time.time())
-    return {"state": "sleeping", "changed": True, "message": "The chat is asleep. " + SLEEPING_WORDS + "."}
+    return {"state": "asleep", "changed": True, "message": ASLEEP_WORDS}
 
 
-def off(project: str, adapters, who: str = "cli") -> dict:
-    """Turn a project's chat off: stop and disable its unit; {state, message}."""
+def forget(project: str, adapters, who: str = "cli") -> dict:
+    """Stop the chat unit and set the saved chat aside (chat.md becomes chat.old.md); {state, changed, message}."""
     chat.stop_unit(adapters.host, project)
-    return {"state": "off", "changed": True, "message": "The chat is off."}
+    path = doc_path(project)
+    if path.exists():
+        os.replace(path, path.with_name("chat.old.md"))
+    return {"state": "none", "changed": True,
+            "message": "The saved chat is forgotten. Press Chat to start a fresh one."}
 
-
-NOT_SET_UP_WORDS = "chat not set up yet: press Chat to try again"
-
-
-def set_up(project: str, adapters, who: str, say=None) -> dict:
-    """Open then sleep a new project's chat; never raises: {chat: 'sleeping'} or {chat: 'not set up yet', chat_message}."""
-    try:
-        if say:
-            say("Setting up the chat")
-        open_(project, adapters, who)
-        sleep(project, adapters, who, wrap_up=False)
-        if state(project, adapters)["state"] != "sleeping":
-            raise NotReady("the chat did not go to sleep")
-    except Exception:  # any failure here must never fail project creation
-        if say:
-            say(NOT_SET_UP_WORDS)
-        return {"chat": "not set up yet", "chat_message": NOT_SET_UP_WORDS}
-    return {"chat": "sleeping"}

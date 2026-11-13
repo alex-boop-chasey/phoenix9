@@ -1,4 +1,4 @@
-"""Tests for `phoenix chat open` (fakes only): each starting state, timeout, --json shape, priming, command event."""
+"""Tests for `phoenix chat` status/open/sleep/forget (fakes only): each state, timeout, --json shape, priming, events."""
 import contextlib
 import io
 import json
@@ -20,9 +20,9 @@ WEB = "https://claude.ai/code/"
 class Host(FakeHost):
     """A host whose unit state and registry change as scripted."""
 
-    def __init__(self, unit, status="idle"):
+    def __init__(self, unit, status="idle", running=""):
         super().__init__()
-        self.unit, self.status = unit, status
+        self.unit, self.status, self.running = unit, status, running
 
     def systemctl(self, *args):
         self.calls.append(["systemctl", *args])
@@ -30,8 +30,14 @@ class Host(FakeHost):
             return (0 if self.unit == "active" else 3), self.unit + "\n", ""
         if args[0] == "show":
             return 0, ("100\n" if self.unit in ("active", "activating") else "0\n"), ""
-        if args[0] == "enable" and self.unit in ("inactive", "failed"):
+        if args[0] == "start" and self.unit in ("inactive", "failed"):
             self.unit = "active"
+        if args[0] == "stop" or args[:2] == ("disable", "--now"):
+            self.unit = "inactive"
+            self.files.pop("%s/sessions/10.json" % HOME, None)
+            self.pids.difference_update({100, 10})
+        if args[0] == "list-units":
+            return 0, self.running, ""
         return 0, "", ""
 
     def add_session(self):
@@ -78,8 +84,9 @@ def setup(monkeypatch, tmp_path):
     folder.mkdir()
     (folder / "CLAUDE.md").write_text("x")
 
-    def make(unit, appear_after=None, status="idle", session_now=False, doc=None, notes=False, wait=None):
-        h = Host(unit, status)
+    def make(unit, appear_after=None, status="idle", session_now=False, doc=None, notes=False, wait=None,
+             running=""):
+        h = Host(unit, status, running)
         if session_now:
             h.add_session()
             h.unit = unit
@@ -105,58 +112,70 @@ def run(*argv):
     return code, out.getvalue(), err.getvalue()
 
 
-def enabled(a):
-    return [c for c in a.host.calls if c[:2] == ["systemctl", "enable"]]
+def started(a):
+    return [c for c in a.host.calls if c[:2] == ["systemctl", "start"]]
 
 
-def test_off_starts_waits_and_primes(setup, sent):
-    a = setup("inactive", appear_after=3, doc=B1, notes=True)
+def test_none_starts_waits_and_primes(setup, sent):
+    """No chat yet: the unit is started (never enabled), Phoenix waits, and the new conversation is primed."""
+    a = setup("inactive", appear_after=3, notes=True)
     code, out, _ = run("chat", "open", "alpha", "--json")
     data = json.loads(out)
-    assert code == 0 and set(data) == {"state", "web_url", "app_url", "bridge_session_id", "message"}
-    assert data["bridge_session_id"] == B2 and data["web_url"] == WEB + B2
-    assert len(enabled(a)) == 1 and len(sent) == 1
+    assert code == 0 and set(data) == {"state", "web_url", "app_url", "bridge_session_id", "message", "woke", "fresh"}
+    assert data["bridge_session_id"] == B2 and data["web_url"] == WEB + B2 and data["fresh"] and data["woke"]
+    assert len(started(a)) == 1 and len(sent) == 1
+    assert not [c for c in a.host.calls if c[:2] == ["systemctl", "enable"]]
     assert "notes/NOW.md" in sent[0]["text"] and "notes/sessions" in sent[0]["text"]
     assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
 
 
-def test_off_without_notes_is_not_primed(setup, sent):
+def test_none_without_notes_is_not_primed(setup, sent):
     setup("inactive", appear_after=1)
     assert run("chat", "open", "alpha")[0] == 0
     assert sent == []
 
 
-def test_starting_waits_without_second_start(setup, sent):
-    a = setup("activating", appear_after=2, notes=True)
+def test_asleep_wakes_the_same_conversation_without_priming(setup, sent):
+    """Asleep: the unit is started and the SAME saved conversation comes back; it is not primed."""
+    a = setup("inactive", appear_after=1, doc=B2, notes=True)
+    code, out, _ = run("chat", "open", "alpha", "--json")
+    data = json.loads(out)
+    assert code == 0 and data["state"] == "awake" and data["bridge_session_id"] == B2
+    assert data["woke"] and not data["fresh"] and len(started(a)) == 1 and sent == []
+
+
+def test_asleep_woken_as_a_different_conversation_is_primed(setup, sent):
+    """The saved conversation could not be re-attached (the launcher made a new one): prime it, save its id."""
+    a = setup("inactive", appear_after=1, doc=B1, notes=True)
+    data = json.loads(run("chat", "open", "alpha", "--json")[1])
+    assert data["bridge_session_id"] == B2 and data["fresh"] and len(sent) == 1 and len(started(a)) == 1
+    assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+
+
+def test_waking_waits_without_second_start(setup, sent):
+    a = setup("activating", appear_after=2, doc=B2, notes=True)
     code, out, _ = run("chat", "open", "alpha", "--json")
     assert code == 0 and json.loads(out)["bridge_session_id"] == B2
-    assert enabled(a) == [] and sent == []
+    assert started(a) == [] and sent == []
 
 
-def test_sleeping_returns_stored_links(setup, sent):
-    a = setup("active", doc=B1, notes=True)
-    code, out, _ = run("chat", "open", "alpha")
-    assert code == 0 and "sleeping: it wakes when you write to it" in out
-    assert WEB + B1 in out and "claude://claude.ai/code/" + B1 in out
-    assert sent == [] and enabled(a) == []
-
-
-@pytest.mark.parametrize("status,word", [("idle", "live"), ("busy", "working")])
-def test_live_and_working(setup, sent, status, word):
+@pytest.mark.parametrize("status,word", [("idle", "awake"), ("busy", "working")])
+def test_awake_and_working(setup, sent, status, word):
     a = setup("active", session_now=True, status=status, notes=True)
     code, out, _ = run("chat", "open", "alpha", "--json")
-    assert code == 0 and json.loads(out)["state"] == word
-    assert sent == [] and enabled(a) == []
+    data = json.loads(out)
+    assert code == 0 and data["state"] == word and data["message"] == "The chat is awake." and not data["woke"]
+    assert sent == [] and started(a) == []
 
 
 def test_timeout_and_other_wait(setup, sent):
     a = setup("inactive", notes=True)
     code, out, err = run("chat", "open", "alpha")
-    assert code == 1 and "not ready after 60 s: press Chat again in a minute" in out + err
+    assert code == 1 and "The chat didn't wake in 60 seconds. Press Chat again." in out + err
     assert 60 <= a.clock.t - 1000.0 <= 80 and sent == []
     a = setup("inactive", wait=5)
     code, out, err = run("chat", "open", "alpha")
-    assert code == 1 and "not ready after 5 s" in out + err
+    assert code == 1 and "didn't wake in 5 seconds" in out + err
 
 
 def test_send_failure_still_returns_links(setup, monkeypatch):
@@ -203,183 +222,144 @@ def live(setup, status="idle", idle_after=None, **kw):
     return a
 
 
+STOP = ["systemctl", "disable", "--now", "claude-rc-chat@alpha"]
+
+
 def changes(a):
     return [c for c in a.host.calls if c[:2] in (["systemctl", "disable"], ["systemctl", "stop"])]
 
 
-def test_sleep_sends_wrap_up_then_stops_conversation(setup, sent):
+def test_sleep_sends_wrap_up_then_stops_the_unit(setup, sent):
     a = live(setup)
-    code, out, _ = run("chat", "sleep", "alpha")
+    code, out, _ = run("chat", "sleep", "alpha", "--json")
+    data = json.loads(out)
     assert code == 0 and len(sent) == 1 and "notes/sessions/" in sent[0]["text"]
-    assert a.host.stopped == [10] and changes(a) == []
+    assert data["state"] == "asleep" and data["message"] == "The chat is asleep. Press Chat to wake it."
+    assert a.host.stopped == [] and changes(a) == [STOP]
     assert pc.read_chat_doc("alpha")[0]["Conversation id"] == B2
+    assert pc.state("alpha", a)["state"] == "asleep"
 
 
 def test_sleep_waits_for_busy_to_end(setup, sent):
     a = live(setup, status="busy", idle_after=3)
     assert run("chat", "sleep", "alpha")[0] == 0
-    assert a.host.stopped == [10] and a.clock.n >= 3
+    assert changes(a) == [STOP] and a.clock.n >= 3
 
 
 def test_sleep_timeout_still_stops(setup, sent):
     a = live(setup, status="busy")
     assert run("chat", "sleep", "alpha")[0] == 0
-    assert 180 <= a.clock.t - 1000.0 <= 200 and a.host.stopped == [10]
+    assert 180 <= a.clock.t - 1000.0 <= 200 and changes(a) == [STOP]
 
 
 def test_sleep_without_wrap_up(setup, sent):
     a = live(setup)
     pc.sleep("alpha", a, "t", wrap_up=False)
-    assert sent == [] and a.host.stopped == [10]
+    assert sent == [] and changes(a) == [STOP]
 
 
-@pytest.mark.parametrize("unit,doc,word", [("active", B1, "sleeping"), ("inactive", None, "off")])
-def test_sleep_when_not_live_says_so(setup, sent, unit, doc, word):
+@pytest.mark.parametrize("unit,doc,word,words", [("inactive", B1, "asleep", "The chat is already asleep."),
+                                                 ("inactive", None, "none", "There is no chat yet.")])
+def test_sleep_when_not_awake_says_so(setup, sent, unit, doc, word, words):
     a = setup(unit, doc=doc)
     code, out, _ = run("chat", "sleep", "alpha", "--json")
     data = json.loads(out)
-    assert code == 0 and data["state"] == word and word in data["message"]
-    assert sent == [] and a.host.stopped == []
+    assert code == 0 and data["state"] == word and data["message"] == words and not data["changed"]
+    assert sent == [] and changes(a) == []
 
 
-def test_off_needs_yes(setup):
-    a = setup("active", session_now=True)
-    assert run("chat", "off", "alpha")[0] != 0
-    assert changes(a) == []
+def test_forget_needs_yes(setup):
+    a = setup("active", session_now=True, doc=B2)
+    code, out, err = run("chat", "forget", "alpha")
+    assert code != 0 and "--yes" in out + err
+    assert changes(a) == [] and pc.doc_path("alpha").exists()
 
 
-def test_off_stops_and_disables(setup):
-    a = setup("active", session_now=True)
-    code, out, _ = run("chat", "off", "alpha", "--yes", "--json")
-    assert code == 0 and json.loads(out)["state"] == "off"
-    assert ["systemctl", "disable", "--now", "claude-rc-chat@alpha"] in a.host.calls
+def test_forget_stops_and_sets_the_document_aside(setup):
+    a = setup("active", session_now=True, doc=B2)
+    code, out, _ = run("chat", "forget", "alpha", "--yes", "--json")
+    data = json.loads(out)
+    assert code == 0 and data["state"] == "none" and "forgotten" in data["message"]
+    assert STOP in a.host.calls and not pc.doc_path("alpha").exists()
+    assert pc.doc_path("alpha").with_name("chat.old.md").exists()
 
 
-def test_sleep_and_off_events(setup, sent):
+def test_off_is_a_hidden_alias_for_sleep(setup, sent):
+    a = live(setup)
+    code, out, err = run("chat", "off", "alpha", "--yes")
+    assert code == 0 and "off is now: phoenix chat sleep" in err and "asleep" in out
+    assert changes(a) == [STOP] and pc.doc_path("alpha").exists()
+    code, out, _ = run("chat", "--help")
+    assert code == 0 and " off " not in out
+
+
+def test_help_lists_the_new_commands():
+    code, out, _ = run("chat", "--help")
+    for word in ("status", "open", "sleep", "forget"):
+        assert word in out
+    assert "catch-up" not in out
+
+
+def test_sleep_forget_and_off_events(setup, sent):
     live(setup)
     run("chat", "sleep", "alpha", "--who", "t1")
-    run("chat", "off", "alpha", "--yes", "--who", "t2")
+    run("chat", "forget", "alpha", "--yes", "--who", "t2")
+    run("chat", "off", "alpha", "--who", "t3")
     cmds = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
     assert any(c["who"] == "t1" and c["command"] == "chat sleep alpha" for c in cmds)
-    assert any(c["who"] == "t2" and c["command"] == "chat off alpha" for c in cmds)
+    assert any(c["who"] == "t2" and c["command"] == "chat forget alpha" for c in cmds)
+    assert any(c["who"] == "t3" and c["command"] == "chat sleep alpha" for c in cmds)
+
+
+def test_status_of_one_project(setup, sent):
+    setup("active", session_now=True)
+    code, out, _ = run("chat", "status", "alpha")
+    assert code == 0 and out.startswith("alpha: Awake") and "last active" in out
+    assert WEB + B2 in out and "claude://claude.ai/code/" + B2 in out
+    data = json.loads(run("chat", "status", "alpha", "--json")[1])
+    assert data["state"] == "awake" and data["bridge_session_id"] == B2
+
+
+def test_status_of_one_project_without_a_chat_has_no_links(setup):
+    setup("inactive")
+    code, out, _ = run("chat", "status", "alpha")
+    assert code == 0 and out.strip() == "alpha: No chat yet · last active never"
+
+
+def test_status_of_all_lists_unlisted_running_chats(setup):
+    a = setup("inactive", doc=B1, running="claude-rc-chat@alpha.service loaded active running Chat alpha\n"
+                                        "claude-rc-chat@gone.service loaded active running Chat gone\n")
+    code, out, _ = run("chat", "status")
+    assert code == 0 and "alpha" in out and "Asleep" in out
+    assert "Chats running for projects that are not listed:" in out and "claude-rc-chat@gone" in out
+    assert ["systemctl", "list-units", "claude-rc-chat@*", "--state=active", "--plain", "--no-legend"] in a.host.calls
+    data = json.loads(run("chat", "status", "--json")[1])
+    assert data["unlisted"] == ["gone"] and data["projects"][0]["name"] == "alpha"
+    assert data["projects"][0]["state"] == "asleep"
+
+
+def test_status_of_all_without_strays_has_no_section(setup):
+    setup("inactive")
+    code, out, _ = run("chat", "status")
+    assert code == 0 and "not listed" not in out and "No chat yet" in out
+
+
+def test_ago_words():
+    from phoenix9.cli.chatcmd import ago
+    assert ago(None) == "never" and ago(1000, 1030) == "just now"
+    assert ago(0.5, 0.5 + 300) == "5 min ago" and ago(1, 1 + 7300) == "2 h ago"
+    assert ago(1, 1 + 86400) == "1 day ago" and ago(1, 1 + 3 * 86400) == "3 days ago"
 
 
 NAMES = ["alpha", "beta", "bad", "done", "phoenix9", "home"]
 
 
-class Many(FakeHost):
-    """A host with one chat unit per project; 'failing' projects refuse to start."""
-
-    def __init__(self, failing):
-        super().__init__()
-        self.failing, self.units, self.added = set(failing), {}, set()
-
-    @staticmethod
-    def name(unit):
-        return unit.split("@", 1)[1].split(".", 1)[0]
-
-    def systemctl(self, *args):
-        self.calls.append(["systemctl", *args])
-        i = lambda n: NAMES.index(n)
-        if args[0] == "is-active":
-            st = self.units.get(self.name(args[-1]), "inactive")
-            return (0 if st == "active" else 3), st + "\n", ""
-        if args[0] == "show":
-            n = self.name(args[-1])
-            return 0, ("%d\n" % (100 + 10 * i(n)) if self.units.get(n) == "active" else "0\n"), ""
-        if args[0] in ("enable", "start", "restart"):
-            n = self.name(args[-1])
-            if n in self.failing:
-                return 1, "", "boom"
-            self.units[n] = "active"
-        return 0, "", ""
-
-    def add_session(self, n):
-        pid = 101 + 10 * NAMES.index(n)
-        sock = "/tmp/cc-socks-0/%s.sock" % n
-        data = {"pid": pid, "cwd": str(paths.projects() / n), "name": n, "status": "idle",
-                "messagingSocketPath": sock, "kind": "interactive", "sessionId": SID, "startedAt": 1,
-                "bridgeSessionId": "session_%s_1" % n.upper()}
-        self.files["%s/sessions/%d.json" % (HOME, pid)] = json.dumps(data)
-        self.files[sock] = ""
-        self.pids.update({pid - 1, pid})
-        self.parents[pid] = pid - 1
-        self.added.add(n)
-
-
-class ManyClock(FakeClock):
-    """A clock whose sleeps let each started unit's conversation appear once."""
-
-    def __init__(self, host):
-        super().__init__()
-        self.host = host
-
-    def sleep(self, s):
-        super().sleep(s)
-        for n, st in list(self.host.units.items()):
-            if st == "active" and n not in self.host.added:
-                self.host.add_session(n)
-
-
-@pytest.fixture
-def world(monkeypatch, tmp_path, sent):
-    """Six projects; 'done' has a chat document already."""
-    for n in NAMES:
-        (paths.projects() / n).mkdir()
-        (paths.projects() / n / "CLAUDE.md").write_text("x")
-    pc.write_chat_doc("done", pc.build_fields("done", "session_DONE_9", SID, 1_800_000_000.0, 1_800_000_000.0))
-
-    def make(failing=()):
-        h = Many(failing)
-        a = fake_adapters(tmp_path)
-        a.host, a.clock = h, ManyClock(h)
-        monkeypatch.setattr(adapters_mod, "real", lambda: a)
-        monkeypatch.setattr(common, "make_adapters", lambda: a)
-        return a
-    return make
-
-
-def started(a):
-    return sorted({Many.name(c[-1]) for c in a.host.calls if c[:2] == ["systemctl", "enable"]})
-
-
-def test_catch_up_lists_without_all(world):
-    a = world()
-    code, out, err = run("chat", "catch-up")
-    assert code == 0 and "--all" in out + err
-    assert all(n in out + err for n in ("alpha", "beta", "bad"))
-    assert started(a) == [] and pc.read_chat_doc("alpha")[0] is None
-
-
-def test_catch_up_all_sets_up_each_and_skips_others(world):
-    a = world()
-    code, out, err = run("chat", "catch-up", "--all")
-    assert code == 0, (out, err)
-    assert started(a) == ["alpha", "bad", "beta"]
-    for n in ("alpha", "beta", "bad"):
-        assert pc.state(n, a)["state"] == "sleeping"
-    for n in ("phoenix9", "home"):
-        assert pc.read_chat_doc(n)[0] is None
-    assert pc.read_chat_doc("done")[0]["Conversation id"] == "session_DONE_9"
-
-
-def test_catch_up_failure_continues_and_exits_1(world):
-    a = world(failing=["bad"])
-    code, out, err = run("chat", "catch-up", "--all")
-    assert code == 1 and "bad" in out + err
-    for n in ("alpha", "beta"):
-        assert pc.state(n, a)["state"] == "sleeping"
-    assert pc.read_chat_doc("bad")[0] is None
-
-
-def test_catch_up_json_shape_and_event(world):
-    world(failing=["bad"])
-    code, out, _ = run("chat", "catch-up", "--all", "--json", "--who", "t3")
-    data = json.loads(out)
-    assert code == 1 and data["todo"] == ["alpha", "bad", "beta"] and data["failed"] == 1
-    assert {r["project"]: r["ok"] for r in data["results"]} == {"alpha": True, "beta": True, "bad": False}
-    cmds = [json.loads(x) for x in (paths.logs() / "commands.jsonl").read_text().splitlines()]
-    assert any(c["who"] == "t3" and "chat catch-up" in c["command"] for c in cmds)
+def test_catch_up_is_gone():
+    """Creation no longer sets up a chat, so there is nothing to catch up."""
+    from phoenix9.ops import chat as chat_ops
+    code, _out, err = run("chat", "catch-up")
+    assert code == 2 and "invalid choice" in err
+    assert not hasattr(chat_ops, "catch_up") and not hasattr(pc, "set_up")
 
 
 def test_open_waits_for_the_conversation_id_not_just_the_session(setup, sent):

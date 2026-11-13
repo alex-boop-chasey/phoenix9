@@ -16,7 +16,8 @@ def phoenix_env(tmp_path, monkeypatch):
     monkeypatch.setenv("PHOENIX_INSTALL", str(tmp_path / "install"))
     monkeypatch.setenv("PHOENIX_NOTIFY_FILE", str(tmp_path / "notify.msg"))
     monkeypatch.setenv("PHOENIX_SYSTEMD_DIR", str(tmp_path / "systemd"))
-    from phoenix9 import chatlink
+    from phoenix9 import chatlink, project_delete
+    monkeypatch.setattr(project_delete, "SYSTEMD_DIR", home / "systemd")   # chat drop-ins removed on remove/delete
     chatlink.forget()                  # no agent session choice carries over from another test
     from fakes import fake_adapters
     from phoenix9.ops import common

@@ -1,7 +1,11 @@
 # Phoenix 9 project chat connection: one instance per project (claude-rc-chat@<project>).
 # Installed into /etc/systemd/system by deploy/install.sh and by the updater's unit sync; instances are started
-# and stopped by `phoenix chat`. Settings match the proven claude-rc@ unit (PATH to root's claude, IS_SANDBOX
-# for bypassPermissions as root, a start limit so a broken unit can't restart forever).
+# and stopped by `phoenix chat`. The launcher (deploy/chat-launch.sh) re-attaches the project's saved
+# conversation (.phoenix/chat.md), or creates a new one when there is none or it can't be re-attached.
+# Stopping sends SIGTERM to the launcher only (KillMode=mixed), which passes it on to Claude so the
+# conversation ends cleanly; anything left after TimeoutStopSec is killed. Settings match the proven
+# claude-rc@ unit (PATH to root's claude, IS_SANDBOX for bypassPermissions as root, a start limit so a
+# broken unit can't restart forever).
 [Unit]
 Description=Phoenix 9 project chat for %i (/srv/projects/%i)
 After=network-online.target
@@ -18,7 +22,9 @@ Environment=IS_SANDBOX=1
 # Who this chat is in Phoenix's log; Phoenix refuses project deletes from any chat:* caller.
 Environment=PHOENIX_WHO=chat:%i
 Environment=PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-ExecStart=/root/.local/bin/claude remote-control --name %i --spawn same-dir --capacity 3 --create-session-in-dir --permission-mode bypassPermissions
+ExecStart=/opt/phoenix9/deploy/chat-launch.sh %i
+KillMode=mixed
+TimeoutStopSec=30
 Restart=on-failure
 RestartSec=30
 MemoryMax=3G

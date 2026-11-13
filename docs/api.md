@@ -55,7 +55,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
 | GET | `/api/projects/<name>/explain` | `ops.settings.explain` | | `{project, text}` | 400, 404 |
-| GET | `/api/chat/<name>` | `ops.chat.chat_state` | | `{state, bridge_session_id, web_url, app_url, last_active}` (state: off, starting, sleeping, live, working) | 404 |
+| GET | `/api/chat/<name>` | `ops.chat.chat_state` | | `{state, bridge_session_id, web_url, app_url, last_active}` (state: none, waking, awake, working, asleep) | 404 |
 | GET | `/api/projects/<name>/specs` | `ops.projects.specs` | | list of `{path, title, modified}`, newest first | 404 |
 | GET | `/api/projects/<name>/runs` | `ops.runs.builds` | | list of Build, newest first | 404 |
 | GET | `/api/runs/<project>/<run_id>` | `ops.runs.detail` | | Run detail | 404 |
@@ -116,9 +116,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/import/candidates` | `ops.projects.import_candidates` | | list of `{name, path, repo \| null, removed_on \| null, kind: removed\|folder}`; removed projects first | |
 | GET | `/api/folders?path=` | `ops.projects.list_folders` | | `{path, root, parent \| null, folders: [{name, path}]}`; sub-folders only, never hidden ones or symlinks leaving the projects folder; empty path = the projects folder | 400 (outside the projects folder), 404 |
 | POST | `/api/import` | `ops.projects.import_` | `{target}` (a name or a path directly under the projects folder) | `{name, path, repo, was_removed, added: [files added]}`; also takes it off the removed list and adds the trust entry; starts no service | 400, 404, 409 |
-| POST | `/api/chat/<name>/open` | `ops.chat.open_chat` | | `{state, web_url, app_url, bridge_session_id, message}` | 404, 503 |
+| POST | `/api/chat/<name>/open` | `ops.chat.open_chat` | | `{state, web_url, app_url, bridge_session_id, message, woke, fresh}`; waits up to the `start_wait_seconds` setting while the chat wakes | 404, 503 |
 | POST | `/api/chat/<name>/sleep` | `ops.chat.sleep_chat` | | `{state, changed, message}` | 404 |
-| POST | `/api/chat/<name>/off` | `ops.chat.off_chat` | `{confirm: true}` | `{state, changed, message}` | 400, 404 |
+| POST | `/api/chat/<name>/forget` | `ops.chat.forget_chat` | `{confirm: true}` | `{state, changed, message}` | 400, 404 |
 | POST | `/api/projects/<name>/remove` | `ops.projects.remove` | `{confirm: true}` | `{name, path, repo, removed_on, kept}`; undoes the trust entry, records it in `global.toml` `[[removed_projects]]`; deletes nothing; refuses `phoenix9` and `home` | 400, 404, 409 |
 | POST | `/api/projects/<name>/delete` | `ops.projects.delete` | `{confirm: "<name>"}` | `{name, backup, steps: [{step, ok, words, kept?}], not_done: [{what, how}], still_live}`; writes the safety copy first, then deletes everything; the GitHub repo only when it is the project's own (`kept: true` with the reason otherwise; architecture 9.5); only as `dashboard`; refuses `phoenix9`, `home` (also by real name), a linked folder, active builds, a working chat, and while another change holds the project lock | 400 (wrong confirm), 404, 409 (refused) |
 | POST | `/api/projects/<name>/delete-repo` | `ops.projects.delete_repo` | `{}` | same shape; retries only the GitHub repo delete, reading the repo and its `repo_delete` verdict from the newest safety copy's manifest; refused when the folder exists again or another project uses the repo | 404, 409 |

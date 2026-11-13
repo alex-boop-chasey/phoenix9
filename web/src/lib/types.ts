@@ -41,8 +41,8 @@ export interface ActiveRun {
   worker?: "alive" | "not responding"
 }
 
-/** Where a project's chat is: off, starting, sleeping, live or working. */
-export type ChatState = "off" | "starting" | "sleeping" | "live" | "working"
+/** Where a project's chat is: none (never started), waking, awake, working or asleep. */
+export type ChatState = "none" | "waking" | "awake" | "working" | "asleep"
 
 /** A project's chat as the backend reports it. */
 export interface ChatInfo {
@@ -50,7 +50,15 @@ export interface ChatInfo {
   bridge_session_id: string | null
   web_url: string | null
   app_url: string | null
-  last_active: string | null
+  /** When the chat was last used, in seconds since 1970, or null. */
+  last_active: number | null
+}
+
+/** What Sleep and "Start a fresh chat" return: the new state, whether it changed and plain words. */
+export interface ChatChange {
+  state: ChatState
+  changed: boolean
+  message: string
 }
 
 /** What pressing Chat returns: the state and the links to the conversation. */

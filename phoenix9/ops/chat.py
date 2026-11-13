@@ -1,4 +1,4 @@
-"""Ops for project chats: open a project's chat; shared by the CLI and the API."""
+"""Ops for project chats: state, open, sleep, forget, the status of all and tidying stray chats; shared by the CLI and the API."""
 from phoenix9 import projectchat
 from phoenix9.ops import common
 
@@ -38,36 +38,47 @@ def _run(project: str, who: str, word: str, action) -> dict:
 
 
 def sleep_chat(project: str, who: str = "cli") -> dict:
-    """Put the project's chat to sleep; returns {state, changed, message}."""
+    """Put the project's chat to sleep (wrap-up, then its unit stops); returns {state, changed, message}."""
     return _run(project, who, "sleep", lambda p, a: projectchat.sleep(p, a, who))
 
 
-def off_chat(project: str, who: str = "cli") -> dict:
-    """Turn the project's chat off; returns {state, changed, message}."""
-    return _run(project, who, "off", lambda p, a: projectchat.off(p, a, who))
+def forget_chat(project: str, who: str = "cli") -> dict:
+    """Stop the project's chat and forget its saved conversation; returns {state, changed, message}."""
+    return _run(project, who, "forget", lambda p, a: projectchat.forget(p, a, who))
 
 
-SKIPPED_PROJECTS = ("phoenix9", "home")
+def status_all() -> dict:
+    """Every listed project's chat {name, state, last_active}, plus names of active chat units for unlisted ones."""
+    from phoenix9 import chat, project as project_mod
+    adapters = common.make_adapters()
+    names = project_mod.project_names()
+    rows = []
+    for name in names:
+        try:
+            current = projectchat.state(name, adapters)
+        except Exception:       # one unreadable chat must not hide the others
+            current = {"state": "unknown", "last_active": None}
+        rows.append({"name": name, "state": current["state"], "last_active": current.get("last_active")})
+    return {"projects": rows, "unlisted": chat.stray_units(adapters.host)}
 
 
-def catch_up_todo() -> list:
-    """Names of existing projects without a readable chat document (phoenix9 and home have their own chats)."""
-    from phoenix9 import project
-    return [n for n in project.project_names()
-            if n not in SKIPPED_PROJECTS and projectchat.read_chat_doc(n)[0] is None]
+def stray_chats() -> list[str]:
+    """Names with a running chat unit that are not listed projects."""
+    from phoenix9 import chat
+    return chat.stray_units(common.make_adapters().host)
 
 
-def catch_up(who: str = "cli", go: bool = False, say=None) -> dict:
-    """List (or, with go, set up one at a time) the chats still missing; returns {todo, results, failed}."""
-    todo = catch_up_todo()
-    results = []
-    if go:
-        adapters = common.make_adapters()
-        for name in todo:
-            data = projectchat.set_up(name, adapters, who)
-            results.append({"project": name, "ok": data["chat"] == "sleeping", "chat": data["chat"],
-                            "message": data.get("chat_message", "The chat is set up and sleeping.")})
-            if say:
-                say(results[-1])
-    common.record_command(who, "chat catch-up" + (" --all" if go else ""))
-    return {"all": go, "todo": todo, "results": results, "failed": sum(1 for r in results if not r["ok"])}
+def tidy(who: str = "cli") -> dict:
+    """Stop every stray chat unit (one command event each); returns {stopped, failed: [{name, error}]}."""
+    from phoenix9 import chat
+    host = common.make_adapters().host
+    stopped, failed = [], []
+    for name in chat.stray_units(host):
+        try:
+            chat.stop_stray(host, name)
+        except (ValueError, RuntimeError) as err:
+            failed.append({"name": name, "error": str(err)})
+            continue
+        stopped.append(name)
+        common.record_command(who, "chat tidy %s" % name)
+    return {"stopped": stopped, "failed": failed}

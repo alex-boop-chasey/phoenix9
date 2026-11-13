@@ -143,6 +143,35 @@ test("breadcrumbs show on the page", () => {
   expect(trail).toHaveTextContent("Projects/demo-site/Build")
 })
 
+test("the header holds no Projects link; the logo still goes to projects", () => {
+  setup({ route: "/p/demo-site/build" })
+  const header = document.querySelector("header.top") as HTMLElement
+  expect(within(header).queryByRole("link", { name: "Projects" })).toBeNull()
+  expect(within(header).queryByText("Projects")).toBeNull()
+  expect(within(header).getByRole("link", { name: "Phoenix, go to projects" })).toHaveAttribute("href", "/")
+})
+
+test("the trail starts with a Projects link with its icon on every page", () => {
+  for (const route of ["/", "/p/demo-site/build", "/settings", "/styles", "/new"]) {
+    const view = setup({ route })
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" })
+    const first = trail.firstElementChild as HTMLElement
+    expect(first.tagName).toBe("A")
+    expect(first).toHaveAttribute("href", "/")
+    expect(first).toHaveAccessibleName("Projects")
+    expect(first.querySelector("svg")).not.toBeNull()
+    expect(within(trail).getAllByText("Projects")).toHaveLength(1)
+    if (route === "/") expect(first).toHaveAttribute("aria-current", "page")
+    else expect(first).not.toHaveAttribute("aria-current")
+    view.unmount()
+  }
+})
+
+test("the settings trail reads Projects / Phoenix settings / Updates", () => {
+  setup({ route: "/settings?tab=updates" })
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Updates")
+})
+
 test("crumbs per route", () => {
   const labels = (p: string) => crumbsFor(p).map((c) => c.label)
   expect(labels("/")).toEqual(["Projects"])

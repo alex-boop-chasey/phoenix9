@@ -19,6 +19,21 @@ test("no chat yet still shows the section, with no buttons", async () => {
   expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull()
 })
 
+test("a chat with a browser address shows a small Open in browser link", async () => {
+  mockApi({ "GET /api/chat/demo": { ...info("asleep"), web_url: "https://claude.ai/code/s1" } })
+  renderWithProviders(<ChatSection name="demo" />)
+  const link = await screen.findByRole("link", { name: "Open in browser" })
+  expect(link).toHaveAttribute("href", "https://claude.ai/code/s1")
+  expect(link).toHaveAttribute("target", "_blank")
+})
+
+test("no browser address means no browser link", async () => {
+  mockApi({ "GET /api/chat/demo": info("none") })
+  renderWithProviders(<ChatSection name="demo" />)
+  await screen.findByText("No chat yet")
+  expect(screen.queryByRole("link", { name: "Open in browser" })).toBeNull()
+})
+
 test("awake chat shows Sleep, which posts without asking", async () => {
   const { calls } = mockApi({ "GET /api/chat/demo": info("awake"), "POST /api/chat/demo/sleep": changed("asleep") })
   renderWithProviders(<ChatSection name="demo" />)

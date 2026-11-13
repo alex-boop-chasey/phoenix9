@@ -1,4 +1,4 @@
-/** The "Chat" part of a project's Settings tab: the chat's state in words, Sleep and "Start a fresh chat". */
+/** The "Chat" part of a project's Settings tab: the chat's state in words, Sleep, "Start a fresh chat" and a quiet "Open in browser" link. */
 import { useState } from "react"
 import { toast } from "sonner"
 
@@ -18,7 +18,7 @@ export function chatWords(chat: ChatInfo): string {
   return `${words}, last used ${relativeTime(new Date(chat.last_active * 1000).toISOString())}`
 }
 
-/** Chat state, a Sleep button while it is awake, and "Start a fresh chat" (with a question). */
+/** Chat state, a Sleep button while it is awake, "Start a fresh chat" (with a question) and the browser link when there is one. */
 export function ChatSection({ name }: { name: string }) {
   const chat = useChat(name)
   const [asking, setAsking] = useState(false)
@@ -51,6 +51,9 @@ export function ChatSection({ name }: { name: string }) {
           <button type="button" className="btn btn-secondary btn-sm" disabled={forget.isPending} onClick={() => setAsking(true)}>Start a fresh chat</button>
         )}
       </div>
+      {chat.data.web_url && (
+        <p className="help"><a href={chat.data.web_url} target="_blank" rel="noreferrer">Open in browser</a></p>
+      )}
       {error && <p role="alert" className="help">{error}</p>}
       <ConfirmDialog open={asking} onOpenChange={setAsking} title="Start a fresh chat?" confirmLabel="Forget saved chat"
         body="Forget this project's saved chat? The old conversation stays in your Claude app but Phoenix will no longer open it; pressing Chat starts a new one."

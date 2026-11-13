@@ -10,10 +10,11 @@ test("the sidebar list shows the rows it is given, in groups", () => {
   expect(screen.queryByText("home")).toBeNull()
 })
 
-test("the sidebar's Chat button has no Sleep beside it, even when awake", () => {
+test("sidebar rows have no Chat button, even for the current project", () => {
   const chat = { state: "awake" as const, bridge_session_id: "s1", web_url: null, app_url: null, last_active: null }
   const rows = projects.map((p) => ({ ...p, chat }))
-  renderWithProviders(<ProjectList rows={rows} current={projects[0]!.name} withChat />)
-  expect(screen.getByRole("button", { name: /Chat/ })).toBeInTheDocument()
+  renderWithProviders(<ProjectList rows={rows} current={projects[0]!.name} />)
+  expect(screen.queryByRole("button", { name: /Chat/ })).toBeNull()
   expect(screen.queryByRole("button", { name: "Sleep" })).toBeNull()
+  expect(document.querySelector(".chatdot")).toBeNull()
 })

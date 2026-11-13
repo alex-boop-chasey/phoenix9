@@ -39,9 +39,9 @@ function RepoPart({ row }: { row: ProjectRow }) {
 
 function CodeButton({ row }: { row: ProjectRow }) {
   if (!row.vscode_url) {
-    return <button type="button" className="btn btn-secondary" disabled title={row.vscode.reason ?? "No folder to open"}><Icon name="code" />VS Code</button>
+    return <button type="button" className="btn btn-secondary" disabled title={row.vscode.reason ?? "No folder to open"}><Icon name="code" /><span className="p-vs">VS</span> Code</button>
   }
-  return <a className="btn btn-secondary" href={row.vscode_url} target="_blank" rel="noreferrer"><Icon name="code" />VS Code</a>
+  return <a className="btn btn-secondary" href={row.vscode_url} target="_blank" rel="noreferrer"><Icon name="code" /><span className="p-vs">VS</span> Code</a>
 }
 
 /** A project row; clicking anywhere except its links and buttons opens the project. Memoised: the callbacks take the project name so the parent can keep them stable. */
@@ -72,7 +72,11 @@ export const ProjectTile = memo(function ProjectTile({ row, gone = false, onRemo
       )}
       <div className="p-acts">
         <ChatButton project={row.name} chat={row.chat ?? null} />
-        {onRemove && <button type="button" className="btn btn-ghost" onClick={() => onRemove(row.name)}><Icon name="trash" />Remove</button>}
+        {onRemove && (
+          <button type="button" className="btn btn-ghost p-rm" aria-label={`Remove ${row.name}`} onClick={() => onRemove(row.name)}>
+            <Icon name="trash" /><span className="p-rm-t">Remove</span>
+          </button>
+        )}
         <CodeButton row={row} />
       </div>
     </div>

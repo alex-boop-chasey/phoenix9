@@ -37,11 +37,19 @@
 .p-repo.none{color:var(--text-3)}
 .p-acts{position:relative; z-index:1; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px}
 .p-acts .btn{--h:44px; padding:0 10px}
+.p-acts .chatbtn,.p-acts .chatbtn .btn{width:100%; min-width:0}
+/* Phone: Chat, Code and the bin icon on one line (Remove keeps its words for screen readers via aria-label). */
+@media (max-width:719px){
+  .p-acts:has(.p-rm){grid-template-columns:minmax(0,1fr) minmax(0,1fr) 44px}
+  .p-acts .chatbtn{order:1} .p-acts > :last-child:not(.p-rm){order:2} .p-acts .p-rm{order:3; width:44px; padding:0}
+  .p-acts .p-vs,.p-acts .p-rm-t{display:none}
+}
 @container well (min-width:780px){
   /* Fixed name and status columns, so every row's pill and repo start at the same place; the repo takes the rest. */
   .prow{grid-template-columns:minmax(0,14rem) minmax(0,1fr) auto; align-items:center; gap:16px; padding:12px 14px 12px 24px}
   .p-meta{display:grid; grid-template-columns:10.5rem minmax(0,1fr); gap:16px; justify-items:start}
-  .p-acts{display:flex}
+  /* Equal fixed columns, so Chat, Remove and VS Code line up down the list. */
+  .p-acts{grid-template-columns:none; grid-auto-flow:column; grid-auto-columns:7.25rem}
   .p-acts .btn{--h:34px; font-size:13px}
 }
 @container well (min-width:1100px){
@@ -71,11 +79,13 @@
   .fbar-2 .count{grid-column:1 / -1; margin-left:0}
   .fbar-1 .with-ico input{height:44px}
 }
-.chatbtn{display:inline-flex; flex-direction:column; gap:4px; align-items:flex-start}
-.chatbtn .chatweb{font-size:12px}
+.chatbtn{display:inline-flex; flex-wrap:wrap; gap:4px 8px; align-items:center}
+.chatbtn .chatlbl{min-width:0; overflow:hidden; text-overflow:ellipsis}
 .ph-r .chatbtn .btn{--h:38px; padding:0 12px; font-size:13px}
+@container well (max-width:640px){ .ph-r .chatbtn .btn{--h:44px} }
 .chatbtn .chaterr{font-size:12px; color:var(--bad)}
-.chatdot{display:inline-block; width:8px; height:8px; margin-left:8px; border-radius:50%; background:var(--text-3, #888)}
+.chatdot{display:inline-block; flex:none; width:8px; height:8px; margin-left:8px; border-radius:50%; background:var(--text-3, #888)}
+.chatdot-none{background:transparent; box-shadow:inset 0 0 0 1px var(--line-strong)}
 .chatdot-awake{background:var(--ok)}
 .chatdot-working{background:var(--accent)}
 .chatdot-asleep,.chatdot-waking{background:var(--text-3)}

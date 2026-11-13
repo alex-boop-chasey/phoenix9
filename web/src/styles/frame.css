@@ -76,7 +76,6 @@
 .dr-f{padding:16px 20px; border-top:1px solid var(--line); display:flex; gap:8px}
 }
 .sw-line{display:flex; flex-direction:column; gap:4px}
-.sw-line .chatbtn{align-self:flex-start; margin:0 0 4px 44px}
 
 /* Agent panel: header tools, wide mode, phone full-screen sheet */
 .dr-h{flex-wrap:wrap}

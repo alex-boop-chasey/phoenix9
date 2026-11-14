@@ -112,6 +112,14 @@ def test_path_parts_must_be_plain():
     assert "error" in out and fake.requests == []
 
 
+def test_suggestion_keys_are_checked_then_percent_encoded():
+    route = "/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss"
+    assert fill_path(route, {"key": "run:a+b"}) == "/api/suggest/run%3Aa%2Bb/dismiss"
+    for bad in ("../x", "a/b", "", "a b", "..", "a%2Fb", "a?b"):
+        with pytest.raises(PhoenixError):
+            fill_path(route, {"key": bad})
+
+
 def test_refusal_is_a_plain_error():
     made = {t.name: t for t in build_pack(FakePhoenix(refuse=True).client()).server_tools}
     assert made["global-show"].function() == {"error": "Refused: the agent isn't allowed to do that."}

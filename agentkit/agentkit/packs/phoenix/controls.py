@@ -4,6 +4,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -11,10 +12,11 @@ from agentkit.pack import ServerTool
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
 from agentkit.packs.phoenix.tools import (build_card, diagnose_card, events_card, job_card, keys_card, options_list,
                                         bell_card, plan_check_card, project_card, repair_card, report_card, run_card, search_card, session_card,
-                                        settings_card, specs_card, task_list, tries_card, update_card)
+                                        settings_card, specs_card, suggest_card, task_list, tries_card, update_card)
 
 CONTROLS_FILE = Path(__file__).with_name("controls.json")
 PLAIN_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SUGGEST_KEY = re.compile(r"^[A-Za-z0-9._:+-]{1,200}$")  # Phoenix's suggestion key shape (sent percent-encoded)
 PLACEHOLDER = re.compile(r"\(\?P<(\w+)>[^)]*\)")
 SIMPLE_TYPES: dict[str, Any] = {"string": str, "integer": int, "boolean": bool, "list": list[str],
                                 "object": dict[str, Any]}
@@ -42,6 +44,8 @@ def fill_path(route: str, values: dict) -> str:
     """The route with each named part replaced by its value; refuses anything that is not a plain name or run id."""
     def one(found: re.Match) -> str:
         value = str(values.get(found.group(1), ""))
+        if found.group(1) == "key" and SUGGEST_KEY.match(value) and ".." not in value:
+            return quote(value, safe="")
         if not PLAIN_NAME.match(value) or ".." in value:
             raise PhoenixError(f"'{value}' is not a plain name, so I did not use it.")
         return value
@@ -89,6 +93,8 @@ def _card_data(entry: dict, data: Any, values: dict) -> dict:
         return plan_check_card(project, data)
     if entry["name"] == "project-specs":
         return specs_card(project, data)
+    if entry["name"] == "suggest-list":
+        return suggest_card(data)
     if entry["name"].startswith("library-"):
         return options_list(entry["name"].split("-", 1)[1], data)
     if card == "settings_card":

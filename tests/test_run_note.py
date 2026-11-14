@@ -7,6 +7,7 @@ from helpers import repair_runs as rr
 from phoenix9 import atomic, events, paths, state, taskfile
 from phoenix9.__main__ import main
 from phoenix9.ops import common, runs
+from test_agentaccess import AGENT_UID, HEADERS as AGENT_HEADERS, write_global
 from test_api_server import POST_HEADERS, api, dist  # noqa: F401  (fixtures)
 
 RUN = rr.RUN
@@ -88,6 +89,16 @@ def test_api_note(api, run_dir):
     assert status == 200 and body["data"]["file_id"] == f"{RUN}/tasks/1/task.md"
     assert "from the dashboard" in taskfile.read_notes(run_dir, 1)
     assert "dashboard" in taskfile.read_notes(run_dir, 1)
+
+
+def test_api_note_from_the_agent_says_agent(api, run_dir):
+    common.make_adapters().host.peer_uid = AGENT_UID
+    write_global(f"[agent_next]\nuid = {AGENT_UID}\n")
+    status, _body = post(api, {"task": 1, "text": "use the second page"}, headers=AGENT_HEADERS)
+    assert status == 200
+    notes = taskfile.read_notes(run_dir, 1)
+    assert "UTC, agent\n" in notes and "use the second page" in notes and "dashboard" not in notes
+    assert json.loads((paths.logs() / "commands.jsonl").read_text().splitlines()[-1])["who"] == "agent"
 
 
 def test_api_needs_guard_headers(api, run_dir):

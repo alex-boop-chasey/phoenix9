@@ -94,6 +94,11 @@ PLANS = {"plans": [{"id": "p-1", "project": "beta", "status": "waiting", "open_q
                     "brief": "Plan the checkout", "started": "2026-11-12T08:00:00+00:00",
                     "last_activity": "2026-11-12T08:30:00+00:00", "spec": "notes:beta/specs/plan-p-1.md"}]}
 FINISH_JOB = "f1e2d3c4b5a6"
+SUGGEST_KEY = "build-failed:beta:20261110-1"
+SUGGESTIONS = {"mode": "on", "notice": "From the status report.", "suggestions": [
+    {"key": SUGGEST_KEY, "text": "beta's build failed on task 2. " + INJECTION, "section": "Waiting for Alex",
+     "attention": True, "shown": False},
+    {"key": "disk-low", "text": "The disk is getting full.", "section": "Phoenix", "attention": True, "shown": False}]}
 
 
 DAILY_REPORT = {"date": "2026-11-11", "text": "Good morning. Nothing needs you. " + INJECTION}
@@ -113,6 +118,8 @@ class FakePhoenix:
         self.job_calls = 0
         self.finish_calls = 0
         self.work_posts: list[dict] = []
+        self.note_posts: list[dict] = []
+        self.suggest_posts: list[tuple[str, str]] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         """Answer one request."""
@@ -197,7 +204,8 @@ class FakePhoenix:
         return None
 
     def work_routes(self, request: httpx.Request, parts: list, query: dict) -> httpx.Response | None:
-        """Answer the quick edit and planning session routes and the edit-finish job; None for anything else."""
+        """Answer the quick edit, planning session, build note and suggestion routes and the edit-finish job; None
+        for anything else."""
         body = json.loads(request.content or b"{}") if request.method == "POST" else {}
         if parts == ["api", "edits"]:
             rows = [e for e in EDITS["edits"] if query.get("project") in (None, e["project"])]
@@ -221,6 +229,15 @@ class FakePhoenix:
             self.work_posts.append(body)
             return httpx.Response(200, json={**PLANS["plans"][0], "id": "p-2", "status": "queued",
                                              "open_questions": 0, "brief": body.get("brief"), "spec": None})
+        if len(parts) == 4 and parts[1] == "runs" and parts[3] == "note" and request.method == "POST":
+            self.note_posts.append(body)
+            return httpx.Response(200, json={"run_id": parts[2], "task": body.get("task"),
+                                             "file_id": f"{parts[2]}/tasks/{body.get('task')}/task.md"})
+        if parts == ["api", "suggest"]:
+            return httpx.Response(200, json=SUGGESTIONS)
+        if len(parts) == 4 and parts[1] == "suggest" and request.method == "POST":
+            self.suggest_posts.append((parts[2], parts[3]))
+            return httpx.Response(200, json={"ok": True, "key": parts[2], parts[3] + "ed": True})
         if parts == ["api", "jobs", FINISH_JOB]:
             self.finish_calls += 1
             done = self.finish_calls > 1

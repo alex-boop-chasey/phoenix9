@@ -1246,7 +1246,7 @@ def post_run_note(req, run_id):
     if isinstance(task, bool) or not isinstance(task, int):
         raise BadRequest("'task' should be a task number.")
     with req.server.write_lock:
-        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=WHO)
+        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=req.who)
 
 
 def post_run_discard(req, project, run_id):

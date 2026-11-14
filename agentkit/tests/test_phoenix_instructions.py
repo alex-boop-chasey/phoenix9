@@ -35,8 +35,9 @@ def test_no_code_edit_tools():
     allowed = {"ask_env_file", "reference-file-remove",
                "edits-list",    # lists the quick edits project chats started; writes nothing
                "edit-finish",   # finishes a quick edit (checks + merge request); writes no file content
-               "edit-abandon"}  # throws away a quick edit a project chat started; writes no file content
+               "edit-abandon",  # throws away a quick edit a project chat started; writes no file content
+               "build-note"}    # adds Alex-approved words to a task's next try; writes no code
     for name in names:
         for word in ("write-file", "edit", "file", "patch", "apply", "note"):
             assert name in allowed or word not in name.lower().replace("profiles", ""), name
-    assert "repair-apply" not in names and "build-note" not in names
+    assert "repair-apply" not in names

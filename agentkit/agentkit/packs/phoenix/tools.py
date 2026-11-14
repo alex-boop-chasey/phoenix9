@@ -301,6 +301,17 @@ def bell_card(data: Any) -> dict:
     return {"count": count if isinstance(count, int) and not isinstance(count, bool) else len(rows), "items": rows}
 
 
+def suggest_card(data: Any) -> dict:
+    """Card data for suggestions: {mode, suggestions} with each row's key, whether it needs Alex and its text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    rows = [{"key": str(row.get("key") or ""), "attention": row.get("attention") is True, "shown": row.get("shown") is True,
+             "text": wrap("phoenix suggestion", str(row.get("text") or ""))}
+            for row in data.get("suggestions", []) if isinstance(row, dict)] \
+        if isinstance(data.get("suggestions"), list) else []
+    return {"mode": str(data.get("mode") or ""), "suggestions": rows}
+
+
 def open_bell_inputs() -> type[BaseModel]:
     """The open_bell input model: nothing to fill in."""
 

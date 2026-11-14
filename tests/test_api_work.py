@@ -45,10 +45,9 @@ def waiting_plan(project="alpha"):
 
 
 def as_agent(monkeypatch):
-    """Call as the agent, with every route allowed (step 2 puts these routes on the allowlist)."""
+    """Call as the agent (these routes are on its allowlist)."""
     common.make_adapters().host.peer_uid = AGENT_UID
     write_global(f"[agent_next]\nuid = {AGENT_UID}\n")
-    monkeypatch.setattr(server.agentaccess, "route_allowed", lambda method, path: True)
 
 
 class SyncThread:

@@ -646,17 +646,29 @@
   },
   {
     "name": "edit-abandon",
-    "description": "Throw away a quick edit's branch copy; OpsError in plain words when that is not possible.",
-    "inputs": [],
+    "description": "Throw away a quick edit that a project chat started (Alex types its id to confirm).",
+    "inputs": [
+      {
+        "name": "edit_id",
+        "type": "string",
+        "required": true,
+        "description": "The quick edit's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
     "risk": "destructive",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/edits/(?P<edit_id>[^/]+)/abandon",
-    "fixed": {},
+    "fixed": {
+      "confirm": true
+    },
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "edit_id"
   },
   {
     "name": "edit-finish",
@@ -682,8 +694,8 @@
       }
     ],
     "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/edits/(?P<edit_id>[^/]+)/finish",
     "fixed": {
@@ -708,8 +720,8 @@
       }
     ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/edits",
     "fixed": {},
@@ -1435,8 +1447,8 @@
       }
     ],
     "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/plans/(?P<plan_id>[^/]+)/reply",
     "fixed": {},
@@ -1494,8 +1506,8 @@
       }
     ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/plans/(?P<plan_id>[^/]+)",
     "fixed": {},
@@ -1527,8 +1539,8 @@
       }
     ],
     "risk": "change",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/projects/(?P<name>[^/]+)/plans",
     "fixed": {},
@@ -1551,8 +1563,8 @@
       }
     ],
     "risk": "read",
-    "agent": "later",
-    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "agent": "tool",
+    "why": "",
     "method": "GET",
     "route": "/api/plans",
     "fixed": {},

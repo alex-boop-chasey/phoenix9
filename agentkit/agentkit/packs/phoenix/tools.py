@@ -379,13 +379,18 @@ def what_happened_card(models: dict, values: dict) -> dict:
 
 
 def job_card(job_id: str, data: Any) -> dict:
-    """Card data for a background job: its kind, project, status, one label and status per step, and the message."""
+    """Card data for a background job: its kind, project, status, one label and status per step, the message, and
+    the merge request link when a finished quick edit opened one."""
     data = data if isinstance(data, dict) else {}
     steps = [{"label": str(s.get("label") or ""), "status": str(s.get("status") or "")}
              for s in data.get("steps") or [] if isinstance(s, dict)]
-    return {"job": str(data.get("id") or job_id), "kind": str(data.get("kind") or ""),
+    card = {"job": str(data.get("id") or job_id), "kind": str(data.get("kind") or ""),
             "project": str(data.get("project") or ""), "status": str(data.get("status") or ""),
             "steps": steps, "message": str(data.get("message") or "")}
+    result = data.get("result")
+    if isinstance(result, dict) and result.get("pr"):
+        card["pr"] = str(result["pr"])
+    return card
 
 
 def plan_check_card(project: str, data: Any) -> dict:

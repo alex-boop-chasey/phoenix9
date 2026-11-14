@@ -88,6 +88,14 @@ BELL = {"count": 3, "items": [
      "page": {"to": "../etc", "params": {}}}]}
 
 
+EDITS = {"edits": [{"id": "e-1", "project": "beta", "title": "Fix the footer link", "status": "open",
+                    "last_activity": "2026-11-12T09:00:00+00:00", "branch": "edit/e-1", "pr": None}]}
+PLANS = {"plans": [{"id": "p-1", "project": "beta", "status": "waiting", "open_questions": 1,
+                    "brief": "Plan the checkout", "started": "2026-11-12T08:00:00+00:00",
+                    "last_activity": "2026-11-12T08:30:00+00:00", "spec": "notes:beta/specs/plan-p-1.md"}]}
+FINISH_JOB = "f1e2d3c4b5a6"
+
+
 DAILY_REPORT = {"date": "2026-11-11", "text": "Good morning. Nothing needs you. " + INJECTION}
 
 
@@ -103,6 +111,8 @@ class FakePhoenix:
         self.hotfix_busy = False
         self.starts: list[dict] = []
         self.job_calls = 0
+        self.finish_calls = 0
+        self.work_posts: list[dict] = []
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         """Answer one request."""
@@ -157,6 +167,9 @@ class FakePhoenix:
         if request.method == "POST" and path == "/api/projects":
             self.created.append(json.loads(request.content or b"{}"))
             return httpx.Response(200, json={"job": JOB_ID})
+        work = self.work_routes(request, parts, query)
+        if work is not None:
+            return work
         if path == f"/api/jobs/{JOB_ID}":
             self.job_calls += 1
             done = self.job_calls > 1
@@ -181,6 +194,40 @@ class FakePhoenix:
             return httpx.Response(200, json={k: v for k, v in EXTRA[parts[2]].items() if k != "runs"})
         if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[2] in {p["name"] for p in PROJECTS} | set(EXTRA):
             return self.project_action(request, parts[3])
+        return None
+
+    def work_routes(self, request: httpx.Request, parts: list, query: dict) -> httpx.Response | None:
+        """Answer the quick edit and planning session routes and the edit-finish job; None for anything else."""
+        body = json.loads(request.content or b"{}") if request.method == "POST" else {}
+        if parts == ["api", "edits"]:
+            rows = [e for e in EDITS["edits"] if query.get("project") in (None, e["project"])]
+            return httpx.Response(200, json={"edits": rows})
+        if parts == ["api", "plans"]:
+            rows = [p for p in PLANS["plans"] if query.get("project") in (None, p["project"])]
+            return httpx.Response(200, json={"plans": rows})
+        if len(parts) == 3 and parts[1] == "plans" and request.method == "GET":
+            return httpx.Response(200, json={**PLANS["plans"][0], "id": parts[2],
+                                             "report": "notes/specs/plan-p-1.md, 1 open question"})
+        if len(parts) == 4 and parts[1] == "edits" and request.method == "POST":
+            self.work_posts.append(body)
+            if parts[3] == "finish":
+                return httpx.Response(200, json={"job_id": FINISH_JOB})
+            return httpx.Response(200, json={**EDITS["edits"][0], "status": "abandoned"})
+        if len(parts) == 4 and parts[1] == "plans" and request.method == "POST":
+            self.work_posts.append(body)
+            status = "abandoned" if parts[3] == "abandon" else "queued"
+            return httpx.Response(200, json={**PLANS["plans"][0], "status": status})
+        if parts == ["api", "projects", "beta", "plans"] and request.method == "POST":
+            self.work_posts.append(body)
+            return httpx.Response(200, json={**PLANS["plans"][0], "id": "p-2", "status": "queued",
+                                             "open_questions": 0, "brief": body.get("brief"), "spec": None})
+        if parts == ["api", "jobs", FINISH_JOB]:
+            self.finish_calls += 1
+            done = self.finish_calls > 1
+            return httpx.Response(200, json={"id": FINISH_JOB, "kind": "edit-finish", "project": None,
+                                             "status": "done" if done else "running", "steps": [], "message": "",
+                                             "result": {**EDITS["edits"][0], "status": "finished",
+                                                        "pr": "https://example.invalid/pr/7"} if done else None})
         return None
 
     def project_action(self, request: httpx.Request, what: str) -> httpx.Response | None:

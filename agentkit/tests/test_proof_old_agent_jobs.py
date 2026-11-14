@@ -9,7 +9,7 @@ from agentkit import llm, runs
 from agentkit.packs.phoenix import INSTRUCTIONS, build_pack
 from agentkit.packs.phoenix.controls import load_controls
 from agentkit.store import Store
-from fake_phoenix import FAILED_RUN, INJECTION, FakePhoenix
+from fake_phoenix import FAILED_RUN, FINISH_JOB, INJECTION, FakePhoenix
 from test_approvals import client, paused, requests_in, script, types
 from test_browser_tools import customs
 
@@ -203,6 +203,79 @@ def test_job_15():
             await c.post(f"/browser-results/{ask['browserId']}", json={"result": {"status": "opened"}})
         await r.active[tid]
         assert types(store, tid)[-1] == "RUN_FINISHED"
+
+    run(go())
+
+
+def test_job_16():
+    async def go():
+        follow = [("job-status", {"job_id": FINISH_JOB})] * 2
+        fake, store, r, app, seen = build([("edit-finish", {"edit_id": "e-1"})] + follow)
+        tid = await paused(r, store)
+        assert posts(fake) == [] and types(store, tid)[-1] != "RUN_FINISHED"
+        (req,) = requests_in(store, tid)
+        assert req["toolName"] == "edit-finish"
+        async with client(app) as c:
+            assert (await c.post(f"/approvals/{req['approvalId']}", json={"decision": "approve"})).status_code == 202
+        await r.active[tid]
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/edits/e-1/finish" and json.loads(sent.content) == {"confirm": True}
+        assert [q.url.path for q in fake.requests].count(f"/api/jobs/{FINISH_JOB}") == 2
+        assert returns(seen)["job-status"]["pr"] == "https://example.invalid/pr/7"
+        assert types(store, tid)[-1] == "RUN_FINISHED" and len(requests_in(store, tid)) == 1
+        assert "edit-finish" in INSTRUCTIONS and "job-status" in INSTRUCTIONS
+
+    run(go())
+
+
+def test_job_17():
+    async def go():
+        fake, store, r, app, _sn = build([("edit-abandon", {"edit_id": "e-1"})])
+        tid = await paused(r, store)
+        (req,) = requests_in(store, tid)
+        async with client(app) as c:   # abandoning needs the quick edit's id typed
+            assert (await c.post(f"/approvals/{req['approvalId']}", json={"decision": "approve"})).status_code == 400
+            assert (await c.post(f"/approvals/{req['approvalId']}",
+                                 json={"decision": "approve", "confirm": "e-2"})).status_code == 400
+            assert posts(fake) == []
+            assert (await c.post(f"/approvals/{req['approvalId']}",
+                                 json={"decision": "approve", "confirm": "e-1"})).status_code == 202
+        await r.active[tid]
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/edits/e-1/abandon" and json.loads(sent.content) == {"confirm": True}
+
+    run(go())
+
+
+def test_job_18():
+    async def go():
+        brief = "Plan a checkout page with card payments later."
+        fake, store, tid, _sn = await approved("plan-start", {"name": "beta", "brief": brief})
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/projects/beta/plans" and json.loads(sent.content) == {"brief": brief}
+        answer = "Use the second page, and keep the old one for a week."
+        fake, store, tid, seen = await approved("plan-reply", {"plan_id": "p-1", "text": answer})
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/plans/p-1/reply" and json.loads(sent.content) == {"text": answer}
+        assert returns(seen)["plan-reply"]["result"]["status"] == "queued"
+        for word in ("plan-show", "docs-show", "word for word", "plan-reply", "Never start a planning session on phoenix9"):
+            assert word in INSTRUCTIONS, word
+
+    run(go())
+
+
+def test_job_35():
+    async def go():
+        fake, store, r, _a, seen = build([("edits-list", {"project": "beta"}), ("plans-list", {"project": "beta"}),
+                                          ("plan-show", {"plan_id": "p-1"})])
+        tid = await paused(r, store)
+        assert posts(fake) == [] and requests_in(store, tid) == [] and types(store, tid)[-1] == "RUN_FINISHED"
+        assert [(q.url.path, dict(q.url.params)) for q in fake.requests] == [
+            ("/api/edits", {"project": "beta"}), ("/api/plans", {"project": "beta"}), ("/api/plans/p-1", {})]
+        got = returns(seen)
+        assert got["edits-list"]["result"]["edits"][0]["title"] == "Fix the footer link"
+        assert got["plans-list"]["result"]["plans"][0]["status"] == "waiting" and got["plan-show"]["result"]["open_questions"] == 1
+        assert "check its open work first: call edits-list and plans-list" in INSTRUCTIONS
 
     run(go())
 

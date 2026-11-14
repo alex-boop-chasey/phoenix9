@@ -1167,6 +1167,12 @@ ever sees spending as a share of the monthly allowance, in words.
 its key is present; the key file is never read by the doctor) and `agentkit-spend` (the allowance in words:
 plenty left, getting low, or used up). Each passes with "not set up yet" when `[agent_next]` is absent.
 
+**Watchdog** (`phoenix9/agentkitwatch.py`, called by the runner loop about every 60 s). Healthy means the unit is
+active and answers `/status`. Two bad checks in a row restart `phoenix-agentkit` once and send one notify line
+("Phoenix restarted the agent service: it was not answering."), then 10 minutes' back-off. A unit inactive with
+`Result=success` was stopped on purpose and is left alone; nothing happens without `[agent_next]`. Memory in
+`logs/agentkit-watch.json`; the `agentkit-service` doctor line names a restart from the last day.
+
 
 ### Repairing failed builds (agent v3 build 3)
 The agent reads a run's events, failing task, each try, a scrubbed session excerpt and the project's recent runs, and

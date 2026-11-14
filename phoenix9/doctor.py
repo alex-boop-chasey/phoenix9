@@ -702,10 +702,20 @@ def check_agentkit_service(ctx):
     state = out.split()[0] if out.split() else "unknown"
     fix = f"Start it with `systemctl start {AGENTKIT_UNIT}`, then read `journalctl -u {AGENTKIT_UNIT}`."
     if rc != 0 or state != "active":
-        return _result(False, f"{AGENTKIT_UNIT} is {state}", fix)
+        return _result(False, f"{AGENTKIT_UNIT} is {state}" + _agentkit_restart_note(ctx), fix)
     if status is None:
-        return _result(False, f"{AGENTKIT_UNIT} is active but does not answer: {reason}", fix)
-    return _result(True, f"{AGENTKIT_UNIT} is active and answering")
+        return _result(False, f"{AGENTKIT_UNIT} is active but does not answer: {reason}" + _agentkit_restart_note(ctx), fix)
+    return _result(True, f"{AGENTKIT_UNIT} is active and answering" + _agentkit_restart_note(ctx))
+
+
+def _agentkit_restart_note(ctx) -> str:
+    """A note that the watchdog last restarted the service at a time, when that was in the last day; else empty."""
+    from phoenix9 import agentkitwatch
+    last = agentkitwatch.memory()["last_restart"]
+    if last is None or not 0 <= ctx.ad.clock.now() - last < 86400:
+        return ""
+    when = datetime.fromtimestamp(last, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"; the watchdog last restarted it at {when}"
 
 
 def check_agentkit_key(ctx):

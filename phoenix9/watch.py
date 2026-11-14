@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gatenotify, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentkitwatch, agentwatch, atomic, docker as docker_mod, edits, gatenotify, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import plansession, project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
@@ -27,6 +27,7 @@ class Memory:
 
     crashes: dict = field(default_factory=dict)
     agent_checked: float | None = None    # when the agent watchdog last ran
+    agentkit_checked: float | None = None   # when the new agent's watchdog last ran
     chats_checked: float | None = None    # when the chats were last checked for sleep
     chats_waking: dict = field(default_factory=dict)   # project -> when its chat was first seen waking
     report_written: float | None = None   # when the status report was last written
@@ -225,6 +226,18 @@ def check_agent(adapters, memory: Memory) -> None:
         pass
 
 
+def check_agentkit(adapters, memory: Memory) -> None:
+    """Run the new agent's watchdog about every minute; a problem there never stops the loop."""
+    now = adapters.clock.now()
+    if memory.agentkit_checked is not None and now - memory.agentkit_checked < AGENT_CHECK_S:
+        return
+    memory.agentkit_checked = now
+    try:
+        agentkitwatch.check_once(adapters)
+    except Exception:  # noqa: BLE001 - the watchdog must not stop the loop
+        pass
+
+
 CHAT_CHECK_S = 600
 BUSY_RUN_STATUSES = ("queued", "running", "waiting", "paused-limit", "paused")
 
@@ -405,6 +418,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
             watch_once(adapters, runner, memory)
             run_plans(adapters)                  # between runs: one planning session at a time
             check_agent(adapters, memory)
+            check_agentkit(adapters, memory)
             check_chats(adapters, memory)
             prune_deleted_copies(adapters)
             mark_stalled_edits()

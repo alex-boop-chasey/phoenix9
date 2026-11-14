@@ -212,3 +212,17 @@ def test_chat_refused_on_a_merge_when_git_cannot_tell(tmp_path):
     folder = make_run(tmp_path)                             # no code repo at all
     state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
     assert not gates.may_answer(open_one(folder), "chat:home", {"home_chat_may_answer": ["merge"]})
+
+
+@pytest.mark.parametrize("who", ["chat:home", "chat:demo"])
+def test_chat_refused_on_a_merge_flagged_full_suite_did_not_pass(tmp_path, who):
+    """An older merge question carrying "full suite did not pass" is Alex's alone, whatever the project allows."""
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    g = open_one(folder)
+    allowed = {"home_chat_may_answer": ["merge"]}
+    assert gates.may_answer(g, who, allowed)
+    g["flags"] = [gates.FLAG_SUITE_FAILED]
+    assert not gates.may_answer(g, who, allowed)
+    assert gates.may_answer(g, "dashboard", allowed)

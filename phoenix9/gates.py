@@ -254,7 +254,8 @@ FLAG_MARKED_BY_REPAIR = "tasks marked by a repair"
 FLAG_REPAIRED = "run was repaired"
 FLAG_NO_FULL_SUITE = "no full suite result"
 FLAG_CHANGED_BY_AGENT = "changed by the Phoenix agent"   # a commit on the run branch has `Phoenix-Fix-By: chat:...`
-ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_CHANGED_BY_AGENT)
+FLAG_SUITE_FAILED = "full suite did not pass"   # failed or skipped by hand; a failed suite opens no question since O62
+ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_CHANGED_BY_AGENT, FLAG_SUITE_FAILED)
 HANDOFF_FLAG = "handed to the Phoenix agent"      # on an escalation gate sent to the agent (failmodes.HANDOFF_FLAG)
 FINISHED_TASK = ("passed", "skipped")
 
@@ -321,7 +322,7 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
     A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the home chat.
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
     flag "handed to the Phoenix agent" (set when a failed task is handed to it).
-    A merge question flagged for a repair, a missing full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
+    A merge question flagged for a repair, a missing or failed full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
     commit on the run branch, checked live) is Alex's alone: chat:* callers never."""
     if who.startswith("chat:") and gate.get("kind") == "budget":
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows

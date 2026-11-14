@@ -80,6 +80,23 @@ def repaired(run_folder) -> bool:
     return gates.run_repaired(run_folder)
 
 
+def _suite_line(ctx):
+    """The run's full-suite step line, or None when it has none."""
+    return next((x for x in state.load(ctx.run.folder)["steps"] if x.get("step") == "full-suite"), None)
+
+
+def _suite_failed_reason(ctx) -> str:
+    """When the full suite failed, the plain reason the run is not merged; else ""."""
+    line = _suite_line(ctx)
+    if not line or line["status"] != "failed":
+        return ""
+    short = _first_line(line.get("note") or "")
+    short = short.removeprefix("The checks did not pass:").strip().rstrip(".") or "no details"
+    if len(short) > 160:
+        short = short[:157].rstrip() + "..."
+    return f"Not merged: the final test run failed ({short}). Fix it, then rerun the finish steps."
+
+
 def _flags(ctx, tasks, base, branch):
     """Return (flags, why parts) saying why this merge needs Alex."""
     flags, why = [], []
@@ -89,9 +106,9 @@ def _flags(ctx, tasks, base, branch):
         why.append(f"{len(failed)} of {len(tasks)} tasks failed")
     else:
         why.append(f"all {len(tasks)} tasks passed")
-    line = next((x for x in state.load(ctx.run.folder)["steps"] if x.get("step") == "full-suite"), None)
+    line = _suite_line(ctx)
     if line and (line["status"] == "failed" or (line["status"] == "skipped" and (line.get("note") or "").startswith("skipped by"))):
-        flags.append("full suite did not pass")
+        flags.append(gates.FLAG_SUITE_FAILED)
         why.append("the full suite did not pass")
     elif line and line["status"] == "passed":
         why.append("the full suite passed")
@@ -254,6 +271,9 @@ def run(ctx):
     unfinished = sorted((n for n, t in tasks.items() if t["status"] not in ("passed", "skipped", "failed")), key=int)
     if unfinished:
         return StepResult("fail", [f"task {', '.join(unfinished)} is not finished, so the run is not merged"])
+    suite_failed = _suite_failed_reason(ctx)
+    if suite_failed:
+        return StepResult("fail", [suite_failed])        # no merge question: a failed suite is never merged
     flags, why = _flags(ctx, tasks, base, branch)
     mode = ctx.project.settings.get("merge", "auto")
     try:

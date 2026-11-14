@@ -357,3 +357,53 @@ def test_a_fix_by_alex_is_not_flagged(world):
     result = load("merge").run(ctx)
     assert result.status == "pass"
     assert gates.FLAG_CHANGED_BY_AGENT not in (result.gate or {}).get("flags", [])
+
+
+def suite_line(ctx, status, note=""):
+    """Replace the run's full-suite step line with one of the given status and note."""
+    st = state.load(ctx.run.folder)
+    i = next(i for i, x in enumerate(st["steps"]) if x.get("step") == "full-suite")
+    state.set_step_line(ctx.run.folder, i, status=status, note=note)
+
+
+@pytest.mark.parametrize("mode", ["auto", "ask"])
+def test_failed_full_suite_opens_no_merge_question(world, mode):
+    ctx, code, origin = world
+    ctx.project.settings["merge"] = mode
+    suite_line(ctx, "failed", "The checks did not pass: 2 of 9 tests failed (test_x)\n\nLast 3 lines of output...")
+    main_before = git(code, "rev-parse", "main").strip()
+    result = load("merge").run(ctx)
+    assert result.status == "fail" and result.gate is None
+    assert result.reasons == ["Not merged: the final test run failed (2 of 9 tests failed (test_x)). "
+                              "Fix it, then rerun the finish steps."]
+    assert gh_calls(ctx) == [] and git(code, "rev-parse", "main").strip() == main_before
+    assert not (ctx.run.folder / "merge-asked.json").exists()
+
+
+def test_failed_full_suite_that_never_ran_says_why(world):
+    ctx, _, _ = world
+    suite_line(ctx, "failed", "Tests did not run to the end: `pnpm exec vitest run` stopped with exit code 1 "
+                              "before writing its report.\n\n(no output was saved)")
+    result = load("merge").run(ctx)
+    assert result.status == "fail" and "(Tests did not run to the end: `pnpm exec vitest run` stopped" in result.reasons[0]
+
+
+def test_full_suite_skipped_by_hand_still_asks_alex_only(world):
+    from phoenix9 import gates
+    ctx, _, _ = world
+    suite_line(ctx, "skipped", "skipped by dashboard")
+    gh(ctx, ["pr", "create"], out=URL + "\n")
+    result = load("merge").run(ctx)
+    assert result.status == "gate" and gates.FLAG_SUITE_FAILED in result.gate["flags"]
+    assert gates.FLAG_SUITE_FAILED in gates.ALEX_ONLY_FLAGS
+
+
+def test_full_suite_off_still_merges(world):
+    from phoenix9 import atomic
+    ctx, code, origin = world
+    st = state.load(ctx.run.folder)
+    state.update(ctx.run.folder, lambda s: s["steps"].clear())
+    assert st["steps"]
+    atomic.write_json(ctx.run.folder / "plan.json", {"steps": [{"name": "full-suite", "on": False}]})
+    result = load("merge").run(ctx)
+    assert result.status == "pass" and "Merge run r: Tiny" in origin_log(origin)

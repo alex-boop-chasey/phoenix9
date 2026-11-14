@@ -4,7 +4,7 @@ import { toast } from "sonner"
 
 import { AppShell } from "@/components/AppShell"
 import { info, projects } from "@/test/fixtures"
-import { agentNextRoutes, agentRoutes, failure, mockApi, type Route } from "@/test/mockApi"
+import { agentNextRoutes, failure, mockApi, type Route } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), info: vi.fn(), error: vi.fn() }) }))
@@ -31,7 +31,6 @@ function Where() {
 function setup(bell: unknown, extra: Record<string, Route> = {}) {
   window.localStorage.clear()
   return mockApi({
-    ...agentRoutes(),
     "GET /api/info": info,
     "GET /api/projects": projects,
     "GET /api/gates": [],

@@ -210,4 +210,4 @@ def test_old_state_with_delegate_field_still_loads(tmp_path, runner, sent):
 
 def test_chat_module_has_no_headless_session():
     from phoenix9 import chat
-    assert not any(hasattr(chat, n) for n in ("delegate", "reap", "stop", "status")) and chat.agent_restart
+    assert not any(hasattr(chat, n) for n in ("delegate", "reap", "stop", "status", "agent_restart"))

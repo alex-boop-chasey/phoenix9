@@ -24,13 +24,12 @@ GITHUB_ACCOUNTS = ("rebirth-wd", "alex-boop-chasey")
 
 
 class DemoHost(FakeHost):
-    """A scripted host that also reads the demo Claude folder from disk and says the demo agent is alive."""
+    """A scripted host that also reads the demo Claude folder from disk."""
 
     def __init__(self, claude_dir: Path | None = None):
         """Remember the demo Claude folder."""
         super().__init__()
         self.claude_dir = str(claude_dir) if claude_dir else None
-        self.pids.add(seed_demo.AGENT_PID)
 
     def _mine(self, path) -> bool:
         """True when path is inside the demo Claude folder."""
@@ -69,14 +68,12 @@ class DemoHost(FakeHost):
         return {"mode": info.st_mode & 0o777, "uid": info.st_uid, "mtime": info.st_mtime}
 
     def exists(self, path):
-        """True for the demo agent's socket and for demo Claude files that exist."""
-        if str(path) == seed_demo.AGENT_SOCKET:
-            return True
+        """True for demo Claude files that exist."""
         return Path(path).exists() if self._mine(path) else super().exists(path)
 
 
 def demo_host(claude_dir: Path | None = None) -> FakeHost:
-    """A scripted host: GitHub is signed in, folders have sizes, the demo agent is alive."""
+    """A scripted host: GitHub is signed in, folders have sizes."""
     host = DemoHost(claude_dir)
     host.script(["gh", "auth", "status"], rc=0, out="Logged in to github.com")
     host.script(["gh", "api", "user", "--jq", ".login"], out=GITHUB_ACCOUNTS[1] + "\n")
@@ -120,67 +117,6 @@ def answering_moves_run(answer, home: str):
     return wrapped
 
 
-REPLY = "Got it. I am looking at that now."
-REPLY_AFTER = 1.0
-
-
-def append_line(path: Path, line: str) -> int:
-    """Add one line to a transcript file; returns how many lines it has now."""
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
-    return len(path.read_text().splitlines())
-
-
-def demo_send(text: str, context=None, who: str = "cli", panel: bool = False) -> dict:
-    """Demo only: add the user's line to the demo transcript, and an agent reply a second later."""
-    from datetime import datetime, timezone
-    from phoenix9 import agentlink, settings
-    path = Path(agentlink.transcript_path(agentlink.CLAUDE_HOME, settings.agent_settings()["folder"],
-                                          seed_demo.AGENT_SESSION))
-    stamp = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    sid = seed_demo.AGENT_SESSION
-    peer = {"origin": {"kind": "peer", "name": seed_demo.PANEL_PEER if panel else "Phoenix (%s)" % who}}
-    after = len(path.read_text().splitlines())
-    append_line(path, seed_demo._say("user", text, sid, stamp(), **peer))
-
-    def reply():
-        append_line(path, seed_demo._say("assistant", [{"type": "text", "text": REPLY}], sid, stamp()))
-    timer = threading.Timer(REPLY_AFTER, reply)
-    timer.daemon = True
-    timer.start()
-    return {"sent": True, "at": stamp(), "after_line": after}
-
-
-def point_agentlink_at_demo(claude_dir: Path, host) -> callable:
-    """Make the agent link (state, messages, the live stream, sending) use the demo Claude folder and demo host;
-    returns a function that puts everything back."""
-    from phoenix9 import agentlink
-    from phoenix9.ops import agent as ops_agent
-    old = {"home": agentlink.CLAUDE_HOME, "find": agentlink.find, "defaults": agentlink.status.__defaults__,
-           "send": ops_agent.send}
-    real_find = agentlink.find
-    home = str(claude_dir)
-
-    demo = host
-
-    def find(home_dir=home, host=None):
-        """The demo agent session (the demo host when none is given)."""
-        return real_find(home_dir, host or demo)
-
-    agentlink.CLAUDE_HOME = home
-    agentlink.find = find
-    agentlink.status.__defaults__ = (home, None)
-    ops_agent.send = demo_send
-    agentlink.forget()
-
-    def restore():
-        """Undo point_agentlink_at_demo."""
-        agentlink.CLAUDE_HOME, agentlink.find = old["home"], old["find"]
-        agentlink.status.__defaults__ = old["defaults"]
-        ops_agent.send = old["send"]
-    return restore
-
-
 def build_server(home: Path, projects: Path, port: int):
     """Seed the folders when they are empty, put the demo adapters in, and return the (not started) server."""
     from phoenix9.api import server
@@ -199,10 +135,7 @@ def build_server(home: Path, projects: Path, port: int):
     common.make_adapters = lambda: adapters
     from phoenix9.ops import gates as ops_gates
     ops_gates.answer = answering_moves_run(ops_gates.answer, str(home))
-    restore = point_agentlink_at_demo(seed_demo.claude_home(home), adapters.host)
-    httpd = server.make_server(port)
-    httpd.restore_agentlink = restore
-    return httpd
+    return server.make_server(port)
 
 
 def main(argv: list) -> int:
@@ -229,7 +162,6 @@ def main(argv: list) -> int:
         httpd.stopping.set()
         httpd.shutdown()
         httpd.server_close()
-        httpd.restore_agentlink()
     return 0
 
 

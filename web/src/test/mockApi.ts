@@ -1,6 +1,5 @@
 // Stubs fetch for tests: a table of "METHOD /api/path" -> data (or a function of the request; a Response is sent as it is).
 import { vi } from "vitest"
-import { agentMessages, agentSessions, agentStatuses } from "@/test/fixtures"
 
 export interface MockRequest {
   method: string
@@ -65,16 +64,5 @@ export function agentNextRoutes(): Record<string, Route> {
     "GET /api/agent-next/threads": raw({ threads: [] }),
     "GET /api/agent-next/spend": raw({ month: "2026-11", used_share: 0.1, state: "plenty" }),
     "POST /api/agent-next/threads": raw({ id: "t9" }, 201),
-  }
-}
-
-/** Routes for every /api/agent* endpoint (spread into a mockApi table; override single routes after). */
-export function agentRoutes(): Record<string, Route> {
-  return {
-    "GET /api/agent": agentStatuses.idle,
-    "GET /api/agent/messages": agentMessages,
-    "GET /api/agent/sessions": agentSessions,
-    "GET /api/agent/stream": { ok: true },
-    "POST /api/agent/send": { sent: true, at: "2026-11-07T10:02:00Z", after_line: 8 },
   }
 }

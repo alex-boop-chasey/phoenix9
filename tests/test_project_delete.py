@@ -833,8 +833,7 @@ def test_chat_units_say_who_they_are():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
     assert "Environment=PHOENIX_WHO=chat:%i" in (root / "deploy" / "claude-rc-chat@.service").read_text()
-    agent = json.loads((root / "deploy" / "agent" / "settings.json").read_text())
-    assert agent["env"]["PHOENIX_WHO"] == "chat:home"
+    assert not (root / "deploy" / "agent").exists()   # the old agent (who chat:home) was retired with its settings
 
 
 # ---- keep_days and a prune that cannot stop the runner (finding 5) ----

@@ -1,5 +1,8 @@
-"""Ops for updating Phoenix 9: status, install, rollback, the updater log and tagging a release."""
-from phoenix9 import paths, release as rel, updater
+"""Ops for updating Phoenix 9: status, install, rollback, the updater log, tagging a release and growing the safety list."""
+import tomllib
+from pathlib import Path
+
+from phoenix9 import atomic, events, paths, release as rel, settings, updater
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -83,9 +86,59 @@ def history() -> list[dict]:
 
 
 def after_install(who: str) -> dict:
-    """Copy the knowledge pack, rebuild the agent's rules (restarting the agent only if idle) and grow the
-    safety list; {skills, rules, restarted, safety_added}."""
-    from phoenix9 import agentsync
+    """Grow Phoenix's own safety list from the installed copy (run by the updater after an install); {safety_added}."""
     common.record_command(who, "update after-install")
-    ad = common.make_adapters()
-    return {**agentsync.refresh_agent(ad), "safety_added": agentsync.add_safety_files()}
+    return {"safety_added": add_safety_files()}
+
+
+def _toml(path: Path) -> dict:
+    """A TOML file as a dict ({} when missing or unreadable)."""
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _skip_safety(live: Path, why: str) -> list[str]:
+    """Log that the safety list was left alone, and add nothing."""
+    events.emit("update.safety_files_skipped", project=None, path=str(live), why=why)
+    return []
+
+
+def add_safety_files() -> list[str]:
+    """Add the installed self-project.toml's safety_files that Phoenix's live phoenix.toml lacks (never remove).
+
+    The live file is read with tomllib, the list grown (add only) and the file written back by the same writer
+    `phoenix settings add` uses (same layout, atomic). A live file that does not parse is left alone (logged);
+    the new text is parsed again before writing and nothing is written unless it gives back exactly the merged
+    settings."""
+    wanted = _toml(paths.install() / "deploy" / "self-project.toml").get("safety_files") or []
+    folder = paths.projects() / "phoenix9"
+    live = settings.project_file(folder)
+    if not live.is_file():
+        return []
+    try:
+        data = settings.load_project(folder)
+    except settings.SettingsError as e:
+        return _skip_safety(live, f"phoenix.toml does not parse, so it was left alone ({e})")
+    have = data.get("safety_files")
+    if have is not None and not isinstance(have, list):
+        return _skip_safety(live, "safety_files in phoenix.toml is not a list, so it was left alone")
+    have = list(have or [])
+    added = []
+    for w in wanted:
+        if isinstance(w, str) and w not in have and w not in added:
+            added.append(w)
+    if not added:
+        return []
+    data["safety_files"] = have + added      # top level, never inside a table
+    try:
+        text = settings.render_project(data)
+        again = tomllib.loads(text)
+    except (TypeError, ValueError) as e:
+        return _skip_safety(live, f"the new phoenix.toml would not parse ({e}), so nothing was written")
+    if again != settings.prune(data):
+        return _skip_safety(live, "the new phoenix.toml would not read back the same, so nothing was written")
+    atomic.write_text(live, text)
+    events.emit("update.safety_files_added", project=None, added=added)
+    return added

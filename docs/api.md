@@ -29,7 +29,7 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `phoenix9/agentaccess.py` (GET `/api/projects`, `/api/projects/<name>`, `/api/projects/<name>/runs`, `/api/routes`,
   and POST `/api/projects/<name>/settings` for the single key `steps.notify.on`); anything else gets 403. Every
   JSON reply to it goes through `scrub.scrub`, and its settings change is recorded with who `agent`.
-- POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
+- POST bodies are JSON objects of at most 64 KB.
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
 - Nothing in the API does work itself; it calls ops.
@@ -101,14 +101,6 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/docs/show?id=` | `ops.docs.show` | | `{id, title, text}`, scrubbed | 400 (bad id, `..`, outside the folder, not .md/.txt), 404 (no such document) |
 | GET | `/api/docs/download?id=` | `ops.docs.download` | | the scrubbed file as text with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` (not JSON) | same as show |
 | GET | `/api/projects/<name>/memory` | `ops.docs.project_memory` | | `{project, claude_md, now_md, cut}`: the project's `CLAUDE.md` and `notes/NOW.md`, scrubbed, each at most 12,000 characters (`CLAUDE.md` keeps its start, `NOW.md` its end, where the newest lines are); a missing file gives `""`; `cut` is true when either was shortened. Never follows a symlink out of the project folder. Read by the agent before working on a project | 400 (bad name; a symlink or a path out of the project folder), 404 (no such project), 409 (the agent's own folder) |
-| GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
-| GET | `/api/agent/messages?after=&limit=&session=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000; `session` = an id from `/api/agent/sessions` reads that earlier conversation instead of the current one) | 400 |
-| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |
-| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` (context values that are not allowed are dropped: `project` must be a listed project, `page`/`run` must match `[A-Za-z0-9/_.-]{1,80}`; newlines are stripped) | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
-| GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
-| POST | `/api/agent/restart` | `ops.agent.restart` (restarts the `agent.unit` service and tells Alex) | `{confirm: true}` | `{restarted, unit}` | 403, 409 (no `confirm: true`; nothing restarted) |
-| POST | `/api/agent/stop` | `ops.agent.stop` (ends the agent's running command, then sends it a fixed stop message; no write lock) | | `{stopped, sent}` | 403, 503 (the agent is asleep) |
-| POST | `/api/agent/new` | `ops.agent.new_conversation` (asks the agent to save notes, waits up to `wrap_up_minutes` without the write lock, then restarts it) | `{confirm: true}` | `{started, notes_asked, waited_seconds}` | 403, 409 (no `confirm: true`, or one already running) |
 | POST | `/api/ui/go` | `ops.ui.go` | `{to, params?: {}}` | `{hash, label}`; the open dashboard follows through a `ui.go` event | 400 (not a page, bad option: the reason), 404 (no such project, run, gate or log) |
 | POST | `/api/blocks/check` | `ops.blocks.check` | `{kind: card\|choice\|confirm\|nav, json: text}` | `{ok, reason, resolved}` (not ok gives a plain reason; nav `resolved` is `{links: [{hash, label}], dropped: [{link, to, reason}]}`) | 400 (kind or json missing) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
@@ -259,34 +251,6 @@ row is named in one 400. **Settings**: `set` values are typed JSON by dotted key
 written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
 (needs the Planner on); `overrides` are frozen into the run. A chat or the agent may not give safety settings
 (`budget_usd`, `on_failure`, `profile`, safety steps and the like) as overrides: 400 with a plain message.
-
-## Agent items
-
-Items come from the agent's transcript (`phoenix9/transcript.py`); each has `type` and `line` (its transcript line
-number). Types: `user` `{text, origin: panel|app|peer:<name>, at}`, `agent` `{markdown, at}`,
-`thinking` `{duration_s, at}`, `action` (a tool call: its title, `status`, and an excerpt of the result),
-`queued` `{text, pending, at}` (`pending` turns false when the queue-operation dequeue/remove for it arrives),
-`session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines;
-hook summaries and turn timings are left out). An `action` has `{id (the tool id), tool, title, input_summary,
-status: running|ok|error, excerpt?, done_line?}`; `done_line` is the transcript line of its result. A user line
-made of text blocks is a `user` item (an image shows as `[image]`).
-`/api/agent/messages` wraps them as `{items, unknown, last_line, session_id}`.
-
-## Agent stream frames
-
-`GET /api/agent/stream` sends server-sent events; every `id` is `<session id>:<transcript line>`.
-
-- `event: item`, data = one Agent item (above); id = `<session>:<item line>`.
-- `event: update`, data = `{type: "update", id, line, status, excerpt}`: an action already sent (usually while
-  `running`) has finished; `id` is the action's tool id (the same `id` as its item), `line` its item's line;
-  the SSE id = `<session>:<line of the result>`. A stream resumed from line N also gets updates for actions at or
-  before N that finished after N. (The web panel uses these from build 2.)
-- `event: session`, data = `{session_id}`: the agent's session changed; items from line 1 of the new transcript
-  follow. Also sent first when a `Last-Event-ID` names another session (or no session).
-- Where it starts: `?after=<n>` = after line n of the current session; else a `Last-Event-ID` of
-  `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
-  line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
-  ping timing as `/api/events`.
 
 ## Agent repair controls
 

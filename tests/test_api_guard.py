@@ -8,7 +8,7 @@ import types
 import pytest
 
 from helpers import rsatest
-from phoenix9 import access, adapters, addresses, agentlink, chatlink, paths
+from phoenix9 import access, adapters, addresses, chatlink, paths
 from phoenix9.api import server
 from phoenix9.ops import common
 from test_api_server import POST_HEADERS, api, dist, make_project  # noqa: F401  (fixtures)
@@ -29,16 +29,16 @@ def fakes(api, monkeypatch):
 def test_write_from_a_non_root_process_is_refused(api, fakes, monkeypatch):
     """A POST from a program run by another user (e.g. grunt) gets 403 with a plain message."""
     sent = []
-    monkeypatch.setattr(agentlink, "send", lambda *a, **k: sent.append(a) or {"sent": True})
+    monkeypatch.setattr(server.ops_bell, "dismiss_all", lambda *a, **k: sent.append(a) or {"count": 0, "items": []})
     fakes.host.peer_uid = 4242
-    status, body = api("/api/agent/send", "POST", POST_HEADERS, {"text": "hi"})
+    status, body = api("/api/bell/dismiss-all", "POST", POST_HEADERS, {})
     assert status == 403 and body["ok"] is False
     assert "root" in body["message"] and "uid" not in body["message"].lower()
     assert sent == []
     assert api("/api/projects", "POST", POST_HEADERS, {})[0] == 403
 
 
-@pytest.mark.parametrize("path", ["/api/agent/messages", "/api/global", "/api/keys/audit", "/api/logs/read",
+@pytest.mark.parametrize("path", ["/api/bell", "/api/global", "/api/keys/audit", "/api/logs/read",
                                   "/api/projects", "/api/nothing-here", "/", "/index.html"])
 def test_read_from_a_non_root_process_is_refused(api, fakes, path):
     """Reads need a root peer too: another user's program gets 403 with the plain message (any route)."""
@@ -47,7 +47,7 @@ def test_read_from_a_non_root_process_is_refused(api, fakes, path):
     assert status == 403 and body == {"ok": False, "message": server.NOT_ROOT}
 
 
-@pytest.mark.parametrize("path", ["/api/events", "/api/agent/stream"])
+@pytest.mark.parametrize("path", ["/api/events", "/api/events?project=alpha"])
 def test_live_streams_from_a_non_root_process_are_refused(api, fakes, path):
     fakes.host.peer_uid = 4242
     status, resp, content = api(path, raw=True)
@@ -177,13 +177,11 @@ def test_host_socket_uid_on_a_real_connection():
 
 @pytest.fixture
 def captured(monkeypatch, tmp_path):
-    """agentlink.send with a pretend live session; returns the lines written to the inbox."""
+    """chatlink.send with a pretend live session; returns the lines written to the inbox."""
     wrote = []
     found = {"pid": 1, "session_id": "s", "name": "Phoenix agent", "socket": "x", "transcript": None,
              "status": "idle"}
-    monkeypatch.setattr(agentlink, "find", lambda *a, **k: found)
     monkeypatch.setattr(chatlink, "find", lambda *a, **k: found)
-    monkeypatch.setattr(agentlink, "connect_and_write", lambda path, data, timeout=0: wrote.append(data))
     monkeypatch.setattr(chatlink, "connect_and_write", lambda path, data, timeout=0: wrote.append(data))
     return wrote
 
@@ -195,23 +193,23 @@ def first_line(raw):
 
 def test_context_unknown_project_is_dropped(captured):
     make_project("alpha")
-    agentlink.send("hi", {"project": "alpha"}, panel=True)
+    chatlink.send("hi", {"project": "alpha"}, panel=True)
     assert "project: alpha · folder: /srv/projects/alpha" in first_line(captured[-1])
-    agentlink.send("hi", {"project": "../../etc", "page": "home"}, panel=True)
+    chatlink.send("hi", {"project": "../../etc", "page": "home"}, panel=True)
     line = first_line(captured[-1])
     assert "etc" not in line and "project:" not in line and "page: home · folder: /srv/projects/home]" in line
 
 
 @pytest.mark.parametrize("bad", ["a b", "x" * 81, "<script>", "home x", "a;rm -rf", ""])
 def test_context_page_and_run_must_match_the_pattern(captured, bad):
-    agentlink.send("hi", {"page": bad, "run": bad}, panel=True)
+    chatlink.send("hi", {"page": bad, "run": bad}, panel=True)
     assert len(captured[-1].splitlines()) == 1
     assert "page:" not in first_line(captured[-1]) and "run:" not in first_line(captured[-1])
 
 
 def test_context_newlines_are_stripped(captured):
     make_project("alpha")
-    agentlink.send("hi", {"page": "home\n", "run": "2026\r\n-r1", "project": "al\npha"}, panel=True)
+    chatlink.send("hi", {"page": "home\n", "run": "2026\r\n-r1", "project": "al\npha"}, panel=True)
     line = first_line(captured[-1])
     assert "page: home" in line and "run: 2026-r1" in line and "project: alpha" in line
     body = json.loads(captured[-1])["message"]["content"]
@@ -219,12 +217,12 @@ def test_context_newlines_are_stripped(captured):
 
 
 def test_context_folder_is_a_listed_project_or_the_agent_folder(captured):
-    agentlink.send("hi", {"project": "ghost", "run": "r1"}, panel=True)
+    chatlink.send("hi", {"project": "ghost", "run": "r1"}, panel=True)
     assert "folder: /srv/projects/home" in first_line(captured[-1])
 
 
 def test_context_values_that_are_not_text_are_dropped(captured):
-    agentlink.send("hi", {"page": 7, "run": ["x"], "project": None, "extra": "no"}, panel=True)
+    chatlink.send("hi", {"page": 7, "run": ["x"], "project": None, "extra": "no"}, panel=True)
     assert json.loads(captured[-1])["message"]["content"].split("\n")[1] == "hi"
 
 
@@ -306,7 +304,7 @@ def test_lock_certs_refetched_after_an_hour(locked, key, monkeypatch):
 
 def test_lock_on_covers_reads_but_not_health(api, locked, key):
     """With the lock on, every route but /api/health needs a valid token, reads and the web app included."""
-    for path in ("/api/global", "/api/agent/messages", "/", "/api/events"):
+    for path in ("/api/global", "/api/bell", "/", "/api/events"):
         status, _resp, content = api(path, raw=True)
         assert status == 403 and "Cloudflare Access" in json.loads(content)["message"]
     assert api("/api/health")[0] == 200

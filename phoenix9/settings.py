@@ -261,11 +261,11 @@ def check_cpus_setting() -> str | int | float:
     return "all" if value is None else value
 
 
-AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
+AGENT_DEFAULTS = {"folder": "/srv/projects/home", "unit": "claude-rc@home"}
 
 
 def agent_settings() -> dict:
-    """The [agent] table of global.toml (folder, unit, watchdog) with defaults filled in."""
+    """The [agent] table of global.toml (folder, unit; read by the project chat code) with defaults filled in."""
     table = read_global().get("agent")
     table = table if isinstance(table, dict) else {}
     out = {}

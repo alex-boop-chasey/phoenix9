@@ -105,9 +105,12 @@ def test_run_detail_shows_cap_and_spent(tmp_path, project, adapters, lib):  # no
 
 
 def test_agent_rule_and_safety_key():
+    """No agent control takes a spending cap, the agent's settings writes refuse it, and it has no default."""
     from pathlib import Path
-    rules = (Path(__file__).resolve().parent.parent / "deploy" / "agent" / "agent-rules.md").read_text()
-    assert "Never raise a build's spending cap" in rules
+    from phoenix9 import agentaccess
+    controls = (Path(__file__).resolve().parent.parent / "agentkit" / "agentkit" / "packs" / "phoenix" / "controls.json").read_text()
+    assert "budget" not in controls
+    assert agentaccess.settings_refusal("POST", "/api/projects/p/settings", {"set": {"budget_usd": 99}})
     assert settings.PROJECT_SCHEMA["budget_usd"].default is None
 
 

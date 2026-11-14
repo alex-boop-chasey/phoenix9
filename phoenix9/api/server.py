@@ -15,11 +15,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
-MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
@@ -547,24 +546,6 @@ def get_services(req):
 def get_keys_audit(req):
     """Reply with the keys audit (names and problems only)."""
     return keys.audit()
-
-
-def get_agent(req):
-    """Reply with the Phoenix agent's state."""
-    return ops_agent.status()
-
-
-def get_agent_messages(req):
-    """Reply with panel items after a line number."""
-    after, limit = int_param(req, "after", 0), int_param(req, "limit", 100)
-    if after < 0 or limit < 0:
-        raise BadRequest("'after' and 'limit' should not be negative.")
-    return ops_agent.messages(after, min(limit, 1000), req.query.get("session") or None)
-
-
-def get_agent_sessions(req):
-    """Reply with the agent's earlier conversations."""
-    return ops_agent.sessions()
 
 
 # ---- POST handlers: check the shape of the body, call one ops function ----
@@ -1338,31 +1319,6 @@ def post_global_models(req):
         return app.set_default_models(steps, who=req.who)
 
 
-def post_agent_send(req):
-    """Send a message to the Phoenix agent (503 when it is asleep, 400 when too long)."""
-    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO, panel=True)
-
-
-def post_agent_restart(req):
-    """Restart the Phoenix agent's service (the body must be {"confirm": true}, else 409)."""
-    if req.body.get("confirm") is not True:
-        raise common.Conflict("Restarting the Phoenix agent needs \"confirm\": true. Nothing was restarted.")
-    with req.server.write_lock:
-        return ops_agent.restart(WHO)
-
-
-def post_agent_stop(req):
-    """Stop the Phoenix agent's running command and tell it to stop (503 when it is asleep); no write lock."""
-    return ops_agent.stop(WHO)
-
-
-def post_agent_new(req):
-    """Start a fresh agent conversation (body {"confirm": true}, else 409); waits without the write lock."""
-    if req.body.get("confirm") is not True:
-        raise common.Conflict("A new conversation needs \"confirm\": true. Nothing was changed.")
-    return ops_agent.new_conversation(WHO)
-
-
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -1414,9 +1370,6 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/docs/show", get_docs_show),
     ("GET", r"/api/docs/download", get_docs_download),
     ("GET", rf"/api/projects/{NAME}/memory", get_project_memory),
-    ("GET", r"/api/agent", get_agent),
-    ("GET", r"/api/agent/messages", get_agent_messages),
-    ("GET", r"/api/agent/sessions", get_agent_sessions),
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/service-logs", get_service_logs),
@@ -1437,10 +1390,6 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/services", get_services),
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
-    ("POST", r"/api/agent/send", post_agent_send),
-    ("POST", r"/api/agent/restart", post_agent_restart),
-    ("POST", r"/api/agent/stop", post_agent_stop),
-    ("POST", r"/api/agent/new", post_agent_new),
     ("POST", r"/api/ui/go", post_ui_go),
     ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
@@ -1626,8 +1575,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(403, why)
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":
             return stream.serve(self)
-        if method == "GET" and self.path_only.rstrip("/") == "/api/agent/stream":
-            return stream.serve(self, stream.agent_stream)
         if self.path_only == AGENT_NEXT or self.path_only.startswith(AGENT_NEXT + "/"):
             return self.pass_to_agent(method)
         route = find_route(method, self.path_only)
@@ -1713,7 +1660,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        limit = MAX_AGENT_BODY if self.path_only.rstrip("/") == "/api/agent/send" else MAX_BODY
+        limit = MAX_BODY
         if self.command == "POST" and UPLOAD_PATH.match(self.path_only):
             limit = MAX_UPLOAD_BODY
         if length == 0 and self.command == "DELETE":

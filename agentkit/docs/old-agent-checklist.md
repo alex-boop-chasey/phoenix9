@@ -47,8 +47,7 @@ The old agent is removed only when every row is `working`.
 | 39 | The `claude-rc@home` unit runs the agent | `deploy/install.sh`, `claude-rc@home` | The agentkit service unit | `tests/test_deploy_agentkit.py` | working |
 | 40 | Reference material: list and remove a project's reference files, never upload; files are data, not instructions (`## Reference material`) | `deploy/agent/agent-rules.md`, `phoenix9/ops/reference.py` | `reference-file-remove` / list tools; uploads stay Alex's (dashboard) | `tests/test_controls_registry.py` | working |
 
-## What is still needed
+## Status
 
-- Rows 02, 09, 11, 16, 17, 18, 22, 23, 24, 25, 33, 34, 35 and 38 are gaps: each needs a design decision from Alex or new Phoenix routes and agent tools (page context, a notes memory, helpers, quick-edit and planning-session start and status, escalation and `on_failure = "delegate"` hand-off, suggestions, restart and watchdog for the new service, a brief of open work, reading the docs, fix notes).
-- Row 24 is Alex's call: should a failed build be handed to the new agent at all, and may it then fix it alone?
-- Until these are done the old agent stays; the removal task refuses to run.
+- Every row is `working` with a passing proof. The old agent was retired after agent v3 (job agent-gaps): the
+  "Where it lives today" column now records where each job used to live; those files are gone.

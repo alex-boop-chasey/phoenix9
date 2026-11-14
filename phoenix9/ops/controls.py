@@ -403,14 +403,6 @@ CONTROLS = (
     _get("github-repos", "github.repos", "/api/github/repos", "later", LATER),
     _post("blocks-check", "blocks.check", "/api/blocks/check", "read", "later", "A dashboard editor helper; not a control."),
     _post("ui-go", "ui.go", "/api/ui/go", "read", "later", "The agent's go_to tool has its own route (build 1)."),
-    # ---- the old agent's own controls ----
-    _get("agent-status", "agent.status", "/api/agent", "later", "The old Phoenix agent's panel; not for the new agent."),
-    _get("agent-messages", "agent.messages", "/api/agent/messages", "later", "The old Phoenix agent's panel."),
-    _get("agent-sessions", "agent.sessions", "/api/agent/sessions", "later", "The old Phoenix agent's panel."),
-    _post("agent-send", "agent.send", "/api/agent/send", "change", "later", "The old Phoenix agent's panel."),
-    _post("agent-restart", "agent.restart", "/api/agent/restart", "destructive", "later", "The old agent's panel."),
-    _post("agent-stop", "agent.stop", "/api/agent/stop", "destructive", "later", "The old agent's panel."),
-    _post("agent-new", "agent.new_conversation", "/api/agent/new", "destructive", "later", "The old agent's panel."),
     # ---- suggestions, report ----
     _get("suggest-list", "suggest.list_", "/api/suggest", "tool",
          text="List up to three ideas for what could be done next or better (from the status report). "
@@ -525,10 +517,9 @@ HELPERS = {
     # update
     "update.release": "Internal: the newest release lookup.",
     "update.after_install": "Runner-only: runs after the updater installs.",
+    "update.add_safety_files": "Runner-only: grows Phoenix's own safety list (called by update.after_install).",
     "docs.resolve": "Internal: finds a document for show and download.",
     "repair.apply": "CLI-only: `phoenix repair apply` (the dashboard uses apply_text; repair is build 3).",
     "report.status": "CLI-only: `phoenix report status` (the dashboard uses report.saved).",
-    # agent (the old one)
-    "agent.brief": "Internal: the old agent's brief.",
 }
 

@@ -41,6 +41,13 @@ def test_working_rows_name_a_proof_that_exists():
 
 
 def test_the_checklist_mentions_every_route_command_and_rules_heading():
+    """Before the retirement, every old route, command and rules heading is a row; after it, the old sources are gone."""
+    import json
+    if json.loads((ROOT / "tests/data/retirement.json").read_text())["done"]:
+        api = (ROOT / "docs/api.md").read_text()
+        assert not re.findall(r"`(/api/agent/[a-z]+)", api)
+        assert not (ROOT / "phoenix9/cli/agent.py").exists() and not (ROOT / "deploy/agent/agent-rules.md").exists()
+        return
     text = CHECKLIST.read_text()
     api = (ROOT / "docs/api.md").read_text()
     for route in set(re.findall(r"`(/api/agent/[a-z]+)", api)):

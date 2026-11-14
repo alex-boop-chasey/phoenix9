@@ -26,7 +26,7 @@ def add(sub, common_args) -> None:
     p.add_argument("--lines", type=int, default=200)
     p.set_defaults(func=log)
     p = group.add_parser("after-install", parents=[common_args],
-                         help="refresh the agent's knowledge pack and rules, and grow Phoenix's safety list")
+                         help="grow Phoenix's safety list from the installed copy")
     p.set_defaults(func=after_install)
     p = group.add_parser("release", parents=[common_args], help="tag the current main as a new release")
     p.add_argument("--yes", action="store_true", help="go ahead")
@@ -122,14 +122,7 @@ def release(args) -> int:
 
 
 def after_install(args) -> int:
-    """Refresh the agent folder from the installed copy (run by the updater after an install)."""
+    """Grow Phoenix's own safety list from the installed copy (run by the updater after an install)."""
     r = ops.after_install(args.who)
-    words = ["Knowledge pack copied (%d files)." % r["skills"], "Agent helpers copied (%d files)." % r.get("helpers", 0),
-             "Agent rules: %s." % r["rules"]]
-    if r["restarted"]:
-        words.append("The agent was restarted.")
-    elif r["rules"] == "updated":
-        words.append("Agent rules updated; restart when idle.")
-    if r["safety_added"]:
-        words.append("Safety list grew by %d." % len(r["safety_added"]))
+    words = ["Safety list grew by %d." % len(r["safety_added"]) if r["safety_added"] else "Safety list already complete."]
     return show(args, r, " ".join(words))

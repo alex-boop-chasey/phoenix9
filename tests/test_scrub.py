@@ -152,12 +152,12 @@ def test_fresh_cli_process_loads_phoenix_secrets(tmp_path):
     keys.write_secret_file("service-supabase.env", {"SUPABASE_ACCESS_TOKEN": "sbp_global_value_88"})
     line = json.dumps({"type": "user", "message": {"content": "pasted rk_live_project_value_77 and sbp_global_value_88"}})
     code = ("import io, contextlib, json, sys\n"
-            "from phoenix9 import scrub, transcript\n"
+            "from phoenix9 import scrub\n"
             "assert not scrub.known_secrets()\n"
             "from phoenix9.__main__ import main\n"
             "with contextlib.redirect_stdout(io.StringIO()):\n"
             "    main([])\n"
-            "print(json.dumps(transcript.parse([sys.argv[1]])[0]))\n")
+            "print(scrub.scrub(sys.argv[1]))\n")
     root = Path(__file__).resolve().parent.parent
     out = subprocess.run([sys.executable, "-c", code, line], capture_output=True, text=True, cwd=root,
                          env={**os.environ}, timeout=60)

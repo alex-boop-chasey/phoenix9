@@ -18,7 +18,7 @@ def test_report_returns_markdown_and_findings(api, phoenix_env, tmp_path):
     assert status == 200
     data = body["data"]
     assert data["project"] == rr.PROJECT and "Run report" in data["markdown"]
-    assert isinstance(data["findings"], list)
+    assert isinstance(data["findings"], list) and isinstance(data["failed_steps"], list)
     assert (made["run_dir"] / "repairs/report.md").read_text() == data["markdown"]
 
 

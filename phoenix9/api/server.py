@@ -1016,7 +1016,8 @@ def get_repair_report(req, run_id):
     with req.server.write_lock:
         done = ops_repair.report(run_id)
         found = ops_repair.check(run_id)["problems"]
-    return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
+    return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found,
+            "failed_steps": done["failed_steps"]}
 
 
 def get_repair_diagnose(req, run_id):

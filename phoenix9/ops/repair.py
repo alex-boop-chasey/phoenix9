@@ -61,10 +61,12 @@ def check(run_id: str, project: str | None = None) -> dict:
 
 
 def report(run_id: str, project: str | None = None) -> dict:
-    """Write and return the run report: {run_id, project, path, text}."""
+    """Write and return the run report: {run_id, project, path, text, failed_steps}."""
     folder = _run_folder(run_id, project)
     text = report_mod.write(folder)
-    return {"run_id": run_id, "project": folder.parent.name, "path": str(report_mod.report_path(folder)), "text": text}
+    failed = check_mod.failed_steps(state.load(folder) or {})
+    return {"run_id": run_id, "project": folder.parent.name, "path": str(report_mod.report_path(folder)), "text": text,
+            "failed_steps": failed}
 
 
 def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unlock: bool = False) -> dict:

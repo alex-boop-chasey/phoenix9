@@ -1,5 +1,7 @@
 """Tests for the run report: healthy run, a fix line per finding, rewritten on change, the 5-line tail, no secrets."""
-from test_repair_check import G1, RUN, build, line, task
+import json
+
+from test_repair_check import G1, RUN, build, line, run_line, task
 
 from phoenix9 import __main__ as cli_main, atomic, state
 from phoenix9.repair import check, report
@@ -18,7 +20,8 @@ def test_healthy_run(tmp_path):
     assert (run_dir / "repairs" / "report.md").read_text() == text
     assert "Status: failed" in text and "Task 1 (T): failed, try 1" in text
     assert "tests did not pass" in text
-    assert "No problems found." in text and "Repair note lines" not in text
+    assert "No problems found." not in text and "Repair note lines" not in text
+    assert "Nothing is inconsistent, but the run failed" in text and "## Failed steps" not in text
     assert "Branch: phoenix/" + RUN in text and "Env files found: none" in text
     assert "No question is open." in text
 
@@ -75,3 +78,31 @@ def test_cli_report(tmp_path, capsys):
     assert (run_dir / "repairs" / "report.md").is_file()
     assert cli_main.main(["repair", "report", RUN, "--json"]) == 0
     assert '"path"' in capsys.readouterr().out
+
+
+def failed_suite_run(tmp_path):
+    """A failed run whose tasks all passed but whose full suite failed."""
+    note = "The checks did not pass:\n2 tests failed\nAPI_TOKEN=supersecretvalue123"
+    return build(tmp_path, "failed", {"1": task("passed", 1)}, [run_line("full-suite", "failed", note=note)],
+                 attempts={1: ["passed"]})
+
+
+def test_failed_steps_shown_and_never_no_problems(tmp_path):
+    text = report.write(failed_suite_run(tmp_path))
+    assert "## Failed steps" in text and "- Full suite: failed" in text and "      2 tests failed" in text
+    assert "Nothing is inconsistent, but these steps failed:" in text
+    assert "No problems found." not in text and "supersecretvalue123" not in text
+
+
+def test_done_run_with_no_findings_says_no_problems(tmp_path):
+    run_dir = build(tmp_path, "done", {"1": task("passed", 1)}, attempts={1: ["passed"]})
+    assert "No problems found." in report.write(run_dir)
+
+
+def test_cli_report_json_lists_failed_steps(tmp_path, capsys):
+    failed_suite_run(tmp_path)
+    assert cli_main.main(["repair", "report", RUN, "--json"]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert [f["title"] for f in out["failed_steps"]] == ["Full suite"]
+    assert out["failed_steps"][0]["reasons"][0] == "2 tests failed"
+    assert "supersecretvalue123" not in json.dumps(out)

@@ -1993,7 +1993,7 @@
   },
   {
     "name": "repair-report",
-    "description": "Write and return the run report: {run_id, project, path, text}.",
+    "description": "Write and return the run report: {run_id, project, path, text, failed_steps}.",
     "inputs": [],
     "risk": "read",
     "agent": "later",

@@ -353,3 +353,26 @@ def test_cli_json(tmp_path, capsys):
 
 def test_cli_unknown_run(tmp_path, capsys):
     assert cli_main.main(["repair", "check", "20261108-000000-nope"]) != 0
+
+
+def run_line(step, status, group="run-finish", note=""):
+    return {"group": group, "task": None, "step": step, "status": status, "gate": None, "note": note}
+
+
+def test_failed_steps_lists_failed_run_lines_with_scrubbed_reasons():
+    st = {"steps": [run_line("setup", "passed", "run-start"), line("build", "failed"),
+                    run_line("full-suite", "failed", note="The checks did not pass:\n2 tests failed\n"
+                             "API_TOKEN=supersecretvalue123\nthird\nfourth"),
+                    run_line("merge", "skipped")]}
+    got = check.failed_steps(st, title_of=lambda name: {"full-suite": "Full suite"}.get(name, ""))
+    assert [f["step"] for f in got] == ["full-suite"]
+    assert got[0]["title"] == "Full suite" and got[0]["group"] == "run-finish"
+    assert got[0]["reasons"][0] == "2 tests failed" and len(got[0]["reasons"]) == 3
+    assert "supersecretvalue123" not in json.dumps(got)
+
+
+def test_failed_steps_empty_and_titles_from_library():
+    assert check.failed_steps({"steps": [run_line("full-suite", "passed")]}) == []
+    got = check.failed_steps({"steps": [run_line("full-suite", "failed", note="boom")]})
+    assert got[0]["title"] == load_library(paths.library()).step("full-suite").title
+    assert check.failed_steps({"steps": [run_line("no-such-step", "failed", "run-start")]})[0]["title"] == "no-such-step"

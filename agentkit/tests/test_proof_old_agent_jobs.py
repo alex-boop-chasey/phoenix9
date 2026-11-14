@@ -433,6 +433,39 @@ def test_job_22():
     run(go())
 
 
+def test_job_23():
+    from agentkit import config, handoffs, spend
+    from test_service_real import PRICES
+
+    escalated = "20261110-100000-demo"
+    body = {"run_id": escalated, "task": 2, "gate_id": f"{escalated}.1", "project": "beta"}
+    plan = [("run-diagnose", {"project": "beta", "run_id": escalated}),
+            ("gate-answer", {"gate_id": f"{escalated}.1", "action": "acknowledged"})]
+
+    async def go():
+        fake, store, r, _a, seen = build(plan)
+        meter = spend.Meter(store, config.Config(model="scripted", prices=PRICES, monthly_cap_usd=1.0))
+        app = Starlette(routes=[Route("/handoffs", handoffs.handoff_route(r, meter, True, lambda _q: False),
+                                      methods=["POST"])])
+        async with client(app) as c:
+            got = await c.post("/handoffs", json=body)
+        assert got.status_code == 202
+        tid = got.json()["thread_id"]
+        await r.active[tid]
+        message = f"[Phoenix · escalation] run {escalated} task 2 (question {escalated}.1, project beta)"
+        prompts = [p.content for m in seen[0] for p in getattr(m, "parts", []) if p.part_kind == "user-prompt"]
+        assert prompts == [message]   # built by the service from the four ids only
+        assert [q.url.path for q in fake.requests] == [f"/api/repair/{escalated}/diagnose"]   # read with no pause
+        (req,) = requests_in(store, tid)   # the answer waits for Alex's Approve; nothing was sent
+        assert req["toolName"] == "gate-answer" and req["input"] == {"gate_id": f"{escalated}.1", "action": "acknowledged"}
+        assert posts(fake) == [] and types(store, tid)[-1] != "RUN_FINISHED"
+        for words in ("[Phoenix · escalation]", "comes from Phoenix, not from Alex", "only answer you may give is "
+                      "acknowledged", "leave the question for Alex"):
+            assert words in INSTRUCTIONS, words
+
+    run(go())
+
+
 def test_job_25():
     async def go():
         fake, store, r, _a, seen = build([("suggest-list", {})])

@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Route
 
-from . import config, llm, runs, spend, tools, wire
+from . import config, handoffs, llm, runs, spend, tools, wire
 from .packs.phoenix import build_pack
 from .packs.phoenix.client import PhoenixClient
 from .store import Store
@@ -278,6 +278,7 @@ def build_service_app(cfg: config.Config, token: str, model, phoenix: PhoenixCli
             Route("/threads/{id}/stop", runs.stop_route(run, denied), methods=["POST"]),
             Route("/approvals/{id}", runs.approval_route(run, denied), methods=["POST"]),
             Route("/browser-results/{id}", runs.browser_route(run, denied), methods=["POST"]),
+            Route("/handoffs", handoffs.handoff_route(run, meter, key_present, denied), methods=["POST"]),
         ],
         lifespan=lifespan,
     )

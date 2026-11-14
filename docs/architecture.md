@@ -1079,13 +1079,19 @@ owned by the agent user, put there by Alex), `token` (the shared token, root:pho
 `agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
 needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
 `POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
-`POST /browser-results/{id}`, `GET /spend`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+`POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
 A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
 answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
 logged as Alex's message only when it starts. A thread waiting on Alex's answer to a change refuses new messages
 (409). Stop empties the queue (`run_stopped` says how many were dropped). The queue is in memory only: a service
 restart drops it.
+`POST /handoffs` takes exactly `{run_id, task, gate_id, project}` (each checked strictly; anything else is 400) for a
+build task that ran out of tries. It opens a new thread titled "Build needs help: <project> task <n>" and starts a run
+whose message the service builds from those ids only: `[Phoenix · escalation] run <run_id> task <n> (question
+<gate_id>, project <project>)`; answer 202 `{thread_id, run_id}`. One hand-off per question (kept in the `handoffs`
+table): a second POST for the same `gate_id` answers 200 with the first thread and starts nothing. With no API key,
+prices not set or the monthly allowance used up it answers 409 in plain words, so Phoenix pauses for Alex instead.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.

@@ -51,11 +51,13 @@ export interface ConversationProps {
   /** A message to send as soon as the conversation shows (once per key). */
   pending?: { key: number; text: string }
   onPendingSent?: (key: number) => void
+  /** Called when an approval card starts waiting for Alex. */
+  onApprovalWaiting?: () => void
 }
 
 /** One conversation: the chat, cards, approvals, Stop and the message box. */
 export function Conversation(props: ConversationProps) {
-  const { thread, earlier, earlierCards, follow, onRunEnd, heading = true, context, chip, goTo, queued = [], onQueued, onStopped, onThread, pending, onPendingSent } = props
+  const { thread, earlier, earlierCards, follow, onRunEnd, heading = true, context, chip, goTo, queued = [], onQueued, onStopped, onThread, pending, onPendingSent, onApprovalWaiting } = props
   const navigate = useNavigate()
   const browserHandler = useMemo(() => makeGoTo(goTo ?? ((hash) => navigate(hash))), [goTo, navigate])
   const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread, follow)
@@ -69,6 +71,13 @@ export function Conversation(props: ConversationProps) {
     if (side.running) setWasRunning(true)
     else if (wasRunning) { setWasRunning(false); onRunEnd() }
   }, [side.running, wasRunning, onRunEnd])
+
+  const waiting = side.approvals.filter((a) => a.decision === "pending").length
+  const waitingBefore = useRef(waiting)
+  useEffect(() => {
+    if (waiting > waitingBefore.current) onApprovalWaiting?.()
+    waitingBefore.current = waiting
+  }, [waiting, onApprovalWaiting])
 
   useEffect(() => {
     if (side.thread) onThread?.(side.thread)

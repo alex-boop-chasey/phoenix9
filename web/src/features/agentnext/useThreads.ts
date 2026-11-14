@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 
 import {
   agentAvailable, agentGet, cardsFromEvents, lastRunStart, linesFromEvents, startedRuns,
-  type Allowance, type CardItem, type ChatLine, type Frame, type ThreadInfo,
+  type Allowance, type CardItem, type NotAnswering, type ChatLine, type Frame, type ThreadInfo,
 } from "./runtime"
 
 /** The browser's memory of the last conversation, shared by the page and the drawer so both show the same chat. */
@@ -42,6 +42,8 @@ export function useThreads(active = true) {
   const [opened, setOpened] = useState(0)
   const [follow, setFollow] = useState<{ frames: Frame[] } | undefined>(undefined)
   const [problem, setProblem] = useState<string | null>(null)
+  const [reason, setReason] = useState<NotAnswering | null>(null)
+  const [checks, setChecks] = useState(0)
   const [ready, setReady] = useState(false)
 
   const refresh = useCallback(async () => {
@@ -93,6 +95,7 @@ export function useThreads(active = true) {
     void agentAvailable().then(async (got) => {
       if (gone) return
       setProblem(got.ok ? null : got.message)
+      setReason(got.ok ? null : got.reason)
       if (got.ok) {
         void refresh()
         const last = lastThread()
@@ -101,7 +104,10 @@ export function useThreads(active = true) {
       if (!gone) setReady(true)
     })
     return () => { gone = true }
-  }, [active, refresh, open])
+  }, [active, refresh, open, checks])
+
+  /** Ask the agent again whether it answers (after a restart); loads the conversation when it does. */
+  const recheck = useCallback(() => setChecks((n) => n + 1), [])
 
   const fresh = useCallback(() => {
     try {
@@ -114,5 +120,5 @@ export function useThreads(active = true) {
     setOpened((n) => n + 1)
   }, [])
 
-  return { threads, allowance, current, earlier, earlierCards, opened, follow, problem, ready, refresh, open, fresh, followQueued }
+  return { threads, allowance, current, earlier, earlierCards, opened, follow, problem, reason, ready, refresh, open, fresh, followQueued, recheck }
 }

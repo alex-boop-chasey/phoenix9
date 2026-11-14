@@ -57,18 +57,23 @@ export async function agentGet<T>(path: string): Promise<T | null> {
   }
 }
 
-/** Whether the agent can be used; if not, the plain message to show in place of the chat. */
-export async function agentAvailable(): Promise<{ ok: true } | { ok: false; message: string }> {
+/** Why the agent is not answering: it has no API key, its service is not running, or it is not set up on this server. */
+export type NotAnswering = "no-key" | "not-running" | "not-set-up"
+
+/** Whether the agent can be used; if not, the plain message to show in place of the chat and why. */
+export async function agentAvailable(): Promise<{ ok: true } | { ok: false; message: string; reason: NotAnswering }> {
   const down = "The agent isn't available right now."
   try {
     const res = await fetch(agentUrl("status"), { headers: { "X-Phoenix": "1" } })
     const body = await res.json().catch(() => ({}))
     const said = typeof body?.message === "string" ? body.message : null
-    if (!res.ok || body?.running === false) return { ok: false, message: said ?? down }
-    if (body?.key_present === false) return { ok: false, message: said ?? "The agent has no API key yet." }
+    if (!res.ok || body?.running === false) {
+      return { ok: false, message: said ?? down, reason: said && /set up/i.test(said) ? "not-set-up" : "not-running" }
+    }
+    if (body?.key_present === false) return { ok: false, message: said ?? "The agent has no API key yet.", reason: "no-key" }
     return { ok: true }
   } catch {
-    return { ok: false, message: down }
+    return { ok: false, message: down, reason: "not-running" }
   }
 }
 

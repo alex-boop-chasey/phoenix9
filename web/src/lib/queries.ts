@@ -187,6 +187,11 @@ export const useLibraryTools = () => useQuery({ queryKey: keys.library("tools"),
 export const useLibraryServices = (enabled = true) =>
   useQuery({ queryKey: keys.library("services"), queryFn: api.libraryServices, enabled })
 
+/** Restart the new agent's service (answers at once; the caller checks when it is back). */
+export function useRestartAgentService() {
+  return useMutation({ mutationFn: () => api.restartAgentService() })
+}
+
 /** Remove a project from Phoenix (the page refreshes the lists itself, after the row fades out). */
 export function useRemoveProject() {
   return useMutation({ mutationFn: (name: string) => api.removeProject(name) })

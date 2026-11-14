@@ -1,15 +1,17 @@
-// The Agent drawer: page context with each message, the chip, sending while it works, the open-agent event, same chat as the page.
-import { act, render, screen, waitFor, within } from "@testing-library/react"
+// The Agent drawer: page context with each message, the chip, sending while it works, the open-agent event, same chat as the page,
+// the "not answering" card with Restart, and the unread dot on the Agent button.
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { useRef } from "react"
 import { MemoryRouter } from "react-router"
 
 import { AppShell } from "@/components/AppShell"
 import { info, projects } from "@/test/fixtures"
-import { mockApi, raw, type MockRequest, type Route } from "@/test/mockApi"
+import { failure, mockApi, raw, type MockRequest, type Route } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 import { AgentDrawer, type DrawerAsk } from "./AgentDrawer"
 import AgentNextPage from "./AgentNextPage"
+import { RESTART_LIMIT_MS, RESTART_LOOK_MS } from "./NotAnswering"
 
 type Ev = Record<string, unknown>
 const enc = new TextEncoder()
@@ -38,7 +40,6 @@ function service(o: { extra?: Record<string, Route>; thread?: Ev[]; running?: ()
   const runAnswers = o.runs ?? [raw({ run_id: "r1", queued: false }, 202)]
   const stored = () => (o.storedNow ? o.storedNow() : o.thread ?? STORED).map((event, i) => ({ number: i + 1, event }))
   mockApi({
-    ...o.extra,
     "GET /api/agent-next/status": raw({ running: true, key_present: true }),
     "GET /api/agent-next/threads": raw({ threads: [{ id: "t1", title: "Where is the doctor?", created: 1, last_used: 1700000000 }] }),
     "GET /api/agent-next/spend": raw({ month: "2026-11", used_share: 0.1, state: "plenty" }),
@@ -49,6 +50,7 @@ function service(o: { extra?: Record<string, Route>; thread?: Ev[]; running?: ()
     "POST /api/agent-next/threads/t9/runs": (req: MockRequest) => { posts.push(req); return runAnswers[Math.min(r++, runAnswers.length - 1)] },
     "GET /api/agent-next/threads/t1/stream": () => streamAnswer(),
     "GET /api/agent-next/threads/t9/stream": () => streamAnswer(),
+    ...o.extra,
   })
   function streamAnswer() {
     const s = (o.streams ?? [])[n++] ?? { frames: [] }
@@ -181,5 +183,136 @@ describe("the open-agent event", () => {
     expect(panel).toHaveClass("open")
     await waitFor(() => expect(runPosts(svc.posts)).toHaveLength(1))
     expect(runPosts(svc.posts)[0]).toEqual({ message: "Tell me about this project", context: { page: "project/overview", project: "demo-site" } })
+  })
+})
+
+const NOT_RUNNING = "The new agent isn't running."
+const DOWN = raw({ ok: false, message: NOT_RUNNING }, 503)
+const UP = raw({ running: true, key_present: true })
+
+/** The drawer inside the query provider (the Restart button posts through it). */
+function setupWithProviders() {
+  return renderWithProviders(<Drawer />, { route: "/settings" })
+}
+
+/** A service that is down until `up()`; the restart route answers with `restart`. */
+function downService(restart: Route = { service: "agent", restarted: true, waited: false, doctor: [] }) {
+  let isUp = false
+  const svc = service({
+    extra: {
+      "GET /api/agent-next/status": () => (isUp ? UP : DOWN),
+      "POST /api/service/agent/restart": (req: MockRequest) => { svc.posts.push(req); return typeof restart === "function" ? restart(req) : restart },
+    },
+  })
+  return { ...svc, up: () => { isUp = true }, restarts: () => svc.posts.filter((p) => p.path === "/api/service/agent/restart") }
+}
+
+describe("when the agent is not answering", () => {
+  afterEach(() => vi.useRealTimers())
+
+  it.each([
+    ["not running", DOWN, "The agent is not running", NOT_RUNNING, true],
+    ["not set up", raw({ ok: false, message: "The agent isn't set up yet: its token file can't be read." }, 503),
+      "The agent is not set up yet", "The agent isn't set up yet: its token file can't be read.", false],
+    ["without a key", raw({ running: true, key_present: false, message: "The new agent has no API key yet." }),
+      "The agent has no API key yet", "The new agent has no API key yet.", false],
+  ])("shows a card saying it is %s", async (_name, status, heading, words, restart) => {
+    service({ extra: { "GET /api/agent-next/status": status } })
+    setupWithProviders()
+    const card = await screen.findByTestId("agent-not-answering")
+    expect(within(card).getByRole("heading", { name: heading })).toBeInTheDocument()
+    expect(card).toHaveTextContent(words)
+    expect(within(card).queryByRole("button", { name: "Restart the agent" }) !== null).toBe(restart)
+    expect(screen.queryByLabelText("Message")).toBeNull()
+  })
+
+  it("asks before restarting, posts once, then says the agent is back and shows the conversation", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const svc = downService()
+    setupWithProviders()
+    fireEvent.click(await screen.findByRole("button", { name: "Restart the agent" }))
+    const dialog = await screen.findByRole("alertdialog")
+    expect(dialog).toHaveTextContent("Restart the agent?")
+    expect(svc.restarts()).toHaveLength(0)
+    fireEvent.click(within(dialog).getByRole("button", { name: "Restart" }))
+    await waitFor(() => expect(svc.restarts()).toHaveLength(1))
+    expect(svc.restarts()[0]!.body).toEqual({ yes: true })
+    expect(await screen.findByText("Restarting the agent…")).toBeInTheDocument()
+    svc.up()
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTART_LOOK_MS) })
+    expect(await screen.findByText("The agent is back.")).toBeInTheDocument()
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument()
+    expect(screen.queryByTestId("agent-not-answering")).toBeNull()
+    expect(svc.restarts()).toHaveLength(1)
+  })
+
+  it("says plainly when the agent does not come back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const svc = downService()
+    setupWithProviders()
+    fireEvent.click(await screen.findByRole("button", { name: "Restart the agent" }))
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Restart" }))
+    await waitFor(() => expect(svc.restarts()).toHaveLength(1))
+    await act(async () => { await vi.advanceTimersByTimeAsync(RESTART_LIMIT_MS + RESTART_LOOK_MS) })
+    expect(await screen.findByRole("alert")).toHaveTextContent("The agent did not come back within 30 seconds.")
+    expect(screen.getByRole("button", { name: "Restart the agent" })).toBeEnabled()
+    expect(svc.restarts()).toHaveLength(1)
+  })
+
+  it("shows Phoenix's words when the restart is refused", async () => {
+    const svc = downService(failure(400, "The agent is not set up yet."))
+    setupWithProviders()
+    fireEvent.click(await screen.findByRole("button", { name: "Restart the agent" }))
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Restart" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("The restart did not work: The agent is not set up yet.")
+    expect(svc.restarts()).toHaveLength(1)
+  })
+})
+
+describe("the unread dot on the Agent button", () => {
+  const shell = {
+    "GET /api/info": info, "GET /api/projects": projects, "GET /api/gates": [], "GET /api/bell": { count: 0, items: [] },
+    "GET /api/events/recent": { events: [], next: 0 },
+  }
+
+  /** Open the drawer, send a message whose reply is held, then close the drawer. */
+  async function sendThenClose() {
+    renderWithProviders(<AppShell>x</AppShell>, { route: "/settings" })
+    const btn = screen.getByRole("button", { name: "Phoenix agent" })
+    fireEvent.click(btn)
+    await userEvent.type(await screen.findByLabelText("Message"), "hello{Enter}")
+    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(screen.getByLabelText("Phoenix agent panel", { selector: "aside" })).not.toHaveClass("open")
+    return btn
+  }
+
+  it("shows when a reply finishes while the drawer is closed and clears when it opens", async () => {
+    const svc = service({ extra: shell, streams: [{ frames: [[1, started("r1")], [2, said("u1", "hello")]], hold: [[3, finished("r1")]] }] })
+    const btn = await sendThenClose()
+    expect(screen.queryByTestId("agent-unread")).toBeNull()
+    await act(async () => { svc.release() })
+    const dot = await screen.findByTestId("agent-unread")
+    expect(dot).toHaveAttribute("aria-label", "New from the agent")
+    fireEvent.click(btn)
+    expect(screen.queryByTestId("agent-unread")).toBeNull()
+  })
+
+  it("shows when an approval starts waiting while the drawer is closed", async () => {
+    const ask: Ev = { type: "CUSTOM", name: "approval_request", value: { approvalId: "a1", toolName: "notifications-set", input: {} } }
+    const svc = service({ extra: shell, streams: [{ frames: [[1, started("r1")], [2, said("u1", "hello")]], hold: [[3, ask]] }] })
+    await sendThenClose()
+    await act(async () => { svc.release() })
+    expect(await screen.findByTestId("agent-unread")).toBeInTheDocument()
+  })
+
+  it("stays off when the reply finishes with the drawer open", async () => {
+    const svc = service({ extra: shell, streams: [{ frames: [[1, started("r1")], [2, finished("r1")]] }] })
+    renderWithProviders(<AppShell>x</AppShell>, { route: "/settings" })
+    fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+    await userEvent.type(await screen.findByLabelText("Message"), "hello{Enter}")
+    await waitFor(() => expect(runPosts(svc.posts)).toHaveLength(1))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).toBeNull())
+    expect(screen.queryByTestId("agent-unread")).toBeNull()
   })
 })

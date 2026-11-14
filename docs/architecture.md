@@ -1077,6 +1077,11 @@ chat in a drawer (`AgentDrawer.tsx`); both show the conversation remembered unde
 The drawer sends `context` {page, project, run} from the router with every message and says it on a chip above the
 message box; while a reply is being written its message box still sends, a queued message shows as "Queued" until
 its turn starts, then the drawer follows that run (it reopens the thread and replays from its last `RUN_STARTED`).
+When `/status` says the agent cannot answer, the drawer shows a card with the reason (no API key, not running, not
+set up); when it is not running the card offers "Restart the agent" (asks first, then `POST /api/service/agent/restart`
+`{"yes": true}` and looks again every 3 s for up to 30 s). Each bell row has "Ask the agent", which fires
+`phoenix:open-agent` with "Tell me about bell item <id>" (only the id; bell words come from builds). While the drawer
+is closed, a finished reply or a new approval card in its open conversation puts a dot on the Agent button until it opens.
 
 **The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
 listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `config.toml`, `api-key` (mode 600,

@@ -303,8 +303,17 @@ def doc_card(data: Any) -> dict:
             "text": wrap("phoenix document", str(data.get("text") or ""))}
 
 
+# A bell item id the agent may see as it is (Alex's "Tell me about bell item <id>" names one); others are left out.
+BELL_ID = re.compile(r"[A-Za-z0-9:._/@+-]{1,200}")
+
+
+def bell_id(value: Any) -> str:
+    """The bell item's id when it is plain (letters, digits and : . _ / @ + -), else ""."""
+    return value if isinstance(value, str) and BELL_ID.fullmatch(value) else ""
+
+
 def bell_card(data: Any) -> dict:
-    """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
+    """Card data for the bell: {id, kind, title, detail, link} per item, texts quoted, odd ids blank, bad pages dropped."""
     from agentkit.quote import wrap
     data = data if isinstance(data, dict) else {}
     rows = []
@@ -312,7 +321,8 @@ def bell_card(data: Any) -> dict:
         link = page_link(item.get("page")) if isinstance(item, dict) else None
         if link is None:
             continue
-        rows.append({"kind": str(item.get("kind") or ""), "title": wrap("phoenix bell", str(item.get("title") or "")),
+        rows.append({"id": bell_id(item.get("id")), "kind": str(item.get("kind") or ""),
+                     "title": wrap("phoenix bell", str(item.get("title") or "")),
                      "detail": wrap("phoenix bell", str(item.get("detail") or "")), "link": link})
     count = data.get("count")
     return {"count": count if isinstance(count, int) and not isinstance(count, bool) else len(rows), "items": rows}

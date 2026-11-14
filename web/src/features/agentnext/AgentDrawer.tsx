@@ -7,6 +7,7 @@ import { navigateKeepingPanel } from "@/lib/navigate"
 import { usePhoneWidth } from "@/lib/panelState"
 import { AllowanceBar } from "./Allowance"
 import { Conversation, type QueuedMessage } from "./Conversation"
+import { NotAnsweringCard } from "./NotAnswering"
 import { contextToSend, lookingAt, readPageContext } from "./pageContext"
 import type { ThreadInfo } from "./runtime"
 import { rememberThread, useThreads } from "./useThreads"
@@ -89,14 +90,22 @@ function HistoryMenu({ threads, current, onOpen, onShow }: { threads: ThreadInfo
   )
 }
 
-/** The slide-in agent drawer; focus goes to the message box on open and back to `opener` on close. */
-export function AgentDrawer({ open, onClose, opener, ask }: {
-  open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; ask?: DrawerAsk | null
+/**
+ * The slide-in agent drawer; focus goes to the message box on open and back to `opener` on close.
+ * `onNews` is called while it is closed when a reply finishes or an approval starts waiting.
+ */
+export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
+  open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; ask?: DrawerAsk | null; onNews?: () => void
 }) {
   const [started, setStarted] = useState(open)
   useEffect(() => { if (open) setStarted(true) }, [open])
   const t = useThreads(started)
-  const { current, opened, refresh, followQueued } = t
+  const { current, opened, refresh, followQueued, recheck } = t
+  const openRef = useRef(open)
+  openRef.current = open
+  const news = useCallback(() => { if (!openRef.current) onNews?.() }, [onNews])
+  const [back, setBack] = useState(false)
+  const onBack = useCallback(() => { setBack(true); recheck() }, [recheck])
 
   const aside = useRef<HTMLElement>(null)
   const phone = usePhoneWidth()
@@ -122,10 +131,11 @@ export function AgentDrawer({ open, onClose, opener, ask }: {
     setQueued((q) => q.filter((m) => !started.has(m.runId)))
   }, [followQueued])
   const onRunEnd = useCallback(() => {
+    news()
     void refresh()
     const waiting = queuedRef.current.filter((m) => m.thread === threadRef.current)
     if (waiting.length) void followNext(threadRef.current, waiting.map((m) => m.runId))
-  }, [refresh, followNext])
+  }, [refresh, followNext, news])
   const onQueued = useCallback((m: QueuedMessage) => {
     if (m.queued) setQueued((q) => [...q, m])
     else void followNext(m.thread, [m.runId])  // the reply ended meanwhile: this one started at once
@@ -170,7 +180,10 @@ export function AgentDrawer({ open, onClose, opener, ask }: {
         </div>
       </div>
       <div className="dr-b" style={{ display: "block", textAlign: "left", overflowY: "auto" }}>
-        {t.problem && <p role="alert">{t.problem}</p>}
+        {t.problem && (t.reason
+          ? <NotAnsweringCard key={t.reason} reason={t.reason} message={t.problem} onBack={onBack} />
+          : <p role="alert">{t.problem}</p>)}
+        {back && !t.problem && t.ready && <p role="status" className="ag-empty">The agent is back.</p>}
         {started && !t.problem && (
           <Conversation
             key={`${current}-${opened}`}
@@ -189,6 +202,7 @@ export function AgentDrawer({ open, onClose, opener, ask }: {
             onThread={onThread}
             pending={pending}
             onPendingSent={setSentAsk}
+            onApprovalWaiting={news}
           />
         )}
       </div>

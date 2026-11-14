@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Link, matchPath, useLocation } from "react-router"
 
 import { Bell } from "@/components/Bell"
@@ -25,6 +25,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [sheet, setSheet] = useState(false)
   const [wire, setWire] = useState(false)
   const [ask, setAsk] = useState<DrawerAsk | null>(null)
+  const [unread, setUnread] = useState(false)
   const agentBtn = useRef<HTMLButtonElement>(null)
   useLiveEvents()
 
@@ -61,6 +62,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => writeOpen(drawer), [drawer])
+  useEffect(() => { if (drawer) setUnread(false) }, [drawer])
+  const onNews = useCallback(() => setUnread(true), [])
 
   const closeDrawer = () => setDrawer(false)
 
@@ -91,6 +94,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>
+            {unread && <span className="cnt" data-testid="agent-unread" aria-label="New from the agent" role="img"
+              style={{ minWidth: 10, width: 10, height: 10, padding: 0, top: 6, right: 4 }} />}
           </button>
           <ThemeToggle />
           <Link className="hbtn" to="/settings" aria-label="Settings" title="Phoenix settings">
@@ -114,7 +119,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className={(drawer && phone) || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
-      <AgentDrawer open={drawer} onClose={closeDrawer} opener={agentBtn} ask={ask} />
+      <AgentDrawer open={drawer} onClose={closeDrawer} opener={agentBtn} ask={ask} onNews={onNews} />
       <div className={sheet ? "sheet open" : "sheet"} role="dialog" aria-label="Choose a project" aria-hidden={!sheet}>
         <div className="grab" />
         <div className="sw-head">

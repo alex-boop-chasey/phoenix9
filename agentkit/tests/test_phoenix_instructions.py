@@ -45,3 +45,7 @@ def test_no_code_edit_tools():
 
 def test_instructions_send_how_questions_to_phoenix_help():
     assert "read phoenix_help first" in INSTRUCTIONS
+
+
+def test_instructions_explain_a_bell_item_by_its_id():
+    assert '"Tell me about bell item <id>", call bell (and suggest-list when that item\'s kind is suggestion)' in INSTRUCTIONS

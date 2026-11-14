@@ -4,7 +4,7 @@ import { toast } from "sonner"
 
 import { AppShell } from "@/components/AppShell"
 import { info, projects } from "@/test/fixtures"
-import { agentRoutes, failure, mockApi, type Route } from "@/test/mockApi"
+import { agentNextRoutes, agentRoutes, failure, mockApi, type Route } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 vi.mock("sonner", () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), info: vi.fn(), error: vi.fn() }) }))
@@ -225,4 +225,30 @@ test("on a computer the list hangs under the bell as before", async () => {
   const list = screen.getByTestId("bell-list")
   expect(list).toHaveClass("absolute", "right-0")
   expect(list).not.toHaveClass("fixed")
+})
+
+test("Ask the agent opens the agent drawer with only the row's id, never its words", async () => {
+  show({ count: 2, items }, agentNextRoutes())
+  const heard: unknown[] = []
+  const listen = (e: Event) => heard.push((e as CustomEvent).detail)
+  window.addEventListener("phoenix:open-agent", listen)
+  try {
+    fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+    const row = screen.getAllByTestId("bell-row")[0]!
+    fireEvent.click(within(row).getByRole("button", { name: "Ask the agent about: demo needs an answer: Which colour?" }))
+  } finally {
+    window.removeEventListener("phoenix:open-agent", listen)
+  }
+  expect(heard).toEqual([{ message: "Tell me about bell item question:demo:g1" }])
+  expect(screen.queryByTestId("bell-list")).toBeNull()
+  expect(screen.getByLabelText("Phoenix agent panel", { selector: "aside" })).toHaveClass("open")
+})
+
+test("every row has a quiet Ask the agent button beside Dismiss", async () => {
+  show({ count: 2, items })
+  fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+  for (const row of screen.getAllByTestId("bell-row")) {
+    expect(within(row).getByRole("button", { name: /^Ask the agent about: / })).toHaveTextContent("Ask the agent")
+    expect(within(row).getByRole("button", { name: /^Dismiss: / })).toBeInTheDocument()
+  }
 })

@@ -29,7 +29,7 @@ CHECKS_BY_MODE = {
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files", "reference",
-             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-rules", "project-chats", "access",
+             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-helpers", "agent-rules", "project-chats", "access",
              "agentkit-service", "agentkit-key", "agentkit-spend"),
 }
 
@@ -597,6 +597,16 @@ def check_agent_pack(ctx):
     return _result(ok, detail, "Run an update, or copy deploy/agent/skills/ into the agent folder's .claude/skills/.")
 
 
+def check_agent_helpers(ctx):
+    """The agent folder's helper files match the installed ones (a warning only; it never fails the report)."""
+    from phoenix9 import agentsync
+    ok, detail = agentsync.helpers_current(ctx.ad.host)
+    fix = "Run an update, or copy deploy/agent/agents/ into the agent folder's .claude/agents/."
+    if ok:
+        return _result(True, detail)
+    return True, f"Warning: {detail}. Fix: {fix}", fix
+
+
 def check_agent_rules(ctx):
     """The agent's rules file equals the installed rules plus its kept local section."""
     from phoenix9 import agentsync
@@ -736,7 +746,7 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "project-links": check_project_links, "memory-files": check_memory_files, "reference": check_reference,
           "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
           "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder,
-          "agent-pack": check_agent_pack, "agent-rules": check_agent_rules,
+          "agent-pack": check_agent_pack, "agent-helpers": check_agent_helpers, "agent-rules": check_agent_rules,
           "project-chats": check_project_chats, "access": check_access,
           "agentkit-service": check_agentkit_service, "agentkit-key": check_agentkit_key, "agentkit-spend": check_agentkit_spend}
 

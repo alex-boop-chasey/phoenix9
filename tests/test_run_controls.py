@@ -71,6 +71,30 @@ def test_no_preset_line_means_no_override(demo, tmp_path):
     assert atomic.read_json(paths.runs("demo") / r["run_id"] / "overrides.json") is None
 
 
+# ---- O28: a chat or the agent cannot start a build with its own safety settings ----
+
+@pytest.mark.parametrize("who", ["chat:demo", "chat:home", "agent"])
+@pytest.mark.parametrize("overrides", [{"budget_usd": 0}, {"on_failure": "continue"},
+                                       {"steps": {"verify": {"on": False}}}, {"steps.verify.on": False}])
+def test_chat_may_not_start_a_build_with_safety_overrides(demo, tmp_path, who, overrides):
+    with pytest.raises(common.OpsError, match="may not start a build with its own"):
+        ops_runs.start("demo", spec_file(tmp_path), overrides, who=who)
+    assert not paths.runs("demo").exists() or not list(paths.runs("demo").iterdir())
+
+
+@pytest.mark.parametrize("who", ["dashboard", "cli"])
+def test_dashboard_and_cli_keep_safety_overrides(demo, tmp_path, who):
+    r = ops_runs.start("demo", spec_file(tmp_path), {"budget_usd": 3, "on_failure": "pause"}, who=who)
+    got = atomic.read_json(paths.runs("demo") / r["run_id"] / "overrides.json")
+    assert got["budget_usd"] == 3 and got["on_failure"] == "pause"
+
+
+def test_chat_may_still_give_plain_overrides(demo, tmp_path):
+    r = ops_runs.start("demo", spec_file(tmp_path), {"preset": "full", "steps": {"planner": {"on": False}}},
+                       who="chat:demo")
+    assert atomic.read_json(paths.runs("demo") / r["run_id"] / "overrides.json")["preset"] == "full"
+
+
 # ---- B1: phoenix run discard ----
 
 def failed_run(demo, tmp_path, status="failed"):

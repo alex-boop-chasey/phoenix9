@@ -24,6 +24,7 @@ def _run_folder(run_id: str) -> Path:
 def start(project: str, spec_path, overrides: dict | None = None, who: str = "cli") -> dict:
     """Queue a new run of a spec in a project and return its id."""
     folder = common.project_dir(project)
+    _refuse_chat_overrides(who, overrides)
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as err:
@@ -75,6 +76,18 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     project_core.mark_used(project)
     common.record_command(who, f"run start {project}", project, f"started run {run_id}")
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
+
+
+def _refuse_chat_overrides(who, overrides: dict | None) -> None:
+    """A chat or the agent may not start a build with its own safety settings (like the spending cap or what
+    happens on failure); the dashboard and the command line may."""
+    from phoenix9.ops import settings as ops_settings
+    if not overrides or not ops_settings._is_chat(who):
+        return
+    hit = sorted(k for k in settings._flatten(overrides) if ops_settings.is_safety_key(k, common.library()))
+    if hit:
+        raise OpsError(f"'{who}' may not start a build with its own {', '.join(hit)}. "
+                       "This is a safety setting: Alex changes it in Settings or starts the build from the dashboard.")
 
 
 def plan(project: str, overrides: dict | None = None) -> dict:

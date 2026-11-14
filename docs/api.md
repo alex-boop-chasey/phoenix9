@@ -249,7 +249,8 @@ from the project's own settings.
 `{ok: false, message, needs_confirm: true}`. **Keys**: a row without `value` keeps its saved value; every bad
 row is named in one 400. **Settings**: `set` values are typed JSON by dotted key; one bad key means nothing is
 written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
-(needs the Planner on); `overrides` are frozen into the run.
+(needs the Planner on); `overrides` are frozen into the run. A chat or the agent may not give safety settings
+(`budget_usd`, `on_failure`, `profile`, safety steps and the like) as overrides: 400 with a plain message.
 
 ## Agent items
 

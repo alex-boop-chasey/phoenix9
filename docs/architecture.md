@@ -1038,10 +1038,12 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   `Environment=PHOENIX_WHO=chat:home`, then `systemctl daemon-reload` and restart the unit. Project chats get
   `Environment=PHOENIX_WHO=chat:%i` from `deploy/claude-rc-chat@.service`.
 - **Doctor lines**: `agent-unit`, `agent-session`, `agent-socket` (folder 700, socket 600), `agent-transcript`
-  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`).
+  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`), `agent-helpers` (a
+  warning when `.claude/agents/` lacks or differs from the installed helper files).
 - **Deploy files** (`deploy/agent/`): `agent-rules.md` (the rulebook; the admin setup step copies it to the agent
   folder as `CLAUDE.md`, because builds may not write a file of that name), `settings.json` (the session-start
-  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker helpers).
+  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker, fixer helpers; `phoenix update
+  after-install` copies them to the agent folder's `.claude/agents/`, adding and updating, never deleting).
 - **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
   message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
   `deploy/agent/agent-rules.md` (the agent's own rules) and `phoenix9/project_delete.py` (deletes a whole project) are in `safety_files` in `deploy/self-project.toml`.

@@ -279,6 +279,30 @@ def test_a_discard_grant_is_for_one_run_only(demo, tmp_path):
     assert work.exists() and not state.load(folder).get("discarded")
 
 
+def approve_discard(run_id, who="chat:demo"):
+    """The chat asks for a one-time discard and Alex approves it in the dashboard."""
+    from phoenix9.ops import gates as ops_gates, repair as ops_repair
+    asked = ops_repair.request_unlock(run_id, ["discard"], "the run is stuck", who=who)
+    ops_gates.answer(asked["gate"], "approve", who="dashboard")
+
+
+def test_a_chat_discards_once_with_alex_approval_but_never_forced(demo, tmp_path):
+    from phoenix9.repair import unlock
+    run_id, folder, work = failed_run(demo, tmp_path)
+    with pytest.raises(common.OpsError, match="may not discard"):
+        ops_runs.discard(run_id, who="chat:demo")
+    approve_discard(run_id)
+    with pytest.raises(common.OpsError, match="may not force a discard"):
+        ops_runs.discard(run_id, who="chat:demo", force=True)
+    commit_on_branch(work)
+    with pytest.raises(ops_runs.WouldLoseWork):
+        ops_runs.discard(run_id, who="chat:demo")
+    assert work.exists() and unlock.find(folder, "chat:demo", ["discard"])   # the refusals left the grant unused
+    git(work, "reset", "-q", "--hard", "HEAD~1")
+    assert ops_runs.discard(run_id, who="chat:demo")["discarded"] is True and not work.exists()
+    assert unlock.find(folder, "chat:demo", ["discard"]) is None
+
+
 # ---- O22: phoenix run tidy (finished runs merged outside Phoenix) ----
 
 def merged_run(demo, tmp_path, status="done", answer="MERGED", n=7):
@@ -357,6 +381,17 @@ def test_tidy_refuses_without_a_merge_request_or_with_commits_after_the_merge(de
     with pytest.raises(common.OpsError, match="not in the merged merge request"):
         ops_runs.tidy(other)
     assert work.exists() and work2.exists()
+
+
+def test_tidy_refuses_a_worktree_with_uncommitted_changes(demo, tmp_path):
+    run_id, folder, work, _ = merged_run(demo, tmp_path)
+    (work / "hand-fix.py").write_text("print('not committed')\n")
+    with pytest.raises(common.OpsError, match="changes that were never committed"):
+        ops_runs.tidy(run_id)
+    assert work.exists() and not state.load(folder).get("tidied")
+    (work / "hand-fix.py").unlink()
+    (work / ".env").write_text("KEY=1\n")     # a service's .env file does not count
+    assert ops_runs.tidy(run_id)["tidied"] is True
 
 
 def test_tidy_merged_tidies_every_merged_run_and_says_why_others_were_left(demo, tmp_path):

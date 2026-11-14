@@ -235,7 +235,7 @@ describe("NeedsYouCard: the agent asks to unlock a repair", () => {
     const { calls } = mockApi(answerRoute("r-fail.4"))
     renderWithProviders(<NeedsYouCard gate={unlock} />)
     fireEvent.click(button("Allow once"))
-    expect(await screen.findByText(/reset the worktree and force a repair past its check on this build, one time/)).toBeInTheDocument()
+    expect(await screen.findByText(/The Phoenix agent may then reset the worktree and force a repair past its check on this build, one time/)).toBeInTheDocument()
     fireEvent.click(button("Cancel"))
     await waitFor(() => expect(screen.queryByRole("button", { name: "Yes, allow once" })).toBeNull())
     expect(calls.length).toBe(0)

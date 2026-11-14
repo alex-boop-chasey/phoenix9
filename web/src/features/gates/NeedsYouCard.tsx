@@ -9,7 +9,7 @@ import { DocButtons } from "@/features/docs/DocButtons"
 import { MergeAnywayBody } from "@/features/gates/MergeAnywayBody"
 import { mergeWarnings } from "@/features/gates/mergeWarnings"
 import { RepairUnlockBody } from "@/features/gates/RepairUnlockBody"
-import { unlockList } from "@/features/gates/repairUnlock"
+import { askerText, unlockList } from "@/features/gates/repairUnlock"
 import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
@@ -228,7 +228,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         open={confirmUnlock}
         onOpenChange={setConfirmUnlock}
         title="Allow this repair once?"
-        body={`The agent may then ${unlockList(gate.unlock_steps ?? [])} on this build, one time, within 30 minutes.`}
+        body={`${askerText(gate)} may then ${unlockList(gate.unlock_steps ?? [])} on this build, one time, within 30 minutes.`}
         confirmLabel="Yes, allow once"
         destructive
         onConfirm={() => send("approve")}

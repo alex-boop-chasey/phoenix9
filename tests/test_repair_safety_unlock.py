@@ -52,7 +52,7 @@ def test_request_opens_an_alex_only_question_and_leaves_the_run_alone(tmp_path):
     r = make(tmp_path)
     before = state.load(r["run_dir"])
     asked = ops.request_unlock(r["run"], ["reset-worktree", "replace-spec"], "the worktree is broken", who="agent")
-    assert asked["title"] == (f"The agent asks to reset the worktree and replace the spec on {r['run']}: "
+    assert asked["title"] == (f"The Phoenix agent asks to reset the worktree and replace the spec on {r['run']}: "
                               "the worktree is broken")
     assert state.load(r["run_dir"])["status"] == before["status"] == "failed"
     shown = [g for g in gates.list_gates() if g["id"] == asked["gate"]]
@@ -201,7 +201,7 @@ def test_cli_request_unlock(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("PHOENIX_WHO", "chat:demo")
     code = main(["repair", "request-unlock", r["run"], "--steps", "reset-worktree,force", "--why", "stuck"])
     out = capsys.readouterr().out
-    assert code == 0 and "The agent asks to reset the worktree and force a repair past its check" in out
+    assert code == 0 and "A chat in demo asks to reset the worktree and force a repair past its check" in out
     asked = [g for g in gates.list_gates() if g["kind"] == "repair-unlock"]
     assert asked[0]["asked_by"] == "chat:demo"
 

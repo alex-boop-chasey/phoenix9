@@ -93,13 +93,22 @@ def open_requests(run_dir, who: str) -> list[dict]:
             if g.get("kind") == KIND and g["state"] == "open" and g.get("asked_by") == who]
 
 
+def asker_words(who: str) -> str:
+    """Who asked, in words, as the dashboard card says it: "The Phoenix agent" or "A chat in <project>"."""
+    if who == "chat:home":
+        return "A chat on the home page"
+    if who.startswith("chat:"):
+        return f"A chat in {who.split(':', 1)[1]}"
+    return "The Phoenix agent"
+
+
 def request(run_dir, steps, why: str, who: str) -> dict:
     """Open a repair-unlock question for Alex; the run itself is not changed. Returns the question."""
     run_dir = Path(run_dir)
     steps, why = clean_steps(steps), clean_why(why)
     if open_requests(run_dir, who):
         raise UnlockError("There is already a request waiting for Alex on this run; wait for Alex's answer.")
-    title = f"The agent asks to {plain_list(steps)} on {run_dir.name}: {why}"
+    title = f"{asker_words(who)} asks to {plain_list(steps)} on {run_dir.name}: {why}"
     return gates.open_request(run_dir, kind=KIND, title=title, why=why,
                               extra={"unlock_steps": steps, "asked_by": who})
 

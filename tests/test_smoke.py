@@ -99,10 +99,14 @@ def test_smoke_env_file_fails_task_and_main_stays(smoke):
         'preset = "simple"\nprofile = "python-script"\nmax_tries = 1\non_failure = "continue"\n')
     before = git(code, "rev-parse", "main")
     run_dir, st = play(smoke, [{"hello.py": HELLO}, {"tests/test_hello.py": TEST_HELLO, ".env": "KEY=1\n"}])
-    assert st["status"] == "waiting"   # a failed task forces the merge to ask (step 9)
+    # Task 3 is skipped, so the branch has no tests: the full suite fails and the merge stops (no question).
+    assert st["status"] == "failed"
     assert [st["tasks"][n]["status"] for n in ("1", "2", "3")] == ["passed", "failed", "skipped"]
     diff_line = next(x for x in st["steps"] if x["step"] == "diff-rules" and x["task"] == 2)
     assert diff_line["status"] == "failed" and ".env" in diff_line["note"]
     assert git(code, "rev-parse", "main") == before
     assert not (code / "hello.py").exists()
-    assert st["current"]["gate"]   # the merge gate is open; Notify runs after it is answered
+    assert not st["current"]["gate"]   # no merge question after a failed full suite
+    merge_line = next(x for x in st["steps"] if x["step"] == "merge")
+    assert merge_line["status"] == "failed" and merge_line["note"].startswith("Not merged: the final test run failed")
+    assert st["failed_at"]["text"].startswith("Failed at: Full suite")

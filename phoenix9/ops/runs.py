@@ -533,14 +533,19 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
         why = ("its work was merged or waits as a merge request" if st["status"] == "done"
                else "stop it first with `phoenix run stop`")
         raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
-    if not _may_stop(st["project"], who, folder, "discard"):        # the same rule as stop: chat:* callers need the project's permission
+    allowed = _may_stop(st["project"], who)        # the same rule as stop: chat:* callers need the project's permission
+    if not allowed and unlock.find(folder, who, ["discard"]) is None:
         raise OpsError(f"'{who}' may not discard runs in {st['project']}.")
+    if not allowed and force:        # Alex's one-time approval covers a plain discard, never throwing away unmerged work
+        raise OpsError(f"'{who}' may not force a discard: only Alex can throw away work that is not on main.")
     adapters = common.make_adapters()
     if not force:
         lost = would_lose(adapters, folder, st["project"], run_id)
         if lost:
             raise WouldLoseWork(f"Run {run_id} still has work that would be lost: " + "; ".join(lost)
                                 + ". Discard it anyway only if you mean to throw that away (--force).", lost)
+    if not allowed and unlock.use(folder, who, ["discard"]) is None:     # used only once nothing else refuses
+        raise OpsError(f"'{who}' may not discard runs in {st['project']}.")
     notes = core.discard_branch(adapters, st["project"], run_id)
     stamp = state.now()
 
@@ -606,7 +611,21 @@ def _tidy_refusal(adapters, folder: Path, st: dict, who: str) -> tuple[str, str]
         return f"GitHub did not say which commit its merge request {url} merged", ""
     if _branch_beyond(project, run_id, head):
         return "its branch has commits that were not in the merged merge request", ""
+    if _unsaved(project, run_id):
+        return "its worktree has changes that were never committed", ""
     return "", head
+
+
+def _unsaved(project: str, run_id: str) -> bool:
+    """True when the run's worktree holds uncommitted changes (or can't be read); .env-style files don't count."""
+    from phoenix9 import git as gitmod
+    work = paths.work(project, run_id)
+    if not work.exists():
+        return False
+    try:
+        return bool(gitmod.pending_paths(work, skip_env=True))
+    except (gitmod.GitError, OSError):
+        return True
 
 
 def tidy(run_id: str, who: str = "cli", project: str | None = None) -> dict:

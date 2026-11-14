@@ -41,3 +41,7 @@ def test_no_code_edit_tools():
         for word in ("write-file", "edit", "file", "patch", "apply", "note"):
             assert name in allowed or word not in name.lower().replace("profiles", ""), name
     assert "repair-apply" not in names
+
+
+def test_instructions_send_how_questions_to_phoenix_help():
+    assert "read phoenix_help first" in INSTRUCTIONS

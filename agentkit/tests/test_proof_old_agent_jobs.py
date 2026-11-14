@@ -393,3 +393,16 @@ def test_job_37():
         assert returns(seen)["bell"]["count"] == 3
 
     run(go())
+
+
+def test_job_38():
+    async def go():
+        fake, store, r, _a, seen = build([("phoenix_help", {"topic": "settings"})])
+        tid = await paused(r, store)
+        assert requests_in(store, tid) == [] and types(store, tid)[-1] == "RUN_FINISHED"   # a read: no pause
+        assert fake.requests == []   # the help topics live with the agent, not in Phoenix
+        got = returns(seen)["phoenix_help"]
+        assert got["topic"] == "settings" and "### quick" in got["text"]
+        assert "read phoenix_help first" in INSTRUCTIONS
+
+    run(go())

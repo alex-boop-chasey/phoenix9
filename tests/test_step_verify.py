@@ -131,7 +131,7 @@ def test_verify_missing_report_fails(tmp_path, adapters, work):
     ctx = ctx_for(tmp_path, adapters, work)
     checklock.lock(ctx.run.folder, 1, work, FILES)
     res = mod.run(ctx)
-    assert res.status == "fail" and "produced no pytest-junit report" in res.reasons[0]
+    assert res.status == "fail" and "wrote no report (pytest-junit)" in res.reasons[0]
 
 
 def test_reports_redacted(tmp_path, adapters, work, monkeypatch):

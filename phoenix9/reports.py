@@ -15,6 +15,18 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 REPORT_FILES = {"vitest-json": "vitest.json", "playwright-json": "playwright.json",
                 "pytest-junit": "pytest.xml", "exit-code": "exit-code.txt"}
 REPORT_TEXT_SUFFIXES = (".json", ".txt", ".md", ".html", ".log", ".xml")
+NO_REPORT = "the test run produced no {reader} report"
+DID_NOT_RUN = "Tests did not run to the end:"
+NO_REPORT_WRITTEN = "Tests ran but wrote no report"
+# package-install chatter that hides the real error (pnpm, npm, yarn, pip); error lines are always kept
+NOISE = re.compile(
+    r"^\s*(Progress: resolved|Packages: [+-]|[+-]{6,}\s*$|Lockfile is up to date|Already up to date"
+    r"|Done in \d|Scope: all \d+ workspace|Downloading |Downloaded |Resolving |Fetching |Collecting "
+    r"|Using cached |Requirement already satisfied|Installing collected packages|Successfully installed "
+    r"|(npm|pnpm|yarn)? ?(WARN|warn) deprecated|added \d+ packages?|audited \d+ packages?|found 0 vulnerabilities"
+    r"|\d+ packages? (is|are) looking for funding|run `npm fund`|(dependencies|devDependencies):\s*$"
+    r"|[+-] \S+ \d+\.\d+)")
+KEEP = re.compile(r"error|err!|fail|unknown|not found|cannot|denied|exit code", re.I)
 
 
 @dataclass
@@ -63,8 +75,21 @@ def _in_report(expected: str, present: set) -> bool:
 
 
 def _no_report(reader: str) -> Report:
-    """The Report for a missing or unreadable report file."""
-    return Report(reader=reader, notes=[f"the test run produced no {reader} report"])
+    """The Report for a missing or unreadable report file (judge words it once it knows the exit code)."""
+    return Report(reader=reader, notes=[NO_REPORT.format(reader=reader)])
+
+
+def _is_missing(r: Report) -> bool:
+    """True when this report stands for a report file that was never written (or could not be read)."""
+    return not r.ok and r.reason == NO_REPORT.format(reader=r.reader)
+
+
+def _missing_reason(r: Report, rc: int, command: str) -> str:
+    """Plain words for a missing report: the tests never got to the end, or they ran but wrote no report."""
+    if rc != 0:
+        shown = f"`{command}`" if command else "the test command"
+        return f"{DID_NOT_RUN} {shown} stopped with exit code {rc} before writing its report."
+    return f"{NO_REPORT_WRITTEN} ({r.reader}): check the test command."
 
 
 def decide(r: Report, first_skipped: str = "", first_flaky: str = "", present: set = frozenset(),
@@ -251,14 +276,18 @@ def _files_for(reader: str, expected_files) -> list:
     return list(expected_files) if suffixes is None else [f for f in expected_files if f.endswith(suffixes)]
 
 
-def judge(rc: int, out_dir, reader_names, expected_files=(), timed_out: bool = False) -> Report:
+def judge(rc: int, out_dir, reader_names, expected_files=(), timed_out: bool = False, command: str = "") -> Report:
     """Read the named reports and combine them with the exit code; the exit code can only fail a run, never pass it."""
     # ported from reference/v8/phoenix/verify.py:judge
     names = list(reader_names)
     check_names(names)
     expected = list(expected_files)
     wanted = [n for n in names if not expected or _SUFFIXES[n] is None or _files_for(n, expected)] or names
-    report = combine([READERS[n](out_dir, _files_for(n, expected)) for n in wanted])
+    parts = [READERS[n](out_dir, _files_for(n, expected)) for n in wanted]
+    for part in parts:
+        if _is_missing(part):
+            part.notes[0] = _missing_reason(part, rc, command)
+    report = combine(parts)
     if timed_out:
         report.ok = False
         report.notes.insert(0, "the test run timed out")
@@ -281,15 +310,29 @@ def redact_reports(out_dir, secrets=None) -> None:
                 p.write_text(clean)
 
 
+def meaningful_lines(lines) -> list:
+    """The output lines without package download, progress and lockfile chatter or blank lines; error lines stay."""
+    return [line for line in lines if line.strip() and (KEEP.search(line) or not NOISE.match(line))]
+
+
+def did_not_run(report: Report) -> bool:
+    """True when the run is not ok because the tests never wrote their report (not because tests failed)."""
+    return report.reason.startswith((DID_NOT_RUN, NO_REPORT_WRITTEN))
+
+
 def feedback(report: Report, log_path) -> str:
-    """What the Builder is told after a failed verify: the reason and the last 80 lines of output, scrubbed."""
+    """What the Builder is told after a failed verify: the reason and the last meaningful lines of output, scrubbed."""
     # ported from reference/v8/phoenix/verify.py:feedback
     try:
         lines = ANSI.sub("", Path(log_path).read_text(errors="replace")).splitlines()
     except OSError:
         lines = []
-    tail = "\n".join(lines[-TAIL_LINES:]) if lines else "(no output was saved)"
-    return scrub.scrub(f"The checks did not pass: {report.reason}\n\nLast {TAIL_LINES} lines of output:\n{tail}")
+    lines = meaningful_lines(lines)[-TAIL_LINES:]
+    head = report.reason if did_not_run(report) else f"The checks did not pass: {report.reason}"
+    if not lines:
+        return scrub.scrub(f"{head}\n\n(no output was saved)")
+    tail = "\n".join(lines)
+    return scrub.scrub(f"{head}\n\nLast {len(lines)} lines of output (package install chatter left out):\n{tail}")
 
 
 # ------------------------------------------------------------- fallback when Verify is off

@@ -59,7 +59,38 @@ def test_exit_code_reader(tmp_path):
 
 def test_missing_report_fails_with_reason(tmp_path):
     r = reports.judge(0, tmp_path, ["vitest-json"], [], False)
-    assert not r.ok and r.reason == "the test run produced no vitest-json report"
+    assert not r.ok and r.reason == "Tests ran but wrote no report (vitest-json): check the test command."
+    assert (r.passed, r.failed) == (0, 0) and "fail" not in r.reason.lower()
+
+
+def test_missing_report_after_nonzero_exit_says_tests_did_not_run(tmp_path):
+    cmd = "pnpm exec vitest run --reporter=json --outputFile=/out/vitest.json"
+    r = reports.judge(1, tmp_path, ["vitest-json"], [], False, cmd)
+    assert not r.ok and (r.passed, r.failed) == (0, 0)
+    assert r.reason == f"Tests did not run to the end: `{cmd}` stopped with exit code 1 before writing its report."
+    assert "fail" not in r.reason.lower()
+    assert reports.judge(2, tmp_path, ["vitest-json"]).reason.startswith(
+        "Tests did not run to the end: the test command stopped with exit code 2")
+
+
+def test_feedback_for_tests_that_did_not_run_shows_the_real_error(tmp_path):
+    log = tmp_path / "log.txt"
+    noise = ["Progress: resolved 412, reused 400, downloaded 12, added 0"] * 60 + [
+        "Packages: +345", "++++++++++++++++++++++++++++++", "Lockfile is up to date, resolution step is skipped",
+        " WARN  deprecated inflight@1.0.6", "dependencies:", "+ react 18.3.1", "", "Done in 3.2s"]
+    log.write_text("\n".join(noise + ["CACError: Unknown option `--bogus`", "ELIFECYCLE  Command failed with exit code 1."]))
+    r = reports.judge(1, tmp_path, ["vitest-json"], [], False, "pnpm exec vitest run --bogus")
+    text = reports.feedback(r, log)
+    assert text.startswith("Tests did not run to the end: `pnpm exec vitest run --bogus` stopped with exit code 1")
+    assert "Unknown option `--bogus`" in text and "Command failed with exit code 1" in text
+    assert "Progress: resolved" not in text and "Lockfile" not in text and "+ react" not in text
+    assert "The checks did not pass" not in text
+
+
+def test_noise_filter_keeps_error_lines():
+    lines = ["Downloading lodash-4.17.21.tgz", "Downloading failed: 404 not found", "Collecting pytest",
+             "Successfully installed pytest-8.0", "  ", "E   AssertionError: 1 != 2", "added 12 packages in 2s"]
+    assert reports.meaningful_lines(lines) == ["Downloading failed: 404 not found", "E   AssertionError: 1 != 2"]
 
 
 def test_nonzero_exit_with_green_report_fails(tmp_path):

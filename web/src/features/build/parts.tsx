@@ -4,20 +4,22 @@ import { Icon } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
 import { Badge } from "@/components/ui/badge"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import type { RunStatus } from "@/lib/types"
+import type { FailedAt, RunStatus } from "@/lib/types"
 
-/** The result of a build in plain words, from its status and task counts. */
+/** The result of a build in plain words, from its status and task counts; a build whose tasks all
+ * passed but a run step failed says where ("Failed at: Full suite: 2 tests failed"). */
 export function resultText(
   status: RunStatus,
   total: number,
   failed: number,
   currentTask?: number | null,
+  failedAt?: FailedAt | null,
 ): string {
   switch (status) {
     case "done":
       return "Passed"
     case "failed":
-      return failed > 0 ? `${failed} of ${total} tasks failed` : "Failed"
+      return failed > 0 ? `${failed} of ${total} tasks failed` : failedAt?.text || "Failed"
     case "stopped":
       return "Stopped"
     case "running":
@@ -33,14 +35,28 @@ export function resultText(
   }
 }
 
-/** The status text for a build row. */
-export function rowResult(row: {
+type ResultRow = {
   status: RunStatus
   tasks_total: number
   tasks_failed: number
   current: { task?: number | null } | null
-}): string {
-  return resultText(row.status, row.tasks_total, row.tasks_failed, row.current?.task)
+  failed_at?: FailedAt | null
+}
+
+/** The status text for a build row. */
+export function rowResult(row: ResultRow): string {
+  return resultText(row.status, row.tasks_total, row.tasks_failed, row.current?.task, row.failed_at)
+}
+
+/** The badge words for a result, kept short ("Failed at: Full suite"), and the whole line for its hover. */
+export function badgeResult(status: RunStatus, failed: number, full: string, failedAt?: FailedAt | null) {
+  if (status === "failed" && failed === 0 && failedAt) return { text: `Failed at: ${failedAt.title}`, hint: full }
+  return { text: full, hint: undefined }
+}
+
+/** The badge words and hover line for a build row. */
+export function rowBadge(row: ResultRow) {
+  return badgeResult(row.status, row.tasks_failed, rowResult(row), row.failed_at)
 }
 
 /** One line of text, cut short when long, with the whole text in a tooltip. */
@@ -128,12 +144,12 @@ export function edgeOf(status: RunStatus): "ok" | "bad" | "need" | "run" | "none
 }
 
 /** A result badge whose words are the plain result ("Passed", "1 of 3 tasks failed", "Running task 2 of 4"). */
-export function ResultBadge({ status, text }: { status: RunStatus; text: string }) {
+export function ResultBadge({ status, text, hint }: { status: RunStatus; text: string; hint?: string }) {
   const edge = edgeOf(status)
   const variant = edge === "ok" ? "ok" : edge === "bad" ? "bad" : edge === "need" ? "need" : edge === "run" ? "running" : "info"
   const icon = edge === "ok" ? "check-circle" : edge === "bad" ? "x-circle" : edge === "need" ? (status === "paused" ? "pause-circle" : "bell-ringing") : status === "stopped" ? "stop-circle" : "circle-dashed"
   return (
-    <Badge variant={variant} data-status={status}>
+    <Badge variant={variant} data-status={status} title={hint}>
       {edge === "run" ? <Wheel /> : <Icon name={icon} />}
       {text}
     </Badge>

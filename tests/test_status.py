@@ -146,6 +146,34 @@ def test_rows_and_lists_carry_the_state_fields(env):
     assert listed["status"] == "queued" and listed.get("carrying_on") is not True
 
 
+def test_every_reader_names_the_step_a_failed_run_failed_at(env, capsys):
+    """Run status, run show, run list and build rows all carry the same "Failed at" line."""
+    from phoenix9 import runend
+    run_dir = new_run(env)
+    line = {"group": "run-finish", "task": None, "step": "full-suite", "status": "failed",
+            "note": "The checks did not pass: 2 tests failed\n\nFAILED test_x"}
+    state.update(run_dir, lambda s: s["steps"].append(line))
+    found = runend.failed_step(state.load(run_dir), lambda name: "Full suite")
+    runend.end_run(run_dir, "failed", failed_at=found)
+    text = "Failed at: Full suite: 2 tests failed"
+    st = state.load(run_dir)
+    assert st["failed_step"] == "full-suite" and st["error"] == "Full suite failed: 2 tests failed"
+    assert runs_ops.status(run_dir.name)["failed_at"]["text"] == text
+    assert runs_ops.list_("demo")[0]["failed_at"]["text"] == text
+    assert runs_ops.builds("demo")[0]["failed_at"]["text"] == text
+    for argv in (["run", "status", run_dir.name], ["run", "show", "demo", run_dir.name]):
+        assert main(argv) == 0
+        out = capsys.readouterr().out
+        assert text in out and "Reason:" not in out
+
+
+def test_a_run_that_did_not_fail_at_a_step_has_no_failed_at(env):
+    run_dir = new_run(env)
+    assert runs_ops.list_("demo")[0]["failed_at"] is None
+    state.set_status(run_dir, "failed")
+    assert runs_ops.list_("demo")[0]["failed_at"] is None
+
+
 def test_no_duplicate_carrying_on_patch_left():
     """The 'answered, carrying on' patch lives only in status.py."""
     from phoenix9.ops import runs as r

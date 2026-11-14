@@ -275,6 +275,16 @@ export interface BuildRow {
   carrying_on?: boolean
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
+  /** The run-start or run-finish step a failed build failed at; null otherwise. */
+  failed_at?: FailedAt | null
+}
+
+/** The step a failed build failed at: `text` is the whole line, e.g. "Failed at: Full suite: 2 tests failed". */
+export interface FailedAt {
+  step: string
+  title: string
+  reason: string
+  text: string
 }
 
 export interface RunTask {
@@ -385,6 +395,8 @@ export interface RunDetail {
   branch?: string
   /** Repairs applied to the run, oldest first. */
   repairs?: RunRepair[]
+  /** The run-start or run-finish step a failed build failed at. */
+  failed_at?: FailedAt | null
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
   discarded_at?: string

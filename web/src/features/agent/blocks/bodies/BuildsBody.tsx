@@ -2,7 +2,7 @@
 import { Link } from "react-router"
 
 import { RelativeTime } from "@/components/RelativeTime"
-import { ResultBadge, rowResult } from "@/features/build/parts"
+import { ResultBadge, rowBadge } from "@/features/build/parts"
 import type { BuildRow } from "@/lib/types"
 
 import type { CardBodyProps } from "../cardBodies"
@@ -21,7 +21,7 @@ export function BuildsBody({ data }: CardBodyProps) {
         <li key={row.run_id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1" data-run={row.run_id}>
           <Link className="mono min-w-0 truncate" to={runUrl(row.project, row.run_id)}>{row.run_id}</Link>
           <span className="flex items-center gap-2">
-            <ResultBadge status={row.status} text={rowResult(row)} />
+            <ResultBadge status={row.status} {...rowBadge(row)} />
             <small className="muted"><RelativeTime iso={row.started || row.created} /></small>
           </span>
         </li>

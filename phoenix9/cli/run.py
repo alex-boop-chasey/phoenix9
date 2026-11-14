@@ -107,7 +107,10 @@ def _status_text(r: dict) -> str:
     passed = sum(1 for t in tasks.values() if t["status"] == "passed")
     lines = [f"Run {r['run_id']} ({r['project']}) is {r['status']}.",
              f"Tasks: {passed} of {len(tasks)} passed."]
-    if r.get("error"):
+    failed_at = r.get("failed_at") if r["status"] == "failed" else None
+    if failed_at:
+        lines.append(failed_at["text"])
+    elif r.get("error"):
         lines.append(f"Reason: {r['error']}")
     lines.append(table([[n, t["title"], t["status"], t["tries"]] for n, t in tasks.items()],
                        ["task", "title", "status", "tries"]))

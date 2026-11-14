@@ -72,6 +72,52 @@ def test_full_suite_failure_makes_run_failed(tmp_path, adapters, project):
     scripted.reset()
 
 
+def test_failed_run_names_the_finish_step_it_failed_at(tmp_path, adapters, project, capsys):
+    """Every task passed but the full suite failed: the run says which step failed and why, everywhere."""
+    from phoenix9 import events
+    from phoenix9.__main__ import main
+    scripted.reset()
+    lib = scripted.make_library(tmp_path / "lib")
+    shutil.copytree(REPO / "steps" / "full-suite", lib / "steps" / "full-suite")
+    on("full-suite", None, None, fail("The checks did not pass: 2 tests failed\n\nLast lines of output:\nFAILED test_x"))
+    (lib / "steps" / "full-suite" / "run.py").write_text(
+        "from helpers.scripted import respond\n\n\ndef run(ctx):\n    return respond(ctx)\n")
+    run_dir = start(tmp_path, ONE)
+    assert Runner(adapters, lib).drive(run_dir) == "failed"
+    st = state.load(run_dir)
+    assert all(t["status"] == "passed" for t in st["tasks"].values())
+    assert st["failed_step"] == "full-suite"
+    assert st["error"] == "Full suite failed: 2 tests failed"
+    assert st["failed_at"] == {"step": "full-suite", "title": "Full suite", "reason": "2 tests failed",
+                               "text": "Failed at: Full suite: 2 tests failed"}
+    row = ops_runs.list_("proj")[0]
+    assert row["failed_at"]["text"] == "Failed at: Full suite: 2 tests failed"
+    finished = [e for e in events.read(run_dir / "events.jsonl") if e["type"] == "run.finished"]
+    assert finished[-1]["data"]["reason"] == st["error"]
+    capsys.readouterr()
+    assert main(["run", "status", run_dir.name]) == 0
+    assert "Failed at: Full suite: 2 tests failed" in capsys.readouterr().out
+    assert main(["run", "show", "proj", run_dir.name]) == 0
+    assert "Failed at: Full suite: 2 tests failed" in capsys.readouterr().out
+    # the step passes on a rerun: the run is done and no longer names a failed step
+    on("full-suite", None, None, scripted.StepResult("pass"))
+    assert Runner(adapters, lib).rerun_finish_step(run_dir, "full-suite")[0] == "done"
+    st = state.load(run_dir)
+    assert "failed_step" not in st and "failed_at" not in st and "error" not in st
+    scripted.reset()
+
+
+def test_failed_run_start_step_is_named_too(tmp_path):
+    """A run-start step failure gives the same fields; a secret in its note is scrubbed."""
+    from phoenix9 import runend
+    st = {"steps": [{"group": "run-start", "task": None, "step": "branch", "status": "failed",
+                     "note": "could not branch ghp_" + "a" * 36 + "\nmore"}]}
+    found = runend.failed_step(st, lambda name: "Branch")
+    assert found["step"] == "branch" and found["text"].startswith("Failed at: Branch: could not branch")
+    assert "ghp_" + "a" * 36 not in found["text"] and found["error"].startswith("Branch failed: could not branch")
+    assert runend.failed_step({"steps": [{**st["steps"][0], "status": "passed"}]}, str) is None
+
+
 def test_full_suite_skips_without_suite_command(tmp_path, adapters):
     ctx = suite_ctx(tmp_path, adapters, lambda p: p.pop("test"))
     res = full_suite.run(ctx)

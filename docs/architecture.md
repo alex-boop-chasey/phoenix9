@@ -693,7 +693,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - **How a run ends (one end function, one stop path; `phoenix9/runend.py`).** `runend.end_run` is the only
   place a run becomes `done | failed | stopped`. Its FIRST state update does everything a reader looks at:
   unfinished tasks and `waiting | running | pending` step lines become `skipped`, `current.gate` is cleared
-  and the final status is set (`error` = the reason for a failure); the run's open questions are closed
+  and the final status is set (`error` = the reason for a failure; when a run-start or run-finish step
+  failed it, `failed_step` = its name, `error` = "<title> failed: <first reason line>" and `failed_at`
+  `{step, title, reason, text}` with `text` the line Alex sees, "Failed at: <title>: <reason>"); the run's open questions are closed
   (section 8) straight after. Only then does the slow work run: finish steps with `after_stop = true`
   (stop only; they see the final status and add their own step lines), the branch and worktree are
   discarded (stop only; a failed run keeps them for repair), `run.finished` is emitted (`who` when not

@@ -192,6 +192,17 @@ test("finished shows result and logs link", async () => {
   expect(screen.queryByTestId("live-mode")).toBeNull()
 })
 
+test("a failed build whose tasks all passed names the step it failed at", async () => {
+  const d = runDetail({ status: "failed", gates: [] })
+  const tasks = Object.fromEntries(Object.entries(d.tasks).map(([n, t]) => [n, { ...t, status: "passed" as const, gate: null }]))
+  const failedAt = { step: "full-suite", title: "Full suite", reason: "2 tests failed", text: "Failed at: Full suite: 2 tests failed" }
+  mockApi(routes({ [`GET ${RUN}`]: { ...d, tasks, failed_at: failedAt, error: "Full suite failed: 2 tests failed" } }))
+  show()
+  expect(await screen.findByTestId("result")).toHaveTextContent("Result: Failed at: Full suite: 2 tests failed")
+  expect(screen.getByText("Failed at: Full suite").closest("[data-status]")).toHaveAttribute(
+    "title", "Failed at: Full suite: 2 tests failed")
+})
+
 test("build tab opens on the running view when a run is active", async () => {
   mockApi(routes())
   show("/p/demo-site/build")

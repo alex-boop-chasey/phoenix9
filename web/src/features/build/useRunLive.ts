@@ -33,7 +33,7 @@ export function runSummary(run: RunDetail) {
   return {
     active: isActive(run.status),
     finished: isFinished(run.status),
-    result: resultText(run.status, tasks.length, failed, current),
+    result: resultText(run.status, tasks.length, failed, current, run.failed_at),
     taskLine: tasks.length && current ? `Task ${current} of ${tasks.length}` : "",
     waitingForRunner: run.status === "queued" && run.steps.length === 0,
     gatesAbove: run.gates.filter((g) => !g.answered && !inSteps.has(g.id)),

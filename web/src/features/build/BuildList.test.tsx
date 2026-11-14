@@ -48,6 +48,15 @@ test("result text per status", () => {
   expect(screen.getByText("2 of 5 tasks failed")).toBeInTheDocument()
 })
 
+test("a build that failed at a run step says where, with the reason on hover", () => {
+  show([build({
+    run_id: "s", title: "S", status: "failed", tasks_total: 3, tasks_passed: 3, tasks_failed: 0,
+    failed_at: { step: "full-suite", title: "Full suite", reason: "2 tests failed", text: "Failed at: Full suite: 2 tests failed" },
+  })])
+  expect(screen.getByText("Failed at: Full suite").closest("[data-status]")).toHaveAttribute(
+    "title", "Failed at: Full suite: 2 tests failed")
+})
+
 test("click opens run detail via url", async () => {
   show()
   await userEvent.click(screen.getByText("Blog section"))

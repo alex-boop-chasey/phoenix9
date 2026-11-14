@@ -59,7 +59,8 @@ def _summary(s: dict) -> dict:
             "created": s["created"], "updated": s["updated"], "current": s.get("current"),
             "tasks_total": len(tasks),
             "tasks_passed": sum(1 for t in tasks.values() if t["status"] == "passed"),
-            "usage": s.get("usage"), "discarded": bool(s.get("discarded"))}
+            "usage": s.get("usage"), "discarded": bool(s.get("discarded")),
+            "failed_at": s.get("failed_at") if s["status"] == "failed" else None}
 
 
 def list_runs(project: str | None = None) -> list[dict]:

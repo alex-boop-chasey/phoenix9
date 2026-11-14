@@ -174,7 +174,10 @@ class Runner:
         if outcome == "stopped":
             return self._stop(run_dir, setup, things)
         runend.check(run_dir)
-        return self._finish(run_dir, project, run_id, "failed" if outcome == "failed" else "done")
+        if outcome == "failed":
+            return self._finish(run_dir, project, run_id, "failed",
+                                failed_at=runend.failed_step(state.load(run_dir), self._step_title))
+        return self._finish(run_dir, project, run_id, "done")
 
     def _pause(self, run_dir: Path, who: str) -> str:
         """Set the run `paused` (the paused step line was already marked); the worktree is not touched."""
@@ -234,20 +237,31 @@ class Runner:
             out = self._do_step(run_dir, setup, things, "run-finish", name, None)
         finally:
             self._ending = False
-        return self._status_from_finish(run_dir, out.status), out.status
+        return self._status_from_finish(run_dir, out.status, self._step_title), out.status
 
     @staticmethod
-    def _status_from_finish(run_dir: Path, outcome: str) -> str:
+    def _status_from_finish(run_dir: Path, outcome: str, title_of=None) -> str:
         """Set and return the run's status after a finish step reran: waiting, failed or done.
 
-        Done only when every task passed or was skipped (none failed, pending, running or waiting)."""
+        Done only when every task passed or was skipped (none failed, pending, running or waiting).
+        A failed run names the run-start or run-finish step it failed at (runend.failed_step)."""
         def change(s):
-            bad = any(t["status"] not in ("passed", "skipped") for t in s["tasks"].values()) or any(
-                x["status"] == "failed" and x["group"] in ("run-start", "run-finish") for x in s["steps"])
+            found = runend.failed_step(s, title_of or (lambda name: name))
+            bad = found is not None or any(t["status"] not in ("passed", "skipped") for t in s["tasks"].values())
             s["status"] = "waiting" if outcome == "waiting" else "failed" if bad else "done"
+            if s.get("failed_step") and (found is None or s["status"] != "failed"):
+                s.pop("error", None)            # the step it failed at passed this time
+            runend.mark_failed_step(s, found if s["status"] == "failed" else None)
             if s["status"] == "done":
                 s.pop("error", None)
         return state.update(run_dir, change)["status"]
+
+    def _step_title(self, name: str) -> str:
+        """A step's display title from the library (its name when the library has no such step)."""
+        try:
+            return self.lib.step(name).title
+        except KeyError:
+            return name
 
     def _end_run(self, run_dir: Path, status: str, reason: str = "", who: str = "phoenix",
                  setup: dict | None = None, things: dict | None = None) -> dict:
@@ -278,9 +292,14 @@ class Runner:
              setup: dict | None = None, things: dict | None = None) -> str:
         return self._end_run(run_dir, status, reason, who, setup, things)["status"]
 
-    def _finish(self, run_dir: Path, project: str, run_id: str, status: str, reason: str = "") -> str:
-        """End the run done or failed (runend.end_run never changes a run that already ended)."""
-        return self._end(run_dir, status, reason)
+    def _finish(self, run_dir: Path, project: str, run_id: str, status: str, reason: str = "",
+                failed_at: dict | None = None) -> str:
+        """End the run done or failed (runend.end_run never changes a run that already ended);
+        `failed_at` names the run-start or run-finish step a failed run failed at."""
+        if failed_at is None:
+            return self._end(run_dir, status, reason)
+        return runend.end_run(run_dir, status, reason=reason, adapters=self.adapters,
+                              lib_root=self.lib.root, failed_at=failed_at)["status"]
 
     def _stop(self, run_dir: Path, setup: dict, things: dict, who: str = "phoenix") -> str:
         """Alex answered stop (or asked for a stop): unfinished tasks are skipped, only finish steps marked

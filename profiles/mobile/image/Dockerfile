@@ -19,7 +19,7 @@ ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global \
 RUN mkdir -p /usr/local/share/npm-global /workspace /home/node/.claude && \
   chown -R node:node /usr/local/share/npm-global /workspace /home/node/.claude
 RUN NPM_CONFIG_PREFIX=/usr/local npm install -g pnpm@${PNPM_VERSION}   # plain pnpm (not corepack): it switches to the version a project pins
-RUN npm install -g eas-cli@${EAS_CLI_VERSION}
+RUN NPM_CONFIG_PREFIX=/usr/local npm install -g eas-cli@${EAS_CLI_VERSION}
 USER node
 RUN test -n "$CLAUDE_CODE_VERSION" && \
   npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}

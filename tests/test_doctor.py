@@ -612,3 +612,32 @@ def test_project_chats_check_reports_a_broken_launcher(healthy, phoenix_env, bre
     check = by_name(doctor.run_checks(healthy, "full"))["project-chats"]
     assert not check["ok"] and words in check["detail"] and "chat-launch.sh" in check["detail"]
     assert "`phoenix update` or re-run the installer" in check["fix"]
+
+
+def test_images_warns_about_every_profile_whose_image_is_missing(healthy):
+    """Profiles no project uses but whose images are missing are listed as a warning, each with its build command."""
+    others = [n for n in doctor.library_profiles() if n != "python-script"]
+    for name in others:
+        healthy.docker.images.pop(doctor._profile_image(name), None)
+    images = by_name(doctor.run_checks(healthy, "full"))["images"]
+    assert images["ok"] and "Warning" in images["detail"]
+    assert others
+    for name in others:
+        assert f"`phoenix images build --profile {name}`" in images["detail"]
+    assert "--profile python-script" not in images["detail"]
+
+
+def test_images_quiet_when_every_profile_image_is_built(healthy):
+    for name in doctor.library_profiles():
+        healthy.docker.images[doctor._profile_image(name)] = {}
+    images = by_name(doctor.run_checks(healthy, "full"))["images"]
+    assert images["ok"] and "Warning" not in images["detail"] and "1 profile images present" in images["detail"]
+
+
+def test_images_fail_names_the_used_profile_and_still_lists_the_others(healthy):
+    healthy.docker.images.clear()
+    images = by_name(doctor.run_checks(healthy, "full"))["images"]
+    assert not images["ok"] and images["fix"]
+    assert "python-script (phoenix9-step-python:1): build it with `phoenix images build --profile python-script`" \
+        in images["detail"]
+    assert "also not built: web (phoenix9-step-web:1)" in images["detail"]

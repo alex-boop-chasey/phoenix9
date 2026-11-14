@@ -1,6 +1,7 @@
 """Ops for the app as a whole: version info, the Global settings view and the services registry."""
 import importlib.util
 import os
+import re
 
 import phoenix9
 from phoenix9 import addresses, events, git, paths, settings, tomlw
@@ -30,12 +31,17 @@ def _update_info() -> dict:
 
 
 def release_tag() -> str:
-    """The release tag of the running copy ('' when it has none or git cannot say)."""
+    """The highest v9.N release tag on the running copy's commit ('' when it has none or git cannot say).
+
+    Only v9.N tags count (like the doctor's installed_tags): an updater marker such as pre-v9.26 on the
+    same commit once made every later install fail its health check."""
     try:
-        done = git.run_git(paths.library(), "describe", "--tags", "--exact-match", check=False, timeout=10)
-        return done.stdout.decode(errors="replace").strip() if done.returncode == 0 else ""
+        done = git.run_git(paths.library(), "tag", "--points-at", "HEAD", check=False, timeout=10)
     except Exception:
         return ""
+    names = done.stdout.decode(errors="replace").split() if done.returncode == 0 else []
+    tags = [n for n in names if re.fullmatch(r"v9\.(0|[1-9][0-9]*)", n)]
+    return max(tags, key=lambda t: int(t.split(".")[1])) if tags else ""
 
 
 def version_label(tag: str = "") -> str:

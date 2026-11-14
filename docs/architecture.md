@@ -1631,7 +1631,7 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   another tag that moved on origin never blocks updates; if the REQUESTED tag moved on origin the
   fetch fails and is `refused` "release v9.N changed on origin" (found with `ls-remote`); other fetch
   failures `refused` "could not fetch";
-  tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD`; clone `install` into
+  tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD` (deleted from every copy once the install ends, whatever the result, and by recovery); clone `install` into
   `-next`, checkout the tag, origin url copied, HEAD verified; in `-next`: `pnpm -C web install
   --frozen-lockfile` and `pnpm -C web build` (when web/package.json exists), `./check.sh` (output to
   the checks file) - a failure is `tests-failed`, `-next` removed, install untouched; hold + wait for
@@ -1737,7 +1737,7 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | `upstream` | every running `cloudflared` and `code-server` process (what sits in front of the dashboard) runs as a uid in `[access] peer_uids` (default `[0]`), and that setting is valid; passes with a note when neither is running; fix: run it as root or add its uid to `peer_uids` (section 8.5) | yes | | yes |
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
 | `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
-| `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |
+| `images` | every profile image used by a project exists (`DockerRunner.image_exists`); any other library profile whose image is missing is listed as a warning with its `phoenix images build --profile <name>` command | | yes | yes |
 | `proxy-rule` | "firewall rule for the key proxy": `ufw status` (host adapter) lists the section 14 rule; OK when ufw is not installed or not active; the fix is the exact `ufw allow ...` line | | yes | yes |
 | `firewall` | `docker.probe_firewall` with a temporary proxy on the bridge gateway (no rules, dummy key, stopped in `finally`). The detail lists only the FAILED checks (`failed checks: ...`), or `the probe container stopped early (exit N): <last error line>` when the entrypoint stopped it before the probe ran; when the key proxy is unreachable the fix is the exact ufw rule | | yes | yes |
 | `claude` | one tiny session (`max_turns` 1, firewall on) exits 0 with a result event | | | yes |

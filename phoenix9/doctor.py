@@ -274,18 +274,36 @@ def _cpus_note(ctx) -> str:
         return f"Warning: {err}"
 
 
+def library_profiles() -> list[str]:
+    """Every profile name in the library (folders under profiles/ with a profile.toml), sorted."""
+    root = paths.library() / "profiles"
+    found = root.iterdir() if root.is_dir() else []
+    return sorted(p.name for p in found if (p / "profile.toml").is_file() and not p.name.startswith("."))
+
+
+def _missing_line(name: str, tag: str) -> str:
+    """One plain line for a profile whose image is not built, with the command that builds it."""
+    what = f"{name} ({tag})" if tag else f"{name} (its profile names no image)"
+    return f"{what}: build it with `phoenix images build --profile {name}`"
+
+
 def check_images(ctx):
-    """Every profile image a project uses has been built; also says how many cores test runs may use."""
+    """Every profile image a project uses has been built (fails if not); other profiles' missing images are a warning.
+    Also says how many cores test runs may use."""
     used = projects_profiles()
-    if not used:
-        return _result(True, "no projects yet, nothing to check; " + _cpus_note(ctx))
-    missing = []
-    for name in used:
+    missing_used, missing_other = [], []
+    for name in sorted(set(used) | set(library_profiles())):
         tag = _profile_image(name)
         if not tag or not ctx.ad.docker.image_exists(tag):
-            missing.append(tag or f"profile {name} has no image")
-    return _result(not missing, f"{len(used)} profile images present; {_cpus_note(ctx)}" if not missing
-                   else "image missing: " + ", ".join(missing), "Build them with `phoenix images build`.")
+            (missing_used if name in used else missing_other).append(_missing_line(name, tag))
+    if missing_used:
+        return _result(False, "image missing for a profile your projects use: " + "; ".join(missing_used)
+                       + "".join(f"; also not built: {line}" for line in missing_other),
+                       "Build them with `phoenix images build --profile <name>` (or `--all`).")
+    detail = (f"{len(used)} profile images present; " if used else "no projects yet; ") + _cpus_note(ctx)
+    if missing_other:
+        detail += "\nWarning: these profiles' images are not built: " + "; ".join(missing_other)
+    return _result(True, detail)
 
 
 def _probe_image(ctx) -> str:

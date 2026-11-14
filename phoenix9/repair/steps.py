@@ -24,6 +24,7 @@ class Context:
     dry: bool = False
     approve_unlock: bool = False
     who: str = "repair"
+    granted: tuple = ()   # unlocks Alex approved in the dashboard for this one repair (repair/unlock.py)
 
 
 def _task(ctx, n: int) -> dict:
@@ -516,7 +517,10 @@ def _project_settings(run_dir: Path) -> dict:
 
 
 def _may_unlock(ctx) -> bool:
-    """True when the unlock is approved and the asker may answer an escalation question of this project."""
+    """True when the unlock is approved and the asker may answer an escalation question of this project
+    (or Alex approved unlocking checks for this one repair in the dashboard)."""
+    if "unlock-checks" in ctx.granted:
+        return bool(ctx.approve_unlock)
     if is_chat(ctx.who):
         return False
     return bool(ctx.approve_unlock) and gates.may_answer({"kind": "escalation"}, ctx.who, _project_settings(Path(ctx.run_dir)))

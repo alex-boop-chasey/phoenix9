@@ -753,7 +753,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
   `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` and `agent.sync_skipped {path, symlink, why}` come from `phoenix update after-install` (nothing was written); `agent.restarted_for_rules {why}` from the runner's agent watchdog.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
@@ -775,8 +775,14 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   project's `notes/changelog.md` for project changes (control spec section 2).
 - Gate file `gates/<gate-id>.json`: `{id, run, project, kind, title, why, task, step, links: [{label,
   url}], actions, flags, created, answered: false}`. `kind`: `merge | plan | human-task | escalation |
-  deploy | step`. `actions`: `["approve","back","skip","stop"]`, or for escalations see below.
+  deploy | step | budget | repair-unlock`. `actions`: `["approve","back","skip","stop"]`, or for escalations see below.
   `flags`: e.g. `["changes safety code"]`.
+  A `repair-unlock` question (`phoenix repair request-unlock`, `phoenix9/repair/unlock.py`) is a request beside the
+  run, not in its path: `gates.open_request` writes it without changing the run, it stays open until answered whatever
+  the run does (a run ending never closes it), the runner never adopts it, and only who `dashboard` may answer it
+  (`approve` / `deny`). Approve writes a one-time grant (`repairs/unlocks.json`: exactly those repairs, that run, that
+  asker; 30 minutes or one use) that `repair/safety.py` and `ops.runs._may_stop` use once; every approval, use, denial
+  and expiry is a `repair.unlock {what, text, gate, steps, who}` event and a line in `repairs/notes/alex-approvals.md`.
   Escalation actions are `["acknowledged", "skip", "stop"]` (acknowledged = rerun the task once).
 - `back` always needs a note (it is fed to the step that runs again).
 - What each answer does (`runner.STEP_ANSWERS`, `runner.TASK_ANSWERS`):
@@ -1160,7 +1166,9 @@ the card opens the approval card of a repair control: re-run a step, rewrite a t
 (with a reason), resume from a step, restart on another preset, raise max tries. `repair-apply` (free text) stays
 `later`, so the agent cannot send arbitrary notes. One repair at a time per run (`phoenix9/repair/lock.py`, and one open
 repair approval per run in the agent). A repair asked by who `agent` that would loosen a safety check is refused with a
-plain message (`phoenix9/repair/safety.py`). Every repair is recorded as a `repair.applied` event with who `agent`.
+plain message (`phoenix9/repair/safety.py`) that says to ask Alex with `phoenix repair request-unlock`; Alex
+allows it once in the dashboard (`repair-unlock` question, section on gate files). Turning off a safety step or a
+safety setting is never unlocked. Every repair is recorded as a `repair.applied` event with who `agent`.
 ### Search, the bell and the daily report (agent v3 build 5)
 All three are plain rules over typed data: no AI runs in Phoenix. Anything said in plain English about them comes
 from the agent, which reads them as quoted data. Every text goes through `phoenix9/scrub.py` first and no money

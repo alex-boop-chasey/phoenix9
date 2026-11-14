@@ -1,6 +1,7 @@
 """Commands for `phoenix repair`: check a run, write its report, apply a repair note, undo a repair, resume a run."""
 from phoenix9.cli.output import problem, show
 from phoenix9.ops import common, repair
+from phoenix9.repair import unlock
 
 
 def add(sub, common) -> None:
@@ -68,6 +69,11 @@ def _add_new(group, common) -> None:
     p = _run_parser(group, common, "restart", "start the build again on another preset", restart, False)
     p.add_argument("--preset", required=True, help="the preset to restart on")
     p.set_defaults(project_required=True)
+    p = _run_parser(group, common, "request-unlock", "ask Alex to allow, once, a repair the agent may not do alone",
+                    request_unlock, False)
+    p.add_argument("--steps", required=True,
+                   help="the repairs to unlock, comma separated: " + ", ".join(unlock.UNLOCKS))
+    p.add_argument("--why", required=True, help="the reason Alex reads, in one line")
 
 
 def undo(args) -> int:
@@ -194,3 +200,10 @@ def restart(args) -> int:
     r = repair.restart_on_preset(args.project, args.run_id, args.preset, who=args.who)
     return show(args, {"ok": True, **r}, f"Restarted: {args.run_id} is started again as {r['new_run_id']} "
                                          f"on the {r['preset']} preset.")
+
+
+def request_unlock(args) -> int:
+    """Ask Alex, in the dashboard, to allow once repairs the agent or a chat may not do alone."""
+    r = repair.request_unlock(args.run_id, args.steps, args.why, who=args.who, project=args.project)
+    return show(args, {"ok": True, **r}, f"Asked Alex: {r['title']}\nAlex answers in the dashboard; "
+                                         f"if allowed, it can be used once within 30 minutes.")

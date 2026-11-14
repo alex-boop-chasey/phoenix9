@@ -1152,6 +1152,16 @@ def post_repair_restart(req, project, run_id):
         return ops_repair.restart_on_preset(check_name(project), run_id, preset, who=req.who)
 
 
+def post_repair_request_unlock(req, project, run_id):
+    """Ask Alex to allow once a repair the agent or a chat may not do alone (only the dashboard answers it)."""
+    run_id, why = check_run_id(run_id), need(text_field(req, "why"), "why")
+    steps = need(req.body.get("steps"), "steps")
+    if not isinstance(steps, list) or not all(isinstance(x, str) for x in steps):
+        raise BadRequest("'steps' should be a list of repair names.")
+    with req.server.write_lock:
+        return ops_repair.request_unlock(run_id, steps, why, who=req.who, project=check_name(project))
+
+
 def post_run_note(req, run_id):
     """Add a note to a task of a run (the next attempt reads it)."""
     task = req.body.get("task")
@@ -1385,6 +1395,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rewrite-checks", post_repair_rewrite_checks),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock", post_repair_request_unlock),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")

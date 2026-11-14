@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 57eb6b606eb19956 -->
+<!-- phoenix 9.1.0 inputs bf8b8910e370c1d9 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -832,6 +832,15 @@ start the build again on another preset
 - `<run_id>`
 - `--project PROJECT`: the project of the run (the run id alone is enough)
 - `--preset PRESET`: the preset to restart on
+
+### `phoenix repair request-unlock`
+
+ask Alex to allow, once, a repair the agent may not do alone
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--steps STEPS`: the repairs to unlock, comma separated: replace-spec, keep-hand-fix, reset-worktree, force, unlock-checks, stop, discard
+- `--why WHY`: the reason Alex reads, in one line
 
 ## `phoenix report`
 

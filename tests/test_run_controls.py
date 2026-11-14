@@ -222,3 +222,34 @@ def test_discard_checks_the_same_permission_as_stop(demo, tmp_path):
 def test_discard_allowed_callers(demo, tmp_path, who):
     run_id, _, _ = failed_run(demo, tmp_path)
     assert ops_runs.discard(run_id, who=who)["discarded"] is True
+
+
+def _grant(run_id, steps, who="chat:home"):
+    """Ask as `who` for a one-time unlock and approve it from the dashboard."""
+    from phoenix9.ops import gates as ops_gates, repair as ops_repair
+    asked = ops_repair.request_unlock(run_id, steps, "the run is stuck", who=who)
+    ops_gates.answer(asked["gate"], "approve", who="dashboard")
+
+
+def test_a_chat_may_discard_once_with_alex_approval(demo, tmp_path):
+    run_id, folder, work = failed_run(demo, tmp_path)
+    _grant(run_id, ["stop"])                                  # a grant for something else does not count
+    with pytest.raises(common.OpsError, match="may not discard"):
+        ops_runs.discard(run_id, who="chat:home")
+    _grant(run_id, ["discard"])
+    with pytest.raises(common.OpsError, match="may not discard"):
+        ops_runs.discard(run_id, who="chat:demo")              # another asker: not its grant
+    assert ops_runs.discard(run_id, who="chat:home")["discarded"] is True
+    used = [e for e in events.read(folder / "events.jsonl")
+            if e["type"] == "repair.unlock" and e["data"]["what"] == "used"]
+    assert len(used) == 1 and used[0]["data"]["steps"] == ["discard"]
+    assert "Repaired by the agent with Alex's approval" in used[0]["data"]["text"]
+
+
+def test_a_discard_grant_is_for_one_run_only(demo, tmp_path):
+    first, _, _ = failed_run(demo, tmp_path)
+    second, folder, work = failed_run(demo, tmp_path)
+    _grant(first, ["discard"])
+    with pytest.raises(common.OpsError, match="may not discard"):
+        ops_runs.discard(second, who="chat:home")
+    assert work.exists() and not state.load(folder).get("discarded")

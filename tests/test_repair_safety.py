@@ -53,7 +53,7 @@ LOOSENING = [
 def test_loosening_text_refused_and_run_unchanged(tmp_path, who, lines):
     r = make(tmp_path)
     before = snap(r["run_dir"])
-    with pytest.raises(common.Conflict, match="loosen a safety check"):
+    with pytest.raises(common.Conflict, match="needs Alex's approval|loosen a safety check"):
         ops.apply_text(r["run"], text(r, *lines), who=who)
     assert snap(r["run_dir"]) == before
 
@@ -63,7 +63,7 @@ def test_loosening_note_file_refused_and_unchanged(tmp_path):
     path = tmp_path / "n.md"
     path.write_text(text(r, "retry task 1", "replace the spec with notes/other.md"))
     before = snap(r["run_dir"])
-    with pytest.raises(common.Conflict, match="Alex can do it from the dashboard"):
+    with pytest.raises(common.Conflict, match="Alex approves it in the dashboard"):
         ops.apply(str(path), who="agent")
     assert snap(r["run_dir"]) == before
 

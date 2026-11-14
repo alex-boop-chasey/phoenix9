@@ -11,7 +11,7 @@ run.queued run.started run.finished run.step.started run.step.finished task.star
 task.finished gate.opened gate.answered project.created project.changed settings.changed
 update.started update.installed update.safety_files_added update.failed update.rolledback deploy.finished run.held command
 """.split())
-EVENT_TYPES = EVENT_TYPES | {"run.discarded", "project.deleted", "ui.go", "repair.applied", "run.note", "run.paused", "run.resumed", "run.pause.dropped", "edit.started", "edit.finished", "edit.abandoned", "edit.stalled", "plan.queued", "plan.started", "plan.continued", "plan.waiting", "plan.done", "plan.failed", "plan.abandoned", "update.safety_files_skipped", "agent.sync_skipped", "agent.restarted_for_rules", "suite.skipped", "reference.snapshot"}   # run.discarded: `phoenix run discard` threw a run's work away; project.deleted: a project was deleted entirely; run.pause.dropped: a stale Pause now request was thrown away
+EVENT_TYPES = EVENT_TYPES | {"run.discarded", "project.deleted", "ui.go", "repair.applied", "repair.unlock", "run.note", "run.paused", "run.resumed", "run.pause.dropped", "edit.started", "edit.finished", "edit.abandoned", "edit.stalled", "plan.queued", "plan.started", "plan.continued", "plan.waiting", "plan.done", "plan.failed", "plan.abandoned", "update.safety_files_skipped", "agent.sync_skipped", "agent.restarted_for_rules", "suite.skipped", "reference.snapshot"}   # run.discarded: `phoenix run discard` threw a run's work away; project.deleted: a project was deleted entirely; run.pause.dropped: a stale Pause now request was thrown away
 
 
 def _append(path: Path, line: str) -> None:

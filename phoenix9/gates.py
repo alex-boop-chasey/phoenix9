@@ -12,7 +12,11 @@ class RunHasEnded(ValueError):
     """A gate cannot be opened: the run is already done, failed or stopped."""
 
 
-KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step", "budget")
+KINDS = ("merge", "plan", "human-task", "escalation", "deploy", "step", "budget", "repair-unlock")
+# Requests that sit beside a run, not in its path: the run never waits on them, the runner never adopts them and a
+# run ending does not close them (they are mostly asked about runs that already failed or stopped).
+REQUEST_KINDS = ("repair-unlock",)
+REQUEST_ACTIONS = ["approve", "deny"]
 DEFAULT_ACTIONS = ["approve", "back", "skip", "stop"]
 BUDGET_ACTIONS = ["raise", "stop"]
 ESCALATION_ACTIONS = ["acknowledged", "skip", "stop"]
@@ -71,6 +75,29 @@ def open_gate(run_dir, *, kind: str, title: str, why: str, task: int | None = No
     return gate
 
 
+def open_request(run_dir, *, kind: str, title: str, why: str, extra: dict | None = None) -> dict:
+    """Write a request question (REQUEST_KINDS) for a run in any state; the run's own state is never changed."""
+    if kind not in REQUEST_KINDS:
+        raise ValueError(f"{kind!r} is not a request kind; use one of {', '.join(REQUEST_KINDS)}")
+    run_dir = Path(run_dir)
+    st = state.load(run_dir)
+    gdir = _gates_dir(run_dir)
+    gdir.mkdir(parents=True, exist_ok=True)
+    gate = {"id": f"{st['run_id']}.{_next_number(gdir)}", "run": st["run_id"], "project": st["project"],
+            "kind": kind, "title": title, "why": why, "task": None, "step": None, "links": [],
+            "actions": list(REQUEST_ACTIONS), "flags": [], "created": state.now(), "answered": False,
+            **(extra or {})}
+    atomic.write_json(gdir / f"{gate['id']}.json", gate)
+    events.emit("gate.opened", project=gate["project"], run=gate["run"], task=None, step=None,
+                gate=gate["id"], kind=kind, title=title)
+    return gate
+
+
+def is_request(gate: dict) -> bool:
+    """True for a request question (REQUEST_KINDS): open until answered, whatever the run is doing."""
+    return gate.get("kind") in REQUEST_KINDS
+
+
 ENDED = ("done", "failed", "stopped")
 TASK_ENDED = ("passed", "failed", "skipped")
 
@@ -107,7 +134,11 @@ def is_open(gate: dict, st: dict | None, answered: bool = False, newest_unanswer
 
     "Waits on it" = current.gate, a task or step line holding it, or (a waiting run holding nothing)
     it is the run's newest unanswered gate, which the runner adopts (runner.adopt_gate)."""
-    if answered or gate.get("answered") or not st or st.get("status") in ENDED:
+    if answered or gate.get("answered") or not st:
+        return False
+    if is_request(gate):
+        return True
+    if st.get("status") in ENDED:
         return False
     if held(st, gate["id"]):
         return True
@@ -131,7 +162,7 @@ def _run_gates(run_dir: Path) -> list[dict]:
         gate = atomic.read_json(path)
         if gate:
             found.append((gate, atomic.read_json(_answer_path(path))))
-    unanswered = [g for g, a in found if a is None and not g.get("answered")]
+    unanswered = [g for g, a in found if a is None and not g.get("answered") and not is_request(g)]
     newest = max(unanswered, key=_number)["id"] if unanswered else None
     out = []
     for gate, answer in found:
@@ -188,6 +219,8 @@ def _refuse_if_not_open(path: Path, gate: dict) -> None:
                       "it cannot be answered any more.")
     if gate.get("answered") or done is not None:
         raise ValueError(f"gate {gate_id} is already answered")
+    if is_request(gate):
+        return
     run_dir = path.parent.parent
     st = state.load(run_dir) or {}
     if st.get("status") in ENDED:
@@ -234,6 +267,8 @@ def close_questions(run_dir, reason: str, who: str = "phoenix", only: str | None
         gate = atomic.read_json(path)
         if not gate or (only is not None and gate["id"] != only):
             continue
+        if only is None and is_request(gate):
+            continue                      # a request is about the run as it is now; ending the run does not close it
         atomic.write_json(_answer_path(path), {"action": "closed", "reason": reason, "note": "", "who": who,
                                                "at": state.now()})
         gate["answered"] = True
@@ -270,7 +305,8 @@ def run_repaired(run_dir) -> bool:
     for e in events.read(run_dir / "events.jsonl"):
         if e.get("type") == "repair.applied" and not (e.get("data") or {}).get("rolled_back"):
             return True
-    return False
+    grants = (atomic.read_json(base / "unlocks.json") or {}).get("grants") or []   # repair/unlock.py
+    return any(g.get("used_at") for g in grants if isinstance(g, dict))
 
 
 def _merge_changed_since(gate: dict) -> bool:
@@ -323,7 +359,10 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
     flag "handed to the Phoenix agent" (set when a failed task is handed to it).
     A merge question flagged for a repair, a missing or failed full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
-    commit on the run branch, checked live) is Alex's alone: chat:* callers never."""
+    commit on the run branch, checked live) is Alex's alone: chat:* callers never.
+    A repair-unlock request is answered only from the dashboard (Alex's press): never a chat, the agent or a command."""
+    if gate.get("kind") == "repair-unlock":
+        return who == "dashboard"
     if who.startswith("chat:") and gate.get("kind") == "budget":
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
     if who.startswith("chat:") and gate.get("kind") == "merge" and (

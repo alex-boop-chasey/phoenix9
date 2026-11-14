@@ -7,6 +7,7 @@ from phoenix9 import atomic, docker, events as events_core, gates as gates_core,
 from phoenix9 import edits as edits_core, tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
+from phoenix9.repair import unlock
 from phoenix9.ops.common import OpsError
 
 FINISHED = ("done", "failed", "stopped")
@@ -311,13 +312,18 @@ def summary(run_id: str) -> dict:
 STOP_LOCK_WAIT_S = 5.0    # how long a stop waits for a waiting/queued run's lock before leaving a request
 
 
-def _may_stop(project: str, who: str) -> bool:
-    """The same rule as answering an escalation question (gates.may_answer): chat:* callers need the project's permission."""
+def _may_stop(project: str, who: str, folder=None, action: str | None = None) -> bool:
+    """The same rule as answering an escalation question (gates.may_answer): chat:* callers need the project's permission.
+
+    Without it, a grant Alex approved in the dashboard for this run and `action` ("stop" or "discard") lets the
+    caller through once; the grant is used and recorded on the run here."""
     try:
         project_settings = settings.load_project(common.project_dir(project))
     except (settings.SettingsError, OpsError):
         project_settings = {}
-    return gates_core.may_answer({"kind": "escalation"}, who, project_settings)
+    if gates_core.may_answer({"kind": "escalation"}, who, project_settings):
+        return True
+    return folder is not None and action is not None and unlock.use(folder, who, [action]) is not None
 
 
 def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
@@ -334,7 +340,7 @@ def stop(run_id: str, who: str = "cli", project: str | None = None) -> dict:
     st = state.load(folder)
     if st["status"] in FINISHED:
         raise OpsError(f"Run {run_id} is already {st['status']}.")
-    if not _may_stop(st["project"], who):
+    if not _may_stop(st["project"], who, folder, "stop"):
         raise OpsError(f"'{who}' may not stop runs in {st['project']}.")
     adapters = common.make_adapters()
     removed = docker.cleanup_orphans(adapters.docker, run_id)
@@ -514,7 +520,7 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
         why = ("its work was merged or waits as a merge request" if st["status"] == "done"
                else "stop it first with `phoenix run stop`")
         raise OpsError(f"Run {run_id} is {st['status']}, so its work can't be discarded ({why}).")
-    if not _may_stop(st["project"], who):        # the same rule as stop: chat:* callers need the project's permission
+    if not _may_stop(st["project"], who, folder, "discard"):        # the same rule as stop: chat:* callers need the project's permission
         raise OpsError(f"'{who}' may not discard runs in {st['project']}.")
     adapters = common.make_adapters()
     if not force:
@@ -585,6 +591,14 @@ def _repairs(folder: Path) -> "list[dict]":
     return found
 
 
+def _unlocks_used(folder: Path) -> "list[dict]":
+    """Every repair the agent or a chat did with Alex's dashboard approval, read from the run's repair.unlock events."""
+    return [{"at": e.get("ts"), "who": (e.get("data") or {}).get("who"), "steps": (e.get("data") or {}).get("steps") or [],
+             "text": (e.get("data") or {}).get("text")}
+            for e in events_core.read(folder / "events.jsonl")
+            if e.get("type") == "repair.unlock" and (e.get("data") or {}).get("what") == "used"]
+
+
 def detail(project: str, run_id: str) -> dict:
     """One run: status plus the plan (frozen, or a preview when not started), title, preset, max_tries,
     and its branch (None once the branch is gone)."""
@@ -620,7 +634,8 @@ def detail(project: str, run_id: str) -> dict:
     tries, try_lines = tries_core.of_run(folder)
     return {**data, "tries": tries, "try_lines": try_lines, "plan": plan, "plan_frozen": frozen_plan, "title": facts["title"],
             "preset": facts["preset"], "max_tries": max_tries, "budget_usd": cap, "spent_usd": round(spent, 2),
-            "branch": _live_branch(project, run_id), "repairs": _repairs(folder)}
+            "branch": _live_branch(project, run_id), "repairs": _repairs(folder),
+            "unlocks_used": _unlocks_used(folder)}
 
 
 def _live_branch(project: str, run_id: str) -> str | None:

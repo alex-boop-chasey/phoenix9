@@ -906,7 +906,7 @@ def _adopt_gate_held(run_dir) -> str | None:
         if f.name.endswith(".answer.json") or gates.poll(run_dir, f.stem) is not None:
             continue
         g = atomic.read_json(f)
-        if g:
+        if g and not gates.is_request(g):
             found.append((int(g["id"].rsplit(".", 1)[1]), g))
     if not found:
         return None

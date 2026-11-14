@@ -70,13 +70,13 @@ def _write_result(paths_to_write, info: dict) -> None:
             pass
 
 
-def _dry_run(run_dir: Path, path: Path, note, approve_unlock: bool, who: str) -> dict:
+def _dry_run(run_dir: Path, path: Path, note, approve_unlock: bool, who: str, granted: tuple = ()) -> dict:
     """Run the steps on a scratch copy of the run folder and report; the real run and worktree stay as they were."""
     with tempfile.TemporaryDirectory(prefix="phoenix-dry-") as tmp:
         scratch = Path(tmp) / run_dir.parent.name / run_dir.name
         snapshot.scratch_copy(run_dir, scratch)
         before = _problems(check.run_checks(scratch, as_run=run_dir))
-        ctx = steps.Context(scratch, dry=True, approve_unlock=approve_unlock, who=who)
+        ctx = steps.Context(scratch, dry=True, approve_unlock=approve_unlock, who=who, granted=tuple(granted))
         done, refused = _do_steps(ctx, note)
         after = None if refused else _problems(check.run_checks(scratch, as_run=run_dir))
     new = [p for p in after or [] if p not in before]
@@ -98,30 +98,33 @@ def _enter_lock(run_dir: Path):
     return lock
 
 
-def _record(run_dir: Path, who: str, copy: Path, note, info: dict) -> None:
+def _record(run_dir: Path, who: str, copy: Path, note, info: dict, granted: tuple = ()) -> None:
     """Write the repair.applied event, the commands.jsonl line and the changelog line."""
     from phoenix9.ops import common
     project, run = run_dir.parent.name, run_dir.name
     events.emit("repair.applied", project=project, run=run, who=who, note=copy.name, title=note.why,
                 steps=[s.text for s in note.steps], check_before=info["check_before"],
                 check_after=info["check_after"], forced=info["forced"], rolled_back=info["rolled_back"],
-                snapshot=info["snapshot"])
+                snapshot=info["snapshot"], **({"alex_approved": list(granted)} if granted else {}))
     outcome = "rolled back" if info["rolled_back"] else "applied"
     common.record_command(who, f"repair apply {copy.name}", project,
                           f"repair on run {run}: {scrub.scrub(note.why)} ({outcome}, snapshot {info['snapshot']})")
 
 
-def _apply_locked(run_dir: Path, note, approve_unlock: bool, who: str) -> dict:
+def _apply_locked(run_dir: Path, note, approve_unlock: bool, who: str, granted: tuple = ()) -> dict:
     """Under the run lock: apply the steps and check the result."""
     snapshot.refuse_if_walking(run_dir, lock_ok=True)
-    ctx = steps.Context(run_dir, approve_unlock=approve_unlock, who=who)
+    ctx = steps.Context(run_dir, approve_unlock=approve_unlock, who=who, granted=tuple(granted))
     done, refused = _do_steps(ctx, note)
     after = None if refused else _problems(check.run_checks(run_dir))
     return {"steps": done, "refused": refused, "check_after": after}
 
 
-def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = False) -> dict:
-    """Apply a repair note to its run (or, with dry_run, only report what it would do) and return the outcome."""
+def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = False, granted: tuple = ()) -> dict:
+    """Apply a repair note to its run (or, with dry_run, only report what it would do) and return the outcome.
+
+    `granted` names the unlocks Alex approved in the dashboard for this one repair (repair/unlock.py); the
+    caller has already checked and used that grant."""
     path, _text, note = _read_note(note_path)
     run_dir = core.find_run(note.run)
     if run_dir is None:
@@ -130,12 +133,13 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
             len(note.steps) > 1 or note.force):
         raise RepairRefused("'rerun finish step merge' must be the only step of its note (and without force): "
                             "apply the other steps first, then merge in a note of its own.")
-    if steps.is_chat(who) and (note.force or approve_unlock):
+    if steps.is_chat(who) and ((note.force and "force" not in granted)
+                               or (approve_unlock and "unlock-checks" not in granted)):
         what = "force a repair past its check" if note.force else "unlock locked checks"
         raise RepairRefused(f"Needs Alex: a chat session may not {what}. Ask Alex to apply this note from the dashboard.")
     snapshot.refuse_if_walking(run_dir)
     if dry_run:
-        return _dry_run(run_dir, path, note, approve_unlock, who)
+        return _dry_run(run_dir, path, note, approve_unlock, who, granted)
     n = snapshot.next_number(run_dir)
     copy = snapshot.repairs_dir(run_dir) / "notes" / f"{n}-{slug_of(note.why)}.md"
     atomic.write_text(copy, path.read_text(encoding="utf-8"))
@@ -146,7 +150,7 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
         raise RepairRefused(str(err)) from None
     lock = _enter_lock(run_dir)
     try:
-        res = _apply_locked(run_dir, note, approve_unlock, who)
+        res = _apply_locked(run_dir, note, approve_unlock, who, granted)
         new = [p for p in res["check_after"] or [] if p not in before]
         failed = bool(res["refused"] or new)
         rolled_back = failed and not (note.force and not res["refused"])
@@ -157,6 +161,6 @@ def apply(note_path, who: str, dry_run: bool = False, approve_unlock: bool = Fal
     info = {"ok": not rolled_back, "dry_run": False, "run_id": run_dir.name, "project": run_dir.parent.name,
             "snapshot": got, "check_before": before, "forced": failed and not rolled_back,
             "rolled_back": rolled_back, "note": str(copy), **res}
-    _record(run_dir, who, copy, note, info)
+    _record(run_dir, who, copy, note, info, granted)
     _write_result([copy, path], info)
     return info

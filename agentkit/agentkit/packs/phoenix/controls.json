@@ -2243,6 +2243,57 @@
     "confirm_with": ""
   },
   {
+    "name": "repair-unlock-request",
+    "description": "Ask Alex to allow once a repair the agent may not do alone; Alex answers in the dashboard.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "steps",
+        "type": "list",
+        "required": true,
+        "description": "The repairs to unlock: replace-spec, keep-hand-fix, reset-worktree, force, unlock-checks, stop or discard.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": true,
+        "description": "Why the repair is needed, in one plain line.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "The agent's tool for asking comes with the dashboard card for the question (O67 part 2).",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "report-status",
     "description": "{path, text, saved}: the copy the runner rewrites every 10 minutes, read without writing anything. When",
     "inputs": [],

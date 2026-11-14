@@ -70,7 +70,7 @@ def test_unsafe_repair_refused_and_run_unchanged(tmp_path):
     atomic.write_json(lock_file, {"files": {"tests/a.py": "abc"}})
     before = (state.load(r["run_dir"]), lock_file.read_text(), len(events.read(paths.events())),
               sorted(p.name for p in r["run_dir"].rglob("*")))
-    with pytest.raises(common.Conflict, match="loosen a safety check") as err:
+    with pytest.raises(common.Conflict, match="needs Alex's approval") as err:
         ops.rewrite_checks(r["run"], 1, "make it easier", who="agent")
     assert "Traceback" not in str(err.value) and len(str(err.value)) > 20
     after = (state.load(r["run_dir"]), lock_file.read_text(), len(events.read(paths.events())),

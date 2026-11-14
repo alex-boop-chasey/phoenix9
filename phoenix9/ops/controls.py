@@ -363,8 +363,13 @@ CONTROLS = (
     _get("deploys-list", "deploy.status", rf"/api/projects/{NAME}/deploys", "later", LATER),
     _post("deploy-start", "", rf"/api/projects/{NAME}/deploy", "destructive", "later", LATER),
     _post("images-build", "images.choose", "/api/images/build", "change", "later", LATER),
-    _post("service-restart", "service.restart_api_soon", rf"/api/service/{NAME}/restart", "destructive", "later",
-          LATER),
+    _post("service-restart", "service.restart", rf"/api/service/{NAME}/restart", "destructive", "tool",
+          text="Restart one of Phoenix's services: api (the dashboard's server) or runner (waits for builds to reach "
+               "a task boundary; answers with a job to follow with job-status). Never agent: you can't restart "
+               "yourself. Alex types the service name to confirm.",
+          inputs=(_in("name", "choice", required=True, description="Which service.",
+                      choices=("api", "runner", "agent"), where="path"),),
+          fixed={"yes": True}, confirm_with="name"),
     _get("chat-show", "chat.chat_state", rf"/api/chat/{NAME}", "tool", inputs=(P_NAME,),
          text="Say whether a project's chat is awake, working, waking, asleep or not started yet, and its links."),
     _post("chat-open", "chat.open_chat", rf"/api/chat/{NAME}/open", "change", "tool", inputs=(P_NAME,),
@@ -502,7 +507,8 @@ HELPERS = {
     "runs.tidy_merged": "CLI-only: `phoenix run tidy --merged`.",
     # service
     "service.restart_unit": "Internal: restarts one systemd unit.",
-    "service.restart": "CLI-only: `phoenix service restart`.",
+    "service.restart_api_soon": "Internal: the API's own restart (the service-restart control, name api).",
+    "service.agent_set_up": "Internal: whether the new agent's service is set up (checked before its restart).",
     # services
     "services.used_by": "Internal: part of the services list.",
     "services.recipes": "Internal: part of the services list.",

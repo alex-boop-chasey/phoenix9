@@ -1702,13 +1702,14 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   missing lock file = not held, since the API may not run as root); no expiry. `harness_busy()` = some run `running` and not held ("run X (project) is on task 3 of
   7"); `waiting`, `queued` and `paused-limit` runs are not busy (a restart resumes them from
   state.json). The hold is released after the health check, in every failure path, and by recovery.
-- **Restarting a service** (`phoenix9/ops/service.py`, `phoenix service restart api|runner --yes`): `runner`
+- **Restarting a service** (`phoenix9/ops/service.py`, `phoenix service restart api|runner|agent --yes`): `runner`
   takes `HOME/update/lock` (refused "An update of Phoenix is running" when an updater holds it), asks for the
   hold, waits (5 s polls through the clock adapter, up to 30 minutes) until `harness_busy()` is false, i.e.
   every running build is held at a task boundary, then `systemctl restart phoenix-runner` (host adapter) and
   releases the hold; still busy after 30 minutes = refused, nothing restarted. `api` restarts at once and
-  waits up to 20 s for `/api/health`. Both then run `doctor --quick` and print it (exit 0 once restarted;
-  the report shows any problem) and record the command. API: `POST /api/service/<api|runner>/restart`
+  waits up to 20 s for `/api/health`. `agent` (phoenix-agentkit) restarts at once, only when `[agent_next]` is
+  set up; the agent's own user may not restart it through the API. All then run `doctor --quick` and print it (exit 0 once restarted;
+  the report shows any problem) and record the command. API: `POST /api/service/<api|runner|agent>/restart`
   `{yes: true}`: `api` = `systemctl restart --no-block phoenix-api` (the reply comes before the API stops),
   `runner` = a background job (kind `restart`).
 - **Results**: every public function returns `{ok, result, tag, previous, reason, log}`; `result` is

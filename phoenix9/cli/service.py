@@ -1,4 +1,4 @@
-"""The `phoenix service restart api|runner` command: restart one of Phoenix's own services safely."""
+"""The `phoenix service restart api|runner|agent` command: restart one of Phoenix's own services safely."""
 from phoenix9 import doctor
 from phoenix9.cli.output import problem, show
 from phoenix9.ops import service as ops
@@ -6,11 +6,11 @@ from phoenix9.ops import service as ops
 
 def add(sub, common) -> None:
     """Register the service group."""
-    group = sub.add_parser("service", help="Phoenix's own services (phoenix-api, phoenix-runner)").add_subparsers(
+    group = sub.add_parser("service", help="Phoenix's own services (phoenix-api, phoenix-runner, phoenix-agentkit)").add_subparsers(
         dest="action", metavar="ACTION", required=True)
     p = group.add_parser("restart", parents=[common],
-                         help="restart api or runner (the runner waits for builds to reach a task boundary)")
-    p.add_argument("name", choices=sorted(ops.UNITS), help="api or runner")
+                         help="restart api, runner or agent (the runner waits for builds to reach a task boundary)")
+    p.add_argument("name", choices=sorted(ops.UNITS), help="api, runner or agent")
     p.add_argument("--yes", action="store_true", help="confirm that you mean it")
     p.set_defaults(func=restart)
 

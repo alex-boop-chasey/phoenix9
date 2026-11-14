@@ -121,9 +121,9 @@ def test_key_controls_are_never_tools():
 
 
 # Agent tools whose route starts slow work in the background and answers at once with a job or run id, so the agent
-# never waits on it. update-install (queued to the updater, answers {"queued"} with no id) and service-restart (not
-# an agent tool yet) are left out on purpose.
-BACKGROUND = {"edit-finish": "job_id", "project-create": "job", "build-start": "run_id", "hotfix-start": "run_id"}
+# never waits on it. update-install (queued to the updater, answers {"queued"} with no id) is left out on purpose.
+BACKGROUND = {"edit-finish": "job_id", "project-create": "job", "build-start": "run_id", "hotfix-start": "run_id",
+              "service-restart": "job"}   # (the runner; the api and agent restarts answer at once)
 
 
 def returned_keys(handler) -> set:

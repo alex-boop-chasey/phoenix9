@@ -36,6 +36,8 @@ CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 IMAGES_BUSY = "Images are being built already; try again when that has finished."
 RESTART_BUSY = "A restart is already waiting; try again when it has finished."
+NO_SELF_RESTART = ("I can't restart myself: that would cut off this reply. Use Restart on the agent's card in the "
+                   "dashboard.")
 FINISH_BUSY = "That quick edit is already being finished; wait for that to end."
 WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit and planning session ids
 MAX_REPLY = 2000
@@ -749,7 +751,7 @@ def post_images_build(req):
     return {"job": job_id}
 
 
-def run_restart_job(httpd, job: dict, name: str) -> None:
+def run_restart_job(httpd, job: dict, name: str, who: str = WHO) -> None:
     """Background thread: restart the runner (it may wait up to 30 minutes for a task boundary)."""
     def progress(line):
         with httpd.jobs_lock:
@@ -757,7 +759,7 @@ def run_restart_job(httpd, job: dict, name: str) -> None:
 
     result, status, message = None, "done", ""
     try:
-        result = ops_service.restart(name, who=WHO, yes=True, say=progress)
+        result = ops_service.restart(name, who=who, yes=True, say=progress)
     except common.OpsError as err:
         status, message = "failed", str(err)
     except Exception:
@@ -768,14 +770,19 @@ def run_restart_job(httpd, job: dict, name: str) -> None:
 
 
 def post_service_restart(req, name):
-    """Restart phoenix-api (at once, without waiting: this process is the one restarted) or phoenix-runner
-    (in a background job that waits for a task boundary); needs yes."""
+    """Restart phoenix-api (at once, without waiting: this process is the one restarted), phoenix-agentkit (at once,
+    then the quick doctor; never by the agent itself) or phoenix-runner (in a background job that waits for a task
+    boundary); needs yes."""
     if name not in ops_service.UNITS:
-        raise BadRequest("Say api or runner.")
+        raise BadRequest(f"Say {ops_service.NAMES}.")
     if req.body.get("yes") is not True:
         raise BadRequest(f"Restarting {ops_service.UNITS[name]} needs confirmation.")
+    if name == "agent" and req.who == agentaccess.WHO:
+        raise BadRequest(NO_SELF_RESTART)
     if name == "api":
-        return ops_service.restart_api_soon(WHO)
+        return ops_service.restart_api_soon(req.who)
+    if name == "agent":
+        return ops_service.restart("agent", who=req.who, yes=True)
     httpd = req.server
     with httpd.jobs_lock:
         purge_jobs(httpd.jobs)
@@ -785,7 +792,7 @@ def post_service_restart(req, name):
         job = {"id": job_id, "kind": "restart", "project": None, "status": "running",
                "steps": [], "message": "", "result": None, "finished_at": 0.0}
         httpd.jobs[job_id] = job
-    threading.Thread(target=run_restart_job, args=(httpd, job, name), daemon=True).start()
+    threading.Thread(target=run_restart_job, args=(httpd, job, name, req.who), daemon=True).start()
     return {"job": job_id}
 
 

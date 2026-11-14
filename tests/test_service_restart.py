@@ -1,4 +1,4 @@
-"""`phoenix service restart api|runner`: hold the harness, restart through the host adapter, then doctor (B3)."""
+"""`phoenix service restart api|runner|agent`: hold the harness (runner only), restart through the host adapter, then doctor (B3)."""
 import json
 
 import pytest
@@ -110,3 +110,52 @@ def test_api_route_restarts_the_runner_in_a_job(api, host):
     assert job["kind"] == "restart" and job["status"] == "done" and job["result"]["restarted"]
     assert restarts(host) == [["systemctl", "restart", "phoenix-runner"]]
     assert api("/api/service/nginx/restart", "POST", POST_HEADERS, {"yes": True})[0] == 400
+
+
+def set_up_agent():
+    paths.config().mkdir(parents=True, exist_ok=True)
+    (paths.config() / "global.toml").write_text("[agent_next]\nuid = 990\n")
+
+
+def test_agent_restart_is_immediate_and_ends_with_the_doctor(host, capsys):
+    set_up_agent()
+    code, out, _ = run_cmd(capsys, "service", "restart", "agent", "--yes", "--who", "alex")
+    assert code == 0 and restarts(host) == [["systemctl", "restart", "phoenix-agentkit"]]
+    assert "Restarted phoenix-agentkit." in out and "services:" in out
+    assert "service restart agent" in (paths.logs() / "commands.jsonl").read_text()
+    assert not (paths.home() / "update" / "hold").exists()       # no task-boundary wait for the agent
+
+
+def test_agent_restart_refused_when_not_set_up(host):
+    with pytest.raises(common.OpsError, match="not set up yet"):
+        service.restart("agent", yes=True)
+    assert restarts(host) == []
+
+
+def test_unknown_service_names_all_three(host):
+    with pytest.raises(common.OpsError, match="api, runner or agent"):
+        service.restart("nginx", yes=True)
+
+
+def test_api_route_restarts_the_agent_for_the_dashboard(api, host):
+    set_up_agent()
+    assert api("/api/service/agent/restart", "POST", POST_HEADERS, {})[0] == 400
+    status, body = api("/api/service/agent/restart", "POST", POST_HEADERS, {"yes": True})
+    assert status == 200 and body["data"]["service"] == "phoenix-agentkit" and body["data"]["restarted"]
+    assert restarts(host) == [["systemctl", "restart", "phoenix-agentkit"]]
+
+
+def test_api_route_refuses_the_agent_when_not_set_up(api, host):
+    status, body = api("/api/service/agent/restart", "POST", POST_HEADERS, {"yes": True})
+    assert status == 400 and "not set up" in body["message"] and restarts(host) == []
+
+
+def test_the_agent_may_not_restart_itself_but_may_restart_the_api(api, host):
+    from test_agentaccess import HEADERS, as_agent
+    as_agent(api)
+    status, body = api("/api/service/agent/restart", "POST", HEADERS, {"yes": True})
+    assert status == 400 and "can't restart myself" in body["message"] and restarts(host) == []
+    status, body = api("/api/service/api/restart", "POST", HEADERS, {"yes": True})
+    assert status == 200 and restarts(host) == [["systemctl", "restart", "--no-block", "phoenix-api"]]
+    commands = [json.loads(line) for line in (paths.logs() / "commands.jsonl").read_text().splitlines()]
+    assert any(c.get("who") == "agent" and "service restart api" in json.dumps(c) for c in commands)

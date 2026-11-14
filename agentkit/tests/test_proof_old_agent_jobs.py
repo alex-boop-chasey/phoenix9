@@ -345,6 +345,29 @@ def test_job_18():
     run(go())
 
 
+def test_job_33():
+    async def go():
+        fake, store, r, app, _sn = build([("service-restart", {"name": "runner"})])
+        tid = await paused(r, store)
+        assert posts(fake) == [] and types(store, tid)[-1] != "RUN_FINISHED"
+        (req,) = requests_in(store, tid)
+        assert req["toolName"] == "service-restart"
+        async with client(app) as c:   # a restart needs the service name typed
+            assert (await c.post(f"/approvals/{req['approvalId']}", json={"decision": "approve"})).status_code == 400
+            assert (await c.post(f"/approvals/{req['approvalId']}",
+                                 json={"decision": "approve", "confirm": "api"})).status_code == 400
+            assert posts(fake) == []
+            assert (await c.post(f"/approvals/{req['approvalId']}",
+                                 json={"decision": "approve", "confirm": "runner"})).status_code == 202
+        await r.active[tid]
+        (sent,) = posts(fake)
+        assert sent.url.path == "/api/service/runner/restart" and json.loads(sent.content) == {"yes": True}
+        for word in ("service-restart", "he types the service name", "Never restart yourself"):
+            assert word in INSTRUCTIONS, word
+
+    run(go())
+
+
 def test_job_35():
     async def go():
         fake, store, r, _a, seen = build([("edits-list", {"project": "beta"}), ("plans-list", {"project": "beta"}),

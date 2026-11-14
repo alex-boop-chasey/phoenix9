@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 2d4c92d50f4b84c9 -->
+<!-- phoenix 9.1.0 inputs 5293536b1aa55826 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -423,13 +423,13 @@ run the dashboard API until stopped
 
 ## `phoenix service`
 
-Phoenix's own services (phoenix-api, phoenix-runner)
+Phoenix's own services (phoenix-api, phoenix-runner, phoenix-agentkit)
 
 ### `phoenix service restart`
 
-restart api or runner (the runner waits for builds to reach a task boundary)
+restart api, runner or agent (the runner waits for builds to reach a task boundary)
 
-- `<name>`: api or runner
+- `<name>`: api, runner or agent
 - `--yes`: confirm that you mean it
 
 ## `phoenix services`

@@ -2,6 +2,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react"
 
 import { MergeReview } from "@/features/gates/MergeReview"
 import type { Gate, GateReview } from "@/lib/types"
+import { line, runDetail } from "@/test/buildFixtures"
 import { gate as escalation } from "@/test/fixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -20,6 +21,9 @@ const review: GateReview = {
   ],
   added: 3, removed: 1, merge_request: "https://github.com/x/y/pull/7",
 }
+
+/** The same review with every task and the full suite passed. */
+const clean: GateReview = { ...review, tasks: { ...review.tasks, passed: 4 } }
 
 const routes = {
   "GET /api/gates/r.1/review": review,
@@ -41,10 +45,11 @@ describe("MergeReview", () => {
     expect(screen.getByRole("link", { name: /Merge request on GitHub/ })).toHaveAttribute("href", review.merge_request)
   })
 
-  it("Approve & merge posts approve and shows Merged into main", async () => {
-    const { calls } = mockApi(routes)
+  it("Approve & merge on a clean run posts approve at once and shows Merged into main", async () => {
+    const { calls } = mockApi({ ...routes, "GET /api/gates/r.1/review": clean })
     renderWithProviders(<MergeReview gate={gate} />)
-    fireEvent.click(await screen.findByRole("button", { name: "Approve & merge" }))
+    await screen.findByText("Adds a thing.")
+    fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
     expect(await screen.findByText("Merged into main")).toBeInTheDocument()
     expect(JSON.stringify(calls)).toContain("approve")
   })
@@ -78,5 +83,51 @@ describe("MergeReview", () => {
     expect(screen.getByRole("button", { name: "Send back" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Don't merge" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: /Merge request on GitHub/ })).toHaveAttribute("href", "https://github.com/x/y/pull/7")
+  })
+
+  it("Approve & merge on a run that is not clean asks first, lists what went wrong, and merges on Merge anyway", async () => {
+    const { calls } = mockApi({ ...routes, "GET /api/gates/r.1/review": { ...review, full_suite: { status: "failed", note: "" } } })
+    renderWithProviders(<MergeReview gate={{ ...gate, flags: ["run was repaired"] }} />)
+    await screen.findByText("Adds a thing.")
+    fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
+    const items = await screen.findAllByRole("listitem")
+    expect(items.map((i) => i.textContent)).toEqual(["1 of 4 tasks did not pass", "Final test run failed", "Run was repaired"])
+    expect(JSON.stringify(calls)).not.toContain("approve")
+    fireEvent.click(screen.getByRole("button", { name: "Merge anyway" }))
+    expect(await screen.findByText("Merged into main")).toBeInTheDocument()
+    expect(JSON.stringify(calls)).toContain("approve")
+  })
+
+  it("with the run, the list names the task that was skipped", async () => {
+    mockApi({ ...routes, "GET /api/gates/r.1/review": clean })
+    const base = runDetail()
+    const run = runDetail({
+      tasks: { "1": { ...base.tasks["1"]!, status: "passed" }, "4": { ...base.tasks["1"]!, status: "skipped" } },
+      steps: [line({ group: "run-finish", task: null, step: "full-suite", status: "skipped" })],
+    })
+    renderWithProviders(<MergeReview gate={gate} run={run} />)
+    await screen.findByText("Adds a thing.")
+    fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
+    const items = await screen.findAllByRole("listitem")
+    expect(items.map((i) => i.textContent)).toEqual(["Task 4 was skipped", "Final test run was skipped"])
+  })
+
+  it("Cancel in the are-you-sure dialog does not merge", async () => {
+    const { calls } = mockApi(routes)
+    renderWithProviders(<MergeReview gate={gate} />)
+    await screen.findByText("Adds a thing.")
+    fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Merge anyway" })).toBeNull())
+    expect(JSON.stringify(calls)).not.toContain("approve")
+  })
+
+  it("Approve & merge when the review can't load asks first", async () => {
+    const { calls } = mockApi({ ...routes, "GET /api/gates/r.1/review": () => { throw new Error("git is busy") } })
+    renderWithProviders(<MergeReview gate={gate} />)
+    await screen.findByText(/Couldn't load the changes/)
+    fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
+    expect((await screen.findAllByRole("listitem")).map((i) => i.textContent)).toEqual(["The run's results have not loaded yet"])
+    expect(JSON.stringify(calls)).not.toContain("approve")
   })
 })

@@ -6,11 +6,13 @@ import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DocButtons } from "@/features/docs/DocButtons"
+import { MergeAnywayBody } from "@/features/gates/MergeAnywayBody"
+import { mergeWarnings } from "@/features/gates/mergeWarnings"
 import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
 import { useAnswerGate } from "@/lib/queries"
-import type { Gate, GateAction } from "@/lib/types"
+import type { Gate, GateAction, RunDetail } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const LABEL: Record<string, string> = {
@@ -37,12 +39,13 @@ const DELEGATED_HELP =
 const DELEGATED_FLAG = "handed to the Phoenix agent"   // the backend flag (failmodes.HANDOFF_FLAG); keep in step
 
 /** An amber card that shows one open question for Alex, with the buttons that answer it (none when readOnly). */
-export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean }) {
+export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false, run }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean; run?: RunDetail }) {
   const answer = useAnswerGate(gate.project)
   const [pressed, setPressed] = useState<GateAction | null>(null)
   const [noting, setNoting] = useState(false)
   const [note, setNote] = useState("")
   const [confirmStop, setConfirmStop] = useState(false)
+  const [confirmMerge, setConfirmMerge] = useState(false)
   const [done, setDone] = useState<GateAction | null>(null)
   const [gone, setGone] = useState(false)
   const [already, setAlready] = useState(false)
@@ -81,6 +84,12 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
     : ["approve", "back", "skip", "stop", "acknowledged"]
   const extra = gate.actions.filter((a) => !KNOWN.includes(a))
   const shown = [...order.filter(offers), ...extra]
+  const warnings = gate.kind === "merge" ? mergeWarnings({ gate, run }) : []
+  const press = (action: GateAction) => {
+    if (action === "stop") setConfirmStop(true)
+    else if (action === "approve" && warnings.length > 0) setConfirmMerge(true)
+    else send(action)
+  }
 
   const button = (action: GateAction) => {
     const label = labelOf(action)
@@ -98,7 +107,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         size={compact ? "sm" : "default"}
         variant={action === primary ? "default" : action === "stop" ? "destructive" : "outline"}
         disabled={busy}
-        onClick={() => (action === "stop" ? setConfirmStop(true) : send(action))}
+        onClick={() => press(action)}
       >
         {spin}
         {label}
@@ -196,6 +205,15 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         confirmLabel="Stop run"
         destructive
         onConfirm={() => send("stop")}
+      />
+      <ConfirmDialog
+        open={confirmMerge}
+        onOpenChange={setConfirmMerge}
+        title="Merge even though the run is not clean?"
+        body={<MergeAnywayBody warnings={warnings} />}
+        confirmLabel="Merge anyway"
+        destructive
+        onConfirm={() => send("approve")}
       />
     </article>
   )

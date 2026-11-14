@@ -264,15 +264,15 @@ export function StepList({ run, gates, renderUnderStep, lead = true }: Props) {
         const room = (
           <div className="review-room" data-review-room>
             {showGate && (showGate.kind === "merge"
-              ? <MergeReview gate={showGate} />
-              : <NeedsYouCard gate={showGate} compact />)}
+              ? <MergeReview gate={showGate} run={run} />
+              : <NeedsYouCard gate={showGate} compact run={run} />)}
             {line && renderUnderStep?.(line)}
           </div>
         )
         return (
           <div key={`${name}-${line?.attempt ?? 0}`} data-step={name}>
             {mergeRoom ? <div className="need-card">{block}{room}</div> : block}
-            {!mergeRoom && showGate && <div className="pt-2"><NeedsYouCard gate={showGate} compact /></div>}
+            {!mergeRoom && showGate && <div className="pt-2"><NeedsYouCard gate={showGate} compact run={run} /></div>}
             {!mergeRoom && line && renderUnderStep?.(line)}
             {repairsAfter(line)}
           </div>

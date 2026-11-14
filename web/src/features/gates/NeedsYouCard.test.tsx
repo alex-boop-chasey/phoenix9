@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react"
 
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import type { Gate } from "@/lib/types"
+import { line, runDetail } from "@/test/buildFixtures"
 import { gate as escalation } from "@/test/fixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -16,6 +17,9 @@ const merge: Gate = {
   actions: ["approve", "back", "skip", "stop"], flags: ["changes safety code"],
   links: [{ label: "See the changes", url: "https://github.com/x/y/pull/1" }],
 }
+
+/** The same merge question with nothing wrong, so Approve answers at once. */
+const cleanMerge: Gate = { ...merge, flags: [] }
 
 const answerRoute = (id: string) => ({
   [`POST /api/gates/${id}/answer`]: { gate: id, action: "approve", note: "", who: "alex", at: "" },
@@ -70,7 +74,7 @@ describe("NeedsYouCard", () => {
 
   it("approve posts approve", async () => {
     const { calls } = mockApi(answerRoute("r.1"))
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     await waitFor(() => expect(calls.length).toBe(1))
     expect(calls[0]!.path).toBe("/api/gates/r.1/answer")
@@ -149,7 +153,7 @@ describe("NeedsYouCard", () => {
 
   it("answered state then disappears", async () => {
     mockApi(answerRoute("r.1"))
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Answered: Phoenix is carrying on")).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText("Answered: Phoenix is carrying on")).toBeNull(), { timeout: 3000 })
@@ -158,17 +162,52 @@ describe("NeedsYouCard", () => {
 
   it("409 shows already answered", async () => {
     stubFailure(409, "That question was already answered.")
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Someone already answered this.")).toBeInTheDocument()
   })
 
   it("error shows plain message", async () => {
     stubFailure(500, "Phoenix could not save that.")
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Phoenix could not save that.")).toBeInTheDocument()
     expect(button("Approve")).toBeEnabled()
     void act
+  })
+
+  it("approve on a merge with flags asks first, lists them and merges on Merge anyway", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, flags: ["full suite did not pass", "handed to the Phoenix agent"] }} />)
+    fireEvent.click(button("Approve"))
+    const list = await screen.findByRole("list", { name: "What went wrong" })
+    expect(list.textContent).toBe("Full suite did not pass")
+    expect(calls.length).toBe(0)
+    fireEvent.click(button("Merge anyway"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "approve", note: "" })
+  })
+
+  it("approve on a merge whose run has a failed or skipped part asks first; Cancel sends nothing", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    const base = runDetail()
+    const run = runDetail({
+      tasks: { "1": { ...base.tasks["1"]!, status: "passed" }, "4": { ...base.tasks["1"]!, status: "skipped" } },
+      steps: [line({ group: "run-finish", task: null, step: "full-suite", status: "failed" })],
+    })
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} run={run} />)
+    fireEvent.click(button("Approve"))
+    const items = await screen.findAllByRole("listitem")
+    expect(items.map((i) => i.textContent)).toEqual(["Task 4 was skipped", "Final test run failed"])
+    fireEvent.click(button("Cancel"))
+    await waitFor(() => expect(screen.queryByRole("list", { name: "What went wrong" })).toBeNull())
+    expect(calls.length).toBe(0)
+  })
+
+  it("approve on a question that is not a merge never asks, flags or not", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, kind: "plan", flags: ["changes safety code"] }} />)
+    fireEvent.click(button("Approve"))
+    await waitFor(() => expect(calls.length).toBe(1))
   })
 })

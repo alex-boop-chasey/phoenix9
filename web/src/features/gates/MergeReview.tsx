@@ -7,7 +7,10 @@ import { Icon } from "@/components/Icon"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useAnswerGate, useGateReview } from "@/lib/queries"
-import type { Gate, GateAction, GateReview, ReviewFile } from "@/lib/types"
+import type { Gate, GateAction, GateReview, ReviewFile, RunDetail } from "@/lib/types"
+
+import { MergeAnywayBody } from "@/features/gates/MergeAnywayBody"
+import { mergeWarnings } from "@/features/gates/mergeWarnings"
 
 /** A diff line's class: hunk header, added, removed or plain. */
 function lineClass(line: string): "h" | "a" | "d" | "c" {
@@ -95,12 +98,13 @@ function ReviewDetails({ r }: { r: GateReview }) {
 }
 
 /** The merge review inside the Merge step: summary, facts, changed files and the three answers. */
-export function MergeReview({ gate }: { gate: Gate }) {
+export function MergeReview({ gate, run }: { gate: Gate; run?: RunDetail }) {
   const review = useGateReview(gate.id)
   const answer = useAnswerGate(gate.project)
   const [noting, setNoting] = useState(false)
   const [note, setNote] = useState("")
   const [confirmSkip, setConfirmSkip] = useState(false)
+  const [confirmMerge, setConfirmMerge] = useState(false)
   const [pressed, setPressed] = useState<GateAction | null>(null)
   const [done, setDone] = useState<GateAction | null>(null)
   const [error, setError] = useState("")
@@ -127,6 +131,10 @@ export function MergeReview({ gate }: { gate: Gate }) {
   }
 
   const busy = answer.isPending
+
+  const warnings = mergeWarnings({ gate, review: r, run })
+  if (!r && !run) warnings.unshift("The run's results have not loaded yet")
+  const approve = () => (warnings.length > 0 ? setConfirmMerge(true) : send("approve"))
 
   const mergeRequest = r?.merge_request || gate.links[0]?.url || ""
 
@@ -161,7 +169,7 @@ export function MergeReview({ gate }: { gate: Gate }) {
       )}
       {error && <p role="alert" className="small" style={{ color: "var(--bad)" }}>{error}</p>}
       <div className="acts">
-        <Button disabled={busy} onClick={() => send("approve")}>
+        <Button disabled={busy} onClick={approve}>
           {pressed === "approve" ? <Loader2 className="animate-spin" aria-hidden /> : <Icon name="git-merge" />}
           {pressed === "approve" ? "Merging…" : "Approve & merge"}
         </Button>
@@ -181,6 +189,15 @@ export function MergeReview({ gate }: { gate: Gate }) {
         confirmLabel="Don't merge"
         destructive
         onConfirm={() => send("skip")}
+      />
+      <ConfirmDialog
+        open={confirmMerge}
+        onOpenChange={setConfirmMerge}
+        title="Merge even though the run is not clean?"
+        body={<MergeAnywayBody warnings={warnings} />}
+        confirmLabel="Merge anyway"
+        destructive
+        onConfirm={() => send("approve")}
       />
     </div>
   )

@@ -196,7 +196,7 @@ export function RunningView({ name, runId, mode }: Props) {
       {s.waitingForRunner && (
         <p className="row small" role="status" data-testid="starting"><Wheel />Starting… the first step runs in a moment.</p>
       )}
-      {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} />)}
+      {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} run={d} />)}
       <div className="run">
         {/* The lead sits above both columns' second row, so the card's top lines up with the first step (O42). */}
         <div className="stack run-lead"><StepListLead run={d} /></div>

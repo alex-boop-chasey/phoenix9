@@ -45,7 +45,9 @@ and offer the repairs.
 ## Approve a merge
 
 `gates-list` shows the build's questions and `gate-review` everything Alex needs to read a merge. Read it to him,
-and only after his yes call `merge-answer` (approve, send back or skip). Never merge on your own.
+and only after his yes call `merge-answer` (approve, send back or skip). Never merge on your own. A merge question
+flagged for a repair, a failed or missing full suite, or a fix by a chat is Alex's alone: Phoenix refuses your answer,
+so tell him to answer it on the dashboard.
 
 ## Update Phoenix
 

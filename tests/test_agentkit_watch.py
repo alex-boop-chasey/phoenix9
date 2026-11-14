@@ -99,7 +99,8 @@ def test_not_set_up_does_nothing(adapters, phoenix_env):
 def test_odd_memory_file_is_ignored(ad):
     paths.logs().mkdir(parents=True, exist_ok=True)
     (paths.logs() / "agentkit-watch.json").write_text('["odd"]')
-    assert agentkitwatch.memory() == {"bad": 0, "last_restart": None, "stopped": False}
+    assert agentkitwatch.memory() == {"bad": 0, "last_restart": None, "stopped": False, "restarts": 0,
+                                      "gave_up": False}
 
 
 def test_doctor_names_a_recent_restart(ad):
@@ -138,3 +139,111 @@ def test_watch_forever_runs_it(ad, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         watch.watch_forever(ad, object())
     assert seen == [ad]
+
+
+# ---- restart result, a cap on restarts, a short /status timeout ----
+
+def restart_fails(ad, rc=1, err="Job for phoenix-agentkit.service failed.\n"):
+    ad.host.script(["systemctl", "restart", UNIT], rc, "", err)
+
+
+def test_status_check_has_a_short_timeout(ad):
+    run(ad, 1)
+    status = [c for c in ad.agentnext.calls if c["url"].endswith("/status")]
+    assert status and all(c["timeout"] == agentkitwatch.STATUS_TIMEOUT_S == 5 for c in status)
+
+
+def test_a_failed_restart_says_so(ad):
+    not_answering(ad)
+    restart_fails(ad, rc=5)
+    did = run(ad, 2)
+    assert len(restarts(ad)) == 1
+    assert "failed" in did[-1]
+    [msg] = ad.notify.messages
+    assert msg.startswith(agentkitwatch.RESTART_FAILED) and "exit 5" in msg
+    assert msg != agentkitwatch.NOTICE and "restarted the agent service:" not in msg
+    assert agentkitwatch.memory()["restarts"] == 1
+
+
+def _restart_round(ad):
+    """Two bad checks after the back-off: one restart attempt (or the give-up)."""
+    ad.clock.sleep(agentkitwatch.BACKOFF_S)
+    return run(ad, 2)
+
+
+def test_gives_up_after_three_restarts_and_tells_alex_once(ad):
+    not_answering(ad)
+    run(ad, 2)                                # restart 1
+    _restart_round(ad)                        # restart 2
+    _restart_round(ad)                        # restart 3
+    assert len(restarts(ad)) == 3 and len(ad.notify.messages) == 3
+    did = _restart_round(ad)                  # would be restart 4: gives up instead
+    assert len(restarts(ad)) == 3
+    assert ad.notify.messages[-1] == agentkitwatch.GIVE_UP and len(ad.notify.messages) == 4
+    assert did[-1] == "gave up restarting the agent service"
+    assert agentkitwatch.memory()["gave_up"] is True
+    for _ in range(10):                       # stays broken for hours: no restarts, no more messages
+        _restart_round(ad)
+    assert len(restarts(ad)) == 3 and len(ad.notify.messages) == 4
+
+
+def test_failed_restarts_count_towards_the_cap(ad):
+    crashed(ad)
+    restart_fails(ad)
+    run(ad, 2)
+    _restart_round(ad)
+    _restart_round(ad)
+    _restart_round(ad)
+    assert len(restarts(ad)) == 3
+    assert ad.notify.messages[-1] == agentkitwatch.GIVE_UP
+
+
+def test_healthy_again_resets_the_count(ad):
+    not_answering(ad)
+    run(ad, 2)
+    _restart_round(ad)
+    assert agentkitwatch.memory()["restarts"] == 2
+    healthy(ad)
+    run(ad, 1)
+    assert agentkitwatch.memory()["restarts"] == 0
+    not_answering(ad)                          # breaks again later: three fresh restarts before giving up
+    _restart_round(ad)
+    _restart_round(ad)
+    _restart_round(ad)
+    assert len(restarts(ad)) == 5 and agentkitwatch.GIVE_UP not in ad.notify.messages
+
+
+def test_after_giving_up_healthy_then_broken_starts_again(ad):
+    not_answering(ad)
+    run(ad, 2)
+    for _ in range(3):
+        _restart_round(ad)
+    assert agentkitwatch.memory()["gave_up"] is True
+    healthy(ad)                                # Alex fixed it
+    run(ad, 1)
+    assert agentkitwatch.memory()["gave_up"] is False
+    not_answering(ad)
+    _restart_round(ad)
+    assert len(restarts(ad)) == 4 and ad.notify.messages[-1] == agentkitwatch.NOTICE
+
+
+def test_stopped_on_purpose_is_never_restarted_even_after_giving_up(ad):
+    not_answering(ad)
+    run(ad, 2)
+    for _ in range(3):
+        _restart_round(ad)
+    ad.host.script(["systemctl", "is-active", UNIT], 3, "inactive\n")
+    ad.host.script(["systemctl", "show"], 0, "ActiveState=inactive\nResult=success\n")
+    _restart_round(ad)
+    _restart_round(ad)
+    assert len(restarts(ad)) == 3 and len(ad.notify.messages) == 4
+    assert agentkitwatch.memory()["stopped"] is True
+
+
+def test_doctor_says_the_watchdog_gave_up(ad):
+    not_answering(ad)
+    run(ad, 2)
+    for _ in range(3):
+        _restart_round(ad)
+    line = next(c for c in doctor.run_checks(ad, "quick")["checks"] if c["name"] == "agentkit-service")
+    assert "stopped restarting it" in line["detail"]

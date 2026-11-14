@@ -283,7 +283,8 @@ CONTROLS = (
           inputs=(P_GATE, _in("note", required=True, description="What to change in the plan.")),
           fixed={"action": "back"}, card="gate_card"),
     _post("merge-answer", "gates.answer", rf"/api/gates/{GATE}/answer", "change", "tool",
-          text="Answer a build's merge question: approve the merge, send it back or skip it.",
+          text="Answer a build's merge question: approve the merge, send it back or skip it. Not a merge flagged for a "
+               "repair, a failed or missing full suite or a chat's fix: those are Alex's alone.",
           inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip")), GATE_NOTE),
           card="gate_card"),
     # ---- repair ----

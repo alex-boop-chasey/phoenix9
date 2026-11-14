@@ -607,9 +607,14 @@ def check_agentkit_service(ctx):
 
 
 def _agentkit_restart_note(ctx) -> str:
-    """A note that the watchdog last restarted the service at a time, when that was in the last day; else empty."""
+    """A note that the watchdog gave up restarting the service, or last restarted it at a time in the last day;
+    else empty."""
     from phoenix9 import agentkitwatch
-    last = agentkitwatch.memory()["last_restart"]
+    mem = agentkitwatch.memory()
+    if mem["gave_up"]:
+        return (f"; the watchdog stopped restarting it after {agentkitwatch.MAX_RESTARTS} restarts in a row "
+                "did not bring it back healthy")
+    last = mem["last_restart"]
     if last is None or not 0 <= ctx.ad.clock.now() - last < 86400:
         return ""
     when = datetime.fromtimestamp(last, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")

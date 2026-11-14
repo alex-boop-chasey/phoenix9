@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from phoenix9 import atomic, keys, paths, scrub
+from phoenix9.project import HOME_PROJECT
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -97,10 +98,10 @@ def _home_entries(project: str) -> list[dict]:
     commands = paths.logs() / "commands.jsonl"
     if commands.is_file() and _command_lines(project, commands):
         found.append(_entry("logs/commands.jsonl", "command", "commands run on this project", commands))
-    for name in SERVICE_LOGS:
-        path = paths.logs() / name
-        if path.is_file():
-            found.append(_entry(f"logs/{name}", "service", f"{name[:-4]} log", path))
+    reports = paths.home() / "reports"
+    if project == HOME_PROJECT and reports.is_dir():
+        for path in sorted(p for p in reports.glob("*.md") if p.is_file() and not p.is_symlink()):
+            found.append(_entry(f"reports/{path.name}", "report", f"{path.stem} report", path))
     return found
 
 
@@ -124,6 +125,10 @@ def _resolve(project: str, id_: str) -> tuple[Path, str]:
     if not id_ or "\0" in id_:
         raise refuse
     home = paths.home().resolve()
+    if id_.startswith("logs/") and id_ != "logs/commands.jsonl":
+        raise refuse    # Phoenix's own logs are read with service_read, not as a project's log
+    if id_.startswith("reports/") and project != HOME_PROJECT:
+        raise refuse
     if id_.startswith(("logs/", "reports/")):
         base, target = (home / id_.split("/", 1)[0]).resolve(), (home / id_).resolve()
         rel = ""
@@ -234,10 +239,10 @@ def render_commands(project: str, path: Path) -> str:
 
 
 def _scrubber(project: str) -> scrub.Scrubber:
-    """A scrubber holding the process-wide secrets, the global secret files and this project's keys."""
+    """A scrubber holding the process-wide secrets, the global secret files and this project's keys (if any)."""
     files = sorted(p for p in paths.secrets().glob("*") if p.is_file()) if paths.secrets().is_dir() else []
     try:
-        mine = keys.secret_values(project)
+        mine = keys.secret_values(project) if project else []
     except (OSError, ValueError):
         mine = []
     try:
@@ -256,8 +261,6 @@ def read(project: str, id_: str) -> dict:
         info = {"kind": "command", "title": "commands run on this project"}
     elif rel == "" and id_.startswith("reports/"):
         info = {"kind": "report", "title": "status report"}
-    elif rel == "":
-        info = {"kind": "service", "title": f"{path.stem} log"}
     info = info or {"kind": "step", "title": path.name}
     text, truncated = _tail_text(path)
     if info["kind"] == "session":
@@ -269,6 +272,28 @@ def read(project: str, id_: str) -> dict:
         text = render_commands(project, path)
     return {"id": id_, "kind": info["kind"], "title": info["title"], "text": _scrubber(project).text(text),
             "truncated": truncated, "is_diff": info["kind"] == "diff"}
+
+
+def service_list() -> list[dict]:
+    """Phoenix's own logs (the API log and the updater log) with size and last change."""
+    found = []
+    for name in SERVICE_LOGS:
+        path = paths.logs() / name
+        if path.is_file() and not path.is_symlink():
+            found.append(_entry(name, "service", f"{name[:-4]} log", path))
+    return found
+
+
+def service_read(id_: str) -> dict:
+    """One of Phoenix's own logs as scrubbed text (last 2 MB): {id, kind, title, text, truncated, is_diff}."""
+    if id_ not in SERVICE_LOGS:
+        raise OpsError("That log is not one Phoenix can show.")
+    path = paths.logs() / id_
+    if path.is_symlink() or not path.is_file():
+        raise common.NotFound("There is no log with that id.")
+    text, truncated = _tail_text(path)
+    return {"id": id_, "kind": "service", "title": f"{id_[:-4]} log", "text": _scrubber("").text(text),
+            "truncated": truncated, "is_diff": False}
 
 
 list = list_

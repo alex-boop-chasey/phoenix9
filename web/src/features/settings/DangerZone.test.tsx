@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { DangerZone } from "@/features/settings/DangerZone"
+import { projects } from "@/test/fixtures"
 import { failure, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 import type { DeletePlan, DeleteResult } from "@/lib/types"
@@ -65,6 +66,18 @@ test("shows the dry run in plain words", async () => {
   expect(screen.getByText(/kept for 14 days/)).toBeInTheDocument()
   expect(screen.getByText(/claude-rc-chat@demo/)).toBeInTheDocument()
   expect(screen.getByRole("link", { name: "https://demo.example.com" })).toBeInTheDocument()
+})
+
+test("the dry run lists what the delete will close first", async () => {
+  await open({ "GET /api/projects/demo/delete-plan": { ...plan, will_close: ["VS Code terminal (bash)", "project chat"] } })
+  expect(await screen.findByTestId("will-close")).toHaveTextContent("Will be closed: VS Code terminal (bash), project chat.")
+  expect(screen.getByLabelText("Type demo to confirm")).toBeInTheDocument()
+})
+
+test("nothing to close shows no such line", async () => {
+  await open({})
+  expect(await screen.findByText("/srv/projects/demo")).toBeInTheDocument()
+  expect(screen.queryByTestId("will-close")).toBeNull()
 })
 
 test("refusals are shown and the button stays disabled", async () => {
@@ -154,4 +167,22 @@ test("a GitHub repo that is not the project's own is shown as kept", async () =>
 test("a GitHub repo that will go says so on its line", async () => {
   await open({ "GET /api/projects/demo/delete-plan": { ...plan, repo_delete: { repo: "me/demo", delete: true, why: "x" } } })
   expect(await screen.findByTestId("repo-verdict")).toHaveTextContent("(will be deleted)")
+})
+
+describe("the delete help line says whether the GitHub repo goes", () => {
+  const detail = (over: Record<string, unknown>) => ({ ...projects[0]!, name: "demo", changelog: [], gates: [], ...over })
+  const cases: [string, Record<string, unknown>, string][] = [
+    ["made by Phoenix", { repo: "me/demo", repo_owner: "me", repo_name: "demo", repo_made_by_phoenix: true },
+      "Removes the folder, builds, keys and the GitHub repo me/demo (Phoenix made it)."],
+    ["not made by Phoenix", { repo: "https://github.com/me/demo.git", repo_owner: "me", repo_name: "demo", repo_made_by_phoenix: false },
+      "Removes the folder, builds and keys. Your GitHub repo me/demo is kept: Phoenix did not create it."],
+    ["no repo", { repo: "", repo_owner: null, repo_name: null, repo_made_by_phoenix: false },
+      "Removes the folder, builds and keys."],
+  ]
+  test.each(cases)("%s", async (_label, over, words) => {
+    mockApi({ "GET /api/projects/demo": detail(over) })
+    renderWithProviders(<DangerZone name="demo" />)
+    await waitFor(() => expect(screen.getByTestId("delete-help")).toHaveTextContent(`${words} A safety copy is kept for 30 days.`))
+    expect(screen.getByTestId("delete-help").textContent).not.toMatch(/Delete the folder, the GitHub repo/)
+  })
 })

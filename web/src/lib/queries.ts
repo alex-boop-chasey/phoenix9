@@ -140,6 +140,12 @@ export const useRun = (project: string, runId: string) =>
     enabled: !!project && !!runId,
     refetchInterval: (q) => (LIVE_RUN.includes(q.state.data?.status ?? "") ? RUN_POLL_MS : false),
   })
+/** Typical step times from past builds (for the running build's ring); the server keeps them 5 minutes. */
+export const useRunEstimates = (project: string, enabled = true) =>
+  useQuery({
+    queryKey: ["run-estimates", project], queryFn: () => api.runEstimates(project),
+    enabled: !!project && enabled, staleTime: 5 * 60_000,
+  })
 export const useGates = (project?: string) =>
   useQuery({ queryKey: keys.gates(project), queryFn: () => api.gates(project), refetchInterval: REFRESH_MS })
 export const useSettings = (name: string) =>

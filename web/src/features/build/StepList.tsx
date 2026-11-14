@@ -10,6 +10,7 @@ import type { Gate, ItemStatus, PlanStep, RunDetail, RunRepair, RunTask, StepGro
 
 import { NoteButton } from "./NoteDialog"
 import { Muted } from "./parts"
+import { TaskTries } from "./TaskTries"
 
 /** The latest attempt's line for a step (of one task, or of the run when task is null). */
 function latestLine(run: RunDetail, task: number | null, step: string): StepLine | undefined {
@@ -196,18 +197,36 @@ interface Props {
   run: RunDetail
   gates?: Gate[]
   renderUnderStep?: (line: StepLine) => ReactNode
+  /** Show the "Planned steps" line and the "At the start" heading on top (default yes). */
+  lead?: boolean
+}
+
+/** The clock of a running or waiting step ("Started 3 minutes ago"); the build summary shows the same words. */
+export function liveClock(line: StepLine): string {
+  if (line.status === "running" && line.answered) return "Answered"
+  if (line.status === "running") return line.started ? `Started ${relativeTime(line.started)}` : "Running"
+  if (line.status === "waiting") return line.started ? `Waiting ${relativeTime(line.started).replace(/ ago$/, "")}` : "Waiting"
+  return ""
 }
 
 function timeOf(line: StepLine | undefined, shown: Shown): string {
   if (!line) return shown.status === "skipped" ? "Off" : "Pending"
-  if (line.status === "running" && line.answered) return "Answered"
-  if (line.status === "running") return line.started ? `Started ${relativeTime(line.started)}` : "Running"
-  if (line.status === "waiting") return line.started ? `Waiting ${relativeTime(line.started).replace(/ ago$/, "")}` : "Waiting"
+  if (line.status === "running" || line.status === "waiting") return liveClock(line)
   return took(line) || (shown.status === "skipped" ? "Skipped" : "")
 }
 
+/** The lines above the first step: a note while the plan is not fixed yet, and the "At the start" heading. */
+export function StepListLead({ run }: { run: RunDetail }) {
+  return (
+    <>
+      {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
+      <h3 className="stack-h">At the start</h3>
+    </>
+  )
+}
+
 /** The stacked blocks of a run: the start steps, one group per task, the end steps. */
-export function StepList({ run, gates, renderUnderStep }: Props) {
+export function StepList({ run, gates, renderUnderStep, lead = true }: Props) {
   const open = gates ?? run.gates
   const title = (name: string) => planRow(run, name)?.title || name
   const repairs = run.repairs ?? []
@@ -273,6 +292,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
           <div className="blk-t">
             <b>Task {n} · {t.title}</b>
             <span>{count} {count === 1 ? "step" : "steps"} passed</span>
+            <TaskTries run={run} n={n} stepTitle={title} />
           </div>
           <div className="blk-r"><Icon name="caret-right" size="sm" className="car" /></div>
         </summary>
@@ -302,8 +322,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
   const hasOpenGate = (n: number) => groupNames(run, "task").some((s) => gateFor(run, open, n, allLines(run, n, s).at(-1)))
   return (
     <div className="stack" aria-live="polite">
-      {!run.plan_frozen && <Muted>Planned steps; the runner fixes them when the build starts.</Muted>}
-      <h3 className="stack-h">At the start</h3>
+      {lead && <StepListLead run={run} />}
       {(anchors.get(undefined) ?? []).map((r) => <RepairLine key={`repair-${r.n}`} run={run} repair={r} />)}
       {blocks("run-start", null)}
       {taskNumbers.map((n) => {
@@ -315,7 +334,7 @@ export function StepList({ run, gates, renderUnderStep }: Props) {
           <div className="stack" key={n} data-task={n}>
             <h3 className="stack-h">
               Task {n} · {t.title}
-              {t.tries > 0 && <span className="small">attempt {t.tries} of {run.max_tries}</span>}
+              <TaskTries run={run} n={n} stepTitle={title} />
             </h3>
             <div className="row" style={{ gap: 12 }}>
               <TaskFileLink run={run} n={n} />

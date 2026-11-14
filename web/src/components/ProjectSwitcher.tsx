@@ -1,6 +1,5 @@
 import { Link } from "react-router"
 
-import { ChatButton } from "@/components/ChatButton"
 import { Icon } from "@/components/Icon"
 import { Indicator, type IndicatorKind } from "@/components/Indicator"
 import { useProjects } from "@/lib/queries"
@@ -11,7 +10,7 @@ import { cn } from "@/lib/utils"
 const IND: Record<SwitchState, IndicatorKind> = { need: "needs-you", run: "running", fail: "failed", idle: "pending" }
 
 /** The list of projects (status dot, name, one line), the current one marked with the blue bar. */
-export function ProjectList({ rows, current, onPick, withChat }: { rows: ProjectRow[]; current?: string; onPick?: () => void; withChat?: boolean }) {
+export function ProjectList({ rows, current, onPick }: { rows: ProjectRow[]; current?: string; onPick?: () => void }) {
   return (
     <div>
       {groupForSwitcher(rows).map((g, i) => (
@@ -19,7 +18,7 @@ export function ProjectList({ rows, current, onPick, withChat }: { rows: Project
           {i > 0 && <div className="sw-sep" role="separator" />}
           <h3 className="eyebrow sw-group">{g.title}</h3>
           {g.rows.map((p) => (
-            <Row key={p.name} p={p} current={current} onPick={onPick} withChat={withChat} />
+            <Row key={p.name} p={p} current={current} onPick={onPick} />
           ))}
         </section>
       ))}
@@ -27,7 +26,7 @@ export function ProjectList({ rows, current, onPick, withChat }: { rows: Project
   )
 }
 
-function Row({ p, current, onPick, withChat }: { p: ProjectRow; current?: string; onPick?: () => void; withChat?: boolean }) {
+function Row({ p, current, onPick }: { p: ProjectRow; current?: string; onPick?: () => void }) {
   const agent = groupOf(p) === "agent"
   const line = agent ? agentTitle(p) : switchLine(p)
   return (
@@ -42,7 +41,6 @@ function Row({ p, current, onPick, withChat }: { p: ProjectRow; current?: string
         <b>{p.name}</b>
         <small>{line}</small>
       </Link>
-      {withChat && p.name === current && <ChatButton project={p.name} chat={p.chat ?? null} compact />}
     </div>
   )
 }
@@ -56,7 +54,7 @@ export function ProjectSwitcher({ current }: { current?: string }) {
         <span>Projects</span>
         <Link to="/">See all</Link>
       </div>
-      <ProjectList rows={data ?? []} current={current} withChat />
+      <ProjectList rows={data ?? []} current={current} />
       <div className="sw-sep" />
       <Link className="btn btn-ghost btn-sm sw-add" to="/new">
         <Icon name="plus" />

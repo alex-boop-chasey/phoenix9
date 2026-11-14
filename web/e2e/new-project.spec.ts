@@ -5,8 +5,10 @@ test("creates a project, shows the creating view, then lands on its Overview wit
   await page.locator("#pf-name").fill("e2e-new")
   await expect(page.getByLabel("Description")).toHaveCount(0)
   await page.locator("label.tile", { has: page.getByRole("radio", { name: "Empty" }) }).click()
+  await page.getByRole("button", { name: "Next" }).click()
   await page.locator("label.tile", { has: page.getByRole("radio", { name: "Python script" }) }).click()
   await expect(page.getByRole("radio", { name: "Python script" })).toBeChecked()
+  await page.getByRole("button", { name: "Next" }).click()
 
   await expect(page.getByPlaceholder("NAME", { exact: true })).toHaveCount(0) // no empty key row until Add
   await page.getByRole("button", { name: "Add" }).click()
@@ -29,7 +31,7 @@ test("a bad name shows the message", async ({ page }) => {
   await page.goto("/#/new")
   await page.locator("#pf-name").fill("Bad Name!")
   await expect(page.getByText(/lowercase|letters|name/i).filter({ hasNotText: /^Name$/ }).first()).toBeVisible()
-  await expect(page.getByRole("button", { name: "Create project" })).toBeDisabled()
+  await expect(page.getByRole("button", { name: "Next" })).toBeDisabled()
   await expectNoHorizontalScroll(page)
   await expectNoRawOutput(page)
 })
@@ -37,8 +39,14 @@ test("a bad name shows the message", async ({ page }) => {
 test("choosing a service adds its key rows and unticking removes the empty ones", async ({ page }) => {
   await page.goto("/#/new")
   const names = page.getByPlaceholder("NAME", { exact: true })
+  const next = page.getByRole("button", { name: "Next" })
+  await page.locator("#pf-name").fill("e2e-keys")
+  await expect(next).toBeEnabled()
+  await next.click()
+  await page.locator("label.tile", { has: page.getByRole("radio", { name: "Python script" }) }).click()
   await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
-  await expect(page.getByText("1 selected · adds 3 key rows below")).toBeVisible()
+  await expect(page.getByText("1 selected · adds 3 key rows on the Keys step")).toBeVisible()
+  await next.click()
   await expect(names.nth(0)).toHaveValue("PUBLIC_CLERK_PUBLISHABLE_KEY")
   await expect(names.nth(1)).toHaveValue("CLERK_SECRET_KEY")
   await expect(names.nth(2)).toHaveValue("CLERK_WEBHOOK_SIGNING_SECRET")
@@ -50,7 +58,9 @@ test("choosing a service adds its key rows and unticking removes the empty ones"
   await expectNoHorizontalScroll(page)
 
   await page.getByLabel("Value").nth(0).fill("pk_test_123")
+  await page.getByRole("button", { name: "Back" }).click()
   await page.locator("label.tile", { has: page.getByRole("checkbox", { name: "Clerk" }) }).click()
+  await next.click()
   await expect(names.nth(0)).toHaveValue("PUBLIC_CLERK_PUBLISHABLE_KEY")
   await expect(names).toHaveCount(1) // only the kept row, no empty one
   await expect(page.getByRole("status")).toContainText("Kept PUBLIC_CLERK_PUBLISHABLE_KEY")

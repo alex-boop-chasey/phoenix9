@@ -1619,7 +1619,7 @@
   },
   {
     "name": "project-show",
-    "description": "All info of one project, plus recent changelog lines and open gates.",
+    "description": "All info of one project, plus recent changelog lines, open gates and whether Phoenix made its repo.",
     "inputs": [
       {
         "name": "name",
@@ -2304,6 +2304,30 @@
     "confirm_with": ""
   },
   {
+    "name": "run-estimates",
+    "description": "Read how long each build step and each task usually takes, from the project's last finished builds (all projects when it has too few).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/runs/(?P<project>[^/]+)/estimates",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "run-events",
     "description": "Read one run's events, oldest first.",
     "inputs": [
@@ -2491,6 +2515,34 @@
     "why": "Planned for a later agent build; for now Alex uses the dashboard.",
     "method": "POST",
     "route": "/api/services/(?P<name>[^/]+)/disconnect",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-logs-list",
+    "description": "Phoenix's own logs (the API log and the updater log) with size and last change.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/service-logs",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "service-logs-read",
+    "description": "One of Phoenix's own logs as scrubbed text (last 2 MB): {id, kind, title, text, truncated, is_diff}.",
+    "inputs": [],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/service-logs/read",
     "fixed": {},
     "fixed_query": {},
     "card": "",

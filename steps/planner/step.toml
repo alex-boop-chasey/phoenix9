@@ -15,8 +15,8 @@ auto_approve = false    # true = the plan question is approved automatically (on
 [ai]
 model = "claude-sonnet-5-5"
 fallback_models = ["claude-opus-5-5"]
-tools = []
-tools_denied = []
+tools = ["Read", "Glob", "Grep", "Write"]          # it only reads the project and writes /out/spec.md
+tools_denied = ["Bash", "WebFetch", "WebSearch"]
 mcp_servers = []
 claude_md = "library"
 skills = []

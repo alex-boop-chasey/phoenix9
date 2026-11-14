@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { parseEnvFile, skippedNote, type EnvEntry } from "@/features/projects/envFile"
 import { api } from "@/lib/api"
 import { keys, useKeyRows, useLibraryServices } from "@/lib/queries"
 import type { KeyInput, KeyRow } from "@/lib/types"
@@ -40,6 +41,22 @@ export interface WantedKey {
   required?: boolean
   help?: string
 }
+
+/** A key from an uploaded .env file whose name is already in the list, waiting for a choice. */
+interface Conflict {
+  name: string
+  value: string
+  secret: boolean
+}
+
+/** Read a picked file as text in the browser (it is never sent anywhere). */
+const readText = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result ?? ""))
+    r.onerror = () => reject(r.error)
+    r.readAsText(file)
+  })
 
 /** How many key rows there are and how many still need a value. */
 export interface RowsSummary {
@@ -87,7 +104,7 @@ function toInput(r: Row, local = false): KeyInput {
 
 /** Key rows with Save and Add. `saved` talks to the project's keys; `local` keeps rows in memory. */
 export function KeysForm({
-  mode, project = "", draft = false, onRowsChange, wanted,
+  mode, project = "", draft = false, onRowsChange, wanted, envUpload = false,
 }: {
   mode: "local" | "saved"
   project?: string
@@ -97,6 +114,8 @@ export function KeysForm({
   onRowsChange?: (rows: KeyInput[], pending: boolean, summary: RowsSummary) => void
   /** Local mode: keys the ticked services ask for; draft rows are added and removed to match. */
   wanted?: WantedKey[]
+  /** Local mode: show "Upload .env", which turns each KEY=value line into a typed row. */
+  envUpload?: boolean
 }) {
   const qc = useQueryClient()
   const query = useKeyRows(mode === "saved" ? project : "")
@@ -108,6 +127,9 @@ export function KeysForm({
   const [busy, setBusy] = useState(false)
   const [removing, setRemoving] = useState<Row | null>(null)
   const [kept, setKept] = useState<string[]>([])
+  const [conflicts, setConflicts] = useState<Conflict[]>([])
+  const [envNote, setEnvNote] = useState("")
+  const fileInput = useRef<HTMLInputElement>(null)
   const loaded = useRef(false)
   const rowsRef = useRef(rows)
   rowsRef.current = rows
@@ -210,6 +232,57 @@ export function KeysForm({
     }
   }
 
+  /** Add the file's keys as typed rows; names already in the list wait as conflicts. */
+  function addFromFile(entries: EnvEntry[]) {
+    const current = rowsRef.current
+    const fresh: Row[] = []
+    const fills = new Map<number, EnvEntry>()
+    const clashes: Conflict[] = []
+    for (const e of entries) {
+      const have = current.find((r) => !isBlank(r) && r.name.trim() === e.name)
+      if (!have) fresh.push({ ...blankRow(), name: e.name, value: e.value, secret: e.secret })
+      else if (isPlaceholder(have)) fills.set(have.id, e)
+      else if (have.value !== e.value) clashes.push(e)
+    }
+    setRows((rs) => [
+      ...rs.map((r) => {
+        const e = fills.get(r.id)
+        return e ? { ...r, value: e.value, secret: r.secret || e.secret, edited: true } : r
+      }),
+      ...fresh,
+    ])
+    setConflicts((cs) => [...cs.filter((c) => !clashes.some((x) => x.name === c.name)), ...clashes])
+    return fresh.length + fills.size
+  }
+
+  async function onEnvFile(files: FileList | null) {
+    const file = files?.[0]
+    if (fileInput.current) fileInput.current.value = ""
+    if (!file) return
+    try {
+      const { entries, skipped } = parseEnvFile(await readText(file))
+      const added = addFromFile(entries)
+      const note = skippedNote(skipped)
+      const parts = [`Added ${added} ${added === 1 ? "key" : "keys"} from ${file.name}.`, note && `${note}.`]
+      setEnvNote(parts.filter(Boolean).join(" "))
+    } catch {
+      setEnvNote("Could not read that file.")
+    }
+  }
+
+  /** Settle one conflict: keep the row as it is, or put the file's value in it as a typed row. */
+  function settle(c: Conflict, useFile: boolean) {
+    setConflicts((cs) => cs.filter((x) => x.name !== c.name))
+    if (!useFile) return
+    setRows((rs) => {
+      const have = rs.find((r) => !isBlank(r) && r.name.trim() === c.name)
+      if (!have) return [...rs, { ...blankRow(), name: c.name, value: c.value, secret: c.secret }]
+      return rs.map((r) => (r.id === have.id
+        ? { ...r, value: c.value, secret: r.secret || c.secret, saved: false, hasValue: false, edited: true, revealed: false }
+        : r))
+    })
+  }
+
   const hide = (r: Row) => change(r.id, { revealed: false, value: mode === "local" ? r.value : "" })
 
   async function remove(r: Row) {
@@ -238,6 +311,15 @@ export function KeysForm({
       {draft ? (
         <ul className="stackg">
           {rows.length === 0 && <li className="small">No keys yet. Pick a service above, or press Add.</li>}
+          {conflicts.map((c) => (
+            <li key={`conflict-${c.name}`} className="krow-conflict" data-testid="key-conflict">
+              <span><b className="mono">{c.name}</b> is already in the list. The file has a different value.</span>
+              <div className="row" style={{ gap: 6 }}>
+                <Button type="button" size="sm" variant="outline" onClick={() => settle(c, false)}>Keep current</Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => settle(c, true)}>Use file&apos;s value</Button>
+              </div>
+            </li>
+          ))}
           {rows.map((r) => (
             <KeyRowView
               key={r.id} row={r} error={errors[r.id]}
@@ -275,7 +357,19 @@ export function KeysForm({
         <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => void add()}>
           <Icon name="plus" />Add
         </Button>
+        {envUpload && mode === "local" && draft && (
+          <>
+            <Button type="button" variant="secondary" size="sm" disabled={busy} onClick={() => fileInput.current?.click()}>
+              <Icon name="file-text" />Upload .env
+            </Button>
+            <input
+              ref={fileInput} type="file" hidden aria-label=".env file"
+              onChange={(ev) => void onEnvFile(ev.target.files)}
+            />
+          </>
+        )}
       </div>
+      {envNote && <p className="small" role="status">{envNote} The file itself is not kept.</p>}
       {kept.length > 0 && (
         <p className="small" role="status">
           Kept {kept.join(", ")} because you typed a value. Remove {kept.length === 1 ? "it" : "them"} yourself if not needed.

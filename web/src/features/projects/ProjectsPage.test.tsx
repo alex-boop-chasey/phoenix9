@@ -230,13 +230,33 @@ test.each(["asleep", "awake", "working"])("a %s chat shows its dot on the row", 
   expect(within(rowOf("demo-site")).queryByRole("button", { name: "Sleep" })).toBeNull()
 })
 
-test("a project with no chat yet shows a Chat button without a dot", async () => {
+test("a project with no chat yet shows a Chat button with an empty dot", async () => {
   const rows = projects.map((p) => (p.name === "demo-site" ? { ...p, chat: chatInfo("none") } : p))
   mockApi(routes(rows as ProjectRow[]))
   renderPage()
   await screen.findByText("4 projects")
   expect(within(rowOf("demo-site")).getByRole("button", { name: /Chat/ })).toBeInTheDocument()
-  expect(document.querySelector(".chatdot")).toBeNull()
+  expect(rowOf("demo-site").querySelector(".chatdot")).toHaveClass("chatdot-none")
+})
+
+test("every row has a Chat button with its dot, and Remove is named after the project", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  for (const p of projects) {
+    expect(rowOf(p.name).querySelector(".p-acts .chatbtn .chatdot")).not.toBeNull()
+    expect(within(rowOf(p.name)).getByRole("button", { name: `Remove ${p.name}` })).toBeInTheDocument()
+  }
+})
+
+test("on a phone the code button can drop to just Code and Remove to its bin icon", async () => {
+  mockApi(routes())
+  renderPage()
+  await screen.findByText("4 projects")
+  const acts = rowOf("demo-site").querySelector(".p-acts")!
+  expect(acts.querySelector(".p-vs")).toHaveTextContent("VS")
+  expect(acts.querySelector(".p-rm .p-rm-t")).toHaveTextContent("Remove")
+  expect(acts.querySelector(".p-rm svg")).not.toBeNull()
 })
 
 test("pressing Chat opens that project's chat and not the row", async () => {

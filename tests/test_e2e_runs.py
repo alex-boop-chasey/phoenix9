@@ -238,7 +238,14 @@ def fail_task_1_first(env, attempts=(1,)):
         env.claude.script("builder", n, files={**SOURCES[n], f"tests/{name}": text}, text=DONE)
 
 
+def tell_questions_at_once():
+    """Switch the quiet wait off, so a question's message goes out as soon as it opens."""
+    paths.config().mkdir(parents=True, exist_ok=True)
+    (paths.config() / "global.toml").write_text("[notify]\nquiet_minutes = 0\n")
+
+
 def test_continue_mode_e2e(e2e):
+    tell_questions_at_once()
     set_settings(e2e, "on_failure=continue", "max_tries=1")
     e2e.script_builders(failing=(1,))
     run_id = e2e.start()
@@ -318,6 +325,7 @@ def test_secret_never_leaks_e2e(e2e, phoenix_env):
 
 
 def test_runner_restart_mid_merge_gate_e2e(e2e):
+    tell_questions_at_once()
     set_settings(e2e, "merge=ask")
     e2e.script_builders()
     run_id = e2e.start()

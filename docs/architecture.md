@@ -37,6 +37,8 @@ this file records a deliberate simplification (section 12).
 ```
 check.sh, check-browser.sh     the check commands (never weaken them)
 bin/phoenix                    wrapper: exec python3 -m phoenix9 "$@" (PYTHONPATH = repo root)
+bin/check-template-pins        run by hand (needs the internet, not part of the tests): asks the npm registry
+                               whether every package version pinned in templates/*/template.toml exists
 pyproject.toml                 name phoenix9, no runtime deps, pytest testpaths = ["tests"]
 docs/architecture.md           this file
 phoenix9/                      the Python package
@@ -103,7 +105,10 @@ presets/<name>.toml            simple, quick, full (custom = no file; it is "sta
 profiles/<name>/profile.toml   web, mobile, desktop, python-script, research, platform (+ image/Dockerfile)
 services/<name>/service.toml   expected project keys + hosts (phase 2); recipes, proxy rules (phase 4)
 deployers/<name>/deployer.toml deployers library, section 4.7 (+ deploy.py)
-templates/<name>/template.toml project templates menu (phase 2)
+templates/<name>/template.toml project templates menu (phase 2); recipe `run` commands pin npm versions
+                               (`create astro@5.1.0` = package create-astro 5.1.0): check them with
+                               bin/check-template-pins; a step that fails on a missing version tells the owner
+                               "This template points at a version of <package> that does not exist."
 image/                         base step image files ported from V8 (init-firewall.sh, entry.sh, ...)
 deploy/                        phoenix-api.service, phoenix-runner.service, phoenix9-update.service, install.sh,
                                update.sh, self-project.toml (section 15); README.md for the server owner;
@@ -815,7 +820,10 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 
 
 ### 8.3 Telling Alex a question is waiting (`phoenix9/gatenotify.py`)
-Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter: project, run
+Every question the runner opens (`runner._open_gate`) sends ONE message through the notify adapter, after a quiet
+wait: global `[notify] quiet_minutes` (default 10; 0 = at once) holds it (`gates/<id>.notified` = `held`), and the
+runner loop (`watch.check_gate_reminders` -> `gatenotify.send_held`) sends it only if the question is still open
+after that many minutes, so a question a chat answers soon sends nothing. The message has: project, run
 title, the question's title in one scrubbed line (cut to ~200 characters; never plan text or files) and a link to
 `<dashboard_url>/p/<project>/build` (no dashboard address set: it says to look under Needs you). A Pause-mode
 escalation keeps its own message from failmodes and is only recorded. What was sent is kept in

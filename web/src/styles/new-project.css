@@ -28,6 +28,8 @@
 .krow{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto; gap:8px; align-items:center; padding:10px; border:1px dashed var(--input-border); border-radius:var(--r-md)}
 .krow.saved{border-style:solid; border-color:var(--line); background:var(--surface)}
 @container well (max-width:560px){ .krow{grid-template-columns:minmax(0,1fr) auto} .krow .input:nth-child(2){grid-column:1 / -1; grid-row:2} }
+.krow-conflict{display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; padding:10px; border:1px solid var(--attn); border-radius:var(--r-md); font-size:14px; overflow-wrap:anywhere}
+@media (max-width:719px){ .krow-conflict .btn, #np-step-keys .row > .btn{--h:44px} }
 .reason{font-size:12.5px; color:var(--bad); display:flex; gap:4px; align-items:center}
 .receipt{background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-lg); box-shadow:var(--shadow-2); overflow:hidden}
 .receipt-h{padding:16px 20px; border-bottom:1px dashed var(--line-strong); background-image:var(--metal)}
@@ -38,3 +40,13 @@
 .launch li{display:flex; gap:10px; align-items:center; padding:6px 0; font-size:14px}
 .launch li.pend{color:var(--text-3)}
 }
+
+/* New project wizard: reuses the build wizard's outline, progress bar, canvas and dock (wizard.css).
+   Outside the layer so these beat wizard.css. The outline needs room beside the summary card, so it shows only on wide screens. */
+.wiz.np-wiz{grid-template-columns:minmax(0,1fr)}
+.np-wiz .wbar{grid-template-columns:repeat(3,minmax(0,1fr))}
+@container well (min-width:1200px){ .wiz.np-wiz{grid-template-columns:220px minmax(0,1fr)} }
+@container well (max-width:1199px){ .np-wiz .outline{display:none} .np-wiz .wbar{display:grid} .np-wiz .wp-title{display:inline} }
+.np-slide-b{display:grid; gap:12px; min-width:0}
+.np-dock .prob .i{flex:none}
+@container well (max-width:640px){ .np-dock .btn{flex:1 1 0; min-height:44px} .np-dock .prob{flex-basis:100%} }

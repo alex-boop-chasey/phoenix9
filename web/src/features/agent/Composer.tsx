@@ -105,6 +105,12 @@ export function Composer({ contextOn = true, inputRef, offline = false, busy = f
           ref={setRefs}
           className="input"
           id="agentIn"
+          name="message"
+          autoComplete="off"
+          autoCorrect="on"
+          autoCapitalize="sentences"
+          spellCheck
+          enterKeyHint="send"
           rows={1}
           value={text}
           disabled={locked}

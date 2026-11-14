@@ -2,7 +2,7 @@ import { Icon, type IconName } from "@/components/Icon"
 import type { BuildRow, LogEntry } from "@/lib/types"
 
 export const ALL = ""
-export const KINDS: LogEntry["kind"][] = ["session", "check", "diff", "step", "gate", "command", "service", "repair-note", "repair-report"]
+export const KINDS: LogEntry["kind"][] = ["session", "check", "diff", "step", "gate", "command", "repair-note", "repair-report", "task-file"]
 
 /** Plain words and an icon for each kind of log. */
 export const KIND_INFO: Record<LogEntry["kind"], { label: string; icon: IconName }> = {
@@ -15,6 +15,15 @@ export const KIND_INFO: Record<LogEntry["kind"], { label: string; icon: IconName
   service: { label: "Service logs", icon: "hard-drives" },
   "repair-note": { label: "Repair note", icon: "list-bullets" },
   "repair-report": { label: "Run report", icon: "list-bullets" },
+  "task-file": { label: "Task sheet", icon: "file-text" },
+  report: { label: "Report", icon: "book-open" },
+}
+
+const OTHER = { label: "Other", icon: "file-text" as IconName }
+
+/** Plain words and an icon for a kind of log; a kind this page does not know yet shows as "Other". */
+export function kindInfo(kind: string): { label: string; icon: IconName } {
+  return Object.hasOwn(KIND_INFO, kind) ? KIND_INFO[kind as LogEntry["kind"]] : OTHER
 }
 
 export interface LogFilterValues {
@@ -86,7 +95,7 @@ export function LogFilters({
       <div className="kinds" role="group" aria-label="Kinds of log">
         {KINDS.map((k) => (
           <button key={k} type="button" aria-pressed={values.kinds.includes(k)} onClick={() => toggle(k)}>
-            <Icon name={KIND_INFO[k].icon} />{KIND_INFO[k].label}
+            <Icon name={kindInfo(k).icon} />{kindInfo(k).label}
           </button>
         ))}
       </div>

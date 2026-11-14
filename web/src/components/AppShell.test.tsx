@@ -172,6 +172,11 @@ test("the settings trail reads Projects / Phoenix settings / Updates", () => {
   expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Updates")
 })
 
+test("the settings trail follows ?section= too", () => {
+  setup({ route: "/settings?section=logs" })
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Logs")
+})
+
 test("crumbs per route", () => {
   const labels = (p: string) => crumbsFor(p).map((c) => c.label)
   expect(labels("/")).toEqual(["Projects"])
@@ -184,13 +189,13 @@ test("crumbs per route", () => {
   expect(crumbsFor("/p/demo-site/logs")[1]?.to).toBe("/p/demo-site/overview")
 })
 
-test("the sidebar's current project line has a Chat button with its dot", async () => {
+test("the sidebar's current project line has no Chat button (the project header has it)", async () => {
   const rows = projects.map((p) => (p.name === "tiny-tool"
     ? { ...p, chat: { state: "asleep", bridge_session_id: null, web_url: null, app_url: null, last_active: null } } : p))
   setup({ route: "/p/tiny-tool/overview", projects: rows })
   await within(switcher()).findByText("tiny-tool")
-  expect(within(switcher()).getByRole("button", { name: /Chat/ })).toBeInTheDocument()
-  expect(switcher().querySelector(".chatdot")).toHaveClass("chatdot-asleep")
+  expect(within(switcher()).queryByRole("button", { name: /Chat/ })).toBeNull()
+  expect(switcher().querySelector(".chatdot")).toBeNull()
 })
 
 function stubWidth(phone: boolean) {

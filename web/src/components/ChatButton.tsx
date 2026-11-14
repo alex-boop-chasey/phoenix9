@@ -30,21 +30,26 @@ function useChatState(project: string, chat: ChatInfo | null): ChatState {
   return waking && polled ? polled : rowState
 }
 
-/** An outlined Chat button for a project (compact = the small sidebar size), with a state dot; after pressing, "Open chat" and "Open in browser instead" links. */
-export function ChatButton({ project, chat, compact = false }: { project: string; chat: ChatInfo | null; compact?: boolean }) {
+/** An outlined Chat button for a project with a state dot (its space always kept, so every Chat button is the same size); pressing again reopens the same chat. */
+export function ChatButton({ project, chat }: { project: string; chat: ChatInfo | null }) {
   const open = useOpenChat()
   const state = useChatState(project, chat)
   const [pressedFrom, setPressedFrom] = useState<ChatState>("none")
-  const [links, setLinks] = useState<{ app: string | null; web: string | null } | null>(null)
+  const [appLink, setAppLink] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   function press() {
     setError(null)
+    // Already open and awake: open the same link straight away (a phone may block a link opened after waiting).
+    if (appLink && (state === "awake" || state === "working")) {
+      window.open(appLink)
+      return
+    }
     setPressedFrom(state)
     open.mutate(project, {
       onSuccess: (result) => {
         const app = result.bridge_session_id ? chatLink(result.bridge_session_id, navigator.userAgent) : null
-        setLinks({ app, web: result.web_url })
+        setAppLink(app)
         if (app) window.open(app)
       },
       onError: (err) => setError(err instanceof Error ? err.message : String(err)),
@@ -54,13 +59,11 @@ export function ChatButton({ project, chat, compact = false }: { project: string
   const label = pressedFrom === "none" ? "Starting chat…" : "Waking chat…"
   return (
     <span className="chatbtn">
-      <button type="button" className={compact ? "btn btn-secondary btn-sm" : "btn btn-secondary"} title={TIPS[state]} disabled={open.isPending} onClick={press}>
+      <button type="button" className="btn btn-secondary" title={TIPS[state]} disabled={open.isPending} onClick={press}>
         {open.isPending && <Wheel />}
-        {open.isPending ? label : "Chat"}
-        {!open.isPending && state !== "none" && <i className={`chatdot chatdot-${state}`} aria-hidden="true" />}
+        <span className="chatlbl">{open.isPending ? label : "Chat"}</span>
+        <i className={`chatdot chatdot-${state}`} aria-hidden="true" />
       </button>
-      {links?.app && <a className="chatweb" href={links.app} target="_blank" rel="noreferrer">Open chat</a>}
-      {links?.web && <a className="chatweb" href={links.web} target="_blank" rel="noreferrer">Open in browser instead</a>}
       {error && <span role="alert" className="chaterr">{error}</span>}
     </span>
   )

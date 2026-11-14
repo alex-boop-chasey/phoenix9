@@ -1210,14 +1210,179 @@ def test_retry_checks_the_id_too(env, unitdir):
 
 def test_process_inside_the_folder_refuses(env, unitdir):
     folder = _stuff(env)
-    env["host"].proc_cwds = [{"pid": 4242, "name": "claude", "cwd": str(folder / "code" / "src")},
+    env["host"].proc_cwds = [{"pid": 4242, "name": "vim", "cwd": str(folder / "code" / "src")},
                              {"pid": 4343, "name": "bash", "cwd": str(env["projects"])}]
     refusals = project_delete.plan("alpha", "cli", env["fakes"])["refusals"]
-    assert len(refusals) == 1 and "claude (process 4242)" in refusals[0] and "bash" not in refusals[0]
+    assert len(refusals) == 1 and "vim (process 4242)" in refusals[0] and "bash" not in refusals[0]
     with pytest.raises(OpsError, match="inside the project folder"):
         project_delete.delete("alpha", "alpha", "cli", env["fakes"])
     _all_there(folder)
 
+
+
+# what the delete closes itself and what still stops it (O60)
+
+PTY = "/usr/lib/code-server/lib/node /usr/lib/code-server/lib/vscode/out/bootstrap-fork --type=ptyHost --logsPath /x"
+CODE_SERVER = "/usr/lib/code-server/lib/node /usr/lib/code-server --bind-addr 127.0.0.1:8080"
+
+
+def _terminal(env, folder, shell=7001, child=None):
+    """A VS Code terminal (bash under code-server's ptyHost) working in the folder, maybe with a child."""
+    host = env["host"]
+    host.parents.update({7000: 6900, shell: 7000})
+    host.cmdlines.update({6900: CODE_SERVER, 7000: PTY, shell: "/usr/bin/bash"})
+    host.proc_cwds += [{"pid": shell, "name": "bash", "cwd": str(folder / "code")}]
+    if child:
+        host.parents[child] = shell
+        host.cmdlines[child] = "npm run dev"
+        host.proc_cwds += [{"pid": child, "name": "npm", "cwd": str(folder / "code")}]
+
+
+def test_vscode_terminal_is_closed_not_blocking(env, unitdir):
+    import signal
+    folder = _stuff(env)
+    _terminal(env, folder, child=7002)
+    env["host"].proc_cwds += [{"pid": 7000, "name": "node", "cwd": "/root"}]     # code-server is elsewhere
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["refusals"] == [] and plan["will_close"] == ["VS Code terminal (bash)"]
+    res = project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert res["steps"][0]["step"] == "programs in the folder" and "VS Code terminal (bash)" in res["steps"][0]["words"]
+    assert sorted(env["host"].signals) == [(7001, signal.SIGTERM), (7002, signal.SIGTERM)]
+    assert not folder.exists()
+    assert "programs in the folder (Closed VS Code terminal (bash)" in (paths.logs() / "commands.jsonl").read_text()
+
+
+def test_terminal_that_ignores_sigterm_gets_sigkill_after_the_wait(env, unitdir):
+    import signal
+    folder = _stuff(env)
+    _terminal(env, folder)
+    env["host"].ignore_term.add(7001)
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert env["host"].signals == [(7001, signal.SIGTERM), (7001, signal.SIGKILL)]
+    assert sum(env["fakes"].clock.sleeps) >= project_delete.CLOSE_WAIT and not folder.exists()
+
+
+def test_process_that_will_not_close_refuses_and_keeps_everything(env, unitdir):
+    folder = _stuff(env)
+    _terminal(env, folder)
+    env["host"].ignore_all.add(7001)
+    with pytest.raises(OpsError, match="Could not close VS Code terminal") as e:
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert "Nothing was deleted" in str(e.value)
+    _all_there(folder)
+    assert not any(paths.deleted_projects().glob("alpha-*"))
+
+
+def test_something_new_in_the_folder_after_closing_refuses(env, unitdir):
+    folder = _stuff(env)
+    _terminal(env, folder)
+    real = env["host"].signal_pid
+
+    def signal_pid(pid, sig):                 # the terminal closes, but something else starts there
+        real(pid, sig)
+        env["host"].proc_cwds.append({"pid": 8000, "name": "make", "cwd": str(folder)})
+    env["host"].signal_pid = signal_pid
+    with pytest.raises(OpsError, match="again: make \\(process 8000\\)"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    _all_there(folder)
+
+
+def test_claude_session_in_the_folder_is_closed_with_its_children(env, unitdir):
+    import signal
+    folder = _stuff(env)
+    host = env["host"]
+    host.parents.update({4242: 900, 4243: 4242})
+    host.cmdlines.update({900: "/usr/bin/tmux new-session", 4242: "/root/.local/bin/claude remote-control",
+                          4243: "/bin/bash -c git status"})
+    host.proc_cwds = [{"pid": 4242, "name": "claude", "cwd": str(folder)},
+                      {"pid": 4243, "name": "bash", "cwd": str(folder / "code")}]
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["refusals"] == [] and plan["will_close"] == ["Claude session"]
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert sorted(host.signals) == [(4242, signal.SIGTERM), (4243, signal.SIGTERM)] and not folder.exists()
+
+
+@pytest.mark.parametrize("ancestor", ["bash .grunt/engine _run", "/usr/bin/tmux -L grunt new-session -d"])
+def test_grunt_process_still_blocks(env, unitdir, ancestor):
+    folder = _stuff(env)
+    host = env["host"]
+    host.parents.update({5100: 5050, 5050: 5000})
+    host.cmdlines.update({5000: ancestor, 5050: "timeout 45m /home/grunt/.local/bin/claude -p",
+                          5100: "/home/grunt/.local/bin/claude -p"})
+    host.proc_cwds = [{"pid": 5100, "name": "claude", "cwd": str(folder)}]
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert len(plan["refusals"]) == 1 and "a grunt job (claude, process 5100)" in plan["refusals"][0]
+    assert plan["will_close"] == []
+    with pytest.raises(OpsError, match="grunt job"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert host.signals == []
+    _all_there(folder)
+
+
+def test_grunt_started_from_a_vscode_terminal_still_blocks(env, unitdir):
+    folder = _stuff(env)
+    _terminal(env, folder)
+    env["host"].parents[7003] = 7001
+    env["host"].cmdlines[7003] = "bash .grunt/engine _run"
+    env["host"].proc_cwds.append({"pid": 7003, "name": "bash", "cwd": str(folder)})
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert "a grunt job (bash, process 7003)" in plan["refusals"][0]
+
+
+def test_phoenix_build_process_still_blocks(env, unitdir):
+    folder = _stuff(env)
+    host = env["host"]
+    host.parents.update({5200: 5150})
+    host.cmdlines.update({5150: "/usr/bin/python3 -m phoenix9 run start alpha", 5200: "git status"})
+    host.proc_cwds = [{"pid": 5200, "name": "git", "cwd": str(folder / "code")}]
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert "a Phoenix build (git, process 5200)" in plan["refusals"][0] and plan["will_close"] == []
+    with pytest.raises(OpsError, match="Phoenix build"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert host.signals == []
+
+
+def test_running_build_still_blocks_beside_a_terminal(env, unitdir):
+    folder = _stuff(env)
+    _terminal(env, folder)
+    make_run("alpha", "r9", "running")
+    with pytest.raises(OpsError, match="A build is running"):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert env["host"].signals == []
+    _all_there(folder)
+
+
+def test_process_outside_the_folder_is_untouched(env, unitdir):
+    folder = _stuff(env)
+    _terminal(env, folder)
+    host = env["host"]
+    host.parents.update({7101: 7000})          # another terminal of the same code-server, in another folder
+    host.cmdlines[7101] = "/usr/bin/bash"
+    host.proc_cwds += [{"pid": 7101, "name": "bash", "cwd": str(folder) + "-other"},
+                       {"pid": 7000, "name": "node", "cwd": str(folder.parent)},
+                       {"pid": 6900, "name": "node", "cwd": str(folder.parent)}]
+    project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert [pid for pid, _ in host.signals] == [7001] and not folder.exists()
+
+
+def test_code_server_itself_in_the_folder_blocks_and_is_never_signalled(env, unitdir):
+    folder = _stuff(env)
+    host = env["host"]
+    host.cmdlines.update({6900: CODE_SERVER, 7000: PTY})
+    host.parents[7000] = 6900
+    host.proc_cwds = [{"pid": 6900, "name": "node", "cwd": str(folder)},
+                      {"pid": 7000, "name": "node", "cwd": str(folder)}]
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["will_close"] == [] and "node (process 6900)" in plan["refusals"][0]
+    with pytest.raises(OpsError):
+        project_delete.delete("alpha", "alpha", "cli", env["fakes"])
+    assert host.signals == []
+
+
+def test_plan_lists_the_live_chat_as_closed(env, unitdir, monkeypatch):
+    _stuff(env)
+    monkeypatch.setattr(project_delete.projectchat, "state", lambda name, adapters: {"state": "awake"})
+    assert project_delete.plan("alpha", "cli", env["fakes"])["will_close"] == ["project chat"]
 
 CHAT_GROUP = "/system.slice/system-claude\\x2drc\\x2dchat.slice/claude-rc-chat@alpha.service"
 
@@ -1419,3 +1584,21 @@ def test_delete_and_remove_refuse_home_plainly(env):
     from phoenix9 import project_removal
     with pytest.raises(Exception, match="agent's folder"):
         project_removal.remove("home", "cli", env["fakes"])
+
+
+@pytest.mark.parametrize("meta, made", [
+    (OWN_META, True),
+    ({**OWN_META, "source": "template", "repo": "https://github.com/Me/Alpha.git"}, True),
+    ({**OWN_META, "source": "repo"}, False),
+    ({"repo": "me/alpha", "source": "empty"}, False),
+    ({**OWN_META, "phoenix_made_repo": "me/other"}, False),
+    (None, False),
+])
+def test_show_says_whether_phoenix_made_the_repo(env, meta, made):
+    from phoenix9.ops import projects
+    make(env, "alpha", meta=meta)
+    before = len(env["host"].calls)
+    data = projects.show("alpha")
+    assert data["repo_made_by_phoenix"] is made
+    assert "repo" in data
+    assert not [c for c in env["host"].calls[before:] if c and c[0] in ("git", "gh")]   # cheap: no git or gh

@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client"
 import { HashRouter } from "react-router"
 
 import App from "@/App"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Toaster } from "@/components/ui/sonner"
 import { applyTheme, getTheme } from "@/lib/theme"
 import "./index.css"
@@ -20,9 +21,11 @@ if (!pathname.endsWith("/") && !/\.[^/]+$/.test(pathname)) {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <HashRouter>
-          <App />
-        </HashRouter>
+        <ErrorBoundary>
+          <HashRouter>
+            <App />
+          </HashRouter>
+        </ErrorBoundary>
         <Toaster />
       </QueryClientProvider>
     </StrictMode>,

@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import signal
 import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,13 @@ SYSTEMD_DIR = Path("/etc/systemd/system")
 UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
 SCOPE_WORDS = ("delete_repo", "403")
 LOCK_WAIT = 5.0            # seconds a delete waits for the project lock (a run start holds it briefly)
+CLOSE_WAIT = 10.0          # seconds the delete waits for closed terminals and sessions before SIGKILL
+CLOSE_POLL = 0.5
+CHAIN_DEPTH = 64           # parents followed at most when sorting a process
+PTY_HOST = "--type=ptyHost"     # code-server's terminal host: every VS Code terminal shell is its child
+GRUNT_RE = re.compile(r"(^|[\s/])\.?grunt(\s|/|$)")    # grunt's engine, its tmux server or its files
+INSTALLED = "/opt/phoenix9/"
+CLAUDE = "claude"           # the Claude Code program name (only matched in ps output, never run)
 
 
 OWN_SOURCES = ("empty", "template")   # project.json sources where Phoenix itself made the GitHub repo
@@ -68,6 +76,14 @@ def _users_of(key: str, name: str, host) -> list:
     if _key(_git_out(host, paths.projects(), "remote", "get-url", "origin")) == key:
         users.append(f"the projects folder {paths.projects()}")
     return users
+
+
+def made_by_phoenix(folder: Path) -> bool:
+    """Cheap guess (project.json only, no git or gh) whether Phoenix created the project's recorded repo;
+    repo_verdict stays the final word."""
+    meta = project._meta(folder)
+    key = _key(meta.get("repo"))
+    return bool(key and meta.get("source") in OWN_SOURCES and _key(meta.get("phoenix_made_repo")) == key)
 
 
 def repo_verdict(name: str, folder: Path, host) -> dict:
@@ -224,12 +240,140 @@ def _refusals(name: str, who: str, chat_state: str, folder: Path | None = None, 
     if planning:
         out.append(f"A planning session is {planning[0]['status']} ({planning[0]['id']}). Wait until it is done, "
                    "or abandon it first.")
-    inside = _working_inside(folder, adapters, name)
-    if inside:
-        shown = ", ".join(f"{p['name']} (process {p['pid']})" for p in inside[:3]) + (" and more" if len(inside) > 3 else "")
+    blocking = _blocking(_sort_inside(_working_inside(folder, adapters, name), adapters))
+    if blocking:
+        shown = ", ".join(p["words"] for p in blocking[:3]) + (" and more" if len(blocking) > 3 else "")
         out.append(f"Programs are working inside the project folder: {shown}. Close them first "
-                   "(a grunt job, a desktop or terminal session...).")
+                   "(a grunt job, a desktop session...).")
     return out
+
+
+def _process_table(host) -> dict:
+    """{pid: (parent pid, command line)} of every process ({} when it cannot be read)."""
+    try:
+        return host.process_table()
+    except Exception:
+        return {}
+
+
+def _chain(table: dict, pid: int) -> list:
+    """The process and its parents, nearest first, up to the first one Phoenix cannot see."""
+    out = [pid]
+    while len(out) < CHAIN_DEPTH:
+        parent = table.get(out[-1], (0, ""))[0]
+        if parent in (0, 1) or parent in out or parent not in table:
+            break
+        out.append(parent)
+    return out
+
+
+def _program(cmd: str) -> str:
+    """The program's base name from a command line ('' when empty)."""
+    first = cmd.split(" ", 1)[0] if cmd else ""
+    return os.path.basename(first)
+
+
+def _is_claude(cmd: str, name: str = "") -> bool:
+    """True for a Claude Code process (its program, or the script node runs, is claude)."""
+    words = [os.path.basename(w) for w in cmd.split()[:2]]
+    first = words[0] if words else ""
+    return CLAUDE in (name, first) or (
+        len(words) == 2 and first in ("node", "bun") and words[1] in ("cli.js", CLAUDE) and CLAUDE in cmd)
+
+
+def _is_phoenix(cmd: str) -> bool:
+    """True for a Phoenix process (the phoenix command, python -m phoenix9, or the installed copy)."""
+    words = cmd.split()[:3]
+    return (bool(words) and os.path.basename(words[0]) == "phoenix") or "-m phoenix9" in cmd or any(
+        w.startswith(INSTALLED) for w in words)
+
+
+def _sort_one(p: dict, table: dict, names: dict, inside: set) -> dict:
+    """One process in the folder, sorted: {pid, name, close, words, group}; words name it in plain English."""
+    pid, name = p["pid"], p.get("name") or "a program"
+    chain = _chain(table, pid)
+    cmds = [table.get(q, (0, ""))[1] for q in chain]
+    if any(GRUNT_RE.search(c) for c in cmds):
+        return {"pid": pid, "name": name, "close": False, "words": f"a grunt job ({name}, process {pid})"}
+    if any(_is_phoenix(c) for c in cmds):
+        return {"pid": pid, "name": name, "close": False, "words": f"a Phoenix build ({name}, process {pid})"}
+    for i, cmd in enumerate(cmds[1:], start=1):
+        if PTY_HOST in cmd:                    # the process just below code-server's ptyHost is the terminal's shell
+            shell = chain[i - 1]
+            label = names.get(shell) or _program(cmds[i - 1]) or name
+            return {"pid": pid, "name": name, "close": True, "group": shell,
+                    "words": f"VS Code terminal ({label})"}
+    claudes = [q for q, c in zip(chain, cmds) if q in inside and _is_claude(c, names.get(q, ""))]
+    if claudes:                                # a Claude session working in the folder, and what it started
+        return {"pid": pid, "name": name, "close": True, "group": claudes[-1], "words": "Claude session"}
+    return {"pid": pid, "name": name, "close": False, "words": f"{name} (process {pid})"}
+
+
+def _sort_inside(found: list, adapters) -> list:
+    """The processes working in the folder, each marked whether the delete closes it or it blocks the delete."""
+    if not found:
+        return []
+    table = _process_table(adapters.host)
+    names = {p["pid"]: p.get("name") or "" for p in found}
+    inside = set(names)
+    return [_sort_one(p, table, names, inside) for p in found]
+
+
+def _blocking(sorted_: list) -> list:
+    """The processes that stop the delete."""
+    return [p for p in sorted_ if not p["close"]]
+
+
+def _closing_words(sorted_: list) -> list:
+    """One plain line per thing the delete will close (a terminal or Claude session once, however many processes)."""
+    seen, out = set(), []
+    for p in sorted_:
+        if p["close"] and p["group"] not in seen:
+            seen.add(p["group"])
+            out.append(p["words"])
+    return out
+
+
+def _will_close(name: str, chat_state: str, folder: Path, adapters) -> list:
+    """What the delete will close before removing anything: terminals and sessions in the folder, the chat."""
+    words = _closing_words(_sort_inside(_working_inside(folder, adapters, name), adapters))
+    if chat_state in ("waking", "awake", "working"):
+        words.append("project chat")
+    return words
+
+
+def _wait_gone(pids: set, folder: Path, adapters) -> set:
+    """Wait up to CLOSE_WAIT seconds for these processes to leave the folder; returns the ones still there."""
+    clock = adapters.clock
+    end = clock.now() + CLOSE_WAIT
+    while True:
+        left = pids & {p["pid"] for p in _working_inside(folder, adapters)}
+        if not left or clock.now() >= end:
+            return left
+        clock.sleep(CLOSE_POLL)
+
+
+def close_leftovers(name: str, folder: Path, adapters) -> str:
+    """Close the VS Code terminals and Claude sessions working in the folder: SIGTERM, wait, then SIGKILL.
+
+    Only processes whose working folder is inside the project folder are signalled (never their parents,
+    so never code-server itself); returns plain words for the record ('' when there was nothing to close)."""
+    found = [p for p in _sort_inside(_working_inside(folder, adapters, name), adapters) if p["close"]]
+    if not found:
+        return ""
+    host = adapters.host
+    pids = {p["pid"] for p in found}
+    for pid in sorted(pids):
+        host.signal_pid(pid, signal.SIGTERM)
+    left = _wait_gone(pids, folder, adapters)
+    for pid in sorted(left):                   # still in the folder after the wait: only those, and only now
+        host.signal_pid(pid, signal.SIGKILL)
+    if left:
+        left = _wait_gone(left, folder, adapters)
+    if left:
+        shown = ", ".join(f"{p['words']} ({p['name']}, process {p['pid']})" for p in found if p["pid"] in left)
+        raise common.OpsError(f"Could not close {shown}.")
+    return f"Closed {', '.join(_closing_words(found))} ({len(pids)} {'process' if len(pids) == 1 else 'processes'})."
 
 
 def _own_chat_pids(name: str, host, procs: list) -> set:
@@ -317,6 +461,7 @@ def plan(name: str, who: str, adapters) -> dict:
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
               "refusals": _refusals(name, who, chat["state"], folder, adapters),
+              "will_close": _will_close(name, chat["state"], folder, adapters),
               "safety_copy": str(paths.deleted_projects()),
               "keep_days": settings.delete_settings()["keep_days"]}
     if result["keys"]:
@@ -634,6 +779,24 @@ def delete(name: str, confirm_name: str, who: str, adapters) -> dict:
         lock.__exit__(None, None, None)
 
 
+def _close_or_refuse(name: str, who: str, adapters, folder: Path, dest: Path) -> str:
+    """Close the terminals and Claude sessions left in the folder, then check it again; when that fails or
+    something is working there again, remove the safety copy and raise Conflict (nothing was deleted)."""
+    try:
+        closed = close_leftovers(name, folder, adapters)
+        again = _sort_inside(_working_inside(folder, adapters, name), adapters)
+        if again:
+            shown = ", ".join(p["words"] for p in again[:3]) + (" and more" if len(again) > 3 else "")
+            raise common.OpsError(f"Programs are working inside the project folder again: {shown}.")
+    except common.OpsError as e:
+        adapters.host.remove_tree(dest)
+        common.record_command(who, f"project delete {name}: programs in the folder (failed: {e})", name)
+        raise common.Conflict(f"{e} Nothing was deleted.") from None
+    if closed:
+        common.record_command(who, f"project delete {name}: programs in the folder ({closed})", name)
+    return closed
+
+
 def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
     """The delete itself, run while holding the project lock (so no run of it can be queued meanwhile)."""
     _refuse(name, who, adapters)
@@ -644,12 +807,15 @@ def _delete_locked(name: str, who: str, adapters, folder: Path) -> dict:
     except common.OpsError as e:
         adapters.host.remove_tree(dest)
         raise common.Conflict(f"{e} Nothing was deleted.") from None
+    common.record_command(who, f"project delete {name}: safety copy written to {dest}", name)
+    steps, not_done = [], []
+    closed = _close_or_refuse(name, who, adapters, folder, dest)
+    if closed:
+        steps.append({"step": "programs in the folder", "ok": True, "words": closed})
     manifest = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
     verdict = _with_bundle(manifest, dest)
     repo = verdict["repo"]
     host = adapters.host
-    steps, not_done = [], []
-    common.record_command(who, f"project delete {name}: safety copy written to {dest}", name)
 
     def records() -> str:
         host.remove_tree(paths.runs(name))

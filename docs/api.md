@@ -49,9 +49,9 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/projects` | `ops.projects.rows` | | list of Project row | |
 | GET | `/api/projects?q=&status=&owner=&sort=&attention=` | `ops.projects.query` (step 3 of phase 5) | | `{top, rest, total, counts}` (see Shapes) | 400 |
 | GET | `/api/projects/check-name?name=` | `ops.projects.check_name` | | `{ok, message}` | |
-| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`, `chat`: the chat state or null) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` | 404 |
+| GET | `/api/projects/<name>` | `ops.projects.show` (plus `repo_url` and the state fields of rows: `needs_you`, `questions`, `run`, `last_build_failed`, `activity`, `status_line`, `run_text`, `harness`, `worker`, `chat`: the chat state or null) | | Project row + `setup` `{kind, source, template, preset, merge, created, services_set_up[{name, at, run, run_name}], waiting_for_keys[title]}` (what was chosen at setup, from `.phoenix/project.json` and `phoenix.toml`; any may be null. When setup did not record them, `created` is the date of the first commit in code/, else the folder's date, and `source` is `repo` (code/ has an origin), `code` (code/ is a git repo) or `empty`; `preset` is the project's default preset, each build shows its own) + `changelog`, `gates` + `repo_made_by_phoenix` (true when `.phoenix/project.json` says Phoenix created the recorded repo; a cheap guess for help text, the delete plan's `repo_delete` is the final word) | 404 |
 | GET | `/api/projects/<name>/changelog?limit=20` | `ops.projects.changelog` | | list of `{date, who, text}`, newest last | 404 |
-| GET | `/api/projects/<name>/delete-plan` | `ops.projects.delete_plan` | | the dry run for deleting a project entirely: `{name, folder, size, repo, repo_delete: {repo, delete, why, reason?, repo_id?}, open_prs, unpushed, unsaved_edits, runs, keys, keys_note?, chat, deployments, refusals, safety_copy, keep_days}` | 404 |
+| GET | `/api/projects/<name>/delete-plan` | `ops.projects.delete_plan` | | the dry run for deleting a project entirely: `{name, folder, size, repo, repo_delete: {repo, delete, why, reason?, repo_id?}, open_prs, unpushed, unsaved_edits, runs, keys, keys_note?, chat, deployments, refusals, will_close, safety_copy, keep_days}` (`will_close`: plain words for what the delete closes itself first: VS Code terminals and Claude sessions working in the folder, the project chat; a grunt job, a Phoenix build or anything else there is a refusal instead) | 404 |
 | GET | `/api/projects/<name>/keys` | `ops.keys.rows` (records no command) | | list of `{name, secret, has_value, value_if_not_secret}` | 404 |
 | GET | `/api/projects/<name>/settings` | `ops.settings.show` | | `{project, values, source}` | 400, 404 |
 | GET | `/api/projects/<name>/explain` | `ops.settings.explain` | | `{project, text}` | 400, 404 |
@@ -62,6 +62,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/runs/<project>/<run_id>/events` | `ops.runs.events` (`phoenix run events <project> <run>`) | query `after`, `limit` (default 50) | `{project, run_id, events: [{id, ...event}], next}`; that run's events only, oldest first, each scrubbed | 404 |
 | GET | `/api/runs/<project>/<run_id>/tries` | `ops.runs.task_tries` (`phoenix run tries <project> <run>`) | query `task` | `{project, run_id, task, title, status, max_tries, tries: [one line per try]}`; the first failed, waiting or stuck task unless `task` is given | 404 |
 | GET | `/api/runs/<project>/<run_id>/timing` | `ops.timing.timing` (`phoenix run timing <run> [--project <name>]`) | | `{project, run_id, status, in_progress, clock, waiting_on_person, working, steps: [{step, runs, total, average, share}], test_time, ai: {sessions, clock, model, waiting_on_commands}, tasks, tries, total_tries, already_done, tries_clean, tries_kept, suite_runs_made, suite_runs_skipped}`; seconds, read from the run folder only; fields older runs lack are left out | 404 |
+| GET | `/api/runs/<project>/estimates` | `ops.timing.estimates` | | `{project, steps: {<step>: {seconds, samples, source, per_task}}, task: {seconds, samples, source}}`; typical seconds for ONE run of each step and for one whole task (all its steps and tries), the median of the newest 10 finished builds of the project, or of all projects (`source: "all projects"`) when the project has fewer than 3; gate waiting left out; a step (or `task`) with no history is left out; `per_task` marks steps run once per task, so a build estimate is the other steps plus tasks left × `task.seconds`; kept in memory 5 minutes per project | 404 |
 | GET | `/api/runs/<project>/<run_id>/session` | `ops.runs.session_excerpt` (`phoenix run session <project> <run> --task N`) | query `task`, `attempt`, `step` | `{quoted: true, source, text}`; the last lines of the step's AI session (`logs/<task>-<attempt>-<role>.jsonl`), scrubbed and capped | 404 |
 | GET | `/api/gates?project=` | `ops.gates.list_` | | the open questions only (`gates.is_open`), as gate objects (architecture section 8) plus `state: "open"` | 404 |
 | GET | `/api/library/steps` | `ops.library.steps` | | `{steps, problems}` | |
@@ -111,6 +112,8 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/blocks/check` | `ops.blocks.check` | `{kind: card\|choice\|confirm\|nav, json: text}` | `{ok, reason, resolved}` (not ok gives a plain reason; nav `resolved` is `{links: [{hash, label}], dropped: [{link, to, reason}]}`) | 400 (kind or json missing) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
 | GET | `/api/logs/read?project=&id=` | `ops.logs.read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed) | 400, 404 |
+| GET | `/api/service-logs` | `ops.logs.service_list` | | Phoenix's own logs (`api.log`, `updater.log`): list of `{id, kind, run, task, attempt, step, title, size, modified}` | |
+| GET | `/api/service-logs/read?id=` | `ops.logs.service_read` | | `{id, kind, title, text, truncated, is_diff}` (last 2 MB, scrubbed); only `api.log` and `updater.log` | 400, 404 |
 | POST | `/api/services/<name>/connect` | `ops.services.connect` (who `dashboard`; body never logged, reply never echoes values) | `{values: {NAME: value}, settings?: {name: text}}`; an already-connected service may leave a key out to keep it | `{name, connected, checked, message}` | 400 |
 | POST | `/api/services/<name>/test` | `ops.services.test` (nothing saved; pasted key, else the saved one) | `{values?: {NAME: value}}` | `{name, ok, message}` | 400 |
 | POST | `/api/services/<name>/disconnect` | `ops.services.disconnect` | `{yes: true}` | `{name, connected, used_by, warning}` | 400 |
@@ -206,7 +209,8 @@ available, can_install, reason, endpoints {install, rollback}}`, `github {connec
 
 **Build** (`ops.runs.builds`): the run summary `{run_id, project, status, created, updated, current,
 tasks_total, tasks_passed, usage}` plus `title`, `preset`, `started`, `finished` (ISO or `""`),
-`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `discarded` (true once the run's work was discarded).
+`duration` (plain words or `""`), `cost` (like `"$0.42"`), `tasks_failed`, `tasks_skipped` (tasks whose status is skipped; `tasks_total` still counts them),
+`tasks_retried` (tasks that needed more than one try), `discarded` (true once the run's work was discarded).
 
 **Run detail** (`ops.runs.detail`): the run's state.json fields, `gates` (open), `recent_events`, plus
 `plan` (the plan.json shape: `groups`, `sources`, `off`, `steps`), `plan_frozen` (false when the run has
@@ -323,8 +327,11 @@ else at the end of the file; polls every `PHOENIX_API_TAIL_SECONDS` (0.5); sends
 
 ## Logs
 
-Log ids are paths: `<run id>/<path inside the run folder>` or `logs/<file>` (inside HOME). Anything else is
-refused (400). Kinds: `session`, `check`, `diff`, `step`, `gate`, `command`, `service`.
+Log ids are paths: `<run id>/<path inside the run folder>`, `logs/commands.jsonl` (this project's lines) or,
+for the `home` project only, `reports/<file>` (inside HOME). Anything else is refused (400). Project lists never
+hold Phoenix's own logs; those are `/api/service-logs` (ids `api.log` and `updater.log`, kind `service`), shown in
+Global settings > Logs. Kinds: `session`, `check`, `diff`, `step`, `gate`, `command`, `task-file`, `report`,
+`repair-note`, `repair-report`, `service`.
 
 ## Demo data
 

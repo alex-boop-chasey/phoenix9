@@ -1,4 +1,4 @@
-// The New project order sheet: six numbered steps made of open tiles.
+// The New project order sheet: three wizard slides made of open tiles (name and source, type and services, keys).
 import { useEffect, useMemo, type ReactNode } from "react"
 import { Link } from "react-router"
 
@@ -256,7 +256,7 @@ function TypeFramework({ value, set }: Pick<Props, "value" | "set">) {
   )
 }
 
-/** Step 4: type, framework, then services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
+/** Slide 2: type, framework, then services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
 function ServicesStep({ value, set }: Props) {
   const library = useLibraryServices()
   const status = useServices()
@@ -272,7 +272,7 @@ function ServicesStep({ value, set }: Props) {
   const n = value.services.length
   const rows = wantedKeys(library.data?.services, value.services).length
   return (
-    <Step n={4} id="np-step-services">
+    <div className="np-slide-b" id="np-step-services">
       <TypeFramework value={value} set={set} />
       <span className="lbl" id="svcL">Services</span>
       <div className="tiles" role="group" aria-labelledby="svcL">
@@ -292,8 +292,8 @@ function ServicesStep({ value, set }: Props) {
           )
         })}
       </div>
-      <p className="small">{n === 0 ? "None selected" : `${n} selected · adds ${rows} key ${rows === 1 ? "row" : "rows"} below`}</p>
-    </Step>
+      <p className="small">{n === 0 ? "None selected" : `${n} selected · adds ${rows} key ${rows === 1 ? "row" : "rows"} on the Keys step`}</p>
+    </div>
   )
 }
 
@@ -303,11 +303,12 @@ interface Props {
   onNameOk: (ok: boolean) => void
 }
 
-/** The six steps of the order sheet, in order. */
+/** The three slides of the order sheet; all stay mounted (so typed keys survive) and only `slide` is shown. */
 export function OrderSheet({
-  value, onChange, onNameOk, onRows,
+  value, slide, onChange, onNameOk, onRows,
 }: {
   value: FormValues
+  slide: number
   onChange: (v: FormValues) => void
   onNameOk: (ok: boolean) => void
   onRows: (rows: KeyInput[], pending: boolean, summary: RowsSummary) => void
@@ -316,16 +317,23 @@ export function OrderSheet({
   const wanted = useMemo(() => wantedKeys(library.data?.services, value.services), [library.data, value.services])
   const props: Props = { value, set: (patch) => onChange({ ...value, ...patch }), onNameOk }
   return (
-    <ol className="osteps">
-      <NameSteps {...props} />
-      <SourceStep {...props} />
-      <RepoStep {...props} />
-      <ServicesStep {...props} />
-      <Step n={5} id="np-step-keys">
-        <span className="lbl">Project keys</span>
-        <KeysForm mode="local" draft onRowsChange={onRows} wanted={wanted} />
-      </Step>
-    </ol>
+    <>
+      <div hidden={slide !== 1} data-slide-body={1}>
+        <ol className="osteps">
+          <NameSteps {...props} />
+          <SourceStep {...props} />
+          <RepoStep {...props} />
+        </ol>
+      </div>
+      <div hidden={slide !== 2} data-slide-body={2}>
+        <ServicesStep {...props} />
+      </div>
+      <div hidden={slide !== 3} data-slide-body={3}>
+        <div className="np-slide-b" id="np-step-keys">
+          <span className="lbl">Project keys</span>
+          <KeysForm mode="local" draft envUpload onRowsChange={onRows} wanted={wanted} />
+        </div>
+      </div>
+    </>
   )
 }
-

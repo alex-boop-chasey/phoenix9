@@ -174,9 +174,29 @@ def _copy_template(tpl: dict, code: Path, values: dict) -> None:
         shutil.copymode(src, dst)
 
 
+MISSING_VERSION_MARKS = ("ERR_PNPM_NO_MATCHING_VERSION", "ETARGET", "No matching version")
+MISSING_PACKAGE_RE = re.compile(r"No matching version found for (@?[^@\s]+)@")
+
+
+def _missing_version(rc: int, out: str, err: str) -> str | None:
+    """Plain words when a failed template step asked for a package version that does not exist, else None."""
+    lines = [x.strip() for x in (err + "\n" + out).splitlines() if x.strip()]
+    hit = next((x for x in lines if any(m in x for m in MISSING_VERSION_MARKS)), None)
+    if hit is None:
+        return None
+    found = next((MISSING_PACKAGE_RE.search(x) for x in lines if MISSING_PACKAGE_RE.search(x)), None)
+    package = found.group(1) if found else "a package"
+    return (f"This template points at a version of {package} that does not exist. "
+            f"The template needs updating. {_first_error(rc, out, err)}")
+
+
 def _run_recipe(host, tpl: dict, code: Path) -> None:
+    """Run a recipe template's pinned commands in code/; a missing pinned version is named in plain words."""
     for command in tpl["run"]:
-        _run(host, f"Template step '{command}' failed", shlex.split(command), RECIPE_TIMEOUT, cwd=code)
+        rc, out, err = host.run(shlex.split(command), timeout=RECIPE_TIMEOUT, cwd=code)
+        if rc != 0:
+            words = _missing_version(rc, out, err) or _first_error(rc, out, err)
+            raise OpsError(f"Template step '{command}' failed: {words}")
 
 
 def _first_commit(code: Path) -> None:
@@ -281,6 +301,23 @@ def forget_made_repo(folder: Path) -> None:
         atomic.write_json(_meta_file(folder), {k: v for k, v in meta.items() if k not in MADE_REPO_FIELDS})
 
 
+CLAUDE_RULES = """## How to reply
+Respond in a short, tight, matter-of-fact style. Preserve all meaning, intent, and concrete details.
+- Never run expensive tests that the user could easily do for free (like Claude in Chrome tests); we are a 2 member team.
+- No filler, politeness padding, greetings, or meta-commentary. The one exception: the first reply of every chat opens with two lines from this project's notes/NOW.md ("where <project> is up to" and "next step"), then answers. Nothing else in the intro.
+- Lead with the answer. Add brief context or reasoning when it aids understanding.
+- Include helpful hints on critical decisions but keep them brief.
+- Don't restate the question.
+- Deliver one step at a time and wait for the user's response before giving the next step.
+- Code snippets, terminal commands, and markdown go in a single plaintext code block for one-click copy.
+- Join multiple terminal commands into a single command where possible.
+Default to this style unless asked for a longer explanation.
+
+## Accuracy
+Each chat is an ongoing workflow of ideas that lead to greater knowledge for the user and a completed project the business must deliver to stay viable. Fabricating information or altering the tests that prove a project is done is strictly prohibited; the project is deemed a failure if either happens.
+"""
+
+
 def _claude_md(opts, facts, repo: str) -> str:
     name, tpl = opts["name"], facts["template"]
     where = opts["code"] if facts["source"] == "code" else "code/"
@@ -288,7 +325,7 @@ def _claude_md(opts, facts, repo: str) -> str:
     template = opts["template"] if facts["source"] == "template" else "none"
     about = (opts.get("description") or "").strip() or f"{name}: a new project."
     return (f"# {name}\n\n{about}\n\n- Code: {where}\n- Repo: {repo or '(none yet)'}\n- Profile: {facts['profile'] or '(not set yet)'}\n"
-            f"- Services: {services_line}\n- Template: {template}\n\n@notes/NOW.md\n")
+            f"- Services: {services_line}\n- Template: {template}\n\n{CLAUDE_RULES}\n@notes/NOW.md\n")
 
 
 def _write_notes(folder: Path, opts, facts, today: str) -> None:

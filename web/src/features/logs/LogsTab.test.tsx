@@ -147,8 +147,15 @@ describe("LogsTab", () => {
 
   it("empty filters message", async () => {
     mockApi(routes({ "GET /api/logs": [] }))
-    renderWithProviders(<LogsTab name="demo-site" />)
+    renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?kind=diff" })
     expect(await screen.findByText("No logs match these filters.")).toBeInTheDocument()
+  })
+
+  it("a project with no logs says when they will appear", async () => {
+    mockApi(routes({ "GET /api/logs": [] }))
+    renderWithProviders(<LogsTab name="demo-site" />)
+    expect(await screen.findByText("No logs yet. Logs appear here once this project's first build starts.")).toBeInTheDocument()
+    expect(screen.queryByText("No logs match these filters.")).not.toBeInTheDocument()
   })
 
   it("error state", async () => {
@@ -169,6 +176,35 @@ describe("LogsTab", () => {
     mockApi(routes())
     renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?log=s1" })
     expect(await screen.findByText("hello from the builder")).toBeInTheDocument()
+  })
+
+  describe("other kinds", () => {
+    const TASK = `${RUN}/tasks/1/task.md`
+    const odd: LogEntry[] = [
+      entry({ id: TASK, kind: "task-file", task: 1, attempt: null, step: null, title: "task file (task 1)" }),
+      entry({ id: "w1", kind: "brand-new" as LogEntry["kind"], title: "Mystery log" }),
+    ]
+    const withOdd = () => routes({
+      "GET /api/logs": odd,
+      "GET /api/logs/read": (r: MockRequest) => r.query.id === "reports/latest.md"
+        ? { id: r.query.id, kind: "report", title: "status report", text: "# Status\nAll fine", truncated: false, is_diff: false }
+        : { id: r.query.id, kind: "task-file", title: "task file (task 1)", text: "Do the thing", truncated: false, is_diff: false },
+    })
+
+    it("lists a task sheet and an unknown kind without breaking", async () => {
+      mockApi(withOdd())
+      renderWithProviders(<LogsTab name="demo-site" />)
+      expect(await screen.findByRole("option", { name: /task file \(task 1\)/ })).toHaveTextContent("Task sheet")
+      expect(screen.getByRole("option", { name: /Mystery log/ })).toHaveTextContent("Other")
+      expect(screen.getByRole("button", { name: "Task sheet" })).toBeInTheDocument()
+    })
+
+    it("opens a report", async () => {
+      mockApi(withOdd())
+      renderWithProviders(<LogsTab name="demo-site" />, { route: "/p/demo-site/logs?log=reports%2Flatest.md" })
+      expect(await screen.findByText(/All fine/)).toBeInTheDocument()
+      expect(screen.getByText("Report")).toBeInTheDocument()
+    })
   })
 
   describe("repair documents", () => {

@@ -8,12 +8,21 @@ import { Icon } from "@/components/Icon"
 import { Wheel } from "@/components/Indicator"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { formatBytes } from "@/lib/format"
-import { useDeletePlan, useDeleteProject, useDeleteRepo, useRefreshProjects, useRemoveProject } from "@/lib/queries"
-import type { DeleteLink, DeletePlan, DeleteResult } from "@/lib/types"
+import { useDeletePlan, useDeleteProject, useDeleteRepo, useProject, useRefreshProjects, useRemoveProject } from "@/lib/queries"
+import type { DeleteLink, DeletePlan, DeleteResult, Project } from "@/lib/types"
 
 export const PROTECTED_PROJECTS = ["phoenix9", "home"]
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** The help line under Delete project entirely: says whether the GitHub repo goes (from project.json only). */
+export function deleteHelp(project: Project | undefined): string {
+  if (!project) return "Removes the folder, builds and keys; the next step says whether the GitHub repo goes."
+  const repo = project.repo_owner ? `${project.repo_owner}/${project.repo_name}` : null
+  if (!repo) return "Removes the folder, builds and keys."
+  if (project.repo_made_by_phoenix) return `Removes the folder, builds, keys and the GitHub repo ${repo} (Phoenix made it).`
+  return `Removes the folder, builds and keys. Your GitHub repo ${repo} is kept: Phoenix did not create it.`
+}
 
 /** The list of live deployments, each with its links. */
 function StillLive({ items }: { items: DeleteLink[] }) {
@@ -62,6 +71,9 @@ function PlanView({ plan }: { plan: DeletePlan }) {
         </li>
         <li>The chat connection ({plan.chat.unit})</li>
       </ul>
+      {plan.will_close?.length ? (
+        <p data-testid="will-close"><b>Will be closed:</b> {plan.will_close.join(", ")}. Phoenix closes these itself before deleting.</p>
+      ) : null}
       <StillLive items={plan.deployments} />
     </div>
   )
@@ -163,6 +175,7 @@ export function DangerZone({ name }: { name: string }) {
   const remove = useRemoveProject()
   const refresh = useRefreshProjects()
   const navigate = useNavigate()
+  const project = useProject(PROTECTED_PROJECTS.includes(name) ? "" : name)
   if (PROTECTED_PROJECTS.includes(name)) return null
 
   const confirmRemove = () => {
@@ -185,7 +198,7 @@ export function DangerZone({ name }: { name: string }) {
         <button type="button" className="btn btn-secondary" disabled={remove.isPending} onClick={() => setAsking(true)}>Remove from Phoenix</button>
       </div>
       <div className="srow two">
-        <span className="help">Delete the folder, the GitHub repo, builds and keys for good. A safety copy is kept for 30 days.</span>
+        <span className="help" data-testid="delete-help">{deleteHelp(project.data)} A safety copy is kept for 30 days.</span>
         <button type="button" className="btn btn-destructive" onClick={() => setDeleting(true)}>Delete project entirely…</button>
       </div>
       <ConfirmDialog open={asking} onOpenChange={setAsking} title={`Remove ${name} from Phoenix?`} confirmLabel="Remove"

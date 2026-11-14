@@ -1,4 +1,4 @@
-"""Telling Alex a question is waiting: one message when it opens, reminders while it stays open (no replies by message)."""
+"""Telling Alex a question is waiting: one message (after a quiet wait), reminders while it stays open (no replies by message)."""
 from pathlib import Path
 
 from . import addresses, atomic, gates, paths, scrub, settings
@@ -6,6 +6,7 @@ from . import addresses, atomic, gates, paths, scrub, settings
 MAX_REMINDERS = 6
 QUESTION_CHARS = 200
 DEFAULT_REMIND_HOURS = 4
+DEFAULT_QUIET_MINUTES = 10
 
 
 def _record_path(run_dir, gate_id: str) -> Path:
@@ -65,7 +66,14 @@ def mark_sent(adapters, run_dir, gate: dict) -> None:
 
 
 def announce(adapters, run_dir, gate: dict) -> None:
-    """Send the one 'a question is waiting' message for a newly opened gate (recorded first, so never twice)."""
+    """Send the one 'a question is waiting' message for a newly opened gate (recorded first, so never twice).
+
+    With `[notify] quiet_minutes` above 0 the message is held instead: the runner loop sends it only if
+    the question is still open after that wait (`send_held`), so a question a chat answers soon stays quiet.
+    """
+    if quiet_minutes() > 0:
+        atomic.write_json(_record_path(run_dir, gate["id"]), {"held": adapters.clock.now(), "reminders": 0})
+        return
     mark_sent(adapters, run_dir, gate)
     _send(adapters, message(run_dir, gate))
 
@@ -86,12 +94,41 @@ def remind_hours() -> float:
     return value
 
 
+def quiet_minutes() -> float:
+    """The global `[notify] quiet_minutes` (default 10; 0 = tell at once); a bad value means the default."""
+    table = settings.read_global().get("notify")
+    value = table.get("quiet_minutes") if isinstance(table, dict) else None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        return DEFAULT_QUIET_MINUTES
+    return value
+
+
+def _send_held_one(adapters, gate: dict, minutes: float, now: float) -> bool:
+    """Send this open gate's held first message once its quiet wait is over; True when it did."""
+    run_dir = paths.runs(gate["project"]) / gate["run"]
+    record = read_record(run_dir, gate["id"])
+    if record is None or "held" not in record:
+        return False                      # already told (or never announced)
+    if now - float(record.get("held") or 0) < minutes * 60:
+        return False
+    mark_sent(adapters, run_dir, gate)    # recorded first, so a restart never sends it twice
+    _send(adapters, message(run_dir, gate))
+    return True
+
+
+def send_held(adapters) -> int:
+    """Send the held first message of every question still open after the quiet wait; returns how many went out."""
+    minutes = quiet_minutes()
+    now = adapters.clock.now()
+    return sum(_send_held_one(adapters, g, minutes, now) for g in gates.list_gates(open_only=True))
+
+
 def _remind_one(adapters, gate: dict, hours: float, now: float) -> bool:
     """Send this open gate's next reminder if one is due; True when it did."""
     run_dir = paths.runs(gate["project"]) / gate["run"]
     record = read_record(run_dir, gate["id"])
-    if record is None or int(record.get("reminders") or 0) >= MAX_REMINDERS:
-        return False                      # never announced (an older question) or all reminders already sent
+    if record is None or "held" in record or int(record.get("reminders") or 0) >= MAX_REMINDERS:
+        return False                      # not told yet (none or held) or all reminders already sent
     if now - float(record.get("last") or 0) < hours * 3600:
         return False
     count = int(record.get("reminders") or 0) + 1

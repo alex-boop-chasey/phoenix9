@@ -79,6 +79,9 @@ describe("ProjectPage", () => {
     expect(dock.getByRole("link", { name: "VS Code" })).toHaveAttribute("target", "_blank")
     expect(dock.queryByRole("button", { name: /chat/i })).toBeNull()
     expect(screen.getByRole("button", { name: /Chat/ })).toBeInTheDocument()
+    // Chat sits in the same row as Repo and VS Code, with no browser link under it.
+    expect(screen.getByRole("button", { name: /Chat/ }).closest(".ph-r")).toBe(screen.getByRole("group", { name: "Open project" }).closest(".ph-r"))
+    expect(screen.queryByRole("link", { name: /Open in browser/ })).toBeNull()
     expect(screen.getByRole("link", { name: "Start new build" })).toHaveAttribute("href", "/p/demo-site/build?new=1")
     expect(screen.getByText("/srv/projects/demo-site")).toBeInTheDocument()
   })

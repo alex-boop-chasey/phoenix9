@@ -3,6 +3,7 @@ import { Link, matchPath, useLocation } from "react-router"
 
 import { Bell } from "@/components/Bell"
 import { Crumbs } from "@/components/Crumbs"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
@@ -98,8 +99,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <ProjectSwitcher current={current} />
         <main id={PAGE_SCROLLER_ID} className={pathname.endsWith("/logs") ? "well console" : "well"}>
           <div className={wire ? "wire on" : "wire"} data-testid="wire" />
-          <Crumbs />
-          {children}
+          <ErrorBoundary resetKey={pathname}>
+            <Crumbs />
+            {children}
+          </ErrorBoundary>
         </main>
       </div>
 

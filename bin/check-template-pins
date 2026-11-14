@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Check that every npm package version pinned in templates/*/template.toml exists on the npm registry.
+
+Run by hand (it needs the internet): bin/check-template-pins. One line per pin; exit 1 if any is missing.
+"""
+import re
+import shlex
+import sys
+import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+REGISTRY = "https://registry.npmjs.org"
+PIN_RE = re.compile(r"^(@?[A-Za-z0-9][\w.\-/]*)@(\d[\w.\-+]*)$")
+
+
+def package_name(word: str, after_create: bool) -> str:
+    """The npm package a word names; after `create`, `astro` means `create-astro` and `@x/y` means `@x/create-y`."""
+    if not after_create:
+        return word
+    if word.startswith("@") and "/" in word:
+        scope, rest = word.split("/", 1)
+        return f"{scope}/create-{rest}"
+    return f"create-{word}"
+
+
+def pins_in_command(command: str) -> list[tuple[str, str]]:
+    """(package, version) for every pinned word in one shell command."""
+    words = shlex.split(command)
+    found = []
+    for i, word in enumerate(words):
+        match = PIN_RE.match(word)
+        if match:
+            found.append((package_name(match.group(1), i > 0 and words[i - 1] == "create"), match.group(2)))
+    return found
+
+
+def template_pins(root: Path) -> list[tuple[str, str, str]]:
+    """(template, package, version) for every pin in every templates/*/template.toml under root."""
+    pins = []
+    for path in sorted(root.glob("templates/*/template.toml")):
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
+        for command in data.get("run", []):
+            pins += [(path.parent.name, pkg, ver) for pkg, ver in pins_in_command(command)]
+    return pins
+
+
+def registry_url(package: str, version: str) -> str:
+    """The npm registry address of one package version (a scope's slash encoded)."""
+    return f"{REGISTRY}/{urllib.parse.quote(package, safe='@')}/{urllib.parse.quote(version)}"
+
+
+def exists(url: str) -> bool | None:
+    """True when the registry has it, False on 404, None when the registry could not be asked."""
+    try:
+        with urllib.request.urlopen(url, timeout=30) as reply:
+            return reply.status == 200
+    except urllib.error.HTTPError as err:
+        return False if err.code == 404 else None
+    except (urllib.error.URLError, OSError):
+        return None
+
+
+def check(root: Path, fetch=exists, out=print) -> int:
+    """Print one line per pin; 0 when all exist, 1 when any is missing or could not be checked."""
+    bad = 0
+    for template, package, version in template_pins(root):
+        ok = fetch(registry_url(package, version))
+        word = {True: "ok", False: "MISSING", None: "COULD NOT CHECK"}[ok]
+        out(f"{word:16}{template}: {package} {version}")
+        bad += ok is not True
+    if not bad:
+        out("All pinned versions exist.")
+    return 1 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(check(Path(__file__).resolve().parent.parent))

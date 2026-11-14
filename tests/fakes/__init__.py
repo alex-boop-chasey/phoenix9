@@ -36,6 +36,10 @@ class FakeHost:
         self.programs: dict[str, list[int]] = {}  # program name -> uids of its running processes
         self.proc_cwds: list[dict] = []      # running processes as {pid, name, cwd} (process_cwds())
         self.cgroups: dict[int, str] = {}    # pid -> cgroup path (cgroup())
+        self.cmdlines: dict[int, str] = {}   # pid -> command line (process_table())
+        self.signals: list[tuple[int, int]] = []  # (pid, signal) of each signal_pid() call
+        self.ignore_term: set[int] = set()   # pids that survive SIGTERM (an interactive shell)
+        self.ignore_all: set[int] = set()    # pids that survive every signal
 
     def script(self, prefix: list[str], rc: int = 0, out: str = "", err: str = "") -> None:
         """Answer any command starting with prefix (later scripts win)."""
@@ -116,6 +120,19 @@ class FakeHost:
     def process_cwds(self):
         """The processes set in .proc_cwds."""
         return list(self.proc_cwds)
+
+    def process_table(self):
+        """{pid: (parent, command line)} for every pid in .parents, .cmdlines or .proc_cwds."""
+        pids = set(self.parents) | set(self.cmdlines) | {p["pid"] for p in self.proc_cwds}
+        return {pid: (self.parents.get(pid, 0), self.cmdlines.get(pid, "")) for pid in pids}
+
+    def signal_pid(self, pid, sig):
+        """Record the signal; the process leaves .proc_cwds unless it ignores that signal."""
+        import signal as signals
+        self.signals.append((pid, sig))
+        if pid in self.ignore_all or (pid in self.ignore_term and sig == signals.SIGTERM):
+            return
+        self.proc_cwds = [p for p in self.proc_cwds if p["pid"] != pid]
 
     def parent_pid(self, pid):
         """The parent from .parents (None when not set)."""

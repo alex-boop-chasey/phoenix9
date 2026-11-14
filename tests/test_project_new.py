@@ -45,6 +45,7 @@ def test_new_empty_no_repo(env):
     text = (folder / "CLAUDE.md").read_text()
     assert text.startswith("# demo\n\nA demo thing.") and "- Profile: python-script" in text
     assert "@notes/NOW.md" in text and "fill this in" not in text.lower()
+    assert text.index("## How to reply") < text.index("## Accuracy") < text.index("@notes/NOW.md")
     assert "from an empty folder; next: first chat refines CLAUDE.md" in (folder / "notes/NOW.md").read_text()
     assert "created from an empty folder, profile python-script" in (folder / "notes/decisions.md").read_text()
     assert "· alex · created by alex" in (folder / "notes/changelog.md").read_text()
@@ -89,6 +90,33 @@ def test_new_from_recipe_template_calls_host_with_pinned_command(env):
     i = next(i for i, c in enumerate(host.calls) if c[:3] == ["pnpm", "create", "astro@5.1.0"])
     assert host.cwds[i] == str(env["projects"] / "demo" / "code")
     assert settings.load_project(env["projects"] / "demo")["profile"] == "web"
+
+
+def test_claude_md_rules_sit_before_now_line_and_description_skips_them(env):
+    create(env)
+    folder = env["projects"] / "demo"
+    text = (folder / "CLAUDE.md").read_text()
+    assert project.CLAUDE_RULES in text and text.endswith(project.CLAUDE_RULES + "\n@notes/NOW.md\n")
+    assert "Respond in a short, tight, matter-of-fact style." in text
+    assert "the project is deemed a failure if either happens." in text
+    assert project.description(folder) == "A demo thing."
+
+
+def test_recipe_missing_version_says_the_template_needs_updating(env):
+    line = " ERR_PNPM_NO_MATCHING_VERSION  No matching version found for create-astro@5.1.0 while fetching it"
+    env["host"].script(["pnpm", "create", "astro@5.1.0"], 1, "", line + "\nmore detail\n")
+    with pytest.raises(OpsError) as err:
+        create(env, template="astro-tailwind")
+    assert ("This template points at a version of create-astro that does not exist. "
+            "The template needs updating. " + line.strip()) in str(err.value)
+    assert not (env["projects"] / "demo").exists()
+
+
+def test_recipe_other_failure_keeps_plain_first_line(env):
+    env["host"].script(["pnpm", "create", "astro@5.1.0"], 1, "", "network down\n")
+    with pytest.raises(OpsError) as err:
+        create(env, template="astro-tailwind")
+    assert "failed: network down" in str(err.value) and "template needs updating" not in str(err.value)
 
 
 def test_new_with_repo_clones_via_gh(env):
@@ -325,3 +353,11 @@ def test_menu_template_with_different_profile_is_refused(env):
     with pytest.raises(OpsError, match="python-cli.*python-script.*web"):
         create(env, template="python-cli", profile="web")
     assert not (env["projects"] / "demo").exists()
+
+
+def test_missing_version_reads_npm_etarget():
+    err = "npm error code ETARGET\nnpm error notarget No matching version found for tailwindcss@9.0.0.\n"
+    words = project._missing_version(1, "", err)
+    assert words == ("This template points at a version of tailwindcss that does not exist. "
+                     "The template needs updating. npm error code ETARGET")
+    assert project._missing_version(1, "", "something else\n") is None

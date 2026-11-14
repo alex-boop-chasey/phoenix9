@@ -124,3 +124,38 @@ test("the drawer shows no Suggestions strip, even when there are suggestions", a
   expect(screen.queryByRole("region", { name: "Suggestions" })).toBeNull()
   expect(screen.queryByText("Fill in empty keys")).toBeNull()
 })
+
+test("while open the page behind is locked; closing and unmounting unlock it", () => {
+  mockApi(agentRoutes())
+  const view = renderWithProviders(<Harness />)
+  expect(document.body).not.toHaveClass("agent-open")
+  openIt()
+  expect(document.body).toHaveClass("agent-open")
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
+  expect(document.body).not.toHaveClass("agent-open")
+  openIt()
+  expect(document.body).toHaveClass("agent-open")
+  view.unmount()
+  expect(document.body).not.toHaveClass("agent-open")
+})
+
+test("on a phone the panel takes the height above the keyboard and stops listening on close", () => {
+  vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("max-width: 719px"), media: q, addEventListener() {}, removeEventListener() {} }))
+  const listeners = new Set<() => void>()
+  const vv = {
+    height: 400, offsetTop: 0,
+    addEventListener: (_: string, f: () => void) => listeners.add(f),
+    removeEventListener: (_: string, f: () => void) => listeners.delete(f),
+  }
+  vi.stubGlobal("visualViewport", vv)
+  mockApi(agentRoutes())
+  renderWithProviders(<Harness />)
+  openIt()
+  expect(panel().style.getPropertyValue("--ag-vh")).toBe("340px")
+  vv.height = 300
+  act(() => listeners.forEach((f) => f()))
+  expect(panel().style.getPropertyValue("--ag-vh")).toBe("240px")
+  fireEvent.click(screen.getByRole("button", { name: "Close" }))
+  expect(listeners.size).toBe(0)
+  expect(panel().style.getPropertyValue("--ag-vh")).toBe("")
+})

@@ -360,6 +360,11 @@ def get_run_timing(req, project, run_id):
     return timing.timing(check_name(project), check_run_id(run_id))
 
 
+def get_run_estimates(req, project):
+    """Reply with typical step and task times from the project's past builds."""
+    return timing.estimates(check_name(project))
+
+
 def get_run_session(req, project, run_id):
     """Reply with the scrubbed last lines of one step's AI session."""
     task = req.query.get("task")
@@ -437,6 +442,16 @@ def get_logs(req):
 def get_logs_read(req):
     """Reply with one log's scrubbed text."""
     return logs.read(need_project(req), req.query.get("id") or "")
+
+
+def get_service_logs(req):
+    """Reply with Phoenix's own logs (API and updater)."""
+    return logs.service_list()
+
+
+def get_service_logs_read(req):
+    """Reply with one of Phoenix's own logs as scrubbed text."""
+    return logs.service_read(req.query.get("id") or "")
 
 
 def get_routes(req):
@@ -1273,6 +1288,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/reference/links/remove", post_reference_link_remove),
     ("DELETE", rf"/api/projects/{NAME}/reference/links", delete_reference_link),
     ("GET", rf"/api/projects/{NAME}/runs", get_builds),
+    ("GET", r"/api/runs/(?P<project>[^/]+)/estimates", get_run_estimates),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/events", get_run_events),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tries", get_run_tries),
     ("GET", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/timing", get_run_timing),
@@ -1292,6 +1308,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/agent/sessions", get_agent_sessions),
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
+    ("GET", r"/api/service-logs", get_service_logs),
+    ("GET", r"/api/service-logs/read", get_service_logs_read),
     ("GET", r"/api/gates", get_gates),
     ("GET", r"/api/gates/(?P<gate_id>[^/]+)/review", get_gate_review),
     ("GET", r"/api/library/steps", get_steps),

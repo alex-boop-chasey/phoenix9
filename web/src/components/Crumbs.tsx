@@ -9,6 +9,9 @@ export interface Crumb {
 }
 
 const TABS: Record<string, string> = { overview: "Overview", build: "Build", logs: "Logs", settings: "Settings" }
+const SECTIONS: Record<string, string> = {
+  services: "Services", models: "Models", updates: "Updates", addresses: "Dashboard addresses", logs: "Logs",
+}
 
 /** The breadcrumb trail for a route (the last item has no link). */
 export function crumbsFor(pathname: string): Crumb[] {
@@ -37,10 +40,10 @@ export function Crumbs() {
   const [params] = useSearchParams()
   const items = crumbsFor(pathname)
   if (pathname === "/settings") {
-    const tab = params.get("tab")
-    if (tab === "services" || tab === "models" || tab === "updates") {
+    const section = params.get("section") ?? params.get("tab")   // "tab" is the older name
+    if (section && Object.hasOwn(SECTIONS, section)) {
       items[0] = { label: "Phoenix settings", to: "/settings" }
-      items.push({ label: tab.charAt(0).toUpperCase() + tab.slice(1) })
+      items.push({ label: SECTIONS[section]! })
     }
   }
   const rest = items[0]?.label === "Projects" ? items.slice(1) : items

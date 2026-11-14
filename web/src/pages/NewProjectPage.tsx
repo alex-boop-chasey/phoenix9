@@ -1,4 +1,4 @@
-// New project: the order sheet on the left, the receipt "What Phoenix will make" on the right.
+// New project: a three-slide wizard (Back/Next, Create on the last) beside the receipt "What Phoenix will make".
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { toast } from "sonner"
@@ -6,33 +6,18 @@ import { toast } from "sonner"
 import { Icon } from "@/components/Icon"
 import { CreateProgress } from "@/features/projects/CreateProgress"
 import { OrderSheet } from "@/features/projects/OrderSheet"
-import { emptyForm, newRepoApplies, sourceComplete, toCreateForm, type FormValues } from "@/features/projects/formModel"
+import { Button } from "@/components/ui/button"
+import {
+  NEW_SLIDES, allMissing, emptyForm, newRepoApplies, slideMissing, toCreateForm, type FormValues, type Missing,
+} from "@/features/projects/formModel"
 import { useCreateProject, useGithubRepos, useJob, useLibraryProfiles, useLibraryTemplates } from "@/lib/queries"
 import type { RowsSummary } from "@/features/keys/KeysForm"
 import type { KeyInput } from "@/lib/types"
 
-interface Missing {
-  text: string
-  target: string
-  focus: string
-}
-
-/** What is still missing before Create can run (the first one is shown as a link). */
-function missingOf(v: FormValues, nameOk: boolean, pending: boolean): Missing[] {
-  const out: Missing[] = []
-  if (!nameOk) out.push({ text: "Choose a name that is free.", target: "np-step-name", focus: "pf-name" })
-  if (!sourceComplete(v)) {
-    const what = v.source === "repo" ? "Choose the GitHub repo." : v.source === "template" ? "Type the GitHub template, owner/name." : "Type the folder path."
-    out.push({ text: what, target: "np-step-source", focus: v.source === "code" ? "pf-path" : "" })
-  }
-  if (!v.profile) out.push({ text: "Choose a type", target: "np-step-services", focus: "" })
-  if (pending) out.push({ text: "Press Save under Project keys before creating.", target: "np-step-keys", focus: "" })
-  return out
-}
-
-function jump(m: Missing) {
+/** Scroll to the part of a slide that is missing something and put the cursor there. */
+function focusMissing(m: Missing) {
   const step = document.getElementById(m.target)
-  step?.scrollIntoView({ behavior: "smooth", block: "center" })
+  step?.scrollIntoView?.({ behavior: "smooth", block: "center" })
   const field = m.focus ? document.getElementById(m.focus) : step?.querySelector<HTMLElement>("input, button")
   field?.focus({ preventScroll: true })
 }
@@ -94,8 +79,34 @@ export default function NewProjectPage() {
     }
   }, [done, jobId, name, navigate])
 
-  const missing = missingOf(values, nameOk, pending)
-  const ready = missing.length === 0 && !create.isPending && !started
+  const [slide, setSlide] = useState(1)
+  const [seen, setSeen] = useState(1)
+  const [focusOn, setFocusOn] = useState<Missing | null>(null)
+  const top = useRef<HTMLDivElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const shownSlide = useRef(slide)
+  const last = slide === NEW_SLIDES.length
+  const problems = last ? allMissing(values, nameOk, pending) : slideMissing(slide, values, nameOk, pending)
+  const ready = last && problems.length === 0 && !create.isPending && !started
+
+  function go(n: number) {
+    setSlide(n)
+    setSeen((s) => Math.max(s, n))
+  }
+
+  /** Open the slide that is missing something and point at the field. */
+  function jump(m: Missing) {
+    if (m.slide === slide) focusMissing(m)
+    else { go(m.slide); setFocusOn(m) }
+  }
+
+  // Every slide change lands on the progress line with focus on the slide title (or on the missing field).
+  useEffect(() => {
+    if (shownSlide.current === slide) return
+    shownSlide.current = slide
+    top.current?.scrollIntoView?.({ block: "start" })
+    if (focusOn) { focusMissing(focusOn); setFocusOn(null) } else heading.current?.focus({ preventScroll: true })
+  }, [slide, focusOn])
 
   function submit() {
     setError("")
@@ -126,44 +137,90 @@ export default function NewProjectPage() {
       <div className="title-row">
         <div>
           <h1 className="h1">New project</h1>
-          <p className="lead">Fill in the sheet; the receipt on the right shows what Phoenix will make.</p>
+          <p className="lead">Three short steps; the card beside them shows what Phoenix will make.</p>
         </div>
         <span className="area"><Icon name="plus-circle" />Create</span>
       </div>
-      <form className="order" onSubmit={(e) => { e.preventDefault(); if (ready) submit() }}>
-        <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          <OrderSheet value={values} onChange={setValues} onNameOk={setNameOk} onRows={onRows} />
-        </fieldset>
-        <aside className="receipt" aria-label="What Phoenix will make">
-          <div className="receipt-h"><h2 className="h2" style={{ fontSize: 22 }}>What Phoenix will make</h2></div>
-          {failed && j ? (
-            <div className="receipt-f" style={{ borderTop: 0 }}>
-              <p className="lbl">Could not make {name}</p>
-              <CreateProgress steps={j.steps} />
-              <div role="alert" className="stackg">
-                <p className="reason">{j.message || "Creating the project failed."}</p>
-                <p className="small">Nothing was left half-made.</p>
-                <button type="button" className="btn btn-secondary" onClick={() => setJobId("")}>Back to the form</button>
+      <form onSubmit={(e) => { e.preventDefault(); if (ready) submit(); else if (!last && !problems.length) go(slide + 1) }}>
+        <div className="order">
+          <div className="wiz np-wiz" ref={top}>
+            <ol className="outline" aria-label="New project steps">
+              {NEW_SLIDES.map((s, i) => {
+                const n = i + 1
+                return (
+                  <li key={s.title}>
+                    <button
+                      type="button" className={n < slide ? "done" : ""} data-slide={n}
+                      aria-current={n === slide ? "step" : undefined} disabled={n > seen || started}
+                      onClick={() => go(n)}
+                    >
+                      <span className="num">{n < slide ? <Icon name="check" size="xs" /> : n}</span>
+                      <b>{s.title}</b>
+                      <small>{s.note}</small>
+                    </button>
+                  </li>
+                )
+              })}
+            </ol>
+            <div className="wmain">
+              <div className="wprog" data-testid="np-progress">
+                <p className="small">Step {slide} of {NEW_SLIDES.length}<span className="wp-title"> · {NEW_SLIDES[slide - 1]!.title}</span></p>
+                <div className="wbar" role="progressbar" aria-label="New project progress" aria-valuemin={1} aria-valuemax={NEW_SLIDES.length} aria-valuenow={slide}>
+                  {NEW_SLIDES.map((s, i) => (
+                    <span key={s.title} className={i + 1 < slide ? "done" : i + 1 === slide ? "now" : ""} />
+                  ))}
+                </div>
               </div>
+              <section className="canvas" aria-label="New project">
+                <div className="canvas-h">
+                  <h2 className="h2" ref={heading} tabIndex={-1}>{NEW_SLIDES[slide - 1]!.title}</h2>
+                </div>
+                <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+                  <OrderSheet value={values} slide={slide} onChange={setValues} onNameOk={setNameOk} onRows={onRows} />
+                </fieldset>
+              </section>
             </div>
-          ) : (
-            <>
-              <Receipt v={values} summary={summary} github={!!github.data?.connected} />
-              <div className="receipt-f">
-                {error && <p className="reason" role="alert">{error}</p>}
-                <p className="small" id="rcUnmet" style={{ display: "flex", gap: 6, alignItems: "center", color: missing.length ? undefined : "var(--ok)" }}>
-                  <Icon name={missing.length ? "info" : "check-circle"} size="sm" />
-                  {missing.length
-                    ? <a href={`#${missing[0]!.target}`} onClick={(e) => { e.preventDefault(); jump(missing[0]!) }}>{missing[0]!.text}</a>
-                    : <span>Ready to create.</span>}
-                </p>
-                <button type="submit" className="btn btn-primary" disabled={!ready} aria-describedby="rcUnmet" style={{ width: "100%" }}>
-                  <Icon name="plus-circle" />Create project
-                </button>
+          </div>
+          <aside className="receipt" aria-label="What Phoenix will make">
+            <div className="receipt-h"><h2 className="h2" style={{ fontSize: 22 }}>What Phoenix will make</h2></div>
+            {failed && j ? (
+              <div className="receipt-f" style={{ borderTop: 0 }}>
+                <p className="lbl">Could not make {name}</p>
+                <CreateProgress steps={j.steps} />
+                <div role="alert" className="stackg">
+                  <p className="reason">{j.message || "Creating the project failed."}</p>
+                  <p className="small">Nothing was left half-made.</p>
+                  <button type="button" className="btn btn-secondary" onClick={() => setJobId("")}>Back to the form</button>
+                </div>
               </div>
-            </>
+            ) : (
+              <>
+                <Receipt v={values} summary={summary} github={!!github.data?.connected} />
+                {error && <div className="receipt-f"><p className="reason" role="alert">{error}</p></div>}
+              </>
+            )}
+          </aside>
+        </div>
+        <div className="wdock np-dock">
+          <span className="prob" id="rcUnmet" aria-live="polite">
+            <Icon name={problems.length ? "info" : "check-circle"} size="sm" />
+            {problems.length
+              ? <a href={`#${problems[0]!.target}`} onClick={(e) => { e.preventDefault(); jump(problems[0]!) }}>{problems[0]!.text}</a>
+              : <span>{last ? "Ready to create." : "This step is done."}</span>}
+          </span>
+          <Button type="button" variant="secondary" disabled={slide === 1 || started} onClick={() => go(slide - 1)}>
+            <Icon name="arrow-left" />Back
+          </Button>
+          {last ? (
+            <Button type="submit" disabled={!ready} aria-describedby="rcUnmet">
+              <Icon name="plus-circle" />Create project
+            </Button>
+          ) : (
+            <Button type="button" disabled={problems.length > 0} aria-describedby="rcUnmet" onClick={() => go(slide + 1)}>
+              Next<Icon name="arrow-right" />
+            </Button>
           )}
-        </aside>
+        </div>
       </form>
     </main>
     </>

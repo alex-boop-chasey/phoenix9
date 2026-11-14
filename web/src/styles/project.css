@@ -36,7 +36,7 @@
 .acts{display:flex; gap:8px; flex-wrap:wrap; align-items:center}
 .links{display:flex; gap:16px; flex-wrap:wrap; font-size:14px}
 .links a{display:inline-flex; gap:4px; align-items:center}
-.tbar{display:flex; gap:3px} .tbar i{height:6px; flex:1; border-radius:2px; background:var(--surface-3)}
+.tbar{display:flex; gap:3px; min-width:0; overflow:hidden} .tbar i{height:6px; flex:1; border-radius:2px; background:var(--surface-3)}
 .tbar i.ok{background:var(--ok)} .tbar i.bad{background:var(--bad)} .tbar i.need{background:var(--attn)}
 .tbar i.run{background:var(--accent)}
 .kv{display:grid; grid-template-columns:auto 1fr; gap:6px 16px; margin:0; font-size:14px}

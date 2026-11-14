@@ -7,7 +7,7 @@ import { RelativeTime } from "@/components/RelativeTime"
 import { Tag } from "@/components/Tag"
 import type { BuildRow } from "@/lib/types"
 
-import { edgeOf, ResultBadge, rowResult, taskPieces } from "./parts"
+import { edgeOf, ResultBadge, rowResult, TaskBar, taskBarHint, taskPieces } from "./parts"
 
 /** Newest first, by start time (queued builds by creation time). */
 export function newestFirst(rows: BuildRow[]): BuildRow[] {
@@ -39,7 +39,11 @@ export function BuildList({ name, rows, selected }: { name: string; rows: BuildR
         </thead>
         <tbody>
           {newestFirst(rows).map((row) => {
-            const pieces = taskPieces(row.status, row.tasks_total, row.tasks_passed, row.tasks_failed)
+            const skipped = row.tasks_skipped ?? 0
+            const pieces = taskPieces(row.status, row.tasks_total, row.tasks_passed, row.tasks_failed, skipped)
+            const hint = taskBarHint({
+              total: row.tasks_total, passed: row.tasks_passed, failed: row.tasks_failed, skipped, retried: row.tasks_retried,
+            })
             return (
               <tr
                 key={row.run_id} className={row.run_id === selected ? "sel" : undefined}
@@ -52,10 +56,8 @@ export function BuildList({ name, rows, selected }: { name: string; rows: BuildR
                   <small><RelativeTime iso={row.started || row.created} />{row.discarded && " · work discarded"}</small>
                 </td>
                 <td><Tag>{row.preset}</Tag></td>
-                <td>
-                  <div className="tbar" aria-label={`${row.tasks_passed} of ${row.tasks_total} tasks done`}>
-                    {pieces.map((c, i) => <i key={i} className={c} />)}
-                  </div>
+                <td className="tcell" title={hint}>
+                  <TaskBar pieces={pieces} label={`${row.tasks_passed} of ${row.tasks_total} tasks done`} hint={hint} />
                 </td>
                 <td><ResultBadge status={row.status} text={rowResult(row)} /></td>
                 <td className="mono">{row.duration || "-"}</td>

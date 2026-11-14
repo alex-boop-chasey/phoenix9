@@ -177,3 +177,46 @@ test("draft rows: no empty row, help and Optional tag show, a nameless row says 
   await userEvent.click(screen.getByRole("button", { name: "Save" }))
   expect(screen.getByText("Type a name for this key, or remove the row.")).toBeInTheDocument()
 })
+
+const envFile = (text: string) => new File([text], ".env", { type: "text/plain" })
+
+test(".env upload adds typed rows, secret unless clearly public, and reports bad lines", async () => {
+  const { calls } = mockApi({})
+  const seen: [unknown, boolean][] = []
+  renderWithProviders(<KeysForm mode="local" draft envUpload onRowsChange={(rows, pending) => seen.push([rows, pending])} />)
+  await userEvent.upload(
+    screen.getByLabelText(".env file"),
+    envFile("# comment\nexport API_KEY=\"s3cret\"\nSITE_URL=https://x.test\nnot a line\nEMPTY=\n"),
+  )
+  await waitFor(() => expect(screen.getAllByLabelText("Name")).toHaveLength(3))
+  const values = screen.getAllByLabelText("Value") as HTMLInputElement[]
+  expect(values.map((v) => v.value)).toEqual(["s3cret", "https://x.test", ""])
+  expect(values.map((v) => v.type)).toEqual(["password", "text", "password"])
+  const secret = screen.getAllByLabelText("Secret")
+  expect(secret.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "false", "true"])
+  expect(screen.getByRole("status")).toHaveTextContent("1 line was skipped: not KEY=value")
+  expect(seen.at(-1)).toEqual([[], true])
+  expect(calls).toHaveLength(0)
+})
+
+test(".env upload: a name already in the list shows Keep current / Use file's value", async () => {
+  mockApi({})
+  renderWithProviders(<KeysForm mode="local" draft envUpload />)
+  await userEvent.click(screen.getByRole("button", { name: "Add" }))
+  await userEvent.type(screen.getByLabelText("Name"), "TOKEN")
+  await userEvent.type(screen.getByLabelText("Value"), "mine")
+  await userEvent.upload(screen.getByLabelText(".env file"), envFile("TOKEN=theirs\nOTHER=1"))
+  const conflict = await screen.findByTestId("key-conflict")
+  expect(conflict).toHaveTextContent("TOKEN is already in the list")
+  expect(screen.getByDisplayValue("mine")).toBeInTheDocument()
+  expect(screen.queryByDisplayValue("theirs")).toBeNull()
+  await userEvent.click(within(conflict).getByRole("button", { name: "Keep current" }))
+  expect(screen.queryByTestId("key-conflict")).toBeNull()
+  expect(screen.getByDisplayValue("mine")).toBeInTheDocument()
+
+  await userEvent.upload(screen.getByLabelText(".env file"), envFile("TOKEN=theirs"))
+  await userEvent.click(within(await screen.findByTestId("key-conflict")).getByRole("button", { name: "Use file's value" }))
+  expect(screen.getByDisplayValue("theirs")).toBeInTheDocument()
+  expect(screen.queryByDisplayValue("mine")).toBeNull()
+  expect(screen.getAllByLabelText("Name")).toHaveLength(2)
+})

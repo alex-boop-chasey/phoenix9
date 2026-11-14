@@ -7,7 +7,7 @@ const PAGES: [string, string, RegExp][] = [
   ["import", "/#/import", /Import/],
   ["overview", "/#/p/demo-site/overview", /About/],
   ["overview (merge waiting)", "/#/p/phoenix9/overview", /Current build/],
-  ["build ledger", "/#/p/demo-site/build?list=1", /Builds/],
+  ["build ledger", "/#/p/demo-site/build?list=1", /Previous builds/],
   ["build running", "/#/p/tiny-tool/build", /Stop build/],
   ["build failed", "/#/p/ember-oak/build", /Gallery page/],
   ["build wizard", "/#/p/notes-only/build?new=1", /Start build|Next/],

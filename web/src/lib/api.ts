@@ -3,7 +3,7 @@ import type {
   DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
   DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
-  Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
+  Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, RunEstimates, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
   ChatChange, ChatInfo, ChatOpenResult, ReferenceView,
 } from "@/lib/types"
@@ -106,6 +106,7 @@ export const api = {
   specs: (name: string) => get<SpecFile[]>(`projects/${e(name)}/specs`),
   builds: (name: string) => get<BuildRow[]>(`projects/${e(name)}/runs`),
   run: (project: string, runId: string) => get<RunDetail>(`runs/${e(project)}/${e(runId)}`),
+  runEstimates: (project: string) => get<RunEstimates>(`runs/${e(project)}/estimates`),
   gates: (project?: string) => get<Gate[]>("gates", { project }),
   gateReview: (id: string) => get<GateReview>(`gates/${e(id)}/review`),
   librarySteps: () => get<{ steps: LibraryStep[]; problems: string[] }>("library/steps"),
@@ -129,6 +130,8 @@ export const api = {
   logs: (params: { project: string; run?: string; task?: number; step?: string; kind?: string }) =>
     get<LogEntry[]>("logs", params),
   readLog: (project: string, id: string) => get<LogText>("logs/read", { project, id }),
+  serviceLogs: () => get<LogEntry[]>("service-logs"),
+  readServiceLog: (id: string) => get<LogText>("service-logs/read", { id }),
 
   getChat: (project: string) => get<ChatInfo>(`chat/${e(project)}`),
   openChat: (project: string) => post<ChatOpenResult>(`chat/${e(project)}/open`),

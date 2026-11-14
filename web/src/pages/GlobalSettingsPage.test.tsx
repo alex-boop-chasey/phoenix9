@@ -208,4 +208,24 @@ describe("GlobalSettingsPage", () => {
     renderWithProviders(<GlobalSettingsPage />, { route: "/settings?section=updates" })
     expect(await screen.findByRole("button", { name: /Updates/ })).toHaveAttribute("aria-current", "page")
   })
+
+  it("Logs section lists Phoenix's own logs and opens one as text", async () => {
+    const entry = (id: string, title: string) => ({
+      id, kind: "service", run: null, task: null, attempt: null, step: null, title, size: 2048, modified: new Date().toISOString(),
+    })
+    const { calls } = mockApi(base([], {
+      "GET /api/service-logs": [entry("api.log", "api log"), entry("updater.log", "updater log")],
+      "GET /api/service-logs/read": ({ query }: { query: Record<string, string> }) => ({
+        id: query.id, kind: "service", title: "updater log", text: "installed v9", truncated: false, is_diff: false,
+      }),
+    }))
+    renderWithProviders(<GlobalSettingsPage />, { route: "/settings?section=logs" })
+    expect(await screen.findByRole("button", { name: /^Logs/ })).toHaveAttribute("aria-current", "page")
+    const list = await screen.findByRole("listbox", { name: "Phoenix logs" })
+    expect(within(list).getByText("api log")).toBeInTheDocument()
+    expect(within(list).getAllByText(/2 KB/)).toHaveLength(2)
+    await userEvent.click(within(list).getByText("updater log"))
+    expect(await screen.findByText("installed v9")).toBeInTheDocument()
+    expect(calls.some((c) => c.path === "/api/service-logs/read" && c.query.id === "updater.log")).toBe(true)
+  })
 })

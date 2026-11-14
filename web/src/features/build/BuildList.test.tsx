@@ -70,6 +70,32 @@ test("task bar: green passed, red failed, grey pending, blue running, orange onl
   expect(bars("b")).toEqual(["ok", "ok", "need"])
 })
 
+test("a skipped task has its own striped piece, and the hover counts passed, skipped and retried", () => {
+  show([build({ run_id: "a", title: "A", status: "done", tasks_total: 6, tasks_passed: 5, tasks_failed: 0,
+    tasks_skipped: 1, tasks_retried: 2 })])
+  const bar = document.querySelector("[data-run=a] .tbar")!
+  expect([...bar.children].map((c) => c.className)).toEqual(["ok", "ok", "ok", "ok", "ok", "skip"])
+  expect(bar.getAttribute("title")).toBe("5 passed, 1 skipped · 2 tasks needed more than one try")
+  expect(document.querySelector("[data-run=a] td.tcell")).toHaveAttribute("title", bar.getAttribute("title"))
+})
+
+test("no retry words when every task passed first try", () => {
+  show([build({ run_id: "a", title: "A", status: "done", tasks_total: 3, tasks_passed: 3, tasks_failed: 0 })])
+  expect(document.querySelector("[data-run=a] .tbar")).toHaveAttribute("title", "3 passed")
+})
+
+test("38 tasks fit: one thin bar split by colour in proportion", () => {
+  show([build({ run_id: "a", title: "A", status: "running", tasks_total: 38, tasks_passed: 30, tasks_failed: 2,
+    tasks_skipped: 1 })])
+  const bar = document.querySelector("[data-run=a] .tbar") as HTMLElement
+  expect(bar).toHaveClass("thin")
+  const parts = [...bar.children] as HTMLElement[]
+  expect(parts.map((c) => [c.className, c.dataset.count])).toEqual([
+    ["ok", "30"], ["bad", "2"], ["skip", "1"], ["run", "1"], ["", "4"],
+  ])
+  expect(parts[0]!.style.flexGrow).toBe("30")
+})
+
 test("coloured left edge by result, and the selected row is marked", () => {
   show(BUILDS)
   const row = document.querySelector("[data-run=r-wait]") as HTMLElement

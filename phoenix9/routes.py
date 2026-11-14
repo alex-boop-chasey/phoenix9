@@ -16,7 +16,7 @@ ROUTES: list[tuple[str, list[str]]] = [
     ("settings", ["section"]),
     ("doc", ["path"]),
 ]
-GLOBAL_SECTIONS = ("services", "models", "updates", "addresses")
+GLOBAL_SECTIONS = ("services", "models", "updates", "addresses", "logs")
 PROJECT_SECTIONS = ("project", "build")
 _PROJECT_ROUTE = re.compile(r"p/([^/]+)/([a-z]+)")
 

@@ -39,12 +39,12 @@ test.each([
   expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", tip)
 })
 
-test("none and null show no dot", () => {
+test("none and null keep the dot's space with an empty dot", () => {
   const { unmount } = renderWithProviders(<ChatButton project="demo" chat={info("none")} />)
-  expect(document.querySelector(".chatdot")).toBeNull()
+  expect(document.querySelector(".chatdot")).toHaveClass("chatdot-none")
   unmount()
   renderWithProviders(<ChatButton project="demo" chat={null} />)
-  expect(document.querySelector(".chatdot")).toBeNull()
+  expect(document.querySelector(".chatdot")).toHaveClass("chatdot-none")
   expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", "No chat yet: press to start one")
 })
 
@@ -62,24 +62,36 @@ test("a waking chat is fetched again until it is awake", async () => {
   }
 })
 
-test("desktop opens the app link and shows Open chat and the browser link", async () => {
+test("desktop opens the app link and shows no extra links", async () => {
   mockApi({ "POST /api/chat/demo/open": OPENED })
   const open = vi.spyOn(window, "open").mockImplementation(() => null)
   renderWithProviders(<ChatButton project="demo" chat={info("none")} />)
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
   await waitFor(() => expect(open).toHaveBeenCalledWith("claude://claude.ai/code/sess1"))
-  expect(await screen.findByRole("link", { name: "Open chat" })).toHaveAttribute("href", "claude://claude.ai/code/sess1")
-  expect(screen.getByRole("link", { name: "Open in browser instead" })).toHaveAttribute("href", "https://claude.ai/code/sess1")
+  expect(screen.queryByRole("link")).toBeNull()
 })
 
-test("a phone opens the https link and Open chat points at it", async () => {
+test("a phone opens the https link", async () => {
   mockApi({ "POST /api/chat/demo/open": OPENED })
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue(PHONE)
   const open = vi.spyOn(window, "open").mockImplementation(() => null)
   renderWithProviders(<ChatButton project="demo" chat={info("asleep")} />)
   fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
   await waitFor(() => expect(open).toHaveBeenCalledWith("https://claude.ai/code/sess1"))
-  expect(await screen.findByRole("link", { name: "Open chat" })).toHaveAttribute("href", "https://claude.ai/code/sess1")
+  expect(screen.queryByRole("link")).toBeNull()
+})
+
+test("pressing Chat again on an awake chat opens the same link straight away", async () => {
+  const { calls } = mockApi({ "POST /api/chat/demo/open": OPENED })
+  const open = vi.spyOn(window, "open").mockImplementation(() => null)
+  renderWithProviders(<ChatButton project="demo" chat={info("awake")} />)
+  fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
+  await waitFor(() => expect(open).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(screen.getByRole("button", { name: /Chat/ })).not.toBeDisabled())
+  fireEvent.click(screen.getByRole("button", { name: /Chat/ }))
+  expect(open).toHaveBeenCalledTimes(2)
+  expect(open).toHaveBeenLastCalledWith("claude://claude.ai/code/sess1")
+  expect(calls.filter((c) => c.path === "/api/chat/demo/open")).toHaveLength(1)
 })
 
 test.each([["none", "Starting chat…"], ["asleep", "Waking chat…"]] as const)(
@@ -99,13 +111,10 @@ test("an error shows the API's plain message", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("The chat didn't wake in 60 seconds. Press Chat again.")
 })
 
-test("is an outlined button; compact is the small sidebar size", () => {
-  const { unmount } = renderWithProviders(<ChatButton project="demo" chat={null} />)
+test("is an outlined button, the same size everywhere", () => {
+  renderWithProviders(<ChatButton project="demo" chat={null} />)
   expect(screen.getByRole("button", { name: /Chat/ })).toHaveClass("btn", "btn-secondary")
   expect(screen.getByRole("button", { name: /Chat/ })).not.toHaveClass("btn-sm")
-  unmount()
-  renderWithProviders(<ChatButton project="demo" chat={null} compact />)
-  expect(screen.getByRole("button", { name: /Chat/ })).toHaveClass("btn", "btn-secondary", "btn-sm")
 })
 
 test.each(["none", "asleep", "waking"] as const)("Sleep is hidden when the chat is %s", (state) => {

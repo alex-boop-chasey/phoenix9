@@ -76,14 +76,21 @@
 .dr-f{padding:16px 20px; border-top:1px solid var(--line); display:flex; gap:8px}
 }
 .sw-line{display:flex; flex-direction:column; gap:4px}
-.sw-line .chatbtn{align-self:flex-start; margin:0 0 4px 44px}
 
 /* Agent panel: header tools, wide mode, phone full-screen sheet */
 .dr-h{flex-wrap:wrap}
 .dr-tools{margin-left:auto; display:flex; gap:2px}
 .dr-f .input{flex:1; resize:none}
 .drawer.wide{width:min(720px,100vw)}
-@media (max-width:719px){ .drawer,.drawer.wide{width:100vw; border-left:0} .drawer::before{display:none} .dr-wide{display:none} }
+@media (max-width:719px){
+  .drawer,.drawer.wide{top:60px; left:0; right:0; bottom:auto; width:100%; height:calc(100vh - 60px); height:calc(100dvh - 60px); height:var(--ag-vh, calc(100dvh - 60px)); border-left:0; overscroll-behavior:contain}
+  .drawer::before{display:none} .dr-wide{display:none}
+  .drawer .dr-b{min-height:0; overflow:hidden}
+  .drawer .ag-list{overscroll-behavior:contain}
+  .drawer .ag-comp{padding-bottom:max(16px, env(safe-area-inset-bottom, 0px))}
+  .drawer .ag-row .input{font-size:16px}
+  body.agent-open,body.agent-open .well{overflow:hidden; overscroll-behavior:none}
+}
 
 /* Phoenix agent panel: messages */
 .dr-b:has(.ag-wrap){display:block; padding:0; text-align:left; position:relative; min-height:0; overflow:hidden}

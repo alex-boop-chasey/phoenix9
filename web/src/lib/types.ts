@@ -165,6 +165,8 @@ export interface DeletePlan {
   keep_days?: number
   chat: { unit: string; state: string }; deployments: DeleteLink[]
   refusals: string[]; safety_copy: string
+  /** Terminals, Claude sessions and the chat the delete closes first (plain words). */
+  will_close?: string[]
 }
 export interface DeleteStep { step: string; ok: boolean; words: string; kept?: boolean }
 export interface DeleteResult {
@@ -198,6 +200,8 @@ export interface Project extends ProjectRow {
   setup?: ProjectSetup
   changelog: ChangelogLine[]
   gates: Gate[]
+  /** True when project.json says Phoenix created the repo (a cheap guess; the delete plan is the final word). */
+  repo_made_by_phoenix?: boolean
 }
 
 export interface KeyRow {
@@ -264,6 +268,10 @@ export interface BuildRow {
   duration: string
   cost: string
   tasks_failed: number
+  /** Tasks whose status is skipped (still counted in tasks_total). */
+  tasks_skipped?: number
+  /** Tasks that needed more than one try. */
+  tasks_retried?: number
   carrying_on?: boolean
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
@@ -280,6 +288,15 @@ export interface RunTask {
   gate?: string | null
   note?: string | null
   answered?: boolean
+}
+
+/** One try of a task (`try_lines` in run detail): the ending step, overall result, when and a short reason. */
+export interface TryLine {
+  attempt: number
+  step: string | null
+  status: "passed" | "failed" | "running" | "skipped"
+  at: string | null
+  reason: string
 }
 
 export interface StepLine {
@@ -356,6 +373,10 @@ export interface RunDetail {
   title: string
   preset: string
   max_tries: number
+  /** How many tries each task has had, by task number. */
+  tries?: Record<string, number>
+  /** One line per try of each task, oldest first, by task number. */
+  try_lines?: Record<string, TryLine[]>
   /** The spending cap in dollars (frozen once the build starts); empty = no cap. */
   budget_usd?: number | null
   /** Dollars spent so far. */
@@ -370,6 +391,22 @@ export interface RunDetail {
   discarded_by?: string
   /** The exact step image the run used (recorded at its first drive; id is "" when the image was missing). */
   image?: { tag: string; id: string }
+}
+
+/** Typical time of one step run, from past builds (`GET /api/runs/<project>/estimates`). */
+export interface StepEstimate {
+  seconds: number
+  samples: number
+  source: "project" | "all projects"
+  /** The step runs once per task (inside the task loop). */
+  per_task?: boolean
+}
+
+/** Typical step and task times of a project; a step with no history is left out. */
+export interface RunEstimates {
+  project: string
+  steps: Record<string, StepEstimate>
+  task?: Omit<StepEstimate, "per_task">
 }
 
 export type Overrides = Record<string, unknown>
@@ -452,7 +489,7 @@ export interface DeployStatus {
 
 export interface LogEntry {
   id: string
-  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service" | "repair-note" | "repair-report"
+  kind: "session" | "check" | "diff" | "step" | "gate" | "command" | "service" | "repair-note" | "repair-report" | "task-file" | "report"
   run: string
   task: number | null
   attempt: number | null

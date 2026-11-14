@@ -2,12 +2,17 @@ import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 
 import { Icon } from "@/components/Icon"
+import { usePhoneWidth } from "@/features/agent/panelState"
 import { fullWhen, shortWhen } from "@/lib/format"
 import { useBell, useBellDismiss, useBellDismissAll } from "@/lib/queries"
 import type { BellItem } from "@/lib/types"
 
 /** The saved status report, shown in the home logs view. */
 const REPORT_LINK = "/p/home/logs?log=reports%2Fstatus.md"
+
+/** Desktop: hangs under the bell button. Phone: fixed under the top bar, 16px from both edges, as tall as the screen allows. */
+const PANEL_DESKTOP = "absolute right-0 top-full mt-1 max-h-[min(70vh,calc(100dvh-4.5rem))] w-[min(22rem,calc(100vw-1rem))]"
+const PANEL_PHONE = "bell-phone fixed left-4 right-4 top-[64px] max-h-[calc(100dvh-76px)]"
 
 /** The top-bar bell: a button with the count that opens the list of what needs Alex. */
 export function Bell() {
@@ -18,6 +23,7 @@ export function Bell() {
   const box = useRef<HTMLDivElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const button = useRef<HTMLButtonElement>(null)
+  const phone = usePhoneWidth()
   const count = data?.count ?? 0
   const items = data?.items ?? []
 
@@ -61,7 +67,7 @@ export function Bell() {
       </button>
       {open && (
         <div ref={list} tabIndex={-1} role="region" aria-label="What needs you" data-testid="bell-list"
-          className="absolute right-0 top-full z-50 mt-1 flex max-h-[min(70vh,calc(100dvh-4.5rem))] w-[min(22rem,calc(100vw-1rem))] flex-col rounded-md border bg-card shadow-lg outline-none">
+          className={`${phone ? PANEL_PHONE : PANEL_DESKTOP} z-50 flex flex-col rounded-md border bg-card shadow-lg outline-none`}>
           {items.length >= 2 && (
             <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
               <span className="text-sm font-semibold">Needs you</span>
@@ -93,7 +99,7 @@ function BellRow({ item, onOpen, onDismiss }: { item: BellItem; onOpen: () => vo
     <div className="flex items-start gap-1 rounded hover:bg-muted" data-testid="bell-row">
       <Link to={(item.page.hash ?? "#/").slice(1) || "/"} data-testid="bell-item" className="block min-w-0 flex-1 rounded p-2 text-left"
         onClick={onOpen}>
-        <strong className="block text-sm">{item.title}</strong>
+        <strong className="block text-sm [overflow-wrap:anywhere]">{item.title}</strong>
         {when ? <time className="block text-xs text-muted-foreground" dateTime={item.since} title={fullWhen(item.since)}
           data-testid="bell-when">{when}</time> : null}
         {item.detail ? <span className="line-clamp-3 break-words text-xs text-muted-foreground" title={item.detail}>{item.detail}</span> : null}

@@ -17,7 +17,7 @@ import contextlib, io, json, os, sys
 from pathlib import Path
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "tests"))
-from phoenix9 import adapters as adapters_mod, agentlink, projectchat as pc
+from phoenix9 import adapters as adapters_mod, chatlink, projectchat as pc
 from phoenix9.__main__ import main
 from phoenix9.ops import common
 from tests.fakes import FakeHost, FakeClock, fake_adapters
@@ -78,11 +78,11 @@ sent = []
 def fake_send_to(found, text, context=None, who="cli", timeout=5.0, host=None):
     sent.append({"found": found, "text": text})
     return {"sent": True, "at": "x", "after_line": 0}
-agentlink.send_to = fake_send_to
+chatlink.send_to = fake_send_to
 
 
 def setup(unit, appear_after=None, status="idle", session_now=False, doc=None, notes=False, wait=None):
-    agentlink.forget()
+    chatlink.forget()
     sent.clear()
     h = Host(unit, status)
     if session_now:

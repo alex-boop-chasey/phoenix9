@@ -119,6 +119,7 @@ export const api = {
   global: () => get<GlobalView>("global"),
   services: () => get<ServicesView>("services"),
   globalServices: () => get<ServicesView>("global/services"),
+  restartAgentService: () => post<{ service: string; restarted: boolean }>("service/agent/restart", { yes: true }),
   doctor: (mode: "quick" | "full" = "quick") => get<DoctorResult>("doctor", { mode }),
   updateHistory: () => get<{ history: UpdateHistoryRow[] }>("update/history"),
   keysAudit: () => get<KeysAudit>("keys/audit"),

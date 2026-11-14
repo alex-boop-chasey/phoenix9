@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 
 import { Icon } from "@/components/Icon"
-import { usePhoneWidth } from "@/features/agent/panelState"
+import { usePhoneWidth } from "@/lib/panelState"
 import { fullWhen, shortWhen } from "@/lib/format"
 import { useBell, useBellDismiss, useBellDismissAll } from "@/lib/queries"
 import type { BellItem } from "@/lib/types"
@@ -80,7 +80,8 @@ export function Bell() {
             {items.length === 0 ? <p className="p-2 text-sm">Nothing needs you.</p> : items.map((item) => (
               <BellRow key={item.id} item={item}
                 onOpen={() => { dismiss.mutate(item); setOpen(false) }}
-                onDismiss={() => onDismiss(item)} />
+                onDismiss={() => onDismiss(item)}
+                onAsk={() => { askAgentAbout(item); setOpen(false) }} />
             ))}
           </div>
           <div className="border-t px-3 py-2 text-xs">
@@ -92,8 +93,13 @@ export function Bell() {
   )
 }
 
-/** One row: a link to its page (with title, time and detail) and a Dismiss button beside it. */
-function BellRow({ item, onOpen, onDismiss }: { item: BellItem; onOpen: () => void; onDismiss: () => void }) {
+/** Open the agent drawer and ask it about one row; only the row's id is sent (its words come from builds). */
+function askAgentAbout(item: BellItem) {
+  window.dispatchEvent(new CustomEvent("phoenix:open-agent", { detail: { message: `Tell me about bell item ${item.id}` } }))
+}
+
+/** One row: a link to its page (with title, time and detail) and Dismiss and Ask the agent buttons beside it. */
+function BellRow({ item, onOpen, onDismiss, onAsk }: { item: BellItem; onOpen: () => void; onDismiss: () => void; onAsk: () => void }) {
   const when = shortWhen(item.since)
   return (
     <div className="flex items-start gap-1 rounded hover:bg-muted" data-testid="bell-row">
@@ -104,10 +110,16 @@ function BellRow({ item, onOpen, onDismiss }: { item: BellItem; onOpen: () => vo
           data-testid="bell-when">{when}</time> : null}
         {item.detail ? <span className="line-clamp-3 break-words text-xs text-muted-foreground" title={item.detail}>{item.detail}</span> : null}
       </Link>
-      <button type="button" className="shrink-0 rounded px-2 py-1 mt-1 mr-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
-        aria-label={`Dismiss: ${item.title}`} title="Dismiss" onClick={onDismiss}>
-        Dismiss
-      </button>
+      <div className="flex shrink-0 flex-col items-end mt-1 mr-1">
+        <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+          aria-label={`Dismiss: ${item.title}`} title="Dismiss" onClick={onDismiss}>
+          Dismiss
+        </button>
+        <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+          aria-label={`Ask the agent about: ${item.title}`} title="Ask the agent" onClick={onAsk}>
+          Ask the agent
+        </button>
+      </div>
     </div>
   )
 }

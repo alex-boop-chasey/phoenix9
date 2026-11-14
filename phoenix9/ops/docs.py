@@ -5,7 +5,7 @@ import stat
 from pathlib import Path
 
 from phoenix9 import runs
-from phoenix9.ops import common, logs
+from phoenix9.ops import common, logs, projects
 from phoenix9.ops.common import NotFound, OpsError
 
 SUFFIXES = (".md", ".txt")
@@ -190,3 +190,44 @@ def download(id_: str) -> dict:
     name, text = _load(id_)
     name = re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".") or "document.txt"
     return {"name": name, "text": text}
+
+
+MEMORY_CHARS = 12_000          # each memory file is cut to this many characters
+MEMORY_READ = 64_000           # bytes read from the start (CLAUDE.md) or the end (NOW.md) of a memory file
+
+
+def _memory_file(base: Path, rel: Path, project: str, keep_end: bool) -> tuple[str, bool]:
+    """One memory file's scrubbed text (at most MEMORY_CHARS, its start or its end) and whether it was cut;
+    ("", False) when it is missing. OpsError when it is a symlink or leads out of the project folder."""
+    try:
+        fd = _open_inside(base, rel, f"notes:{project}/{rel.as_posix()}")
+    except NotFound:
+        return "", False
+    try:
+        size = os.fstat(fd).st_size
+        big = size > MEMORY_READ
+        if big and keep_end:
+            os.lseek(fd, size - MEMORY_READ, os.SEEK_SET)
+    except OSError:
+        os.close(fd)
+        return "", False
+    raw = _read_fd(fd, MEMORY_READ)
+    if big:  # drop the line the read cut in half, so no half secret slips past the scrubber
+        raw = raw[raw.find(b"\n") + 1:] if keep_end else raw[:raw.rfind(b"\n") + 1]
+    text = _scrub(raw, project)
+    cut = big or len(text) > MEMORY_CHARS
+    if len(text) > MEMORY_CHARS:
+        text = text[-MEMORY_CHARS:] if keep_end else text[:MEMORY_CHARS]
+    return text, cut
+
+
+def project_memory(name: str) -> dict:
+    """A project's CLAUDE.md and notes/NOW.md (its notes), scrubbed and cut: {project, claude_md, now_md, cut}."""
+    if name in ("home", projects.agent_name()):
+        raise common.Conflict(projects.AGENT_FOLDER_TEXT)
+    if not _NAME.fullmatch(name or ""):
+        raise OpsError(f"'{name}' is not a project name.")
+    base = common.project_dir(name)
+    claude_md, cut_claude = _memory_file(base, Path("CLAUDE.md"), name, keep_end=False)
+    now_md, cut_now = _memory_file(base, Path("notes", "NOW.md"), name, keep_end=True)
+    return {"project": name, "claude_md": claude_md, "now_md": now_md, "cut": cut_claude or cut_now}

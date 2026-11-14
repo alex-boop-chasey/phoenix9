@@ -7,8 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import access, agentnext, agentaccess, agentlink, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
-from phoenix9 import transcript
+from phoenix9 import access, agentnext, agentaccess, atomic, claude, docker, hold, hostfw, paths, project, proxy, scrub, settings
 from phoenix9.library import read_toml
 
 MODES = ("full", "for-update", "quick")
@@ -16,8 +15,6 @@ GB = 1024 ** 3
 DISK_FAIL_GB, DISK_WARN_GB = 5, 15
 STALE_HOLD_S = 3 * 3600
 DEFAULT_API_PORT = 8095
-UNKNOWN_WARN_RATE = 0.05
-SOCKET_FOLDER_MODE, SOCKET_MODE = 0o700, 0o600
 SERVICES = ("phoenix-api", "phoenix-runner")
 HOME_FOLDERS = ("config", "secrets", "keys", "runs", "logs")
 PROBE_PROFILE = "python-script"
@@ -29,7 +26,7 @@ CHECKS_BY_MODE = {
     "for-update": ("services", "api", "home", "images", "proxy-rule", "firewall"),
     "full": ("python", "library", "services", "service-home", "api", "origins", "upstream", "home", "secrets", "images", "proxy-rule", "firewall",
              "claude", "advisor", "disk", "updater", "project-links", "memory-files", "reference",
-             "agent-unit", "agent-session", "agent-socket", "agent-transcript", "agent-folder", "agent-pack", "agent-helpers", "agent-rules", "project-chats", "access",
+             "project-chats", "access",
              "agentkit-service", "agentkit-key", "agentkit-spend"),
 }
 
@@ -42,7 +39,6 @@ class Context:
         self.ad = adapters
         self.mode = mode
         self.claude_info: dict | None = None
-        self.agent_found: dict | None = None
 
 
 def _result(ok: bool, detail: str, fix: str = "") -> tuple[bool, str, str]:
@@ -518,104 +514,6 @@ def check_reference(ctx):
     return True, "Warning: " + "; ".join(problems) + ". Fix: " + fix, fix
 
 
-def check_agent_unit(ctx):
-    """The agent's systemd unit is active."""
-    unit = settings.agent_settings()["unit"]
-    rc, out, _ = ctx.ad.host.systemctl("is-active", unit)
-    state = out.split()[0] if out.split() else "unknown"
-    ok = rc == 0 and state == "active"
-    detail = f"{unit} is {state}"
-    if not ok:
-        from phoenix9 import agentwatch
-        if agentwatch.memory()["stopped"]:
-            detail += ": stopped by someone, so the watchdog leaves it alone"
-    return _result(ok, detail, f"Start it with `systemctl start {unit}`, then read `journalctl -u {unit}`.")
-
-
-def check_agent_session(ctx):
-    """The agent's chat session is found in Claude's session list."""
-    found = agentlink.find(host=ctx.ad.host)
-    ctx.agent_found = found
-    return _result(found is not None, "the agent session is running" if found else "no agent session found",
-                   "Restart the agent with `phoenix agent restart --yes`, or check its unit with `systemctl status claude-rc@home`.")
-
-
-def check_agent_socket(ctx):
-    """The inbox socket folder is private (0700) and the socket is root-only (0600)."""
-    found = agentlink.find(host=ctx.ad.host)
-    if not found:
-        return _result(False, "no agent session, so no inbox socket to check", "Start the agent first (see the agent-session line).")
-    sock = found["socket"]
-    folder = sock.rsplit("/", 1)[0] or "/"
-    problems = []
-    for what, path, want in (("socket folder", folder, SOCKET_FOLDER_MODE), ("socket", sock, SOCKET_MODE)):
-        st = ctx.ad.host.stat(path)
-        if st is None:
-            problems.append(f"the {what} {path} cannot be read")
-            continue
-        if st["mode"] != want:
-            problems.append(f"the {what} {path} has mode {st['mode']:04o}, not {want:04o}")
-        if what == "socket" and st.get("uid") != 0:
-            problems.append(f"the socket {path} is not owned by root")
-    return _result(not problems, "socket folder is 0700 and the socket is 0600, owned by root" if not problems
-                   else "; ".join(problems),
-                   f"Run `chmod 700 {folder}` and `chmod 600 {sock}` (as root), or restart the agent.")
-
-
-def check_agent_transcript(ctx):
-    """Few lines of the agent's transcript are unknown to the parser (warn above 5 %)."""
-    found = agentlink.find(host=ctx.ad.host)
-    if not found or not found["transcript"]:
-        return _result(False, "no agent transcript to read", "Start the agent first (see the agent-session line).")
-    path = found["transcript"]
-    lines = [ln for ln in ctx.ad.host.read_lines(path) if ln.strip()]
-    if not lines:
-        what = "is empty" if ctx.ad.host.exists(path) else "was not found"
-        return _result(False, f"the agent transcript {path} {what}",
-                       "If the agent has only just started, send it a message and check again; otherwise Claude "
-                       "Code may name its transcript folders differently now: update phoenix9/agentlink.py.")
-    unknown = transcript.parse(lines)[1]
-    rate = unknown / len(lines)
-    text = f"{unknown} of {len(lines)} transcript lines are unknown ({rate:.0%})"
-    return _result(rate <= UNKNOWN_WARN_RATE, text,
-                   "Claude Code's transcript format may have changed: update phoenix9/transcript.py.")
-
-
-def check_agent_folder(ctx):
-    """The agent folder has CLAUDE.md and .claude/settings.json."""
-    folder = settings.agent_settings()["folder"].rstrip("/")
-    missing = [n for n in ("CLAUDE.md", ".claude/settings.json") if not ctx.ad.host.exists(f"{folder}/{n}")]
-    return _result(not missing, f"{folder} has CLAUDE.md and .claude/settings.json" if not missing
-                   else f"{folder} lacks " + " and ".join(missing),
-                   f"Set the agent folder up again (copy the agent files into {folder}).")
-
-
-def check_agent_pack(ctx):
-    """The agent folder's knowledge pack carries the installed version line."""
-    from phoenix9 import agentsync
-    ok, detail = agentsync.pack_current(ctx.ad.host)
-    return _result(ok, detail, "Run an update, or copy deploy/agent/skills/ into the agent folder's .claude/skills/.")
-
-
-def check_agent_helpers(ctx):
-    """The agent folder's helper files match the installed ones (a warning only; it never fails the report)."""
-    from phoenix9 import agentsync
-    ok, detail = agentsync.helpers_current(ctx.ad.host)
-    fix = "Run an update, or copy deploy/agent/agents/ into the agent folder's .claude/agents/."
-    if ok:
-        return _result(True, detail)
-    return True, f"Warning: {detail}. Fix: {fix}", fix
-
-
-def check_agent_rules(ctx):
-    """The agent's rules file equals the installed rules plus its kept local section."""
-    from phoenix9 import agentsync
-    ok, detail = agentsync.rules_current(ctx.ad.host)
-    if ok and agentsync.pending_restart():
-        return _result(True, "agent rules updated; restart when idle")
-    return _result(ok, detail, "Run an update to rebuild the agent's rules file from deploy/agent/agent-rules.md.")
-
-
 CHAT_UNIT_FILE = "claude-rc-chat@.service"
 
 
@@ -702,10 +600,20 @@ def check_agentkit_service(ctx):
     state = out.split()[0] if out.split() else "unknown"
     fix = f"Start it with `systemctl start {AGENTKIT_UNIT}`, then read `journalctl -u {AGENTKIT_UNIT}`."
     if rc != 0 or state != "active":
-        return _result(False, f"{AGENTKIT_UNIT} is {state}", fix)
+        return _result(False, f"{AGENTKIT_UNIT} is {state}" + _agentkit_restart_note(ctx), fix)
     if status is None:
-        return _result(False, f"{AGENTKIT_UNIT} is active but does not answer: {reason}", fix)
-    return _result(True, f"{AGENTKIT_UNIT} is active and answering")
+        return _result(False, f"{AGENTKIT_UNIT} is active but does not answer: {reason}" + _agentkit_restart_note(ctx), fix)
+    return _result(True, f"{AGENTKIT_UNIT} is active and answering" + _agentkit_restart_note(ctx))
+
+
+def _agentkit_restart_note(ctx) -> str:
+    """A note that the watchdog last restarted the service at a time, when that was in the last day; else empty."""
+    from phoenix9 import agentkitwatch
+    last = agentkitwatch.memory()["last_restart"]
+    if last is None or not 0 <= ctx.ad.clock.now() - last < 86400:
+        return ""
+    when = datetime.fromtimestamp(last, timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    return f"; the watchdog last restarted it at {when}"
 
 
 def check_agentkit_key(ctx):
@@ -744,9 +652,6 @@ CHECKS = {"python": check_python, "library": check_library, "services": check_se
           "home": check_home, "secrets": check_secrets, "images": check_images, "proxy-rule": check_proxy_rule,
           "firewall": check_firewall, "claude": check_claude, "advisor": check_advisor, "disk": check_disk, "updater": check_updater,
           "project-links": check_project_links, "memory-files": check_memory_files, "reference": check_reference,
-          "agent-unit": check_agent_unit, "agent-session": check_agent_session, "agent-socket": check_agent_socket,
-          "agent-transcript": check_agent_transcript, "agent-folder": check_agent_folder,
-          "agent-pack": check_agent_pack, "agent-helpers": check_agent_helpers, "agent-rules": check_agent_rules,
           "project-chats": check_project_chats, "access": check_access,
           "agentkit-service": check_agentkit_service, "agentkit-key": check_agentkit_key, "agentkit-spend": check_agentkit_spend}
 

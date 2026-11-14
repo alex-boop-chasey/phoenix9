@@ -1,14 +1,17 @@
-"""Ops for Phoenix's own two services (phoenix-api, phoenix-runner): restart them safely, then check health.
+"""Ops for Phoenix's own services (phoenix-api, phoenix-runner, phoenix-agentkit): restart them safely, then check health.
 
 Restarting the runner first holds the harness (the update hold, phoenix9/hold.py) and waits until no run is
-mid-task, so no step is cut off; the API restart is immediate. Both go through the host adapter's systemctl
+mid-task, so no step is cut off; the API and agent restarts are immediate (the agent's only when [agent_next] is
+set up). All go through the host adapter's systemctl
 and end with `phoenix doctor --quick` (docs/architecture.md section 15, "Restarting a service").
 """
-from phoenix9 import doctor, hold, scrub, updater
+from phoenix9 import doctor, hold, scrub, settings, updater
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
-UNITS = {"api": "phoenix-api", "runner": "phoenix-runner"}
+UNITS = {"api": "phoenix-api", "runner": "phoenix-runner", "agent": doctor.AGENTKIT_UNIT}
+NAMES = "api, runner or agent"
+AGENT_NOT_SET_UP = "The new agent is not set up yet, so there is nothing to restart."
 WAIT_MIN = 30          # how long a runner restart waits for running builds to reach a task boundary
 POLL_S = 5
 API_WAIT_S = 20        # how long to wait for a restarted API to answer /api/health before the doctor runs
@@ -16,7 +19,7 @@ API_WAIT_S = 20        # how long to wait for a restarted API to answer /api/hea
 
 def _unit(name: str) -> str:
     if name not in UNITS:
-        raise OpsError(f"'{name}' is not a Phoenix service. Use api or runner.")
+        raise OpsError(f"'{name}' is not a Phoenix service. Use {NAMES}.")
     return UNITS[name]
 
 
@@ -57,12 +60,20 @@ def _wait_for_api(adapters) -> None:
         adapters.clock.sleep(1)
 
 
+def agent_set_up() -> bool:
+    """True when global.toml has an [agent_next] table (the new agent's service is set up)."""
+    return isinstance(settings.read_global().get("agent_next"), dict)
+
+
 def restart(name: str, who: str = "cli", yes: bool = False, wait_min: int = WAIT_MIN, say=None) -> dict:
-    """Restart phoenix-api or phoenix-runner (needs yes); the runner waits for builds to reach a task boundary
-    (up to wait_min minutes, then refuses and restarts nothing). Returns {service, restarted, waited, doctor}."""
+    """Restart phoenix-api, phoenix-runner or phoenix-agentkit (needs yes); the runner waits for builds to reach a
+    task boundary (up to wait_min minutes, then refuses and restarts nothing), the agent restarts only when set up.
+    Returns {service, restarted, waited, doctor}."""
     unit = _unit(name)
     if not yes:
         raise OpsError(f"This restarts {unit}. Add --yes to go ahead.")
+    if name == "agent" and not agent_set_up():
+        raise OpsError(AGENT_NOT_SET_UP)
     say = say or (lambda line: None)
     adapters = common.make_adapters()
     waited = False
@@ -81,7 +92,7 @@ def restart(name: str, who: str = "cli", yes: bool = False, wait_min: int = WAIT
                 hold.release_hold()
     else:
         done, err = restart_unit(adapters, name)
-        if done:
+        if done and name == "api":
             _wait_for_api(adapters)
     common.record_command(who, f"service restart {name}")
     if not done:

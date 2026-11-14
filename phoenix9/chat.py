@@ -1,22 +1,12 @@
-"""The Phoenix agent's service restart, and each project's chat unit (architecture 8 and 11).
+"""Each project's chat unit (architecture 8 and 11).
 
 No AI runs in Phoenix's own processes (rule 1): this file only starts, stops and looks at systemd units
-through the Host adapter, and never starts Claude (planning sessions run in step containers, plansession.py). A build that runs out of tries is handed to the agent with a message
-(`failmodes.escalate` through `chatlink.send`), never with a session started here.
+through the Host adapter, and never starts Claude (planning sessions run in step containers, plansession.py). A build that runs out of tries is handed to the agent service
+(`failmodes` posts the ids to its /handoffs route), never with a session started here.
 """
 from __future__ import annotations
 
 import re
-
-
-def agent_restart(adapters, why: str) -> None:
-    """Restart the Phoenix agent's systemd service (the `agent.unit` setting) and tell Alex why, once."""
-    from phoenix9 import scrub, settings
-    unit = settings.agent_settings()["unit"]
-    adapters.host.systemctl("restart", unit)
-    from phoenix9 import agentsync
-    agentsync.clear_pending()
-    adapters.notify.send(scrub.scrub(f"Phoenix agent restarted: {why}"))
 
 
 def chat_unit(project: str) -> str:

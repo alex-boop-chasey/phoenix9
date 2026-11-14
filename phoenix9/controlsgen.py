@@ -39,7 +39,7 @@ def _entry(c: Control) -> dict:
     return {"name": c.name, "description": _description(c), "inputs": [_input(i) for i in c.inputs],
             "risk": c.risk, "agent": c.agent, "why": c.why, "method": c.method, "route": c.route,
             "fixed": dict(c.fixed), "fixed_query": dict(c.fixed_query), "card": c.card,
-            "confirm_with": c.confirm_with}
+            "confirm_with": c.confirm_with, "timeout_s": c.timeout_s}
 
 
 def describe() -> list[dict]:

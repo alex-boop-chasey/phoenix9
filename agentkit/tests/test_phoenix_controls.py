@@ -35,7 +35,7 @@ def sample_args(entry):
 
 def test_tool_names_and_risks_match_the_file():
     _fake, made = tools()
-    made = {n: t for n, t in made.items() if n not in ("what_happened", "flow", "next_steps")}  # the agent's own card tools, not controls
+    made = {n: t for n, t in made.items() if n not in ("what_happened", "flow", "next_steps", "phoenix_help")}  # the agent's own tools, not controls
     assert sorted(made) == sorted(ENTRIES)
     assert {n: t.risk for n, t in made.items()} == {n: e["risk"] for n, e in ENTRIES.items()}
     check_pack(build_pack(FakePhoenix().client()))
@@ -110,6 +110,14 @@ def test_path_parts_must_be_plain():
     fake, made = tools()
     out = made["project-show"].function(name="../secrets")
     assert "error" in out and fake.requests == []
+
+
+def test_suggestion_keys_are_checked_then_percent_encoded():
+    route = "/api/suggest/(?P<key>[A-Za-z0-9._:+%-]+)/dismiss"
+    assert fill_path(route, {"key": "run:a+b"}) == "/api/suggest/run%3Aa%2Bb/dismiss"
+    for bad in ("../x", "a/b", "", "a b", "..", "a%2Fb", "a?b"):
+        with pytest.raises(PhoenixError):
+            fill_path(route, {"key": bad})
 
 
 def test_refusal_is_a_plain_error():
@@ -187,3 +195,27 @@ def test_update_card_has_versions_and_queue_state():
     status = {"installed": {"tag": "v1"}, "newest": "v2", "running": False, "log_tail": "secret-ish"}
     assert update_card(status) == {"installed": "v1", "newest": "v2", "queued": False, "link": "#/settings?section=updates"}
     assert update_card({"ok": True, "queued": True, "tag": "v2"})["queued"] is True
+
+
+def waited(request):
+    """How long the client let a request wait for its answer (the read timeout, in seconds)."""
+    return request.extensions["timeout"]["read"]
+
+
+def test_client_waits_the_default_unless_told_longer():
+    fake = FakePhoenix()
+    client = fake.client()
+    client.get("/api/projects")
+    client.get("/api/projects", timeout=90)
+    client.post("/api/chat/beta/open", {}, timeout=90)
+    client.post("/api/chat/beta/sleep", {})
+    assert [waited(q) for q in fake.requests] == [15.0, 90, 90, 15.0]
+
+
+def test_a_slow_control_passes_its_own_timeout():
+    assert ENTRIES["chat-open"]["timeout_s"] == 90
+    assert all(e["timeout_s"] == 0 for n, e in ENTRIES.items() if n != "chat-open")
+    fake, made = tools()
+    made["chat-open"].function(name="beta")
+    made["chat-show"].function(name="beta")
+    assert [(q.url.path, waited(q)) for q in fake.requests] == [("/api/chat/beta/open", 90), ("/api/chat/beta", 15.0)]

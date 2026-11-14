@@ -1,9 +1,9 @@
-import { fireEvent, screen, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 
 import { AppShell } from "@/components/AppShell"
 import { crumbsFor } from "@/components/Crumbs"
 import { info, projects } from "@/test/fixtures"
-import { agentRoutes, mockApi } from "@/test/mockApi"
+import { agentNextRoutes, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -13,7 +13,7 @@ const withUpdate = (over: Partial<typeof info.update>) => ({ ...info, update: { 
 function setup(opts: { info?: unknown; gates?: unknown[]; route?: string; projects?: unknown[]; bell?: unknown } = {}) {
   window.localStorage.clear()
   mockApi({
-    ...agentRoutes(),
+    ...agentNextRoutes(),
     "GET /api/info": opts.info ?? info,
     "GET /api/projects": opts.projects ?? projects,
     "GET /api/gates": opts.gates ?? [],
@@ -114,12 +114,15 @@ test("phone picker opens and closes", async () => {
   expect(sheet).not.toHaveClass("open")
 })
 
-test("Ctrl+. toggles the Phoenix agent panel and the button opens it", async () => {
+test("Ctrl+. toggles the new agent drawer and the button opens it", async () => {
   setup()
   const panel = screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
   expect(panel).not.toHaveClass("open")
   fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
   expect(panel).toHaveClass("open")
+  expect(within(panel).getByRole("heading", { name: "Agent" })).toBeInTheDocument()
+  expect(within(panel).getByRole("link", { name: "Open full page" })).toHaveAttribute("href", "#/agent-next")
+  expect(await within(panel).findByText("plenty left this month")).toBeInTheDocument()
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })
   expect(panel).not.toHaveClass("open")
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })
@@ -128,11 +131,17 @@ test("Ctrl+. toggles the Phoenix agent panel and the button opens it", async () 
   expect(panel).not.toHaveClass("open")
 })
 
-test("the panel gives focus back to the header button", () => {
+test("the open-agent event opens the drawer", () => {
+  setup()
+  act(() => { window.dispatchEvent(new CustomEvent("phoenix:open-agent")) })
+  expect(screen.getByLabelText("Phoenix agent panel", { selector: "aside" })).toHaveClass("open")
+})
+
+test("the panel gives focus back to the header button", async () => {
   setup()
   const btn = screen.getByRole("button", { name: "Phoenix agent" })
   fireEvent.click(btn)
-  expect(screen.getByLabelText("Message")).toHaveFocus()
+  await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus())
   fireEvent.keyDown(document, { key: "Escape" })
   expect(btn).toHaveFocus()
 })

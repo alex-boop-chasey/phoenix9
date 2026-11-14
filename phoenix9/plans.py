@@ -119,11 +119,11 @@ def is_chat(who: str) -> bool:
 
 def refuse_project(project: str, who: str) -> None:
     """PlanError when no planning session may be started on this project by this caller: never on the
-    Phoenix agent's own folder; on phoenix9 (Phoenix itself) only when the caller is not a chat."""
+    Phoenix agent's own folder; on phoenix9 (Phoenix itself) only when the caller is not a chat or the agent."""
     from .ops.projects import agent_name
     if project in (agent_name(), "home"):
         raise PlanError(f"{project} is the Phoenix agent's folder, not a project, so it cannot be planned.")
-    if project == "phoenix9" and is_chat(who):
+    if project == "phoenix9" and (is_chat(who) or who == "agent"):
         raise PlanError("phoenix9 is Phoenix itself: only Alex can start a planning session on it.")
 
 

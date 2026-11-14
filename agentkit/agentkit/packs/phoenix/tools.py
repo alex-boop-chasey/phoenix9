@@ -286,8 +286,34 @@ def report_card(data: Any) -> dict:
     return {"date": str(data.get("date") or ""), "text": wrap("phoenix report", str(data.get("text") or ""))}
 
 
+def memory_card(data: Any) -> dict:
+    """Card data for a project's memory: {project, claude_md, now_md, cut}, both texts quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"project": str(data.get("project") or ""),
+            "claude_md": wrap("project CLAUDE.md", str(data.get("claude_md") or "")),
+            "now_md": wrap("project NOW.md", str(data.get("now_md") or "")), "cut": data.get("cut") is True}
+
+
+def doc_card(data: Any) -> dict:
+    """Card data for one document: {id, title, text}, the text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"id": str(data.get("id") or ""), "title": str(data.get("title") or ""),
+            "text": wrap("phoenix document", str(data.get("text") or ""))}
+
+
+# A bell item id the agent may see as it is (Alex's "Tell me about bell item <id>" names one); others are left out.
+BELL_ID = re.compile(r"[A-Za-z0-9:._/@+-]{1,200}")
+
+
+def bell_id(value: Any) -> str:
+    """The bell item's id when it is plain (letters, digits and : . _ / @ + -), else ""."""
+    return value if isinstance(value, str) and BELL_ID.fullmatch(value) else ""
+
+
 def bell_card(data: Any) -> dict:
-    """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
+    """Card data for the bell: {id, kind, title, detail, link} per item, texts quoted, odd ids blank, bad pages dropped."""
     from agentkit.quote import wrap
     data = data if isinstance(data, dict) else {}
     rows = []
@@ -295,10 +321,22 @@ def bell_card(data: Any) -> dict:
         link = page_link(item.get("page")) if isinstance(item, dict) else None
         if link is None:
             continue
-        rows.append({"kind": str(item.get("kind") or ""), "title": wrap("phoenix bell", str(item.get("title") or "")),
+        rows.append({"id": bell_id(item.get("id")), "kind": str(item.get("kind") or ""),
+                     "title": wrap("phoenix bell", str(item.get("title") or "")),
                      "detail": wrap("phoenix bell", str(item.get("detail") or "")), "link": link})
     count = data.get("count")
     return {"count": count if isinstance(count, int) and not isinstance(count, bool) else len(rows), "items": rows}
+
+
+def suggest_card(data: Any) -> dict:
+    """Card data for suggestions: {mode, suggestions} with each row's key, whether it needs Alex and its text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    rows = [{"key": str(row.get("key") or ""), "attention": row.get("attention") is True, "shown": row.get("shown") is True,
+             "text": wrap("phoenix suggestion", str(row.get("text") or ""))}
+            for row in data.get("suggestions", []) if isinstance(row, dict)] \
+        if isinstance(data.get("suggestions"), list) else []
+    return {"mode": str(data.get("mode") or ""), "suggestions": rows}
 
 
 def open_bell_inputs() -> type[BaseModel]:
@@ -379,13 +417,18 @@ def what_happened_card(models: dict, values: dict) -> dict:
 
 
 def job_card(job_id: str, data: Any) -> dict:
-    """Card data for a background job: its kind, project, status, one label and status per step, and the message."""
+    """Card data for a background job: its kind, project, status, one label and status per step, the message, and
+    the merge request link when a finished quick edit opened one."""
     data = data if isinstance(data, dict) else {}
     steps = [{"label": str(s.get("label") or ""), "status": str(s.get("status") or "")}
              for s in data.get("steps") or [] if isinstance(s, dict)]
-    return {"job": str(data.get("id") or job_id), "kind": str(data.get("kind") or ""),
+    card = {"job": str(data.get("id") or job_id), "kind": str(data.get("kind") or ""),
             "project": str(data.get("project") or ""), "status": str(data.get("status") or ""),
             "steps": steps, "message": str(data.get("message") or "")}
+    result = data.get("result")
+    if isinstance(result, dict) and result.get("pr"):
+        card["pr"] = str(result["pr"])
+    return card
 
 
 def plan_check_card(project: str, data: Any) -> dict:

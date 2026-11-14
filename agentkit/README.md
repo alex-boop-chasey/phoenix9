@@ -105,6 +105,8 @@ React component called `RecipeCards` to the panel's component list in
 - `flow` (server tool) records the flow's name, step and plain facts in the event log as a flow card, so a reload
   shows where it was and the agent can carry on. Cancelling is allowed at every step. A flow card is never an approval.
 - `next_steps` (read) returns typed suggestions from a project's real state for `suggest_next_actions`.
+- `phoenix_help` (read) returns one help topic about how Phoenix works (overview, pages, failures, settings, steps,
+  workflows) from the Markdown files in `packs/phoenix/help/` (each under 12,000 characters, read from the source folder).
 
 ### The five parts of a pack, in short
 

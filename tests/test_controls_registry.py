@@ -1,6 +1,7 @@
 """The controls registry covers every API route and every public ops function, with valid risk and agent values."""
 import ast
 import importlib
+import inspect
 from pathlib import Path
 
 from phoenix9.api import server
@@ -117,3 +118,31 @@ def test_key_controls_are_never_tools():
     assert by_name["keys-save"].agent == "key-card"
     assert by_name["keys-reveal"].agent == "secret"
     assert by_name["service-connect"].agent == "secret" and by_name["service-test"].agent == "secret"
+
+
+# Agent tools whose route starts slow work in the background and answers at once with a job or run id, so the agent
+# never waits on it. update-install (queued to the updater, answers {"queued"} with no id) is left out on purpose.
+BACKGROUND = {"edit-finish": "job_id", "project-create": "job", "build-start": "run_id", "hotfix-start": "run_id",
+              "service-restart": "job"}   # (the runner; the api and agent restarts answer at once)
+
+
+def returned_keys(handler) -> set:
+    """Every string constant inside the handler's return statements (the keys of the reply it builds)."""
+    tree = ast.parse(inspect.getsource(handler))
+    return {node.value for ret in ast.walk(tree) if isinstance(ret, ast.Return) and ret.value is not None
+            for node in ast.walk(ret.value) if isinstance(node, ast.Constant) and isinstance(node.value, str)}
+
+
+def test_background_tools_answer_with_a_job_or_run_id():
+    by_name = {c.name: c for c in controls.CONTROLS}
+    handlers = {(m, p): h for m, p, h in server.ROUTES}
+    for name, key in BACKGROUND.items():
+        c = by_name[name]
+        assert c.agent == "tool", name
+        assert key in returned_keys(handlers[(c.method, c.route)]), name
+
+
+def test_only_known_slow_controls_wait_longer():
+    slow = {c.name: c.timeout_s for c in controls.CONTROLS if c.timeout_s}
+    assert slow == {"chat-open": 90}
+    assert all(c.timeout_s >= 0 for c in controls.CONTROLS)

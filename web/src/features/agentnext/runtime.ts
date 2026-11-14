@@ -8,6 +8,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react"
 
 import { apiBase } from "@/lib/api"
 import type { ToolCallItem } from "./components"
+import type { PageParts } from "./pageContext"
 
 /** A typed card the agent asked the panel to draw, chosen by component name. */
 export interface CardItem { toolCallId: string; component: string; data: unknown }
@@ -19,7 +20,16 @@ export interface ApprovalItem { approvalId: string; toolName: string; input: unk
 export type BrowserAnswer = Record<string, unknown>
 
 /** The things beside the text that the page draws. */
-export interface SideState { cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[]; suggestions?: unknown; caught?: ChatLine[] }
+export interface SideState {
+  cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[]; suggestions?: unknown; caught?: ChatLine[]
+  /** The service's conversation id once there is one. */
+  thread?: string
+  /** A plain refusal from the service for the last message sent (for example a full queue). */
+  refused?: string
+}
+
+/** What the service answered to a message: started now, queued behind the reply being written, or refused. */
+export type SendAnswer = { run_id: string; queued: boolean } | { error: string }
 
 /** How long to wait before following the stream again after the connection dropped. */
 const RETRY_MS = 300
@@ -47,18 +57,23 @@ export async function agentGet<T>(path: string): Promise<T | null> {
   }
 }
 
-/** Whether the agent can be used; if not, the plain message to show in place of the chat. */
-export async function agentAvailable(): Promise<{ ok: true } | { ok: false; message: string }> {
+/** Why the agent is not answering: it has no API key, its service is not running, or it is not set up on this server. */
+export type NotAnswering = "no-key" | "not-running" | "not-set-up"
+
+/** Whether the agent can be used; if not, the plain message to show in place of the chat and why. */
+export async function agentAvailable(): Promise<{ ok: true } | { ok: false; message: string; reason: NotAnswering }> {
   const down = "The agent isn't available right now."
   try {
     const res = await fetch(agentUrl("status"), { headers: { "X-Phoenix": "1" } })
     const body = await res.json().catch(() => ({}))
     const said = typeof body?.message === "string" ? body.message : null
-    if (!res.ok || body?.running === false) return { ok: false, message: said ?? down }
-    if (body?.key_present === false) return { ok: false, message: said ?? "The agent has no API key yet." }
+    if (!res.ok || body?.running === false) {
+      return { ok: false, message: said ?? down, reason: said && /set up/i.test(said) ? "not-set-up" : "not-running" }
+    }
+    if (body?.key_present === false) return { ok: false, message: said ?? "The agent has no API key yet.", reason: "no-key" }
     return { ok: true }
   } catch {
-    return { ok: false, message: down }
+    return { ok: false, message: down, reason: "not-running" }
   }
 }
 
@@ -68,6 +83,23 @@ export async function newThread(): Promise<string | null> {
     method: "POST", headers: { "X-Phoenix": "1", "Content-Type": "application/json" }, body: "{}",
   })
   return res.ok ? ((await res.json()) as { id: string }).id : null
+}
+
+/** Where the run still going starts in a stored conversation (its last RUN_STARTED; 0 when there is none). */
+export function lastRunStart(events: { event: Record<string, any> }[]): number {
+  for (let i = events.length - 1; i >= 0; i--) if (events[i]!.event.type === "RUN_STARTED") return i
+  return 0
+}
+
+/** The run ids a stored conversation has started. */
+export function startedRuns(events: { event: Record<string, any> }[]): Set<string> {
+  return new Set(events.filter((f) => f.event.type === "RUN_STARTED" && typeof f.event.runId === "string").map((f) => f.event.runId as string))
+}
+
+/** The plain words of a refused message ({"error": ...}), or a general line. */
+async function refusal(res: Response): Promise<string> {
+  const body = await res.json().catch(() => ({}))
+  return typeof body?.error === "string" && body.error ? body.error : "The agent could not take that message."
 }
 
 /** Turn a stored conversation's events into plain chat lines. */
@@ -145,6 +177,8 @@ const BROWSER_ACTIONS = ["go_to", "open_bell"]
 /** Our agent: sends the message, follows the stream, answers browser actions and waits for approvals. */
 export class AgentNextAgent extends AbstractAgent {
   private seen = 0
+  /** Whether `seen` already counts the thread's stored events (so a new run follows only its own events). */
+  private known = false
   private kept: Frame[] | null = null
   private side: SideState = { cards: [], approvals: [], running: false }
   private listeners = new Set<() => void>()
@@ -154,6 +188,8 @@ export class AgentNextAgent extends AbstractAgent {
   browserHandler: (name: string, args: Record<string, unknown>) => Promise<BrowserAnswer> = async () => ({
     ok: false, error: "This page cannot do that.",
   })
+  /** What Alex has open, sent with every message (none on the full page). */
+  context: PageParts | undefined = undefined
 
   constructor(thread = "") {
     super()
@@ -189,6 +225,8 @@ export class AgentNextAgent extends AbstractAgent {
     if (this.serviceThread) return this.serviceThread
     this.threadReady ??= this.post("threads", {}).then(async (res) => {
       this.serviceThread = (await res.json()).id
+      this.known = true
+      this.setSide({ ...this.side, thread: this.serviceThread })
       return this.serviceThread
     })
     return this.threadReady
@@ -202,6 +240,37 @@ export class AgentNextAgent extends AbstractAgent {
     })
   }
 
+  /** The body of a message: the words, plus what Alex has open when known. */
+  private messageBody(text: string): Record<string, unknown> {
+    return this.context ? { message: text, context: this.context } : { message: text }
+  }
+
+  /** Count the events the thread already holds, so the next run is followed from its own first event. */
+  private async catchUpCount(id: string) {
+    if (this.known) return
+    try {
+      const res = await fetch(agentUrl(`threads/${id}`), { headers: { "X-Phoenix": "1" } })
+      const got = res.ok ? ((await res.json()) as { events?: Frame[] }) : null
+      this.seen = Math.max(this.seen, ...(got?.events ?? []).map((f) => f.number))
+    } catch { /* follow from where we are */ }
+    this.known = true
+  }
+
+  /** Send a message while a reply is being written: the service queues it (or refuses in plain words). */
+  async send(text: string): Promise<SendAnswer> {
+    try {
+      const id = await this.ensureThread()
+      const res = await this.post(`threads/${id}/runs`, this.messageBody(text))
+      const answer: SendAnswer = res.ok ? ((await res.json()) as { run_id: string; queued: boolean }) : { error: await refusal(res) }
+      this.setSide({ ...this.side, refused: "error" in answer ? answer.error : undefined })
+      return answer
+    } catch {
+      const answer = { error: "The agent isn't available right now." }
+      this.setSide({ ...this.side, refused: answer.error })
+      return answer
+    }
+  }
+
   run(input: RunAgentInput): Observable<BaseEvent> {
     return new Observable<BaseEvent>((sub) => {
       this.drive(input, sub).catch((err) => sub.error(err))
@@ -211,11 +280,15 @@ export class AgentNextAgent extends AbstractAgent {
   private async drive(input: RunAgentInput, sub: Subscriber<BaseEvent>) {
     const last = [...input.messages].reverse().find((m) => m.role === "user")
     const text = typeof last?.content === "string" ? last.content : ""
-    this.setSide({ ...this.side, running: true, suggestions: undefined })
+    this.setSide({ ...this.side, running: true, suggestions: undefined, refused: undefined })
     try {
       const id = await this.ensureThread()
-      this.seen = 0
-      await this.post(`threads/${id}/runs`, { message: text })
+      await this.catchUpCount(id)
+      const res = await this.post(`threads/${id}/runs`, this.messageBody(text))
+      if (!res.ok) {
+        this.setSide({ ...this.side, refused: await refusal(res) })
+        return sub.complete()
+      }
       for (;;) {
         const waits: Wait[] = []
         const final = await this.follow(id, sub, waits)
@@ -275,6 +348,7 @@ export class AgentNextAgent extends AbstractAgent {
   async attach(id: string, stored: Frame[]) {
     this.serviceThread = id
     this.seen = stored.reduce((n, f) => Math.max(n, f.number), 0)
+    this.known = true
     this.kept = []
     const sub = { next: () => {} } as unknown as Subscriber<BaseEvent>
     this.setSide({ ...this.side, running: true })

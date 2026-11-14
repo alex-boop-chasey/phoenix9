@@ -35,18 +35,15 @@ safety_files = [
   "deploy/install.sh",  # first install
   "deploy/phoenix-api.service",  # dashboard service unit
   "deploy/phoenix-runner.service",  # runner service unit
-  # Agent link
+  # Chat link
   "phoenix9/chatlink.py",  # the only code that writes to a chat session's socket
-  "phoenix9/agentlink.py",  # the only code that writes to the agent's socket
-  "phoenix9/transcript.py",  # reads the agent's untrusted output
-  "deploy/agent/agent-rules.md",  # the agent's own rulebook
   # Deleting a project
   "phoenix9/project_delete.py",  # the delete-project plan and safety copy
   # Repairs
   "phoenix9/repair/*.py",  # repairs can change run state and unlock checks
   # No Claude on the host; planning sessions and quick edits
   "docs/architecture.md",  # the safety rules (section 11: Claude only in step containers)
-  "phoenix9/chat.py",  # agent restart and chat units; never starts Claude
+  "phoenix9/chat.py",  # project chat units; never starts Claude
   "phoenix9/plans.py",  # planning-session records and queue
   "phoenix9/plansession.py",  # runs planning sessions in sealed step containers
   "phoenix9/claude.py",  # the only claude command line (for containers)
@@ -63,7 +60,6 @@ safety_files = [
   "phoenix9/pause.py",  # Claude session ids that may be resumed
   "phoenix9/spec.py",  # the spec format every build and plan is checked against
   "phoenix9/atomic.py",  # safe file writes
-  "deploy/agent/settings.json",  # the agent's Claude settings
   "deploy/claude-rc-chat@.service",  # the project chat unit
   "deploy/self-project.toml",  # this list itself
   # The checks themselves

@@ -122,7 +122,7 @@ def test_services_test_cli(adapters, monkeypatch, capsys):
     assert "the key works" in capsys.readouterr().out
 
 
-DEFAULT_AGENT = {"folder": "/srv/projects/home", "unit": "claude-rc@home", "watchdog": True}
+DEFAULT_AGENT = {"folder": "/srv/projects/home", "unit": "claude-rc@home"}
 
 
 def _global(tmp_path, monkeypatch, text):
@@ -137,12 +137,12 @@ def test_agent_settings_defaults(tmp_path, monkeypatch):
 
 
 def test_agent_settings_overrides(tmp_path, monkeypatch):
-    _global(tmp_path, monkeypatch, '[agent]\nfolder = "/tmp/x"\nunit = "u@y"\nwatchdog = false\n')
-    assert settings.agent_settings() == {"folder": "/tmp/x", "unit": "u@y", "watchdog": False}
+    _global(tmp_path, monkeypatch, '[agent]\nfolder = "/tmp/x"\nunit = "u@y"\n')
+    assert settings.agent_settings() == {"folder": "/tmp/x", "unit": "u@y"}
 
 
 def test_agent_settings_broken_values_fall_back(tmp_path, monkeypatch):
-    _global(tmp_path, monkeypatch, '[agent]\nfolder = 5\nunit = ""\nwatchdog = "no"\n')
+    _global(tmp_path, monkeypatch, '[agent]\nfolder = 5\nunit = ""\n')
     assert settings.agent_settings() == DEFAULT_AGENT
     _global(tmp_path, monkeypatch, 'agent = "oops"\n')
     assert settings.agent_settings() == DEFAULT_AGENT

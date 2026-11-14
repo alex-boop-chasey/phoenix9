@@ -90,10 +90,9 @@ phoenix9/                      the Python package
   projectchat.py               project chat: .phoenix/chat.md, the five chat states, open (wake), sleep, forget
   ops/chat.py, cli/chatcmd.py  chat_state / open_chat / sleep_chat / forget_chat / status_all / tidy, `phoenix chat ...`
   doctor.py                    the `phoenix doctor` checks (phase 4; section 15); ops/doctor.py runs them
-                               (full mode also has five agent lines: agent-unit, agent-session, agent-socket, agent-transcript, agent-folder,
-                               and `access`, the optional Cloudflare Access lock; a missing or empty transcript is a problem)
+                               (full mode also has `project-chats`, `access` (the optional Cloudflare Access lock) and the
+                               new agent's `agentkit-service`, `agentkit-key`, `agentkit-spend`)
   access.py                    who may use the API: allowed peer uids and the optional Cloudflare Access lock (section 8.5)
-  agentlink.py transcript.py   the Phoenix agent link: find the session, parse its transcript (section 8.6)
   agentnext.py                 adapter: the client for the new agent's service (section 8.7; fake in tests/fakes)
   agentaccess.py               the caller who `agent`: its routes, its one settings key (section 8.7)
   images (ops/images.py)       `phoenix images build`: build the profile images, label `phoenix9.commit`
@@ -682,7 +681,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   a reason starts with `SPEC_PROBLEM` or `AUTH_ERROR`, or it failed for exactly the same reasons as
   the attempt before. Then `on_failure`: `continue` = task `failed` + flagged, dependents `skipped`;
   `pause` = escalation gate + one notify; `delegate` = the same gate (flag "handed to the Phoenix
-  agent") plus one message to the agent (section 12). `acknowledged` = commit any outside fix,
+  agent") handed to the new agent's `POST /handoffs` (section 12). `acknowledged` = commit any outside fix,
   `attempt_base` = the worktree's HEAD (always, so a crash after the fix commit keeps the fix), one
   more attempt; if that fails, the mode once more, then `failed`. .env-style files found in the
   worktree at that point are moved to `tasks/<n>/outside-env/<path>` (never committed), with the
@@ -753,9 +752,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command`.
   `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
-  `update.safety_files_skipped {path, why}` and `agent.sync_skipped {path, symlink, why}` come from `phoenix update after-install` (nothing was written); `agent.restarted_for_rules {why}` from the runner's agent watchdog.
+  `update.safety_files_skipped {path, why}` comes from `phoenix update after-install` (nothing was written).
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
   `plan.queued|continued|abandoned {plan, who}` come from `phoenix plan`; `plan.started|waiting|done|failed {plan, ...}` from the runner service.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
@@ -955,7 +954,7 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   HOME/events.jsonl, so `Last-Event-ID` resumes), everything else = static files from `web/dist`.
 - Writes (POST/PUT/DELETE/PATCH) need header `X-Phoenix: 1` and an `Origin` in the allowed origins
   (`PHOENIX_API_ORIGINS`, else the `allowed_origins` setting; section 5.5). Revealing a key is a POST for that reason.
-- Every request (any method, any route: reads, `/api/events`, `/api/agent/stream` and the web app's files too)
+- Every request (any method, any route: reads, `/api/events` and the web app's files too)
   needs the far end of the TCP connection to be a process owned by an allowed uid: global.toml
   `[access] peer_uids` (a non-empty list of uids, default `[0]` = root only; `write_peer_uids` is the older name
   for the same setting; anything that is not such a list is ignored, root only, and doctor's `upstream` line says
@@ -983,87 +982,13 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
 - The wizard's "remember these" writes its answers into the project's phoenix.toml (preset, steps
   on/off, per-step ai settings, max_tries, on_failure, merge, deploy); "notifications" = `steps.notify.on`.
 
-## 8.6 The Phoenix agent link (`phoenix9/agentlink.py`, `transcript.py`, `api/stream.py`)
+## 8.6 The old agent (retired)
 
-- **Finding the session**: `find()` reads Claude's registry `/root/.claude/sessions/<pid>.json` (never the
-  `*.key` peer files or Claude's login file; a test checks). A session counts when its cwd is the agent folder,
-  its pid is alive and its inbox socket sits directly in `/tmp/cc-socks-0` (no `..`, no sub-folder). With more
-  than one, the choice is stable: the agent unit's main process or its direct child (`systemctl show -p
-  MainPID`; claude remote-control runs sessions as children), else the session picked last time while it is
-  alive, else the oldest (`startedAt`). Sessions named "Phoenix agent" come before others.
-- **Transcript path**: `/root/.claude/projects/<folder>/<session>.jsonl`, where `<folder>` is the *real* path of
-  the working folder (symlinks resolved: `/srv/projects` points into Docker's storage) with every character
-  that is not a letter or digit replaced by `-` (Claude Code's rule; e.g. `-var-lib-docker-volumes-phoenix-cache--data-projects-home`).
-  The session id must be a UUID before it is put in a path.
-- **Parser**: `transcript.Parser` keeps its state between `feed()` calls (the stream feeds only new lines);
-  `parse()` is one feed. Claude Code's bookkeeping lines (attachment, atis-latch, last-prompt, custom-title,
-  agent-name, mode, summary, file-history-*, api-request*, pr-link, bridge-session, ai-title, tools-used,
-  frame-link, cost-state, permission-mode, artifact-*) are known and ignored, as are system hook summaries and
-  turn timings. Only `queue-operation` enqueue makes a queued item; dequeue (oldest) and remove (same text)
-  clear it. Each line is parsed in its own try/except: an odd line counts as unknown and is rolled back.
-  `tests/fixtures/agent-transcript-real.jsonl` is a sanitised copy of real transcripts (text replaced by
-  placeholders); its unknown rate must stay under 2 %.
-- **Sending**: the panel context is cleaned first: `project` only when it is a listed project, `page`/`run`
-  only when they match `[A-Za-z0-9/_.-]{1,80}`, newlines stripped; the folder line is `/srv/projects/<project>`
-  or the agent folder, nothing else.
-- **Brief** (`phoenix agent brief`): project and NOW.md lines cut to 120 characters, the whole text at most 7,900
-  (projects dropped from the end first, as "N more projects", then NOW.md lines).
-- **Watchdog** (`agentwatch.py`): two bad checks in a row restart the unit (then the count starts again, and
-  10 minutes' back-off); a unit that is inactive with `Result=success` was stopped on purpose: recorded as
-  `stopped` in `logs/agent-watch.json` and left alone, and doctor's agent-unit line says "stopped by someone".
-  `phoenix agent restart --yes` restarts it by hand.
-  `phoenix agent stop` (`POST /api/agent/stop`, no confirm, no write lock) is the panel's Stop button: Phoenix
-  itself ends the command the agent is running (SIGTERM, then SIGKILL after 2 seconds, to each tool shell, the
-  process whose command line contains `/.claude/shell-snapshots/`, and everything under it; never the agent
-  process, never its helper processes such as MCP servers, never a pid outside the agent's own process tree,
-  re-checked before each signal), then posts one fixed message asking the agent to stop and say what was left
-  half-done. Returns `{stopped, sent}`; an asleep agent is refused. Recorded in the send log (who, time, no text).
-  `phoenix agent new --yes` (`POST /api/agent/new`) starts a fresh conversation: it asks the agent to save its
-  notes (fixed text), waits until it is not working (at most `[chat] wrap_up_minutes`), then restarts the unit;
-  an asleep agent is just started. It does not hold the API write lock; one at a time (else 409).
-- **Registry**: the list of Claude sessions in `/root/.claude/sessions/<pid>.json` (see "Finding the session").
-  Phoenix reads only those `.json` files and the transcripts, nothing else in Claude's home.
-- **Wire format**: `agentlink.wire_line()` builds one JSON line `{msgV: 1, msg_id, type: "user", message: {role:
-  "user", content}, priority: "next", from}`; the content is the text inside a `<cross-session-message>` wrapper
-  (the wrapper's own closing tag is escaped inside the text), with the panel envelope line first.
-  `connect_and_write()` writes it to the inbox socket within a timeout; failure is a `SendError`.
-- **Only the socket and files are touched**: Phoenix talks to the agent through its inbox socket, reads the
-  registry and transcript files, and restarts its unit. It never reads Claude's login file or the `*.key`
-  peer files (`tests/test_no_credentials_read.py`), never starts Claude for this and never drives the agent's
-  terminal.
-- **Settings**: `[agent]` in `global.toml`: `agent.folder` (default `/srv/projects/home`), `agent.unit` (default
-  `claude-rc@home`), `agent.watchdog` (default true).
-- **Who it is**: `deploy/agent/settings.json` sets `env.PHOENIX_WHO=chat:home`, so every `phoenix` command the agent
-  runs is logged as `chat:home` (and is refused for project deletes). For belt and braces, give the unit the same:
-  a drop-in `/etc/systemd/system/claude-rc@home.service.d/phoenix-who.conf` holding `[Service]` and
-  `Environment=PHOENIX_WHO=chat:home`, then `systemctl daemon-reload` and restart the unit. Project chats get
-  `Environment=PHOENIX_WHO=chat:%i` from `deploy/claude-rc-chat@.service`.
-- **Doctor lines**: `agent-unit`, `agent-session`, `agent-socket` (folder 700, socket 600), `agent-transcript`
-  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`), `agent-helpers` (a
-  warning when `.claude/agents/` lacks or differs from the installed helper files).
-- **Deploy files** (`deploy/agent/`): `agent-rules.md` (the rulebook; the admin setup step copies it to the agent
-  folder as `CLAUDE.md`, because builds may not write a file of that name), `settings.json` (the session-start
-  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker, fixer helpers; `phoenix update
-  after-install` copies them to the agent folder's `.claude/agents/`, adding and updating, never deleting).
-- **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
-  message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
-  `deploy/agent/agent-rules.md` (the agent's own rules) and `phoenix9/project_delete.py` (deletes a whole project) are in `safety_files` in `deploy/self-project.toml`.
-- **Delete project** (`phoenix9/project_delete.py`, a safety file): `plan(name, who, adapters)` is the dry run for
-  "Delete project entirely": folder and size, GitHub repo with `repo_verdict` (deleted only when it is the project's
-  own, see section 9.5), open merge requests, unpushed commits, unsaved edits, runs, key names (never values; not
-  kept in the copy), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home also by real
-  name, a linked folder, an active build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
-  (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
-  `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
-  with a note when there is no git repo or no commits; `git fetch --all` first), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
-  (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
-  copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
-  (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
-  which never raises (a failure is one stderr line in the runner's journal).
+The old Claude-Code agent was retired after agent v3 (job agent-gaps); see 8.7 for the agent.
 
 ## 8.7 The new agent (agentkit) and the Phoenix pack
 
-Built beside the old agent (section 8.6), which stays as it is. Two layers:
+It replaced the old Claude-Code agent (section 8.6). Two layers:
 
 - **`agentkit/`** (Python package `agentkit`): the core, the same on every site. Agent loop (Pydantic AI,
   behind `agentkit/llm.py`), typed tools with risk levels, the event stream (AG-UI over SSE, behind
@@ -1071,7 +996,25 @@ Built beside the old agent (section 8.6), which stays as it is. Two layers:
 - **`agentkit/packs/phoenix/`**: the Phoenix pack, kept thin: its tools, browser actions, cards and
   instructions. It reaches Phoenix only through Phoenix's HTTP API (`http://127.0.0.1:8095`).
 
-The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`).
+The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`). The top bar's
+Agent button, Ctrl+. and the `phoenix:open-agent` event (its `detail.message`, when given, is sent) open the same
+chat in a drawer (`AgentDrawer.tsx`); both show the conversation remembered under the browser key `agent-next-thread`.
+The drawer sends `context` {page, project, run} from the router with every message and says it on a chip above the
+message box; while a reply is being written its message box still sends, a queued message shows as "Queued" until
+its turn starts, then the drawer follows that run (it reopens the thread and replays from its last `RUN_STARTED`).
+When `/status` says the agent cannot answer, the drawer shows a card with the reason (no API key, not running, not
+set up); when it is not running the card offers "Restart the agent" (asks first, then `POST /api/service/agent/restart`
+`{"yes": true}` and looks again every 3 s for up to 30 s). Each bell row has "Ask the agent", which fires
+`phoenix:open-agent` with "Tell me about bell item <id>" (only the id; bell words come from builds). While the drawer
+is closed, a finished reply or a new approval card in its open conversation puts a dot on the Agent button until it opens.
+
+**How Alex uses it.** The Agent button in the top bar opens the drawer (the only way in besides the full page
+`#/agent-next`); each message carries the page context (page, project, run) and the service tells the model one
+line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
+per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
+`failmodes._hand_to_agent` to `POST /handoffs` (ids only; Alex gets one line), and the agent may only answer
+`acknowledged` on that question. The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
+`phoenix-agentkit` after two bad checks in a row, at most every 10 minutes, and leaves a service stopped on purpose alone.
 
 **The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
 listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `config.toml`, `api-key` (mode 600,
@@ -1079,8 +1022,19 @@ owned by the agent user, put there by Alex), `token` (the shared token, root:pho
 `agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
 needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
 `POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
-`POST /browser-results/{id}`, `GET /spend`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+`POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
+A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
+answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
+logged as Alex's message only when it starts. A thread waiting on Alex's answer to a change refuses new messages
+(409). Stop empties the queue (`run_stopped` says how many were dropped). The queue is in memory only: a service
+restart drops it.
+`POST /handoffs` takes exactly `{run_id, task, gate_id, project}` (each checked strictly; anything else is 400) for a
+build task that ran out of tries. It opens a new thread titled "Build needs help: <project> task <n>" and starts a run
+whose message the service builds from those ids only: `[Phoenix · escalation] run <run_id> task <n> (question
+<gate_id>, project <project>)`; answer 202 `{thread_id, run_id}`. One hand-off per question (kept in the `handoffs`
+table): a second POST for the same `gate_id` answers 200 with the first thread and starts nothing. With no API key,
+prices not set or the monthly allowance used up it answers 409 in plain words, so Phoenix pauses for Alex instead.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.
@@ -1104,7 +1058,8 @@ who `agent`. The uid must not be 0 or one of `[access] peer_uids` (the `upstream
 **The controls registry.** `phoenix9/ops/controls.py` (part of the ops layer) is the single source of truth: one entry
 per dashboard control with `name`, `ops` (the `module.function` it calls), `method`, `route` (the same pattern as in
 `server.ROUTES`), `risk` (`read`, `change`, `destructive` or `alex-only`), `agent`, typed `inputs`, `fixed` body
-values, `card` (the result card) and, for destructive ones, `confirm_with`. Several controls may share one route
+values, `card` (the result card), for destructive ones `confirm_with`, and `timeout_s` (how long the agent waits for
+the answer, 0 = its client's default; a slow control like waking a chat sets more). Several controls may share one route
 (approve plan and send back plan both use the gate answer route). `agent` says what the agent may do with it:
 `tool` (an agent tool), `alex-only`, `key-card` (saved only through the masked key card), `secret` (would put a
 secret value through the model, so never a tool) or `later` (a later agent build), the last with a `why`. Each input
@@ -1114,7 +1069,7 @@ has `name`, `type` (string, integer, boolean, choice, list or object), `required
 **The description file.** `agentkit/agentkit/packs/phoenix/controls.json` is written by `phoenix9/controlsgen.py`
 from the registry: a JSON list with one object per control holding `name`, `description` (the registry text, else
 the first docstring line of the ops function), `inputs`, `risk`, `agent`, `why`, `method`, `route`, `fixed`,
-`fixed_query`, `card` and `confirm_with`. It is a data file, not code: the pack reads it at start-up and builds one
+`fixed_query`, `card`, `confirm_with` and `timeout_s`. It is a data file, not code: the pack reads it at start-up and builds one
 server tool per `agent: tool` entry, so the pack never imports phoenix9. A test fails when the file differs from
 what the generator makes.
 
@@ -1160,6 +1115,12 @@ ever sees spending as a share of the monthly allowance, in words.
 **Doctor lines.** `agentkit-service` (the unit is active and answers `/status`), `agentkit-key` (the agent says
 its key is present; the key file is never read by the doctor) and `agentkit-spend` (the allowance in words:
 plenty left, getting low, or used up). Each passes with "not set up yet" when `[agent_next]` is absent.
+
+**Watchdog** (`phoenix9/agentkitwatch.py`, called by the runner loop about every 60 s). Healthy means the unit is
+active and answers `/status`. Two bad checks in a row restart `phoenix-agentkit` once and send one notify line
+("Phoenix restarted the agent service: it was not answering."), then 10 minutes' back-off. A unit inactive with
+`Result=success` was stopped on purpose and is left alone; nothing happens without `[agent_next]`. Memory in
+`logs/agentkit-watch.json`; the `agentkit-service` doctor line names a restart from the last day.
 
 
 ### Repairing failed builds (agent v3 build 3)
@@ -1228,6 +1189,19 @@ and must still be filled in before the agent runs.
 `subprocess` for these tools directly.
 
 ## 9.5 Deleting a project (`phoenix9/project_delete.py`, a safety file)
+
+- **Delete project** (`phoenix9/project_delete.py`, a safety file): `plan(name, who, adapters)` is the dry run for
+  "Delete project entirely": folder and size, GitHub repo with `repo_verdict` (deleted only when it is the project's
+  own, see section 9.5), open merge requests, unpushed commits, unsaved edits, runs, key names (never values; not
+  kept in the copy), chat unit, live deployments (listed, never touched) and `refusals` (phoenix9/home also by real
+  name, a linked folder, an active build, a working chat, any caller but `dashboard`/`cli`). The safety copies go under `paths.deleted_projects()`
+  (`$PHOENIX_DELETED`, default `/root/deleted-projects`).
+  `backup(name, who, adapters)` writes `<name>-<YYYYMMDD-HHMM>/` (mode 700) with `repo.bundle` (verified; skipped
+  with a note when there is no git repo or no commits; `git fetch --all` first), `files.tar.gz` (everything in the project folder, including all of code/'s working copy with unsaved edits and nested repos, except code/.git and pure caches), `runs.tar.gz`
+  (HOME/runs/<name> and HOME/work/<name>), `manifest.json` and `RESTORE.md`; any error removes the half-made
+  copy and raises `OpsError`. `prune_backups(adapters, now)` removes copies older than global `[delete] keep_days`
+  (default 30, clamped to 1..3650); the runner loop calls it once per pass through `watch.prune_deleted_copies`,
+  which never raises (a failure is one stderr line in the runner's journal).
 
 "Remove" only takes a project off the list; **Delete project entirely** is the one action that cannot be undone.
 Only Alex can use it: the bottom of the project's Settings tab, or `phoenix project delete <name>`.
@@ -1324,11 +1298,11 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 ## 11. Fixed safety rules (always on; harness spec 8)
 
 1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. There is no
-   exception: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
-   (`agentlink.send`); the agent is a separate, already-running session that Phoenix never starts or drives.
-   `phoenix9/chat.py` is the only place that restarts the Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
-   watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
-   memory in `logs/agent-watch.json`). Project chats (`phoenix9/chat.py` and `phoenix9/projectchat.py`)
+   exception: the `delegate` failure mode only posts the question's ids to the agent service's `POST /handoffs`
+   (`failmodes._hand_to_agent`); the agent is a separate, already-running service that Phoenix never drives.
+   The agent's service `phoenix-agentkit` is restarted only through the Host adapter, by `phoenix service restart
+   agent` (`ops/service.py`) and by the runner loop's watchdog `phoenix9/agentkitwatch.py` (memory in
+   `logs/agentkit-watch.json`). Project chats (`phoenix9/chat.py` and `phoenix9/projectchat.py`)
    add only unit and process control through the Host adapter: `chat_unit` (`claude-rc-chat@<listed
    project>`), `unit_state` (`systemctl is-active`), `unit_main_pid`, `start_unit` (`systemctl start`, never
    enable; a leftover enable is removed), `stop_unit` (`systemctl disable --now`), `stop_stray` (stop and disable
@@ -1430,16 +1404,19 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   container or service recipe needs; the host Merge step never needed the helper) through the `host` adapter in phase 2; phase 4's key proxy is for
   step containers and service setup. The Merge step is a script step on the host, so no container ever
   holds the GitHub token either way.
-- **Hand to the Phoenix agent** (`on_failure = "delegate"`): when a task runs out of tries the escalation
-  gate opens as in pause mode, with the flag "handed to the Phoenix agent", and Phoenix posts ONE message
-  through `agentlink.send` (from-name "Phoenix (build escalation)"): `[Phoenix · escalation] <run id> task <n>`.
-  Nothing else goes in it (no failure text, no file content): the agent reads the task file and
-  `phoenix repair report`, fixes with a fix note, a repair note, settings or a quick edit on the build's
-  own worktree, and answers `acknowledged` (`chat:home` may answer only that, only on a gate with the
-  flag: `gates.may_answer`). If the agent is asleep or the send fails, the flag is replaced by a note on
-  the gate saying so and Alex is told, exactly as in pause mode. At most `failmodes.MAX_ESCALATIONS` (2)
-  hand-offs per task; after that the task fails as in pause mode. Old state files may still carry a task
-  `delegate` field; it is read and ignored.
+- **Hand to the agent** (`on_failure = "delegate"`): when a task runs out of tries the escalation gate opens
+  as in pause mode, with the flag "handed to the Phoenix agent", and the runner posts ONE hand-off to the new
+  agent's `POST /handoffs` (through the `agentnext` adapter, short timeout): exactly `{run_id, task, gate_id,
+  project}`. Nothing else goes in it (no failure text, no file content); the agent opens its own chat for it,
+  looks at the build with its tools and suggests a build note or a repair, which wait for Alex's Approve.
+  Alex gets one short line: "task N of <project> ran out of tries; the agent is looking at it. Open the agent
+  to see what it suggests." Reminders follow as for any question. The agent (`agent`) may answer only
+  `acknowledged` on a gate with the flag (`gates.may_answer`; `chat:home` keeps the same rule until the old
+  agent is retired). If the agent is not set up, not answering, has no key or refuses (any answer but
+  200/202 with a `thread_id`), the flag is replaced by a note on the gate saying why and Alex is told,
+  exactly as in pause mode. The dashboard's agent proxy refuses `/handoffs`, so only the runner can hand
+  over. At most `failmodes.MAX_ESCALATIONS` (2) hand-offs per task; after that the task fails as in pause
+  mode. Old state files may still carry a task `delegate` field; it is read and ignored.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the
@@ -1498,9 +1475,8 @@ carries a template (`deploy/self-project.toml`) that the chat copies into place.
 `fnmatch` globs matched against each changed path (`*` also crosses `/`; a bare folder name matches nothing
 inside it); Merge flags "changes safety code" for a match (`matches_safety` in `steps/merge/run.py`). The
 template lists the firewall and container launch files, the diff rules and secret scan, the secrets and key
-proxy modules, the updater and its units, the agent link (`phoenix9/agentlink.py` writes to the agent's socket,
-`phoenix9/transcript.py` reads its untrusted output, `deploy/agent/agent-rules.md` is its rulebook), and the
-check scripts, each with the reason beside it.
+proxy modules, the updater and its units, the chat link (`phoenix9/chatlink.py` writes to a chat session's
+socket), and the check scripts, each with the reason beside it.
 
 ## 14. Key proxy (`phoenix9/proxy.py`, phase 4)
 
@@ -1696,13 +1672,14 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   missing lock file = not held, since the API may not run as root); no expiry. `harness_busy()` = some run `running` and not held ("run X (project) is on task 3 of
   7"); `waiting`, `queued` and `paused-limit` runs are not busy (a restart resumes them from
   state.json). The hold is released after the health check, in every failure path, and by recovery.
-- **Restarting a service** (`phoenix9/ops/service.py`, `phoenix service restart api|runner --yes`): `runner`
+- **Restarting a service** (`phoenix9/ops/service.py`, `phoenix service restart api|runner|agent --yes`): `runner`
   takes `HOME/update/lock` (refused "An update of Phoenix is running" when an updater holds it), asks for the
   hold, waits (5 s polls through the clock adapter, up to 30 minutes) until `harness_busy()` is false, i.e.
   every running build is held at a task boundary, then `systemctl restart phoenix-runner` (host adapter) and
   releases the hold; still busy after 30 minutes = refused, nothing restarted. `api` restarts at once and
-  waits up to 20 s for `/api/health`. Both then run `doctor --quick` and print it (exit 0 once restarted;
-  the report shows any problem) and record the command. API: `POST /api/service/<api|runner>/restart`
+  waits up to 20 s for `/api/health`. `agent` (phoenix-agentkit) restarts at once, only when `[agent_next]` is
+  set up; the agent's own user may not restart it through the API. All then run `doctor --quick` and print it (exit 0 once restarted;
+  the report shows any problem) and record the command. API: `POST /api/service/<api|runner|agent>/restart`
   `{yes: true}`: `api` = `systemctl restart --no-block phoenix-api` (the reply comes before the API stops),
   `runner` = a background job (kind `restart`).
 - **Results**: every public function returns `{ok, result, tag, previous, reason, log}`; `result` is
@@ -1759,9 +1736,10 @@ while one runs; each progress line is a job step, `result` = the `{ok, built, sk
 
 ### Project chats
 
-Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). A build handed to the agent (`on_failure = "delegate"`) is only a message into that same inbox (section 7); no session is started.
+Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). A build handed to the agent (`on_failure = "delegate"`) goes to the new agent service's `POST /handoffs`, not to a project chat; no session is started.
 
 - **Launcher**: the unit runs `deploy/chat-launch.sh <project>`. It reads `Conversation id` from `.phoenix/chat.md` and re-attaches that conversation (`claude remote-control --session-id <id> --permission-mode bypassPermissions`). With no document, or when the re-attach fails within 90 seconds, it moves the document to `.phoenix/chat.old.md` and starts a new conversation (`claude remote-control --name <name> --create-session-in-dir`). Stopping the unit passes SIGTERM to Claude (`KillMode=mixed`) and never falls through to a new conversation.
+- **Who it is**: each chat unit gets `Environment=PHOENIX_WHO=chat:%i` from `deploy/claude-rc-chat@.service`, so its `phoenix` commands are logged as `chat:<project>`.
 - **Five states** (`projectchat.state` -> `{state, bridge_session_id, web_url, app_url, last_active}`): `none` (unit inactive or failed, no chat document), `asleep` (unit inactive or failed, chat document exists), `waking` (unit activating, or active without a live conversation that has its claude.ai id yet), `awake` (live conversation, idle), `working` (live conversation, busy). The unit state comes from systemd, the conversation from the registry (`chatlink.find_in`, the unit's main process or its direct child).
 - **One conversation**: a live conversation refreshes the chat document; it rewrites the saved ids only when the live conversation's id differs (Alex used /clear, or the launcher had to start a new one), else it only moves `Last active` (at most every 10 minutes). Forget is the only other way the saved conversation changes.
 - **Chat document** `.phoenix/chat.md`: heading `# Chat: <project>`, then one `Key: value` line each, in this order: `Project`, `Desktop app link`, `Web link`, `Conversation id`, `Local session id`, `Created`, `Last active` (times are UTC `YYYY-MM-DDTHH:MM:SSZ`). Written atomically (`projectchat.write_chat_doc`), read strictly (`read_chat_doc` returns fields or a reason).
@@ -1874,7 +1852,6 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
   `{hash, label, by: "agent"}` on the global stream, and records a `command` event. `phoenix ui go <to> [--param k=v ...]`
   and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
   only through the `projects` route params (`q`, `status`, ...).
-- Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (`features/agent/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.
 
 ### Block check (`ops.blocks.check`, `POST /api/blocks/check`, `phoenix block check`)
 - `check({kind, json})` returns `{ok, reason, resolved}`. Not ok (bad JSON, missing or wrong `v`, unknown keys, an `actions` key, over 8 KB, bad values) is a result, not an error; `resolved` is then null.
@@ -1883,37 +1860,13 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
 
 - `phoenix choice` / `phoenix confirm` (task 12) print a checked block plus one fallback line; `--json` gives `{block, fallback}`.
 
-### Block parser in the panel (task 13)
-
-`web/src/features/agent/blocks/parse.ts` splits agent markdown into text and `phoenix-*` block parts; the first non-empty line after a block is its fallback. `BlockView` checks each block once through `/api/blocks/check` (cached in memory by kind and text) and hides the fallback when the block renders; otherwise it shows the fallback plus "block could not be shown: <reason>". Only `AgentMessage` uses it. Items before the latest conversation divider are frozen (`frozen` prop, "as of <time>" line, no buttons). An unclosed `phoenix-` fence stays plain text.
-
-#### AnswerCard and card buttons (task 14)
-`web/src/features/agent/blocks/AnswerCard.tsx` fetches `GET /api/cards` for the checked card, shows loading and error
-states, and refreshes (debounced 500 ms) on a live event matching `watch` (empty list = any; `command` and `ui.go`
-events never match) or every `poll_s`. Frozen cards fetch once and show no buttons: `AnswerCard` passes `frozen` to the body, and the gates body shows its Needs-you cards `readOnly` (no answer buttons, no Review link). Bodies are picked by type from
-`cardBodies.tsx` (plain JSON until tasks 15-17). `CardActions.tsx` draws the buttons from the answer only: link = new tab
-(`rel="noopener"`), route = `navigateKeepingPanel`, op = the same POST route and body as the dashboard button (the
-server records who=`dashboard`), behind the shared `ConfirmDialog` when `confirm` is set. A success shows a result line and
-sends one `[Phoenix panel · button] <label> done` note; a failure shows only the reason. Only POST and GET ops are supported. A `link` action opens only an absolute http(s) address (`web/src/lib/safeUrl.ts`, shared with the prs body); any other href is not rendered.
-
-### Card bodies: projects, gates, run, builds (`web/src/features/agent/blocks/bodies/`)
-- `projects` shows `ProjectTile` (`web/src/features/projects/ProjectTile.tsx`, the Projects page row, now shared; without `onRemove` the Remove button is left out) plus a "PR #n waiting to merge" link (`.p-pr`, above the tile's click overlay) when `needs_merge`. `gates` reuses `NeedsYouCard` (compact), `run` reuses `StepList`, `builds` is a list of run id, result badge and relative time linking to the Build tab.
-
-Task 18 (ChoiceBlock): `AgentMessage` and `BlockView` pass `later` (texts of the user items after the agent message) to blocks. A choice is answered, read-only, when a later user item starts with `[Phoenix panel · choice <id>` (followed by `]` or ` ·`); its answer text shows as "You chose: …". Multi mode joins labels with ", "; the "Other:" tile has its own text field and Send button.
-
 ### Documents: ids, API and CLI (`phoenix9/ops/docs.py`, task 21)
 Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `notes:<project>/<path>` (inside the project's notes folder), never by a server path. Only `.md` and `.txt` are served; `..`, empty or absolute parts and anything that resolves (symlinks followed) outside the folder are refused. A document is opened once (`O_NOFOLLOW`, never reopened by name) and the kernel's path of the open file (`/proc/self/fd/<fd>`) must be inside the real folder, so a folder swapped for a symlink mid-request cannot reach outside; a file that is gone, unreadable or not a regular file is NotFound (404). `list` reads only the first 4 KB of each file for its title (a last line cut by that limit is dropped). `list`, `show` and `download` skip the same folders: `logs/`, `gates/`, `.git/` and any folder starting with `.` (NotFound). Text is scrubbed with the project's scrubber. `GET /api/docs/list|show|download`, `phoenix doc list <run>` and `phoenix doc show <id>` (both with `--json`). A gate link to a document is `{label, doc}` instead of `{label, url}` (planner: `run:<id>/plan.md`, merge: `summary.md`); the panel opens it at `#/doc?path=<id>` (task 22), rendered with the safe markdown renderer, so no server-rendered HTML page exists.
 
-### Block formats and panel messages (summary)
+### Block formats (summary)
 - Blocks are fenced code with language `phoenix-card`, `phoenix-choice`, `phoenix-confirm` or `phoenix-nav`, one JSON object with `"v": 1`, at most 8 KB, unknown keys refused (an `actions` key too). card: `{v, type, query?, title?}`; nav: `{v, links: [{to, params?, label?}]}` (1-8); choice: `{v, id, question, mode: single|multi, options (2-8, at most one recommended), other?}`; confirm: `{v, id, action, command, danger?}`. `id` is 1-40 letters, digits, `-` or `_`. Every text field (question, option keys, labels and details, action, command, card title, nav labels) must be one line: control characters (newlines and tabs too) and line/paragraph separators are refused, and so is the text `[Phoenix panel` in any case, so a block cannot forge a panel answer. Blocks are parsed only from the agent's own text items, never from user bubbles or `ActionCard` excerpts.
-- Cards carry only `type`, `query`, `title`; the panel fetches data from `GET /api/cards` and never trusts numbers in a block. Buttons come from the card builder only.
-- Panel messages (sent through `/api/agent/send`, one each): `[Phoenix panel · choice <id>] <label>` (multi: labels joined by ", "), `[Phoenix panel · choice <id> · other] <text>`, `[Phoenix panel · confirm <id>] yes` / `no`, `[Phoenix panel · confirm <id> · other] <text>`, `[Phoenix panel · button] <label> done`. Every panel message is sent as one line (`blocks/oneLine.ts` turns control characters and line breaks into spaces).
-- A confirm or choice counts as answered when a later user item starts with `[Phoenix panel · confirm|choice <id>` followed by `]` or ` ·`.
 
-### ConfirmBlock, NavBlock, agent rules and demo (tasks 19-20)
-- ConfirmBlock shows the action and exact command with Yes / No / Other. The agent runs the command, never Phoenix. It is read-only once answered or frozen and then shows "You answered: ...".
-- NavBlock shows only the resolved links, leaves dropped links out, shows nothing when no link resolves, and disables its buttons when frozen.
-- `deploy/agent/agent-rules.md` is the agent's rules file. `tests/seed_demo.py` plus `web/e2e/agent-blocks.spec.ts` make the demo and the end-to-end check.
+### Pages the agent cannot point at
 - The `#/doc?path=<id>` page is not in the route catalogue, so the agent cannot `nav` or `ui go` to it.
 
 ### RunDocs (task 22)
@@ -1925,4 +1878,3 @@ Documents are addressed by `run:<run id>/<path>` (inside the run's folder) or `n
 - `plans` card (`project?`): rows `{id, project, brief, status, spec, open_questions, last_activity}`; Abandon
   (`POST /api/plans/<id>/abandon`) on queued, waiting, done or failed sessions. A running session cannot be abandoned.
 - `phoenix plan reply <id> --text` queues a waiting session again with Alex's words; `phoenix plan abandon <id> --yes`.
-- `phoenix agent brief` also returns `work`: one line per open quick edit and queued, running or waiting planning session.

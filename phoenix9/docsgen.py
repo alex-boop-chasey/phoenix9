@@ -1,4 +1,4 @@
-"""Writes the Phoenix agent's reference files (commands, settings, steps, pages, cards) from the code itself."""
+"""Writes reference files (commands, settings, steps, pages, cards) from the code itself, into a folder you name."""
 import argparse
 import hashlib
 import tomllib
@@ -7,7 +7,6 @@ from pathlib import Path
 from phoenix9 import __version__, cards, paths, routes, settings
 from phoenix9.library import load_library
 
-SKILL_DIR = Path(__file__).resolve().parent.parent / "deploy" / "agent" / "skills" / "phoenix-agent"
 FILES = ("commands.md", "settings.md", "steps.md", "pages.md", "cards.md")
 HIDDEN_FLAGS = ("-h", "--help", "--json", "--who")
 
@@ -192,9 +191,9 @@ def render(lib_root: Path | None = None) -> dict[str, str]:
             for n, b in bodies.items()}
 
 
-def generate(out: Path | None = None, lib_root: Path | None = None) -> list[Path]:
-    """Write the reference files into out (default: the skill folder); return the paths."""
-    out = Path(out or SKILL_DIR)
+def generate(out: Path, lib_root: Path | None = None) -> list[Path]:
+    """Write the reference files into the folder out; return the paths."""
+    out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
     written = []
     for name, text in render(lib_root).items():

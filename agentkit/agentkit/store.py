@@ -1,4 +1,4 @@
-"""Conversation store: threads, event logs, pending pauses and usage records in SQLite."""
+"""Conversation store: threads, event logs, pending pauses, hand-offs and usage records in SQLite."""
 from __future__ import annotations
 
 import json
@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS pauses (
     call_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS histories (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS contexts (
+    thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS handoffs (
+    gate_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), created REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, model TEXT NOT NULL,
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
@@ -168,6 +172,29 @@ class Store:
         """Return the saved message history, or None."""
         rows = self._read("SELECT data FROM histories WHERE thread_id=?", (thread_id,))
         return rows[0]["data"] if rows else None
+
+    # page context
+    def save_context(self, thread_id: str, context: dict) -> None:
+        """Keep the page context last told to the model in a thread (so it survives a restart)."""
+        self._write(lambda db: db.execute(
+            "INSERT INTO contexts VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET data=excluded.data",
+            (thread_id, json.dumps(quote.scrub(context), sort_keys=True))))
+
+    def load_context(self, thread_id: str) -> dict | None:
+        """Return the page context last told to the model in a thread, or None."""
+        rows = self._read("SELECT data FROM contexts WHERE thread_id=?", (thread_id,))
+        return json.loads(rows[0]["data"]) if rows else None
+
+    # hand-offs from Phoenix
+    def save_handoff(self, gate_id: str, thread_id: str) -> None:
+        """Remember which thread took Phoenix's hand-off for one build question."""
+        self._write(lambda db: db.execute(
+            "INSERT INTO handoffs VALUES (?,?,?)", (gate_id, thread_id, time.time())))
+
+    def handoff_thread(self, gate_id: str) -> str | None:
+        """The thread that took the hand-off for a build question, or None."""
+        rows = self._read("SELECT thread_id FROM handoffs WHERE gate_id=?", (gate_id,))
+        return rows[0]["thread_id"] if rows else None
 
     @staticmethod
     def _pause(row: sqlite3.Row) -> dict:

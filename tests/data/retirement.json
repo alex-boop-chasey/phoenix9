@@ -21,7 +21,7 @@
     "web/e2e/agent-panel.spec.ts",
     "web/e2e/agent-blocks.spec.ts"
   ],
-  "done": false,
+  "done": true,
   "edits": [
     "phoenix9/doctor.py",
     "phoenix9/watch.py",
@@ -50,6 +50,20 @@
     "tests/test_budget.py",
     "tests/test_suggest.py",
     "tests/test_handoff.py",
-    "tests/data/checks/1b-task-6-unset-env.sh"
+    "tests/data/checks/1b-task-6-unset-env.sh",
+    "phoenix9/cli/update.py",
+    "phoenix9/updater.py",
+    "phoenix9/docsgen.py",
+    "phoenix9/cli/docs.py",
+    "phoenix9/ops/controls.py",
+    "agentkit/agentkit/packs/phoenix/controls.json",
+    "agentkit/docs/old-agent-checklist.md",
+    "agentkit/docs/what-to-click.md",
+    "tests/test_docs_generated.py",
+    "tests/test_global_settings.py",
+    "tests/test_old_agent_checklist.py",
+    "tests/test_safety_files_grow.py",
+    "web/src/components/bell.test.tsx",
+    "tests/test_project_delete.py"
   ]
 }

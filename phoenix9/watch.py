@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from phoenix9 import agentwatch, atomic, docker as docker_mod, edits, gatenotify, gates, heartbeat, hold, paths, runend, state
+from phoenix9 import agentkitwatch, atomic, docker as docker_mod, edits, gatenotify, gates, heartbeat, hold, paths, runend, state
 from phoenix9 import claude as claude_mod
 from phoenix9 import plansession, project_delete, projectchat, settings
 from phoenix9.stepctx import UsageLimit
@@ -26,7 +26,7 @@ class Memory:
     """What the loop remembers between rounds: crashes in a row per run."""
 
     crashes: dict = field(default_factory=dict)
-    agent_checked: float | None = None    # when the agent watchdog last ran
+    agentkit_checked: float | None = None   # when the new agent's watchdog last ran
     chats_checked: float | None = None    # when the chats were last checked for sleep
     chats_waking: dict = field(default_factory=dict)   # project -> when its chat was first seen waking
     report_written: float | None = None   # when the status report was last written
@@ -213,14 +213,14 @@ def watch_once(adapters, runner, memory: Memory | None = None) -> str | None:
 AGENT_CHECK_S = 60
 
 
-def check_agent(adapters, memory: Memory) -> None:
-    """Run the agent watchdog about every minute; a problem there never stops the loop."""
+def check_agentkit(adapters, memory: Memory) -> None:
+    """Run the new agent's watchdog about every minute; a problem there never stops the loop."""
     now = adapters.clock.now()
-    if memory.agent_checked is not None and now - memory.agent_checked < AGENT_CHECK_S:
+    if memory.agentkit_checked is not None and now - memory.agentkit_checked < AGENT_CHECK_S:
         return
-    memory.agent_checked = now
+    memory.agentkit_checked = now
     try:
-        agentwatch.check_once(adapters)
+        agentkitwatch.check_once(adapters)
     except Exception:  # noqa: BLE001 - the watchdog must not stop the loop
         pass
 
@@ -404,7 +404,7 @@ def watch_forever(adapters, runner, interval_s: float = INTERVAL_S) -> None:
         while True:
             watch_once(adapters, runner, memory)
             run_plans(adapters)                  # between runs: one planning session at a time
-            check_agent(adapters, memory)
+            check_agentkit(adapters, memory)
             check_chats(adapters, memory)
             prune_deleted_copies(adapters)
             mark_stalled_edits()

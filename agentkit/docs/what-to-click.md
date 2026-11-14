@@ -45,3 +45,21 @@ Open the dashboard at `#/agent-next`.
 3. **The daily report.** The report is on by default at 08:00 Australia/Melbourne. The time is the `[report]` `time` setting in `global.toml` (there is no button for it yet): set it one minute ahead, wait, and see the report appear in the bell and in Telegram. Ask the agent "show today's report" for the report card.
 4. **No money anywhere.** Look at the search cards, the bell, the report, Telegram and the agent's replies: the allowance is only ever words ("plenty left", "getting low", "used up") and a bar. No dollar amount appears. At 80 percent of the allowance you get one warning (bell and Telegram); at the monthly cap the agent stops answering until next month.
 5. **Retirement (after the merge).** The old agent is removed in one separate change for you to review. After the merge: the old flame button is gone from the top bar, the new agent opens from the top bar, and every job the old agent did is on the checklist `agentkit/docs/old-agent-checklist.md`. Project chats (the Chat buttons) still work as before.
+
+## Old agent retired
+
+The old Claude-Code agent (its panel, its `/api/agent/*` routes, the `phoenix agent` commands and its doctor lines)
+is gone. What you will see:
+
+1. **One Agent button.** The top bar has one Agent button. It opens the new agent in the drawer; "Open full page"
+   in the drawer goes to `#/agent-next`.
+2. **No Claude app link in the agent.** The drawer has no "Open in Claude app" link any more: the agent lives only
+   in the dashboard.
+3. **Project chats are unchanged.** Each project's Chat button still opens that project's chat in the Claude app.
+4. **The doctor.** `phoenix doctor` no longer has the `agent-*` lines; the new agent's lines are `agentkit-service`,
+   `agentkit-key` and `agentkit-spend`.
+
+For the chat, after this change is installed (not to run here):
+
+1. `systemctl disable --now claude-rc@home`
+2. Once `phoenix doctor` is clean, remove `/srv/projects/home/.claude`. Leave `/srv/projects/home` itself.

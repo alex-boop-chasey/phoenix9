@@ -15,11 +15,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import agent as ops_agent, bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
-MAX_AGENT_BODY = 4 * ops_agent.MAX_CHARS + 4096  # room for a full-size message (the 400 comes from the send itself)
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
@@ -36,8 +35,14 @@ CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 IMAGES_BUSY = "Images are being built already; try again when that has finished."
 RESTART_BUSY = "A restart is already waiting; try again when it has finished."
+NO_SELF_RESTART = ("I can't restart myself: that would cut off this reply. Use Restart on the agent's card in the "
+                   "dashboard.")
+FINISH_BUSY = "That quick edit is already being finished; wait for that to end."
+WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit and planning session ids
+MAX_REPLY = 2000
 WHO = "dashboard"
 AGENT_NEXT = "/api/agent-next"
+RUNNER_ONLY_AGENT_PATHS = ("handoffs",)   # agent service routes the dashboard may never reach
 
 
 class BadRequest(Exception):
@@ -400,6 +405,11 @@ def get_docs_show(req):
     return ops_docs.show(req.query.get("id", ""))
 
 
+def get_project_memory(req, name):
+    """Reply with a project's CLAUDE.md and notes/NOW.md, scrubbed and cut."""
+    return ops_docs.project_memory(check_name(name))
+
+
 def get_docs_download(req):
     """Reply with one document as a scrubbed attachment."""
     doc = ops_docs.download(req.query.get("id", ""))
@@ -536,24 +546,6 @@ def get_services(req):
 def get_keys_audit(req):
     """Reply with the keys audit (names and problems only)."""
     return keys.audit()
-
-
-def get_agent(req):
-    """Reply with the Phoenix agent's state."""
-    return ops_agent.status()
-
-
-def get_agent_messages(req):
-    """Reply with panel items after a line number."""
-    after, limit = int_param(req, "after", 0), int_param(req, "limit", 100)
-    if after < 0 or limit < 0:
-        raise BadRequest("'after' and 'limit' should not be negative.")
-    return ops_agent.messages(after, min(limit, 1000), req.query.get("session") or None)
-
-
-def get_agent_sessions(req):
-    """Reply with the agent's earlier conversations."""
-    return ops_agent.sessions()
 
 
 # ---- POST handlers: check the shape of the body, call one ops function ----
@@ -741,7 +733,7 @@ def post_images_build(req):
     return {"job": job_id}
 
 
-def run_restart_job(httpd, job: dict, name: str) -> None:
+def run_restart_job(httpd, job: dict, name: str, who: str = WHO) -> None:
     """Background thread: restart the runner (it may wait up to 30 minutes for a task boundary)."""
     def progress(line):
         with httpd.jobs_lock:
@@ -749,7 +741,7 @@ def run_restart_job(httpd, job: dict, name: str) -> None:
 
     result, status, message = None, "done", ""
     try:
-        result = ops_service.restart(name, who=WHO, yes=True, say=progress)
+        result = ops_service.restart(name, who=who, yes=True, say=progress)
     except common.OpsError as err:
         status, message = "failed", str(err)
     except Exception:
@@ -760,14 +752,19 @@ def run_restart_job(httpd, job: dict, name: str) -> None:
 
 
 def post_service_restart(req, name):
-    """Restart phoenix-api (at once, without waiting: this process is the one restarted) or phoenix-runner
-    (in a background job that waits for a task boundary); needs yes."""
+    """Restart phoenix-api (at once, without waiting: this process is the one restarted), phoenix-agentkit (at once,
+    then the quick doctor; never by the agent itself) or phoenix-runner (in a background job that waits for a task
+    boundary); needs yes."""
     if name not in ops_service.UNITS:
-        raise BadRequest("Say api or runner.")
+        raise BadRequest(f"Say {ops_service.NAMES}.")
     if req.body.get("yes") is not True:
         raise BadRequest(f"Restarting {ops_service.UNITS[name]} needs confirmation.")
+    if name == "agent" and req.who == agentaccess.WHO:
+        raise BadRequest(NO_SELF_RESTART)
     if name == "api":
-        return ops_service.restart_api_soon(WHO)
+        return ops_service.restart_api_soon(req.who)
+    if name == "agent":
+        return ops_service.restart("agent", who=req.who, yes=True)
     httpd = req.server
     with httpd.jobs_lock:
         purge_jobs(httpd.jobs)
@@ -777,7 +774,7 @@ def post_service_restart(req, name):
         job = {"id": job_id, "kind": "restart", "project": None, "status": "running",
                "steps": [], "message": "", "result": None, "finished_at": 0.0}
         httpd.jobs[job_id] = job
-    threading.Thread(target=run_restart_job, args=(httpd, job, name), daemon=True).start()
+    threading.Thread(target=run_restart_job, args=(httpd, job, name, req.who), daemon=True).start()
     return {"job": job_id}
 
 
@@ -980,12 +977,87 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=req.who, project=check_name(project))
 
 
+def check_work_id(work_id: str, what: str) -> str:
+    """A valid quick edit or planning session id, or BadRequest."""
+    if not WORK_ID_RE.match(work_id):
+        raise BadRequest(f"That isn't a valid {what} id.")
+    return work_id
+
+
+def get_edits(req):
+    """Reply with the open and stalled quick edits (?project= for one project)."""
+    project = req.query.get("project") or None
+    return ops_work.list_edits(check_name(project) if project else None)
+
+
+def run_finish_job(httpd, job: dict, edit_id: str, message, who: str) -> None:
+    """Background thread: check, push and open a merge request for a quick edit; keep the record on the job."""
+    result, status, message_out = None, "done", ""
+    try:
+        result = ops_work.finish_edit(edit_id, who, message)
+    except common.OpsError as err:
+        status, message_out = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message_out = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message_out, time.time(), status
+
+
+def post_edit_finish(req, edit_id):
+    """Start finishing a quick edit in a background job (needs confirm) and reply with the job id; one per edit."""
+    check_work_id(edit_id, "quick edit")
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Finishing a quick edit needs confirmation.")
+    message = body_text(req, "message", False)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "edit-finish" and j.get("edit") == edit_id
+               for j in httpd.jobs.values()):
+            raise common.Conflict(FINISH_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "edit-finish", "project": None, "edit": edit_id, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_finish_job, args=(httpd, job, edit_id, message, req.who), daemon=True).start()
+    return {"job_id": job_id}
+
+
 def post_edit_abandon(req, edit_id):
     """Abandon a quick edit (the body must hold {"confirm": true})."""
     if req.body.get("confirm") is not True:
         raise BadRequest("Abandoning a quick edit needs confirmation.")
     with req.server.write_lock:
-        return ops_work.abandon_edit(edit_id, WHO)
+        return ops_work.abandon_edit(edit_id, req.who)
+
+
+def get_plans(req):
+    """Reply with the planning sessions (?project= for one project)."""
+    project = req.query.get("project") or None
+    return ops_work.list_plans(check_name(project) if project else None)
+
+
+def get_plan(req, plan_id):
+    """Reply with one planning session."""
+    return ops_work.show_plan(check_work_id(plan_id, "planning session"))
+
+
+def post_plan_start(req, name):
+    """Queue a planning session on a project from a brief (always the usual planning model)."""
+    brief = body_text(req, "brief", True)
+    with req.server.write_lock:
+        return ops_work.start_plan(check_name(name), brief, req.who)
+
+
+def post_plan_reply(req, plan_id):
+    """Queue Alex's answer, word for word, for a waiting planning session."""
+    check_work_id(plan_id, "planning session")
+    text = body_text(req, "text", True)
+    if len(text) > MAX_REPLY:
+        raise BadRequest(f"The answer is too long (at most {MAX_REPLY:,} characters).")
+    with req.server.write_lock:
+        return ops_work.reply_plan(plan_id, text, req.who)
 
 
 def post_plan_abandon(req, plan_id):
@@ -993,7 +1065,7 @@ def post_plan_abandon(req, plan_id):
     if req.body.get("confirm") is not True:
         raise BadRequest("Abandoning a planning session needs confirmation.")
     with req.server.write_lock:
-        return ops_work.abandon_plan(plan_id, WHO)
+        return ops_work.abandon_plan(plan_id, req.who)
 
 
 def post_run_pause(req, run_id):
@@ -1168,7 +1240,7 @@ def post_run_note(req, run_id):
     if isinstance(task, bool) or not isinstance(task, int):
         raise BadRequest("'task' should be a task number.")
     with req.server.write_lock:
-        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=WHO)
+        return runs.note(check_run_id(run_id), task, body_text(req, "text"), who=req.who)
 
 
 def post_run_discard(req, project, run_id):
@@ -1247,31 +1319,6 @@ def post_global_models(req):
         return app.set_default_models(steps, who=req.who)
 
 
-def post_agent_send(req):
-    """Send a message to the Phoenix agent (503 when it is asleep, 400 when too long)."""
-    return ops_agent.send(body_text(req, "text"), body_dict(req, "context"), WHO, panel=True)
-
-
-def post_agent_restart(req):
-    """Restart the Phoenix agent's service (the body must be {"confirm": true}, else 409)."""
-    if req.body.get("confirm") is not True:
-        raise common.Conflict("Restarting the Phoenix agent needs \"confirm\": true. Nothing was restarted.")
-    with req.server.write_lock:
-        return ops_agent.restart(WHO)
-
-
-def post_agent_stop(req):
-    """Stop the Phoenix agent's running command and tell it to stop (503 when it is asleep); no write lock."""
-    return ops_agent.stop(WHO)
-
-
-def post_agent_new(req):
-    """Start a fresh agent conversation (body {"confirm": true}, else 409); waits without the write lock."""
-    if req.body.get("confirm") is not True:
-        raise common.Conflict("A new conversation needs \"confirm\": true. Nothing was changed.")
-    return ops_agent.new_conversation(WHO)
-
-
 def post_service_disconnect(req, name):
     """Remove a service's account keys (needs yes)."""
     with req.server.write_lock:
@@ -1322,9 +1369,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/docs/list", get_docs_list),
     ("GET", r"/api/docs/show", get_docs_show),
     ("GET", r"/api/docs/download", get_docs_download),
-    ("GET", r"/api/agent", get_agent),
-    ("GET", r"/api/agent/messages", get_agent_messages),
-    ("GET", r"/api/agent/sessions", get_agent_sessions),
+    ("GET", rf"/api/projects/{NAME}/memory", get_project_memory),
     ("GET", r"/api/logs", get_logs),
     ("GET", r"/api/logs/read", get_logs_read),
     ("GET", r"/api/service-logs", get_service_logs),
@@ -1345,10 +1390,6 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/services", get_services),
     ("GET", r"/api/keys/audit", get_keys_audit),
     ("GET", r"/api/jobs/(?P<job_id>[0-9a-f]+)", get_job),
-    ("POST", r"/api/agent/send", post_agent_send),
-    ("POST", r"/api/agent/restart", post_agent_restart),
-    ("POST", r"/api/agent/stop", post_agent_stop),
-    ("POST", r"/api/agent/new", post_agent_new),
     ("POST", r"/api/ui/go", post_ui_go),
     ("POST", r"/api/blocks/check", post_blocks_check),
     ("POST", rf"/api/chat/{NAME}/open", post_chat_open),
@@ -1381,7 +1422,13 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", rf"/api/projects/{NAME}/hotfix", post_hotfix),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("GET", r"/api/edits", get_edits),
+    ("POST", r"/api/edits/(?P<edit_id>[^/]+)/finish", post_edit_finish),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),
+    ("GET", r"/api/plans", get_plans),
+    ("GET", r"/api/plans/(?P<plan_id>[^/]+)", get_plan),
+    ("POST", rf"/api/projects/{NAME}/plans", post_plan_start),
+    ("POST", r"/api/plans/(?P<plan_id>[^/]+)/reply", post_plan_reply),
     ("POST", r"/api/plans/(?P<plan_id>[^/]+)/abandon", post_plan_abandon),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/pause", post_run_pause),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
@@ -1528,8 +1575,6 @@ class Handler(BaseHTTPRequestHandler):
                     return self.fail(403, why)
         if method == "GET" and self.path_only.rstrip("/") == "/api/events":
             return stream.serve(self)
-        if method == "GET" and self.path_only.rstrip("/") == "/api/agent/stream":
-            return stream.serve(self, stream.agent_stream)
         if self.path_only == AGENT_NEXT or self.path_only.startswith(AGENT_NEXT + "/"):
             return self.pass_to_agent(method)
         route = find_route(method, self.path_only)
@@ -1565,6 +1610,8 @@ class Handler(BaseHTTPRequestHandler):
         rest = self.path_only[len(AGENT_NEXT):]
         if method not in ("GET", "POST") or not rest.startswith("/") or ".." in rest.split("/") or "//" in rest:
             return self.fail(404, "Not found.")
+        if unquote(rest).split("/")[1].strip().lower() in RUNNER_ONLY_AGENT_PATHS:
+            return self.fail(404, "Not found.")   # only the runner hands a failed task to the agent
         query = urlsplit(self.path).query
         headers = {"Accept": self.headers.get("Accept") or "*/*"}
         if self.headers.get("Last-Event-ID"):
@@ -1613,7 +1660,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = -1
-        limit = MAX_AGENT_BODY if self.path_only.rstrip("/") == "/api/agent/send" else MAX_BODY
+        limit = MAX_BODY
         if self.command == "POST" and UPLOAD_PATH.match(self.path_only):
             limit = MAX_UPLOAD_BODY
         if length == 0 and self.command == "DELETE":

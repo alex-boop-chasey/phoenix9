@@ -4,6 +4,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CHECKLIST = ROOT / "agentkit/docs/old-agent-checklist.md"
+RETIRED_ROUTES = ["messages", "new", "restart", "send", "sessions", "stop", "stream"]
+RETIRED_COMMANDS = ["brief", "status", "send", "read", "restart", "stop", "new", "watch"]
+RETIRED_HEADINGS = ["Names", "Rules", "Stay free to answer", "Project chats", "Reply blocks",
+                    "Quick edits and planning sessions", "Broken build", "Reference material",
+                    "Escalation messages", "Suggestions", "Spending cap", "Replies"]
 HEAD = ["#", "Old-agent job", "Where it lives today", "New-agent equivalent", "Shown working by", "Status"]
 
 
@@ -41,6 +46,20 @@ def test_working_rows_name_a_proof_that_exists():
 
 
 def test_the_checklist_mentions_every_route_command_and_rules_heading():
+    """Before the retirement, every old route, command and rules heading is a row; after it, the old sources are gone."""
+    import json
+    if json.loads((ROOT / "tests/data/retirement.json").read_text())["done"]:
+        api = (ROOT / "docs/api.md").read_text()
+        assert not re.findall(r"`(/api/agent/[a-z]+)", api)
+        assert not (ROOT / "phoenix9/cli/agent.py").exists() and not (ROOT / "deploy/agent/agent-rules.md").exists()
+        text = CHECKLIST.read_text()  # the lists as they were before the retirement: no row may go
+        for route in RETIRED_ROUTES:
+            assert f"/api/agent/{route}" in text, route
+        for sub in RETIRED_COMMANDS:
+            assert f"phoenix agent {sub}" in text, sub
+        for heading in RETIRED_HEADINGS:
+            assert heading in text, heading
+        return
     text = CHECKLIST.read_text()
     api = (ROOT / "docs/api.md").read_text()
     for route in set(re.findall(r"`(/api/agent/[a-z]+)", api)):

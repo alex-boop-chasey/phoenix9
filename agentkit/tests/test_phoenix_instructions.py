@@ -32,8 +32,20 @@ def test_no_code_edit_tools():
     # ask_env_file: the browser upload card, the model gets no file content.
     # reference-file-remove: removes one uploaded reference document after a typed confirmation; it writes
     # nothing and cannot touch code (uploading stays Alex's alone).
-    allowed = {"ask_env_file", "reference-file-remove"}
+    allowed = {"ask_env_file", "reference-file-remove",
+               "edits-list",    # lists the quick edits project chats started; writes nothing
+               "edit-finish",   # finishes a quick edit (checks + merge request); writes no file content
+               "edit-abandon",  # throws away a quick edit a project chat started; writes no file content
+               "build-note"}    # adds Alex-approved words to a task's next try; writes no code
     for name in names:
         for word in ("write-file", "edit", "file", "patch", "apply", "note"):
             assert name in allowed or word not in name.lower().replace("profiles", ""), name
-    assert "repair-apply" not in names and "build-note" not in names
+    assert "repair-apply" not in names
+
+
+def test_instructions_send_how_questions_to_phoenix_help():
+    assert "read phoenix_help first" in INSTRUCTIONS
+
+
+def test_instructions_explain_a_bell_item_by_its_id():
+    assert '"Tell me about bell item <id>", call bell (and suggest-list when that item\'s kind is suggestion)' in INSTRUCTIONS

@@ -29,7 +29,7 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `phoenix9/agentaccess.py` (GET `/api/projects`, `/api/projects/<name>`, `/api/projects/<name>/runs`, `/api/routes`,
   and POST `/api/projects/<name>/settings` for the single key `steps.notify.on`); anything else gets 403. Every
   JSON reply to it goes through `scrub.scrub`, and its settings change is recorded with who `agent`.
-- POST bodies are JSON objects of at most 64 KB (`/api/agent/send` allows a full-size message).
+- POST bodies are JSON objects of at most 64 KB.
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
 - Nothing in the API does work itself; it calls ops.
@@ -87,7 +87,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/update/install` | `ops.update.install` (queues the updater unit; never runs it) | `{tag?, yes: true}` | `{ok, queued, tag}` | 400 |
 | POST | `/api/update/rollback` | `ops.update.rollback` | `{yes: true}` | `{ok, queued}` | 400 |
 | POST | `/api/projects/<name>/deploy` | `ops.deploy.now` (in a background thread) | `{yes: true}` | `{job}` | 400, 404, 409 |
-| POST | `/api/service/<name>/restart` (name `api` or `runner`) | `ops.service.restart_api_soon` (api) / `ops.service.restart` in a background job (runner; `phoenix service restart`) | `{yes: true}` | api: `{service, restarted, queued: true}` (systemctl `--no-block`; the API restarts just after replying); runner: `{job}` (kind `restart`; waits up to 30 min for builds to reach a task boundary; `result` = `{service, restarted, waited, doctor}`) | 400, 409 (a restart is waiting) |
+| POST | `/api/service/<name>/restart` (name `api`, `runner` or `agent`) | `ops.service.restart_api_soon` (api) / `ops.service.restart` (agent at once; runner in a background job; `phoenix service restart`) | `{yes: true}` | api: `{service, restarted, queued: true}` (systemctl `--no-block`; the API restarts just after replying); agent: `{service: "phoenix-agentkit", restarted, waited: false, doctor}` (only when `[agent_next]` is set up; the agent's own user may not restart it); runner: `{job}` (kind `restart`; waits up to 30 min for builds to reach a task boundary; `result` = `{service, restarted, waited, doctor}`). Records the real caller | 400 (no yes, unknown name, agent not set up, or the agent restarting itself), 409 (a restart is waiting) |
 | POST | `/api/images/build` | `ops.images.build` (in a background thread; `phoenix images build`) | `{profiles?: [name], all?: bool, changed?: bool}` (none = the profiles projects use) | `{job}` (kind `images`; `result` = `{ok, built: [{profile, tag, ok, log}], skipped}`) | 400 (bad body or unknown profile), 409 (a build is running) |
 | GET | `/api/jobs/<id>` | none (held by the API) | | Job (see Shapes) | 404 |
 | GET | `/api/events` | server-sent events (`stream.py`) | | stream | |
@@ -100,14 +100,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | GET | `/api/docs/list?run=` | `ops.docs.list` | | `[{id, title, size}]` (ids like `run:<run id>/plan.md`) | 400 (bad run id), 404 (no such run) |
 | GET | `/api/docs/show?id=` | `ops.docs.show` | | `{id, title, text}`, scrubbed | 400 (bad id, `..`, outside the folder, not .md/.txt), 404 (no such document) |
 | GET | `/api/docs/download?id=` | `ops.docs.download` | | the scrubbed file as text with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff` (not JSON) | same as show |
-| GET | `/api/agent` | `ops.agent.status` | | `{state: asleep|idle|working|queued, pid, session_id, name}` | |
-| GET | `/api/agent/messages?after=&limit=&session=` | `ops.agent.messages` | | `{items: [Agent item], unknown, last_line, session_id}` (items after line `after`, at most `limit`, default 100, cap 1000; `session` = an id from `/api/agent/sessions` reads that earlier conversation instead of the current one) | 400 |
-| GET | `/api/agent/stream?after=` | server-sent events (`stream.agent_stream`) | | stream of `item`, `update` and `session` frames (see "Agent stream frames" below) | 503 (too many streams) |
-| POST | `/api/agent/send` | `ops.agent.send` | `{text, context?: {page, project, run}}` (context values that are not allowed are dropped: `project` must be a listed project, `page`/`run` must match `[A-Za-z0-9/_.-]{1,80}`; newlines are stripped) | `{sent, at, after_line}` | 400 (empty text or over 100000 characters), 403, 503 (the agent is asleep or its inbox refused the message) |
-| GET | `/api/agent/sessions` | `ops.agent.sessions` | | list of `{session_id, started, lines}`, newest first | |
-| POST | `/api/agent/restart` | `ops.agent.restart` (restarts the `agent.unit` service and tells Alex) | `{confirm: true}` | `{restarted, unit}` | 403, 409 (no `confirm: true`; nothing restarted) |
-| POST | `/api/agent/stop` | `ops.agent.stop` (ends the agent's running command, then sends it a fixed stop message; no write lock) | | `{stopped, sent}` | 403, 503 (the agent is asleep) |
-| POST | `/api/agent/new` | `ops.agent.new_conversation` (asks the agent to save notes, waits up to `wrap_up_minutes` without the write lock, then restarts it) | `{confirm: true}` | `{started, notes_asked, waited_seconds}` | 403, 409 (no `confirm: true`, or one already running) |
+| GET | `/api/projects/<name>/memory` | `ops.docs.project_memory` | | `{project, claude_md, now_md, cut}`: the project's `CLAUDE.md` and `notes/NOW.md`, scrubbed, each at most 12,000 characters (`CLAUDE.md` keeps its start, `NOW.md` its end, where the newest lines are); a missing file gives `""`; `cut` is true when either was shortened. Never follows a symlink out of the project folder. Read by the agent before working on a project | 400 (bad name; a symlink or a path out of the project folder), 404 (no such project), 409 (the agent's own folder) |
 | POST | `/api/ui/go` | `ops.ui.go` | `{to, params?: {}}` | `{hash, label}`; the open dashboard follows through a `ui.go` event | 400 (not a page, bad option: the reason), 404 (no such project, run, gate or log) |
 | POST | `/api/blocks/check` | `ops.blocks.check` | `{kind: card\|choice\|confirm\|nav, json: text}` | `{ok, reason, resolved}` (not ok gives a plain reason; nav `resolved` is `{links: [{hash, label}], dropped: [{link, to, reason}]}`) | 400 (kind or json missing) |
 | GET | `/api/logs?project=&run=&task=&step=&kind=` | `ops.logs.list_` | | list of `{id, kind, run, task, attempt, step, title, size, modified}` | 400, 404 |
@@ -166,7 +159,13 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/runs/<project>/<run_id>/repair/request-unlock` | `ops.repair.request_unlock` (`phoenix repair request-unlock <run> --steps <names> --why "<text>"`) | `{"steps": [str], "why": str}`; steps from `replace-spec`, `keep-hand-fix`, `reset-worktree`, `force`, `unlock-checks`, `stop`, `discard` | `{run_id, project, gate, title, steps, why}`. Only the agent or a chat asks (others are told they need no approval). Opens a `repair-unlock` question "<The Phoenix agent | A chat on the home page | A chat in <project>> asks to <repairs> on <run>: <why>" with actions `approve` / `deny`; the run itself is not changed. Only the dashboard may answer it (`gates.may_answer`). Approve writes a one-time grant in `repairs/unlocks.json` for exactly those repairs, that run and that asker, good for 30 minutes or one use; `safety.refusal` and `ops.runs._may_stop` use it once. Every approval, use, denial and expiry is a `repair.unlock` event and a line in `repairs/notes/alex-approvals.md`; a used grant makes the run count as repaired | 400 (unknown repair name, bad reason, caller needs no approval, a request already waiting), 404, 409 (a chat asking about another project's run) |
 | POST | `/api/runs/<run_id>/pause` | `ops.runs.pause` (`phoenix run pause <run> --now --yes`) | `{"now": true}` | `{run_id, status: "pause requested", waits_for_step, containers_stopped, notes}`; stops the running AI step's container (stop, not remove) and leaves the worktree alone; the runner then sets the step line and the run to `paused` and keeps the Claude session id. During a step that is not AI it waits for that step to end, then pauses (`waits_for_step` true, and `notes` says so). Same permission rule as stop | 400 (no `now: true`; run not running), 404, 409 (already paused) |
 | POST | `/api/runs/<run_id>/resume` | `ops.runs.resume` (`phoenix run resume <run>`) | `{}` | `{run_id, status, queued}`; a paused run goes back to `running`, or `queued` when another run is going. The same step runs again in a fresh container: an AI step continues its Claude session (`--resume`) with the first prompt line "You were paused mid-step. Check the files you were changing, then carry on."; this is not a new try. If the session file is missing or `--resume` fails, the step restarts clean from the attempt's base and the step line says so | 400 (not paused), 404, 409 (busy) |
+| GET | `/api/edits` | `ops.work.list_edits` (`phoenix edit list`) | query `project`? | `{edits: [{id, project, title, status, last_activity, branch, pr}]}`: only the open and stalled quick edits, newest first; never the folder path; text scrubbed | 400 (bad project name) |
+| POST | `/api/edits/<edit_id>/finish` | `ops.work.finish_edit` (`phoenix edit finish <id>`) | `{"confirm": true, "message"?: str}` | `{job_id}`; a background job (follow it with `GET /api/jobs/<job_id>`, kind `edit-finish`) checks the edit like a build does, then commits, pushes and opens a merge request; the job's `result` is the finished record (`status: "finished"`, `pr` link), or `status: "failed"` with every problem in `message` (the edit stays open). Recorded with who from the caller | 400 (no confirm; bad id), 409 (that edit is already being finished) |
 | POST | `/api/edits/<edit_id>/abandon` | `ops.work.abandon_edit` (`phoenix edit abandon <id> --yes`) | `{"confirm": true}` | the quick edit record with `status: "abandoned"`; removes its branch copy and local branch | 400 (no confirm; already abandoned; unknown id) |
+| GET | `/api/plans` | `ops.work.list_plans` (`phoenix plan list`) | query `project`? | `{plans: [{id, project, status, open_questions, brief, started, last_activity, spec}]}`, newest first; `spec` is the document id for `docs/show` (`notes:<project>/specs/plan-<id>.md`) once Phoenix has filed one, else null; text scrubbed | 400 (bad project name) |
+| GET | `/api/plans/<plan_id>` | `ops.work.show_plan` (`phoenix plan status <id>`) | | one planning session: the fields above plus `report` | 400 (bad or unknown id) |
+| POST | `/api/projects/<name>/plans` | `ops.work.start_plan` (`phoenix plan start <project> --brief "<text>"`) | `{"brief": str}` | the queued planning session (same fields as `GET /api/plans/<plan_id>`); always the planning model setting (`plan.model`), no model choice. Refused for the agent's own folder, and on phoenix9 for chats and the agent. Recorded with who from the caller | 400 (empty brief; unknown project; refused; one already going) |
+| POST | `/api/plans/<plan_id>/reply` | `ops.work.reply_plan` (`phoenix plan reply <id> --text "<text>"`) | `{"text": str}` (at most 2,000 characters) | the planning session, queued again with the answer word for word (fenced as data in the prompt). Same who rules as abandon (a chat only its own; never on phoenix9 for chats or the agent). Recorded with who from the caller | 400 (empty or too long; bad or unknown id; running; abandoned; no session to resume) |
 | POST | `/api/plans/<plan_id>/abandon` | `ops.work.abandon_plan` (`phoenix plan abandon <id> --yes`) | `{"confirm": true}` | the planning session record with `status: "abandoned"`; the spec file stays | 400 (no confirm; still running; already abandoned; unknown id) |
 | POST | `/api/runs/<run_id>/note` | `ops.runs.note` (`phoenix run note <run> <task> "<text>"`) | `{"task": int, "text": str}` | `{run_id, task, file, file_id}`; appends a dated note (who recorded it) under `## Fix notes` in the task's `tasks/<n>/task.md`; the next attempt's prompt carries it, fenced as untrusted data. Emits `run.note` (no text in the event). `file_id` is the Logs-tab id of the task file | 400 (empty note, over 2,000 characters, `task` not a number, run already ended), 404 (unknown run or task) |
 | POST | `/api/runs/<project>/<run_id>/discard` | `ops.runs.discard` (`phoenix run discard <run> --yes [--force]`) | `{"confirm": true, "force"?: bool}` | `{run_id, status, discarded: true, notes}`; deletes the worktree, local branch and pushed GitHub branch of a failed or stopped run. Without `force: true` it is refused when that would lose work: an open merge request (merge-request.txt whose `gh pr view` state is not MERGED/CLOSED; no answer counts as open) or commits on the run's branch (local, else pushed) that main doesn't have. A chat allowed only by Alex's one-time `discard` approval may not use `force`, and its approval is used only once nothing else refuses | 400 (not failed or stopped, no confirm, `force` not a bool, or a chat forcing with only a one-time approval), 404, 409 (already discarded; or would lose work: `{ok: false, message, needs_force: true, would_lose: [plain lines]}`) |
@@ -252,34 +251,6 @@ row is named in one 400. **Settings**: `set` values are typed JSON by dotted key
 written. **Runs**: exactly one of `spec` (path relative to `notes/`, inside `specs` or `plans`) or `brief`
 (needs the Planner on); `overrides` are frozen into the run. A chat or the agent may not give safety settings
 (`budget_usd`, `on_failure`, `profile`, safety steps and the like) as overrides: 400 with a plain message.
-
-## Agent items
-
-Items come from the agent's transcript (`phoenix9/transcript.py`); each has `type` and `line` (its transcript line
-number). Types: `user` `{text, origin: panel|app|peer:<name>, at}`, `agent` `{markdown, at}`,
-`thinking` `{duration_s, at}`, `action` (a tool call: its title, `status`, and an excerpt of the result),
-`queued` `{text, pending, at}` (`pending` turns false when the queue-operation dequeue/remove for it arrives),
-`session` `{session_id}` (a divider when the session id changes inside a transcript) and `notice` (system lines;
-hook summaries and turn timings are left out). An `action` has `{id (the tool id), tool, title, input_summary,
-status: running|ok|error, excerpt?, done_line?}`; `done_line` is the transcript line of its result. A user line
-made of text blocks is a `user` item (an image shows as `[image]`).
-`/api/agent/messages` wraps them as `{items, unknown, last_line, session_id}`.
-
-## Agent stream frames
-
-`GET /api/agent/stream` sends server-sent events; every `id` is `<session id>:<transcript line>`.
-
-- `event: item`, data = one Agent item (above); id = `<session>:<item line>`.
-- `event: update`, data = `{type: "update", id, line, status, excerpt}`: an action already sent (usually while
-  `running`) has finished; `id` is the action's tool id (the same `id` as its item), `line` its item's line;
-  the SSE id = `<session>:<line of the result>`. A stream resumed from line N also gets updates for actions at or
-  before N that finished after N. (The web panel uses these from build 2.)
-- `event: session`, data = `{session_id}`: the agent's session changed; items from line 1 of the new transcript
-  follow. Also sent first when a `Last-Event-ID` names another session (or no session).
-- Where it starts: `?after=<n>` = after line n of the current session; else a `Last-Event-ID` of
-  `<session>:<n>` is honoured only when that session is the current one (otherwise: a session frame, then from
-  line 1); else at the end. Only new lines are parsed on each tick (the parser keeps its state). Same tail and
-  ping timing as `/api/events`.
 
 ## Agent repair controls
 

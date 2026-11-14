@@ -323,3 +323,16 @@ def test_planner_default_tools_are_read_and_write_only():
     cmd = claude.build_command(ai, "/phoenix/prompt.md", "/workspace")
     assert cmd[cmd.index("--allowedTools") + 1] == "Read,Glob,Grep,Write"
     assert cmd[cmd.index("--disallowedTools") + 1] == "Bash,WebFetch,WebSearch"
+
+
+BROWSER_RULE = ("Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, "
+                "and do not add Playwright to the project: Alex checks pages by hand.")
+
+
+def test_plan_prompts_forbid_browser_tests_and_ask_for_try_by_hand():
+    """Alex checks pages by hand (2026-11-14): plans get no browser-test tasks and say what to click instead."""
+    for name in ("planner", "_plan-session"):
+        text = (REPO / "steps" / name / "prompt.md").read_text()
+        assert BROWSER_RULE in text
+        assert "Never write a Done-when bullet that needs a browser test" in text
+        assert "`Try by hand:`" in text and "under 'Try by hand' in the summary" in text

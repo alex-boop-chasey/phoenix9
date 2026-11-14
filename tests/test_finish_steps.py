@@ -308,3 +308,41 @@ def test_stopped_run_summary_says_stopped(tmp_path, adapters, lib, project):
     gates.answer(g["id"], "stop", who="alex")
     assert runner.drive(run_dir) == "stopped"
     assert "Status: stopped" in (run_dir / "summary.md").read_text()
+
+
+HAND = """# Spec: Hand checks
+
+## Task 1: Contact page
+Goal: add the contact page.
+Try by hand: open /contact, press Send with an empty form, see "Please fill in your email".
+Done when:
+- the page works
+
+## Task 2: Footer
+Goal: add a footer.
+try by hand: open the home page and see the footer.
+Depends on: 1
+Done when:
+- the footer shows
+"""
+
+
+def test_summary_lists_try_by_hand_lines_of_passed_tasks(tmp_path, adapters, lib, project):
+    """Builds run no browser tests: each passed task's `Try by hand:` line is listed for Alex in the summary."""
+    from phoenix9 import summary
+    run_dir = finished_run(tmp_path, adapters, lib, HAND)
+    md, page = (run_dir / "summary.md").read_text(), (run_dir / "summary.html").read_text()
+    assert "## Try by hand" in md
+    assert '- Task 1: open /contact, press Send with an empty form, see "Please fill in your email".' in md
+    assert "- Task 2: open the home page and see the footer." in md
+    assert "<h2>Try by hand</h2>" in page and "see &quot;Please fill in your email&quot;" in page
+    state.update(run_dir, lambda s: s["tasks"]["2"].update(status="failed"))
+    facts = summary.facts(run_dir)
+    assert facts["try_by_hand"] == ['Task 1: open /contact, press Send with an empty form, '
+                                    'see "Please fill in your email".']
+
+
+def test_summary_without_try_by_hand_lines_has_no_such_section(tmp_path, adapters, lib, project):
+    run_dir = finished_run(tmp_path, adapters, lib, ONE)
+    assert "Try by hand" not in (run_dir / "summary.md").read_text()
+    assert "Try by hand" not in (run_dir / "summary.html").read_text()

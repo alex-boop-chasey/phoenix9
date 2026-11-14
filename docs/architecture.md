@@ -329,6 +329,14 @@ committed lockfile),
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
+Web builds run Vitest only (Alex's decision, 2026-11-14): the web profile's suite, task and check commands are
+Vitest, and browser checks are Alex's hand test. The planner, builder, check writer and reviewer prompts say:
+Vitest tests for logic and components only, no Playwright or other browser tests, never add Playwright to a project,
+and no Done-when bullet that needs a browser. The planner puts what Alex should click on a `Try by hand:` line in
+the task's goal text; the summary (`summary.py`) lists those lines of passed tasks under "Try by hand". A template
+that would add Playwright (a `run` command naming it, a `playwright.config.*` or a `package.json` naming it in
+`files/`) is refused (`templates.py`). Playwright files a project already has are left alone and never run.
+
 A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
 per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
 image never reaches docker. The refusal (`settings.no_profile_message`) points at `phoenix settings set <name> profile <type>`.

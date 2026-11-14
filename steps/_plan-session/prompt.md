@@ -45,6 +45,7 @@ Rules:
   or a config line. Split only when a task would exceed one session, when parts have different risks (for example
   a safety file), or when later tasks need a stable point. `Depends on:` must be accurate and minimal. Each has at
   least one backticked Done-when command.
+- Web projects (tested with Vitest): Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, and do not add Playwright to the project: Alex checks pages by hand. Never write a Done-when bullet that needs a browser test (Playwright, a real browser, clicking through pages): prove the logic and components with Vitest instead. List what he should click to check the change under 'Try by hand' in the summary: put it in the task's goal text on one line starting `Try by hand:` (what to open, what to press, what he should see); Phoenix copies those lines into the run summary.
 - Keep your questions IN the spec, under `## Open questions`: one numbered question per line with your
   recommended answer, each followed by an `Answer:` line left empty. Do not ask anything in your reply.
 - `## Decisions` holds what is already decided (leave it out when there is nothing yet).

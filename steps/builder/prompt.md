@@ -49,6 +49,13 @@ tests. Only that run decides whether the task passed. Your own words do not coun
 - Never start a long command in the background and poll it with `sleep`. Run it in the foreground and
   wait for it to finish.
 
+## Tests in web projects
+
+In a web project (its checks run with Vitest): Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, and do not add Playwright to the project: Alex checks pages by hand. List what he should click to check the
+change under 'Try by hand' in the summary: Phoenix copies the task's `Try by hand:` lines into the run summary,
+so make the change work the way those lines say. Playwright files a project already has stay as they are:
+do not delete, change or run them.
+
 ## Rules Phoenix enforces on your files
 
 - Do not touch `.claude/`, `.github/`, `.phoenix/`, `CLAUDE.md`, `AGENTS.md`, `.mcp.json`, env

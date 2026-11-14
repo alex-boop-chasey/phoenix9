@@ -92,6 +92,23 @@ def _screenshots(run_dir: Path) -> list:
                   if p.is_file() and not p.is_symlink())
 
 
+TRY_BY_HAND = re.compile(r"^\s*(?:[-*]\s*)?try by hand\s*:\s*(.+?)\s*$", re.IGNORECASE)
+
+
+def _try_by_hand(spec: dict, tasks: list) -> list:
+    """What Alex should click to check the work: each passed task's `Try by hand:` lines from its goal text."""
+    passed = {t["number"] for t in tasks if t["status"] == "passed"}
+    out = []
+    for task in spec.get("tasks", []):
+        if task.get("number") not in passed:
+            continue
+        for line in str(task.get("goal") or "").splitlines():
+            m = TRY_BY_HAND.match(line)
+            if m:
+                out.append(f"Task {task['number']}: {scrub.scrub(m.group(1))}")
+    return out
+
+
 def _waiting(run_dir: Path) -> list:
     """Titles of services this run built without their keys."""
     return [e["title"] for e in atomic.read_json(Path(run_dir) / "deferred-services.json") or []]
@@ -113,7 +130,7 @@ def facts(run_dir, screenshots: bool = False) -> dict:
         "status": st["status"], "preset": str(spec.get("preset") or frozen.get("preset") or "default"),
         "started": st.get("created", ""), "finished": finished,
         "duration": _duration(st.get("created"), finished or state.now()),
-        "tasks": tasks, "waiting_for_keys": _waiting(run_dir),
+        "tasks": tasks, "waiting_for_keys": _waiting(run_dir), "try_by_hand": _try_by_hand(spec, tasks),
         "counts": {k: sum(1 for t in tasks if t["status"] == k) for k in ("passed", "failed", "skipped")},
         "escalations": _escalations(run_dir),
         "full_suite": _full_suite(st, run_dir),
@@ -166,6 +183,8 @@ def markdown(f: dict) -> str:
     out += [f"- {_escalation_line(e)}" for e in f["escalations"]] or ["Nothing."]
     out += ["", "## Things only you can do", ""]
     out += [f"- {x}" for x in _for_you(f)] or ["Nothing."]
+    if f.get("try_by_hand"):
+        out += ["", "## Try by hand", ""] + [f"- {x}" for x in f["try_by_hand"]]
     if f.get("waiting_for_keys"):
         out += ["", "## Waiting for keys", "", f"Waiting for keys: {', '.join(f['waiting_for_keys'])}"]
     if f["screenshots"]:
@@ -197,6 +216,8 @@ def html(f: dict) -> str:
         "for_you": _paragraph_or_list(_for_you(f)), "screenshots": shots,
         "waiting": (f"<h2>Waiting for keys</h2>\n<p>Waiting for keys: {e(', '.join(f['waiting_for_keys']))}</p>\n"
                     if f.get("waiting_for_keys") else ""),
+        "try_by_hand": ("<h2>Try by hand</h2>\n<ul>\n" + _items(f["try_by_hand"], "") + "\n</ul>\n"
+                        if f.get("try_by_hand") else ""),
     }
     return re.sub(r"\{\{(\w+)\}\}", lambda m: values.get(m.group(1), m.group(0)), TEMPLATE.read_text())
 

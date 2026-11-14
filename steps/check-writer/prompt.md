@@ -34,6 +34,9 @@ Write exactly one check file per Done-when bullet, all in `{{checks_dir}}/`, not
 - Secrets and test keys come from environment variables. Never write a key, password or token into a
   check. If a check needs a key-shaped value, build it at run time from harmless pieces (for example by
   joining two short strings) or use the test keys already in the environment.
+- In a web project (checks run with Vitest): Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, and do not add Playwright to the project: Alex checks pages by hand. A
+  bullet about a page or a button is checked through the component or the logic behind it, in Vitest.
+  Alex's `Try by hand:` lines in the task text are his own checks: write no check for them.
 - Do not install anything. Assume the packages the project needs will be installed by the builder.
 - Call programs by path (`./bin/tool`, `python3 -m pkg`), not by a bare name that is not on PATH yet.
 

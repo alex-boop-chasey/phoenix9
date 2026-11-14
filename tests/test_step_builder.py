@@ -258,3 +258,18 @@ def test_prompts_tell_how_to_build_key_shaped_values():
     assert "build it at run time from harmless pieces" in builder and "test files included, fails the task" in builder
     writer = (REPO / "steps" / "check-writer" / "prompt.md").read_text()
     assert "build it at run time from harmless pieces" in writer
+
+
+BROWSER_RULE = ("Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, "
+                "and do not add Playwright to the project: Alex checks pages by hand.")
+
+
+@pytest.mark.parametrize("step", ["builder", "check-writer", "reviewer"])
+def test_task_prompts_forbid_browser_tests(step):
+    """Builds write Vitest tests only and never add Playwright; existing Playwright files are left alone."""
+    text = (REPO / "steps" / step / "prompt.md").read_text()
+    assert BROWSER_RULE in text
+    assert "Try by hand" in text or "Playwright files" in text
+    if step == "builder":
+        assert "under 'Try by hand' in the summary" in text
+        assert "Playwright files a project already has stay as they are" in text

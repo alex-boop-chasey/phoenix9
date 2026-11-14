@@ -33,3 +33,11 @@ the environment variable `PHOENIX_CPUS`, a whole number of at least 1, which a p
     vitest run --pool=forks --poolOptions.forks.maxForks="$PHOENIX_CPUS"    # vitest
 
 Phoenix does not change any profile's test command for you.
+
+## Tests in web builds
+
+Web builds run Vitest only: logic and components. Phoenix does not run Playwright or other browser tests, the
+build prompts tell the AI steps not to write them or add Playwright to a project, and templates may not add it.
+Checking pages and buttons in a browser is Alex's hand test: each task's `Try by hand:` line is listed under
+"Try by hand" in the run summary. Playwright files an existing project already has stay where they are; Phoenix
+just no longer runs them. (The web image itself is unchanged.)

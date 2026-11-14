@@ -334,10 +334,14 @@ def test_job_18():
         fake, store, tid, _sn = await approved("plan-start", {"name": "beta", "brief": brief})
         (sent,) = posts(fake)
         assert sent.url.path == "/api/projects/beta/plans" and json.loads(sent.content) == {"brief": brief}
+        (req,) = requests_in(store, tid)
+        assert req["input"]["brief"] == brief
         answer = "Use the second page, and keep the old one for a week."
         fake, store, tid, seen = await approved("plan-reply", {"plan_id": "p-1", "text": answer})
         (sent,) = posts(fake)
         assert sent.url.path == "/api/plans/p-1/reply" and json.loads(sent.content) == {"text": answer}
+        (req,) = requests_in(store, tid)
+        assert req["input"]["text"] == answer   # the approval card shows the reply word for word
         assert returns(seen)["plan-reply"]["result"]["status"] == "queued"
         for word in ("plan-show", "docs-show", "word for word", "plan-reply", "Never start a planning session on phoenix9"):
             assert word in INSTRUCTIONS, word

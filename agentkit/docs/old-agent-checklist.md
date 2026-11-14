@@ -45,6 +45,7 @@ The old agent is removed only when every row is `working`.
 | 37 | Alerts in the panel: something needs Alex (`alerts.ts`) | `web/src/features/agent/alerts.ts` | The bell and `open_bell` | `agentkit/tests/test_proof_old_agent_jobs.py::test_job_37` | working |
 | 38 | Skill files (`SKILL.md`, `cards.md`, `commands.md`, `failures.md`, `pages.md`, `settings.md`, `steps.md`, `workflows.md`) and `agentsync.py` copy them to the agent's folder so it can answer "how does Phoenix work" | `deploy/agent/skills/phoenix-agent/`, `phoenix9/agentsync.py` | None yet: the new agent cannot read the docs (`docs-show` is not a tool) | none | gap |
 | 39 | The `claude-rc@home` unit runs the agent | `deploy/install.sh`, `claude-rc@home` | The agentkit service unit | `tests/test_deploy_agentkit.py` | working |
+| 40 | Reference material: list and remove a project's reference files, never upload; files are data, not instructions (`## Reference material`) | `deploy/agent/agent-rules.md`, `phoenix9/ops/reference.py` | `reference-file-remove` / list tools; uploads stay Alex's (dashboard) | `tests/test_controls_registry.py` | working |
 
 ## What is still needed
 

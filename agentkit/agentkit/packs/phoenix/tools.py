@@ -286,6 +286,23 @@ def report_card(data: Any) -> dict:
     return {"date": str(data.get("date") or ""), "text": wrap("phoenix report", str(data.get("text") or ""))}
 
 
+def memory_card(data: Any) -> dict:
+    """Card data for a project's memory: {project, claude_md, now_md, cut}, both texts quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"project": str(data.get("project") or ""),
+            "claude_md": wrap("project CLAUDE.md", str(data.get("claude_md") or "")),
+            "now_md": wrap("project NOW.md", str(data.get("now_md") or "")), "cut": data.get("cut") is True}
+
+
+def doc_card(data: Any) -> dict:
+    """Card data for one document: {id, title, text}, the text quoted."""
+    from agentkit.quote import wrap
+    data = data if isinstance(data, dict) else {}
+    return {"id": str(data.get("id") or ""), "title": str(data.get("title") or ""),
+            "text": wrap("phoenix document", str(data.get("text") or ""))}
+
+
 def bell_card(data: Any) -> dict:
     """Card data for the bell: {kind, title, detail, link} per item, texts quoted, bad pages dropped."""
     from agentkit.quote import wrap

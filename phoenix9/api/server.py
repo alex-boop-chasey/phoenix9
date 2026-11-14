@@ -403,6 +403,11 @@ def get_docs_show(req):
     return ops_docs.show(req.query.get("id", ""))
 
 
+def get_project_memory(req, name):
+    """Reply with a project's CLAUDE.md and notes/NOW.md, scrubbed and cut."""
+    return ops_docs.project_memory(check_name(name))
+
+
 def get_docs_download(req):
     """Reply with one document as a scrubbed attachment."""
     doc = ops_docs.download(req.query.get("id", ""))
@@ -1400,6 +1405,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", r"/api/docs/list", get_docs_list),
     ("GET", r"/api/docs/show", get_docs_show),
     ("GET", r"/api/docs/download", get_docs_download),
+    ("GET", rf"/api/projects/{NAME}/memory", get_project_memory),
     ("GET", r"/api/agent", get_agent),
     ("GET", r"/api/agent/messages", get_agent_messages),
     ("GET", r"/api/agent/sessions", get_agent_sessions),

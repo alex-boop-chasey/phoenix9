@@ -99,6 +99,8 @@ SUGGESTIONS = {"mode": "on", "notice": "From the status report.", "suggestions":
     {"key": SUGGEST_KEY, "text": "beta's build failed on task 2. " + INJECTION, "section": "Waiting for Alex",
      "attention": True, "shown": False},
     {"key": "disk-low", "text": "The disk is getting full.", "section": "Phoenix", "attention": True, "shown": False}]}
+MEMORY = {"project": "beta", "claude_md": "# beta\nA small shop.\n",
+          "now_md": "# Now\nUp to the checkout page; the cart works.\n" + INJECTION + "\n", "cut": False}
 
 
 DAILY_REPORT = {"date": "2026-11-11", "text": "Good morning. Nothing needs you. " + INJECTION}
@@ -233,6 +235,8 @@ class FakePhoenix:
             self.note_posts.append(body)
             return httpx.Response(200, json={"run_id": parts[2], "task": body.get("task"),
                                              "file_id": f"{parts[2]}/tasks/{body.get('task')}/task.md"})
+        if len(parts) == 4 and parts[:2] == ["api", "projects"] and parts[3] == "memory":
+            return httpx.Response(200, json={**MEMORY, "project": parts[2]})
         if parts == ["api", "suggest"]:
             return httpx.Response(200, json=SUGGESTIONS)
         if len(parts) == 4 and parts[1] == "suggest" and request.method == "POST":

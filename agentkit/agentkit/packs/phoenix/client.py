@@ -2,6 +2,7 @@
 import httpx
 
 DEFAULT_URL = "http://127.0.0.1:8095"
+DEFAULT_TIMEOUT = 15.0  # seconds; a slow control (such as waking a chat) sets its own in controls.json
 
 
 class PhoenixError(Exception):
@@ -14,18 +15,26 @@ class PhoenixClient:
     def __init__(self, base_url: str = DEFAULT_URL, transport: httpx.BaseTransport | None = None):
         """Make a client for the Phoenix API at base_url (a transport can be given for tests)."""
         self.http = httpx.Client(
-            base_url=base_url, headers={"X-Phoenix": "1"}, transport=transport, timeout=15.0
+            base_url=base_url, headers={"X-Phoenix": "1"}, transport=transport, timeout=DEFAULT_TIMEOUT
         )
 
-    def get(self, path: str, params: dict | None = None):
-        """GET a path and return its JSON, or raise PhoenixError saying plainly what went wrong."""
-        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-        return self._answer(lambda: self.http.get(path, params=clean), "look that up")
+    def get(self, path: str, params: dict | None = None, timeout: float | None = None):
+        """GET a path and return its JSON, or raise PhoenixError saying plainly what went wrong.
 
-    def post(self, path: str, body: dict, params: dict | None = None):
-        """POST a JSON body to a path and return the JSON reply, or raise PhoenixError saying plainly why not."""
+        `timeout` (seconds) replaces the default wait for this one call.
+        """
         clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
-        return self._answer(lambda: self.http.post(path, json=body, params=clean), "make that change")
+        wait = _wait(timeout)
+        return self._answer(lambda: self.http.get(path, params=clean, timeout=wait), "look that up")
+
+    def post(self, path: str, body: dict, params: dict | None = None, timeout: float | None = None):
+        """POST a JSON body to a path and return the JSON reply, or raise PhoenixError saying plainly why not.
+
+        `timeout` (seconds) replaces the default wait for this one call.
+        """
+        clean = {k: v for k, v in (params or {}).items() if v not in (None, "")}
+        wait = _wait(timeout)
+        return self._answer(lambda: self.http.post(path, json=body, params=clean, timeout=wait), "make that change")
 
     def _answer(self, send, what: str):
         """Send a request and return its JSON, turning every failure into a PhoenixError."""
@@ -39,6 +48,11 @@ class PhoenixClient:
             return reply.json()
         except ValueError as err:
             raise PhoenixError("Phoenix gave an answer I could not read.") from err
+
+
+def _wait(timeout: float | None):
+    """The timeout for one call: the given number of seconds, else the client's default."""
+    return timeout if timeout else httpx.USE_CLIENT_DEFAULT
 
 
 def _reason(reply: httpx.Response) -> str:

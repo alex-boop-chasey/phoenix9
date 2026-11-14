@@ -195,3 +195,27 @@ def test_update_card_has_versions_and_queue_state():
     status = {"installed": {"tag": "v1"}, "newest": "v2", "running": False, "log_tail": "secret-ish"}
     assert update_card(status) == {"installed": "v1", "newest": "v2", "queued": False, "link": "#/settings?section=updates"}
     assert update_card({"ok": True, "queued": True, "tag": "v2"})["queued"] is True
+
+
+def waited(request):
+    """How long the client let a request wait for its answer (the read timeout, in seconds)."""
+    return request.extensions["timeout"]["read"]
+
+
+def test_client_waits_the_default_unless_told_longer():
+    fake = FakePhoenix()
+    client = fake.client()
+    client.get("/api/projects")
+    client.get("/api/projects", timeout=90)
+    client.post("/api/chat/beta/open", {}, timeout=90)
+    client.post("/api/chat/beta/sleep", {})
+    assert [waited(q) for q in fake.requests] == [15.0, 90, 90, 15.0]
+
+
+def test_a_slow_control_passes_its_own_timeout():
+    assert ENTRIES["chat-open"]["timeout_s"] == 90
+    assert all(e["timeout_s"] == 0 for n, e in ENTRIES.items() if n != "chat-open")
+    fake, made = tools()
+    made["chat-open"].function(name="beta")
+    made["chat-show"].function(name="beta")
+    assert [(q.url.path, waited(q)) for q in fake.requests] == [("/api/chat/beta/open", 90), ("/api/chat/beta", 15.0)]

@@ -12,6 +12,9 @@ from .spend import SpendRefused
 from .store import Store
 
 BUSY = "A reply is already being written in this chat. Wait for it to finish or stop it first."
+QUEUE_LIMIT = 5
+QUEUE_FULL = ("Five messages are already waiting for an answer in this chat. Wait for the agent to catch up, "
+              "or stop it, then send this again.")
 DEFAULT_TITLE = "New chat"
 TITLE_LENGTH = 60
 WAITING = "This chat is waiting for your answer on a change. Approve or refuse it first."
@@ -76,6 +79,7 @@ class Runs:
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
         self.history: dict[str, list] = {}
+        self.queue: dict[str, list[tuple[str, str, object]]] = {}
 
     def _history(self, thread_id: str) -> list:
         """The thread's model history: from memory, else from the store."""
@@ -89,22 +93,47 @@ class Runs:
         context = clean_context(context)
         return context if context and context != self.store.load_context(thread_id) else None
 
-    def start(self, thread_id: str, message: str, context=None) -> str:
-        """Start a run in the background and return its id at once; one run per thread.
+    def start(self, thread_id: str, message: str, context=None) -> dict:
+        """Start a run in the background, or queue the message while a reply is being written; answer at once.
 
+        Returns {"run_id", "queued"}. A queued message (at most QUEUE_LIMIT per thread) starts by itself when the
+        current reply ends, in the order sent; it is logged as Alex's message only when it starts, so the chat
+        order stays true. The queue is kept in memory only: a service restart drops it. A thread waiting on
+        Alex's answer to a change refuses new messages.
         `context` is what Alex has open ({page, project, run}); the model alone sees it, as one line before the
         message, and only when it differs from the last one sent in this thread. The chat log keeps his own words.
         """
-        if thread_id in self.active:
-            raise RunBusy(BUSY)
         if self.store.pending_pauses(thread_id):
             raise RunBusy(WAITING)  # only POST /approvals can answer a pause, never a chat message
         message = quote.scrub_text(message)
         run_id = wire.new_id()
+        if thread_id in self.active or self.queue.get(thread_id):
+            waiting = self.queue.setdefault(thread_id, [])
+            if len(waiting) >= QUEUE_LIMIT:
+                raise RunBusy(QUEUE_FULL)
+            waiting.append((run_id, message, context))
+            return {"run_id": run_id, "queued": True}
+        self._begin(thread_id, run_id, message, context)
+        return {"run_id": run_id, "queued": False}
+
+    def _begin(self, thread_id: str, run_id: str, message: str, context) -> None:
+        """Start a reply to one message now: name a new chat after it and work out the context line at this moment."""
         if (thread := self.store.get_thread(thread_id)) and thread["title"] == DEFAULT_TITLE:
             self.store.set_title(thread_id, message.strip()[:TITLE_LENGTH])
         self._launch(thread_id, run_id, message, context=self._new_context(thread_id, context))
-        return run_id
+
+    def _next_queued(self, thread_id: str) -> None:
+        """Start the oldest queued message when the thread is free (no run going, nothing waiting on Alex)."""
+        if thread_id in self.active or self.store.pending_pauses(thread_id) or not self.queue.get(thread_id):
+            return
+        run_id, message, context = self.queue[thread_id].pop(0)
+        if not self.queue[thread_id]:
+            del self.queue[thread_id]
+        self._begin(thread_id, run_id, message, context)
+
+    def queued(self, thread_id: str) -> int:
+        """How many messages are waiting for their turn in the thread."""
+        return len(self.queue.get(thread_id, []))
 
     def _launch(self, thread_id: str, run_id: str, message: str | None, results=None, context: dict | None = None) -> None:
         """Run a turn as a background task, tracked as the thread's active run."""
@@ -119,6 +148,8 @@ class Runs:
             self.ready.discard(thread_id)
             if not self.store.pending_pauses(thread_id):
                 self._resume(thread_id)
+                return
+        self._next_queued(thread_id)
 
     def _resume(self, thread_id: str) -> None:
         """Start the follow-up run with every answer and decision collected for the thread."""
@@ -231,11 +262,15 @@ class Runs:
         return False
 
     def _log_stop(self, thread_id: str, run_id: str) -> None:
-        """Close every open pause as stopped, then log run_stopped and RUN_FINISHED."""
+        """Drop the queued messages, close every open pause as stopped, then log run_stopped and RUN_FINISHED.
+
+        The run_stopped event says how many queued messages were dropped.
+        """
+        dropped = len(self.queue.pop(thread_id, []))
         for pause in self.store.pending_pauses(thread_id):
             self.store.resolve_pause(pause["id"], "stopped")
         self.ready.discard(thread_id)
-        self._log(thread_id, wire.run_stopped(), wire.run_finished(thread_id, run_id))
+        self._log(thread_id, wire.run_stopped(dropped), wire.run_finished(thread_id, run_id))
 
     def _log(self, thread_id: str, *events: dict) -> None:
         """Append events to the thread's log."""
@@ -333,7 +368,7 @@ def stop_route(runs: Runs, denied):
 
 
 def start_route(runs: Runs, denied):
-    """Make the POST /threads/{id}/runs handler: answers at once with the run id, or 409 when busy."""
+    """Make the POST /threads/{id}/runs handler: answers at once with the run id (queued or not), or 409 when refused."""
 
     async def start_run(request: Request):
         """Start a reply to a message in the background."""
@@ -350,10 +385,10 @@ def start_route(runs: Runs, denied):
         if not isinstance(message, str) or not message.strip():
             return JSONResponse({"error": "message is required"}, status_code=400)
         try:
-            run_id = runs.start(thread_id, message, context=body.get("context"))
+            started = runs.start(thread_id, message, context=body.get("context"))
         except RunBusy as e:
             return JSONResponse({"error": str(e)}, status_code=409)
-        return JSONResponse({"run_id": run_id}, status_code=202)
+        return JSONResponse(started, status_code=202)
 
     return start_run
 

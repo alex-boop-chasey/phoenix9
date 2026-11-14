@@ -41,27 +41,30 @@ def test_run_finishes_with_no_stream_reader_and_reply_is_in_the_log():
     assert texts(store, tid) == "Hello Alex"
 
 
-def test_second_start_while_running_is_refused_then_allowed_after():
+def test_second_start_while_running_is_queued_and_a_sixth_waiting_is_refused():
     async def go():
         gate = asyncio.Event()
         store, r = make(gate)
         tid = store.create_thread()["id"]
         r.start(tid, "one")
+        queued = [r.start(tid, f"q{n}")["queued"] for n in range(runs.QUEUE_LIMIT)]
         try:
             r.start(tid, "two")
             refused = False
         except runs.RunBusy as e:
-            refused = "already" in str(e)
+            refused = "waiting" in str(e)
         gate.set()
-        await r.active[tid]
+        while (task := r.active.get(tid)) is not None:
+            await task
+            await asyncio.sleep(0)
         r.start(tid, "three")
         await r.active[tid]
-        return refused
+        return all(queued) and refused
 
     assert asyncio.run(go())
 
 
-def test_route_answers_with_run_id_and_409_when_busy():
+def test_route_answers_with_run_id_and_queues_when_busy():
     gate_box = {}
 
     async def go():
@@ -77,4 +80,8 @@ def test_route_answers_with_run_id_and_409_when_busy():
         first = client.post(f"/threads/{tid}/runs", json={"message": "hi"})
         assert first.status_code == 202 and first.json()["run_id"]
         second = client.post(f"/threads/{tid}/runs", json={"message": "again"})
-        assert second.status_code == 409 and second.json()["error"]
+        assert second.status_code == 202 and second.json()["queued"] is True and second.json()["run_id"]
+        for n in range(runs.QUEUE_LIMIT - 1):
+            assert client.post(f"/threads/{tid}/runs", json={"message": f"more {n}"}).status_code == 202
+        full = client.post(f"/threads/{tid}/runs", json={"message": "too many"})
+        assert full.status_code == 409 and full.json()["error"] == runs.QUEUE_FULL

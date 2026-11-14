@@ -136,10 +136,11 @@ def make_function(entry: dict, client: PhoenixClient) -> Callable[..., dict]:
             query = dict(entry["fixed_query"])
             query.update({i["name"]: _query_value(values.get(i["name"])) for i in entry["inputs"]
                           if i["where"] == "query"})
+            wait = entry.get("timeout_s") or None  # a slow control waits longer than the client default
             if entry["method"] == "GET":
-                data = client.get(path, query)
+                data = client.get(path, query, timeout=wait)
             else:
-                data = client.post(path, _body(entry, values), query)
+                data = client.post(path, _body(entry, values), query, timeout=wait)
         except PhoenixError as err:
             return {"error": str(err)}
         return _card_data(entry, data, values)

@@ -40,6 +40,7 @@ class Control:
     fixed_query: dict = field(default_factory=dict)  # query values always sent
     card: str = ""  # the result card name
     confirm_with: str = ""  # destructive: the input whose value Alex must type
+    timeout_s: int = 0  # how long the agent waits for an answer, in seconds; 0 = its client's default
 
 
 def _in(name, type="string", required=False, description="", choices=(), where="body", into=()) -> Input:
@@ -367,7 +368,7 @@ CONTROLS = (
     _get("chat-show", "chat.chat_state", rf"/api/chat/{NAME}", "tool", inputs=(P_NAME,),
          text="Say whether a project's chat is awake, working, waking, asleep or not started yet, and its links."),
     _post("chat-open", "chat.open_chat", rf"/api/chat/{NAME}/open", "change", "tool", inputs=(P_NAME,),
-          text="Open a project's chat, waking it if asleep (the same conversation)."),
+          text="Open a project's chat, waking it if asleep (the same conversation).", timeout_s=90),
     _post("chat-sleep", "chat.sleep_chat", rf"/api/chat/{NAME}/sleep", "change", "tool", inputs=(P_NAME,),
           text="Put a project's chat to sleep: it wraps up, then stops; nothing is lost."),
     _post("chat-forget", "chat.forget_chat", rf"/api/chat/{NAME}/forget", "destructive", "tool", inputs=(P_NAME,),

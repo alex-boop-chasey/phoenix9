@@ -11,7 +11,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-new",
@@ -25,7 +26,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-restart",
@@ -39,7 +41,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-send",
@@ -53,7 +56,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-sessions",
@@ -67,7 +71,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-status",
@@ -81,7 +86,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "agent-stop",
@@ -95,7 +101,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "bell",
@@ -109,7 +116,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "bell_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "bell-dismiss",
@@ -133,7 +141,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "bell-dismiss-all",
@@ -147,7 +156,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "blocks-check",
@@ -161,7 +171,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-discard",
@@ -175,7 +186,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-note",
@@ -217,7 +229,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-pause",
@@ -243,7 +256,8 @@
     },
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-plan",
@@ -276,7 +290,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-resume",
@@ -300,7 +315,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-start",
@@ -351,7 +367,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "build-stop",
@@ -386,7 +403,8 @@
     },
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": "run_id"
+    "confirm_with": "run_id",
+    "timeout_s": 0
   },
   {
     "name": "build-tidy",
@@ -400,7 +418,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "builds-list",
@@ -433,7 +452,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "RunCards",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "cards-build",
@@ -447,7 +467,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "chat-forget",
@@ -473,7 +494,8 @@
     },
     "fixed_query": {},
     "card": "",
-    "confirm_with": "name"
+    "confirm_with": "name",
+    "timeout_s": 0
   },
   {
     "name": "chat-open",
@@ -497,7 +519,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 90
   },
   {
     "name": "chat-show",
@@ -521,7 +544,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "chat-sleep",
@@ -545,7 +569,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "daily-report",
@@ -559,7 +584,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "report_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "daily-report-now",
@@ -573,7 +599,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "report_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "deploy-start",
@@ -587,7 +614,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "deploys-list",
@@ -601,7 +629,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "docs-download",
@@ -615,7 +644,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "docs-list",
@@ -639,7 +669,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "docs-show",
@@ -663,7 +694,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "doctor-run",
@@ -690,7 +722,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "doctor_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "edit-abandon",
@@ -716,7 +749,8 @@
     },
     "fixed_query": {},
     "card": "",
-    "confirm_with": "edit_id"
+    "confirm_with": "edit_id",
+    "timeout_s": 0
   },
   {
     "name": "edit-finish",
@@ -751,7 +785,8 @@
     },
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "edits-list",
@@ -775,7 +810,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "events-recent",
@@ -817,7 +853,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "events_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "folders-list",
@@ -831,7 +868,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "gate-answer",
@@ -878,7 +916,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "gate_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "gate-review",
@@ -902,7 +941,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "review_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "gates-list",
@@ -926,7 +966,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "gates_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "github-repos",
@@ -940,7 +981,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "global-addresses",
@@ -982,7 +1024,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "global_card",
-    "confirm_with": "allowed_origins"
+    "confirm_with": "allowed_origins",
+    "timeout_s": 0
   },
   {
     "name": "global-models",
@@ -1006,7 +1049,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "global_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "global-show",
@@ -1020,7 +1064,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "global_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "health",
@@ -1034,7 +1079,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "hotfix-start",
@@ -1067,7 +1113,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "images-build",
@@ -1081,7 +1128,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "import-candidates",
@@ -1095,7 +1143,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "info",
@@ -1109,7 +1158,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "job-status",
@@ -1133,7 +1183,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "keys-audit",
@@ -1147,7 +1198,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "keys-list",
@@ -1171,7 +1223,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "keys_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "keys-remove",
@@ -1185,7 +1238,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "keys-reveal",
@@ -1199,7 +1253,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "keys-save",
@@ -1223,7 +1278,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-presets",
@@ -1237,7 +1293,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-profiles",
@@ -1251,7 +1308,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-services",
@@ -1265,7 +1323,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-steps",
@@ -1279,7 +1338,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-templates",
@@ -1293,7 +1353,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "library-tools",
@@ -1307,7 +1368,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "logs-list",
@@ -1321,7 +1383,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "logs-read",
@@ -1335,7 +1398,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "merge-answer",
@@ -1381,7 +1445,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "gate_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "notifications-set",
@@ -1417,7 +1482,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plan-abandon",
@@ -1443,7 +1509,8 @@
     },
     "fixed_query": {},
     "card": "",
-    "confirm_with": "plan_id"
+    "confirm_with": "plan_id",
+    "timeout_s": 0
   },
   {
     "name": "plan-approve",
@@ -1469,7 +1536,8 @@
     },
     "fixed_query": {},
     "card": "gate_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plan-reply",
@@ -1502,7 +1570,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plan-send-back",
@@ -1537,7 +1606,8 @@
     },
     "fixed_query": {},
     "card": "gate_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plan-show",
@@ -1561,7 +1631,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plan-start",
@@ -1594,7 +1665,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "plans-list",
@@ -1618,7 +1690,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-changelog",
@@ -1632,7 +1705,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-check-name",
@@ -1656,7 +1730,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-create",
@@ -1725,7 +1800,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "project_cards",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-delete",
@@ -1749,7 +1825,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-delete-plan",
@@ -1763,7 +1840,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-delete-repo",
@@ -1787,7 +1865,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-edit",
@@ -1801,7 +1880,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-import",
@@ -1815,7 +1895,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-memory",
@@ -1839,7 +1920,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-remove",
@@ -1853,7 +1935,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-services-set",
@@ -1886,7 +1969,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "project_cards",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-show",
@@ -1910,7 +1994,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "project_cards",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "project-specs",
@@ -1934,7 +2019,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "projects-list",
@@ -1994,7 +2080,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "project_cards",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-file-add",
@@ -2018,7 +2105,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-file-delete",
@@ -2042,7 +2130,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-file-remove",
@@ -2075,7 +2164,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": "filename"
+    "confirm_with": "filename",
+    "timeout_s": 0
   },
   {
     "name": "reference-link-delete",
@@ -2099,7 +2189,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-link-remove",
@@ -2132,7 +2223,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": "url"
+    "confirm_with": "url",
+    "timeout_s": 0
   },
   {
     "name": "reference-links-add",
@@ -2156,7 +2248,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-list",
@@ -2180,7 +2273,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "reference-vision-set",
@@ -2204,7 +2298,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-apply",
@@ -2218,7 +2313,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-raise-max-tries",
@@ -2260,7 +2356,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-report",
@@ -2274,7 +2371,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-rerun-step",
@@ -2325,7 +2423,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-restart-preset",
@@ -2367,7 +2466,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-resume-from",
@@ -2409,7 +2509,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-rewrite-checks",
@@ -2460,7 +2561,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-skip-task",
@@ -2511,7 +2613,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "repair-unlock-request",
@@ -2562,7 +2665,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "report-status",
@@ -2576,7 +2680,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "routes",
@@ -2590,7 +2695,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "routes_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "run-diagnose",
@@ -2623,7 +2729,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "diagnose_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "run-estimates",
@@ -2647,7 +2754,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "run-events",
@@ -2698,7 +2806,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "events_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "run-show",
@@ -2731,7 +2840,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "run_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "run-timing",
@@ -2764,7 +2874,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "search",
@@ -2812,7 +2923,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "search_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-connect",
@@ -2826,7 +2938,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-disconnect",
@@ -2840,7 +2953,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-logs-list",
@@ -2854,7 +2968,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-logs-read",
@@ -2868,7 +2983,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-restart",
@@ -2882,7 +2998,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "service-test",
@@ -2896,7 +3013,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "services-global",
@@ -2910,7 +3028,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "services-list",
@@ -2924,7 +3043,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "services_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-change",
@@ -2957,7 +3077,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-check",
@@ -2981,7 +3102,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-defaults",
@@ -2995,7 +3117,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-explain",
@@ -3019,7 +3142,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-preset",
@@ -3052,7 +3176,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "settings-show",
@@ -3076,7 +3201,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "settings_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "step-session",
@@ -3136,7 +3262,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "session_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "suggest-dismiss",
@@ -3160,7 +3287,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "suggest-list",
@@ -3174,7 +3302,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "suggest-shown",
@@ -3198,7 +3327,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "suggest-snooze",
@@ -3231,7 +3361,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "task-tries",
@@ -3273,7 +3404,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "tries_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "ui-go",
@@ -3287,7 +3419,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "update-check",
@@ -3303,7 +3436,8 @@
       "refresh": "1"
     },
     "card": "update_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "update-history",
@@ -3317,7 +3451,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "update-install",
@@ -3343,7 +3478,8 @@
     },
     "fixed_query": {},
     "card": "update_card",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "update-log",
@@ -3357,7 +3493,8 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   },
   {
     "name": "update-rollback",
@@ -3371,6 +3508,7 @@
     "fixed": {},
     "fixed_query": {},
     "card": "",
-    "confirm_with": ""
+    "confirm_with": "",
+    "timeout_s": 0
   }
 ]

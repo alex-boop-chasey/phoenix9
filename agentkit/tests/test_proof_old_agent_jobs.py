@@ -201,6 +201,34 @@ def test_job_10():
     run(go())
 
 
+def test_job_11():
+    async def go():
+        fake, store, r, _a, seen = build([("builds-list", {"name": "beta"})])
+        tid = store.create_thread()["id"]
+        first = r.start(tid, "how are the builds?")
+        second = r.start(tid, "and is anything waiting on me?")   # sent while the first reply is being written
+        assert first["queued"] is False and second["queued"] is True
+        while (task := r.active.get(tid)) is not None:
+            await task
+            await asyncio.sleep(0)
+        log = [(e.get("name", e["type"]), e.get("value", {}).get("text") if e.get("name") == "user_message" else None)
+               for _, e in store.events_after(tid)]
+        asked = [text for name, text in log if name == "user_message"]
+        assert asked == ["how are the builds?", "and is anything waiting on me?"]
+        finished = [i for i, (name, _t) in enumerate(log) if name == "RUN_FINISHED"]
+        second_asked = log.index(("user_message", "and is anything waiting on me?"))
+        assert len(finished) == 2 and finished[0] < second_asked < finished[1]   # answered after run 1, not refused
+        started = [e["runId"] for _, e in store.events_after(tid) if e["type"] == "RUN_STARTED"]
+        assert started == [first["run_id"], second["run_id"]]
+        assert [q.url.path for q in fake.requests] == ["/api/projects/beta/runs"] and len(seen) == 3
+        tools = {e["name"]: e for e in load_controls() if e["agent"] == "tool"}
+        assert tools["chat-open"]["timeout_s"] == 90   # waking a chat may take longer than the default wait
+        for word in ("they are answered in order", "Start slow things", "answer in one line"):
+            assert word in INSTRUCTIONS, word
+
+    run(go())
+
+
 def test_job_12():
     import test_stop
     test_stop.test_stop_cancels_the_model_call_logs_it_and_a_new_run_can_start()

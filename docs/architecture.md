@@ -1081,6 +1081,11 @@ needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POS
 `POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
 `POST /browser-results/{id}`, `GET /spend`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
+A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
+answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
+logged as Alex's message only when it starts. A thread waiting on Alex's answer to a change refuses new messages
+(409). Stop empties the queue (`run_stopped` says how many were dropped). The queue is in memory only: a service
+restart drops it.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.
@@ -1104,7 +1109,8 @@ who `agent`. The uid must not be 0 or one of `[access] peer_uids` (the `upstream
 **The controls registry.** `phoenix9/ops/controls.py` (part of the ops layer) is the single source of truth: one entry
 per dashboard control with `name`, `ops` (the `module.function` it calls), `method`, `route` (the same pattern as in
 `server.ROUTES`), `risk` (`read`, `change`, `destructive` or `alex-only`), `agent`, typed `inputs`, `fixed` body
-values, `card` (the result card) and, for destructive ones, `confirm_with`. Several controls may share one route
+values, `card` (the result card), for destructive ones `confirm_with`, and `timeout_s` (how long the agent waits for
+the answer, 0 = its client's default; a slow control like waking a chat sets more). Several controls may share one route
 (approve plan and send back plan both use the gate answer route). `agent` says what the agent may do with it:
 `tool` (an agent tool), `alex-only`, `key-card` (saved only through the masked key card), `secret` (would put a
 secret value through the model, so never a tool) or `later` (a later agent build), the last with a `why`. Each input
@@ -1114,7 +1120,7 @@ has `name`, `type` (string, integer, boolean, choice, list or object), `required
 **The description file.** `agentkit/agentkit/packs/phoenix/controls.json` is written by `phoenix9/controlsgen.py`
 from the registry: a JSON list with one object per control holding `name`, `description` (the registry text, else
 the first docstring line of the ops function), `inputs`, `risk`, `agent`, `why`, `method`, `route`, `fixed`,
-`fixed_query`, `card` and `confirm_with`. It is a data file, not code: the pack reads it at start-up and builds one
+`fixed_query`, `card`, `confirm_with` and `timeout_s`. It is a data file, not code: the pack reads it at start-up and builds one
 server tool per `agent: tool` entry, so the pack never imports phoenix9. A test fails when the file differs from
 what the generator makes.
 

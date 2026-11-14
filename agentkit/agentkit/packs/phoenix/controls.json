@@ -659,6 +659,65 @@
     "confirm_with": ""
   },
   {
+    "name": "edit-finish",
+    "description": "Finish a quick edit: Phoenix checks it, pushes it and opens a merge request, in a background job (the result carries the job id to follow).",
+    "inputs": [
+      {
+        "name": "edit_id",
+        "type": "string",
+        "required": true,
+        "description": "The quick edit's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "message",
+        "type": "string",
+        "required": false,
+        "description": "The commit message (the edit's title if left out).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/edits/(?P<edit_id>[^/]+)/finish",
+    "fixed": {
+      "confirm": true
+    },
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "edits-list",
+    "description": "List the open and stalled quick edits that project chats started (all projects or one).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": false,
+        "description": "Only this project's.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/edits",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "events-recent",
     "description": "Read recent events, newest last, for all projects or one.",
     "inputs": [
@@ -1353,6 +1412,39 @@
     "confirm_with": ""
   },
   {
+    "name": "plan-reply",
+    "description": "Send Alex's answer, word for word, to a planning session that is waiting on questions.",
+    "inputs": [
+      {
+        "name": "plan_id",
+        "type": "string",
+        "required": true,
+        "description": "The planning session's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "text",
+        "type": "string",
+        "required": true,
+        "description": "Alex's answer, word for word.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/plans/(?P<plan_id>[^/]+)/reply",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "plan-send-back",
     "description": "Send a build's plan back with a note saying what to change.",
     "inputs": [
@@ -1385,6 +1477,87 @@
     },
     "fixed_query": {},
     "card": "gate_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "plan-show",
+    "description": "Read one planning session: its state, open questions, last report and spec document.",
+    "inputs": [
+      {
+        "name": "plan_id",
+        "type": "string",
+        "required": true,
+        "description": "The planning session's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/plans/(?P<plan_id>[^/]+)",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "plan-start",
+    "description": "Start a planning session that writes a spec for a project from a plain brief.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "brief",
+        "type": "string",
+        "required": true,
+        "description": "What to plan, in plain words.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/plans",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
+    "name": "plans-list",
+    "description": "List planning sessions (all projects or one) with their state and open questions.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": false,
+        "description": "Only this project's.",
+        "choices": [],
+        "where": "query",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "GET",
+    "route": "/api/plans",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
     "confirm_with": ""
   },
   {

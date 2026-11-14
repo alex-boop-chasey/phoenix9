@@ -36,6 +36,9 @@ CREATE_BUSY = "Another project is being created; try again in a moment."
 DEPLOY_BUSY = "Another deploy is running; try again when it has finished."
 IMAGES_BUSY = "Images are being built already; try again when that has finished."
 RESTART_BUSY = "A restart is already waiting; try again when it has finished."
+FINISH_BUSY = "That quick edit is already being finished; wait for that to end."
+WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit and planning session ids
+MAX_REPLY = 2000
 WHO = "dashboard"
 AGENT_NEXT = "/api/agent-next"
 
@@ -980,12 +983,87 @@ def post_run_stop(req, project, run_id):
         return runs.stop(check_run_id(run_id), who=req.who, project=check_name(project))
 
 
+def check_work_id(work_id: str, what: str) -> str:
+    """A valid quick edit or planning session id, or BadRequest."""
+    if not WORK_ID_RE.match(work_id):
+        raise BadRequest(f"That isn't a valid {what} id.")
+    return work_id
+
+
+def get_edits(req):
+    """Reply with the open and stalled quick edits (?project= for one project)."""
+    project = req.query.get("project") or None
+    return ops_work.list_edits(check_name(project) if project else None)
+
+
+def run_finish_job(httpd, job: dict, edit_id: str, message, who: str) -> None:
+    """Background thread: check, push and open a merge request for a quick edit; keep the record on the job."""
+    result, status, message_out = None, "done", ""
+    try:
+        result = ops_work.finish_edit(edit_id, who, message)
+    except common.OpsError as err:
+        status, message_out = "failed", str(err)
+    except Exception:
+        api_log(traceback.format_exc())
+        status, message_out = "failed", SERVER_ERROR
+    with httpd.jobs_lock:
+        job["result"], job["message"], job["finished_at"], job["status"] = result, message_out, time.time(), status
+
+
+def post_edit_finish(req, edit_id):
+    """Start finishing a quick edit in a background job (needs confirm) and reply with the job id; one per edit."""
+    check_work_id(edit_id, "quick edit")
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Finishing a quick edit needs confirmation.")
+    message = body_text(req, "message", False)
+    httpd = req.server
+    with httpd.jobs_lock:
+        purge_jobs(httpd.jobs)
+        if any(j["status"] == "running" and j["kind"] == "edit-finish" and j.get("edit") == edit_id
+               for j in httpd.jobs.values()):
+            raise common.Conflict(FINISH_BUSY)
+        job_id = secrets.token_hex(6)
+        job = {"id": job_id, "kind": "edit-finish", "project": None, "edit": edit_id, "status": "running",
+               "steps": [], "message": "", "result": None, "finished_at": 0.0}
+        httpd.jobs[job_id] = job
+    threading.Thread(target=run_finish_job, args=(httpd, job, edit_id, message, req.who), daemon=True).start()
+    return {"job_id": job_id}
+
+
 def post_edit_abandon(req, edit_id):
     """Abandon a quick edit (the body must hold {"confirm": true})."""
     if req.body.get("confirm") is not True:
         raise BadRequest("Abandoning a quick edit needs confirmation.")
     with req.server.write_lock:
-        return ops_work.abandon_edit(edit_id, WHO)
+        return ops_work.abandon_edit(edit_id, req.who)
+
+
+def get_plans(req):
+    """Reply with the planning sessions (?project= for one project)."""
+    project = req.query.get("project") or None
+    return ops_work.list_plans(check_name(project) if project else None)
+
+
+def get_plan(req, plan_id):
+    """Reply with one planning session."""
+    return ops_work.show_plan(check_work_id(plan_id, "planning session"))
+
+
+def post_plan_start(req, name):
+    """Queue a planning session on a project from a brief (always the usual planning model)."""
+    brief = body_text(req, "brief", True)
+    with req.server.write_lock:
+        return ops_work.start_plan(check_name(name), brief, req.who)
+
+
+def post_plan_reply(req, plan_id):
+    """Queue Alex's answer, word for word, for a waiting planning session."""
+    check_work_id(plan_id, "planning session")
+    text = body_text(req, "text", True)
+    if len(text) > MAX_REPLY:
+        raise BadRequest(f"The answer is too long (at most {MAX_REPLY:,} characters).")
+    with req.server.write_lock:
+        return ops_work.reply_plan(plan_id, text, req.who)
 
 
 def post_plan_abandon(req, plan_id):
@@ -993,7 +1071,7 @@ def post_plan_abandon(req, plan_id):
     if req.body.get("confirm") is not True:
         raise BadRequest("Abandoning a planning session needs confirmation.")
     with req.server.write_lock:
-        return ops_work.abandon_plan(plan_id, WHO)
+        return ops_work.abandon_plan(plan_id, req.who)
 
 
 def post_run_pause(req, run_id):
@@ -1381,7 +1459,13 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", rf"/api/projects/{NAME}/hotfix", post_hotfix),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("GET", r"/api/edits", get_edits),
+    ("POST", r"/api/edits/(?P<edit_id>[^/]+)/finish", post_edit_finish),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),
+    ("GET", r"/api/plans", get_plans),
+    ("GET", r"/api/plans/(?P<plan_id>[^/]+)", get_plan),
+    ("POST", rf"/api/projects/{NAME}/plans", post_plan_start),
+    ("POST", r"/api/plans/(?P<plan_id>[^/]+)/reply", post_plan_reply),
     ("POST", r"/api/plans/(?P<plan_id>[^/]+)/abandon", post_plan_abandon),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/pause", post_run_pause),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),

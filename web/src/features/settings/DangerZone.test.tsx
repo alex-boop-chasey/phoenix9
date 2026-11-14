@@ -164,6 +164,19 @@ test("a GitHub repo that is not the project's own is shown as kept", async () =>
   expect(screen.queryByRole("button", { name: "Delete repo" })).toBeNull()
 })
 
+test("a project with only the projects folder's shared repo says it has no repo of its own", async () => {
+  const noOwn = "No GitHub repo of its own: nothing to delete on GitHub."
+  await open({
+    "GET /api/projects/demo/delete-plan": {
+      ...plan, repo: null, shared_repo: "me/projects", open_prs: [],
+      repo_delete: { repo: null, delete: false, shared_repo: "me/projects", why: noOwn },
+    },
+  })
+  expect(await screen.findByText(noOwn)).toBeInTheDocument()
+  expect(screen.queryByText(/me\/projects/)).toBeNull()
+  expect(screen.queryByTestId("repo-verdict")).toBeNull()
+})
+
 test("a GitHub repo that will go says so on its line", async () => {
   await open({ "GET /api/projects/demo/delete-plan": { ...plan, repo_delete: { repo: "me/demo", delete: true, why: "x" } } })
   expect(await screen.findByTestId("repo-verdict")).toHaveTextContent("(will be deleted)")
@@ -177,6 +190,8 @@ describe("the delete help line says whether the GitHub repo goes", () => {
     ["not made by Phoenix", { repo: "https://github.com/me/demo.git", repo_owner: "me", repo_name: "demo", repo_made_by_phoenix: false },
       "Removes the folder, builds and keys. Your GitHub repo me/demo is kept: Phoenix did not create it."],
     ["no repo", { repo: "", repo_owner: null, repo_name: null, repo_made_by_phoenix: false },
+      "Removes the folder, builds and keys."],
+    ["only the projects folder's shared repo", { repo: "", repo_owner: null, repo_name: null, shared_repo: "me/projects", repo_made_by_phoenix: false },
       "Removes the folder, builds and keys."],
   ]
   test.each(cases)("%s", async (_label, over, words) => {

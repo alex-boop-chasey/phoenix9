@@ -45,7 +45,7 @@ def test_rewrite_checks_applies(tmp_path):
 def test_rewrite_checks_refused_when_locked(tmp_path):
     r = make(tmp_path)
     atomic.write_json(r["run_dir"] / "tasks" / "1" / "checks.lock.json", {"files": {"tests/a.py": "abc"}})
-    with pytest.raises(common.Conflict, match="loosen a safety check"):
+    with pytest.raises(common.Conflict, match="needs Alex's approval"):
         ops.rewrite_checks(r["run"], 1, "make it easier", who="agent")
 
 

@@ -69,6 +69,7 @@ Rules:
   that runs them.
 - `Depends on:` must be accurate and minimal: list every task whose result this one needs and no
   others, or `none`. It will decide which tasks may run side by side. Never make a cycle.
+- Web projects (tested with Vitest): Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, and do not add Playwright to the project: Alex checks pages by hand. Never write a Done-when bullet that needs a browser test (Playwright, a real browser, clicking through pages): prove the logic and components with Vitest instead. List what he should click to check the change under 'Try by hand' in the summary: put it in the task's goal text on one line starting `Try by hand:` (what to open, what to press, what he should see); Phoenix copies those lines into the run summary.
 - `For you: yes` only for things only a human can do (accounts, payments, DNS, keys). Everything else
   is `For you: no`. Never ask the build to create secrets.
 - Keep everything in the brief. Do not drop what it asks for and do not invent large extras. Put a short

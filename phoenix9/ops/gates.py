@@ -6,6 +6,7 @@ import re
 from phoenix9 import git as gitmod, gates as core, runs, scrub, settings, state
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
+from phoenix9.repair import unlock
 
 
 def list_(project: str | None = None) -> list:
@@ -35,6 +36,8 @@ def answer(gate_id: str, action: str, note: str = "", who: str = "cli", by: floa
         raise common.Conflict(str(err)) from None
     except ValueError as err:
         raise OpsError(str(err)) from None
+    if gate.get("kind") == unlock.KIND:
+        unlock.answered(runs.find_run(gate["run"]), gate, action, who)
     common.record_command(who, f"gate answer {gate_id} {action}", gate["project"],
                           f"answered gate {gate_id}: {action}")
     return {"gate": gate_id, **result}

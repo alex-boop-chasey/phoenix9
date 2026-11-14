@@ -668,13 +668,28 @@ def test_plain_code_folder_never_deletes_parent_repo(env, unitdir, meta):
     (folder / "code" / "f.txt").write_text("f")
     host_git(env["host"], folder)
     plan = project_delete.plan("plain", "cli", env["fakes"])
-    assert plan["repo"] == "me/projects" and plan["repo_delete"]["delete"] is False
-    assert plan["repo_delete"]["why"].startswith("GitHub repo me/projects not deleted: it ")
+    assert plan["repo"] is None and plan["shared_repo"] == "me/projects"      # no repo of its own (O68)
+    assert plan["repo_delete"] == {"repo": None, "delete": False, "shared_repo": "me/projects",
+                                   "why": "No GitHub repo of its own: nothing to delete on GitHub."}
+    assert plan["open_prs"] == [] and not [c for c in env["host"].calls if c[:2] == ["gh", "pr"]]
     res = project_delete.delete("plain", "plain", "cli", env["fakes"])
     assert not folder.exists() and _gh_deletes(env) == []
     gh = res["steps"][-1]
-    assert gh["step"] == "GitHub repo" and gh["ok"] and gh.get("kept") and "not deleted" in gh["words"]
-    assert res["not_done"] == []
+    assert gh["step"] == "GitHub repo" and gh["ok"] and gh.get("kept")
+    assert gh["words"] == "No GitHub repo of its own: nothing to delete on GitHub."
+    assert "me/projects" not in gh["words"] and res["not_done"] == []
+    manifest = json.loads((paths.deleted_projects().glob("plain-*").__next__() / "manifest.json").read_text())
+    assert manifest["repo"] is None and manifest["repo_url"] == "" and manifest["shared_repo"] == "me/projects"
+
+
+def test_code_repo_of_its_own_is_not_counted_as_shared(env, unitdir):
+    """code/ that is its own git repo keeps its repo in the plan, even inside the shared projects repo."""
+    _shared_parent(env)
+    folder = make(env, "alpha", meta=OWN_META)
+    git_repo(folder / "code", origin_url="https://github.com/me/alpha.git")
+    host_git(env["host"], folder)
+    plan = project_delete.plan("alpha", "cli", env["fakes"])
+    assert plan["repo"] == "me/alpha" and plan["shared_repo"] is None
 
 
 def test_own_repo_is_deleted(env, unitdir):
@@ -1091,9 +1106,10 @@ def test_edit_repo_then_delete_keeps_the_foreign_repo(env, unitdir):
 @pytest.mark.parametrize("meta", [None, {"source": "empty", "repo": "me/projects", "phoenix_made_repo": "me/projects",
                                          "phoenix_made_repo_id": "R_p"}])
 def test_parent_repo_reason_comes_first(env, meta):
+    """code/ is its own repo but points at the shared repo: the shared-repo rule still keeps it."""
     _shared_parent(env)
     folder = make(env, "plain", meta=meta)
-    (folder / "code").mkdir()
+    git_repo(folder / "code", origin_url="https://github.com/me/projects.git")
     host_git(env["host"], folder)
     verdict = project_delete.plan("plain", "cli", env["fakes"])["repo_delete"]
     assert verdict["why"] == "GitHub repo me/projects not deleted: it is the projects folder's shared repo."
@@ -1104,10 +1120,21 @@ def test_cli_marks_a_kept_repo_on_its_line(env, capsys):
     from test_project_cmds import run_cmd
     _shared_parent(env)
     folder = make(env, "plain")
-    (folder / "code").mkdir()
+    git_repo(folder / "code", origin_url="https://github.com/me/projects.git")
     host_git(env["host"], folder)
     out = run_cmd(capsys, "project", "delete", "plain", "--dry-run")[1]
     assert "  GitHub repo: me/projects (kept: it is the projects folder's shared repo)" in out
+
+
+def test_cli_says_no_repo_of_its_own(env, capsys):
+    from test_project_cmds import run_cmd
+    _shared_parent(env)
+    folder = make(env, "notes-only")
+    (folder / "code").mkdir()
+    host_git(env["host"], folder)
+    out = run_cmd(capsys, "project", "delete", "notes-only", "--dry-run")[1]
+    assert "  GitHub repo: none of its own, nothing to delete on GitHub\n" in out
+    assert "me/projects" not in out
 
 
 def test_cli_says_when_the_repo_goes(env, capsys):
@@ -1602,3 +1629,24 @@ def test_show_says_whether_phoenix_made_the_repo(env, meta, made):
     assert data["repo_made_by_phoenix"] is made
     assert "repo" in data
     assert not [c for c in env["host"].calls[before:] if c and c[0] in ("git", "gh")]   # cheap: no git or gh
+
+
+@pytest.mark.parametrize("meta", [None, {"source": "empty", "repo": "me/projects", "phoenix_made_repo": "me/projects"}])
+def test_info_reports_no_repo_when_only_the_shared_one_is_found(env, meta):
+    """A notes-only project inside the shared projects repo has no repo of its own in its info (O68)."""
+    from phoenix9.ops import projects
+    _shared_parent(env)
+    folder = make(env, "notes-only", meta=meta)
+    (folder / "code").mkdir()
+    data = projects.show("notes-only")
+    assert data["repo"] == "" and data["repo_owner"] is None and data["repo_name"] is None
+    assert data["shared_repo"] == "me/projects" and data["repo_made_by_phoenix"] is False
+
+
+def test_info_keeps_a_repo_of_its_own(env):
+    from phoenix9.ops import projects
+    _shared_parent(env)
+    folder = make(env, "alpha", meta={"repo": "me/alpha"})
+    git_repo(folder / "code", origin_url="https://github.com/me/alpha.git")
+    data = projects.show("alpha")
+    assert data["repo"] == "me/alpha" and data["repo_owner"] == "me" and data["shared_repo"] is None

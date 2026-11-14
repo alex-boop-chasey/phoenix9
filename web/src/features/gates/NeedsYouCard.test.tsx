@@ -2,6 +2,7 @@ import { act, fireEvent, screen, waitFor } from "@testing-library/react"
 
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
 import type { Gate } from "@/lib/types"
+import { line, runDetail } from "@/test/buildFixtures"
 import { gate as escalation } from "@/test/fixtures"
 import { mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -16,6 +17,9 @@ const merge: Gate = {
   actions: ["approve", "back", "skip", "stop"], flags: ["changes safety code"],
   links: [{ label: "See the changes", url: "https://github.com/x/y/pull/1" }],
 }
+
+/** The same merge question with nothing wrong, so Approve answers at once. */
+const cleanMerge: Gate = { ...merge, flags: [] }
 
 const answerRoute = (id: string) => ({
   [`POST /api/gates/${id}/answer`]: { gate: id, action: "approve", note: "", who: "alex", at: "" },
@@ -70,7 +74,7 @@ describe("NeedsYouCard", () => {
 
   it("approve posts approve", async () => {
     const { calls } = mockApi(answerRoute("r.1"))
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     await waitFor(() => expect(calls.length).toBe(1))
     expect(calls[0]!.path).toBe("/api/gates/r.1/answer")
@@ -149,7 +153,7 @@ describe("NeedsYouCard", () => {
 
   it("answered state then disappears", async () => {
     mockApi(answerRoute("r.1"))
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Answered: Phoenix is carrying on")).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText("Answered: Phoenix is carrying on")).toBeNull(), { timeout: 3000 })
@@ -158,17 +162,97 @@ describe("NeedsYouCard", () => {
 
   it("409 shows already answered", async () => {
     stubFailure(409, "That question was already answered.")
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Someone already answered this.")).toBeInTheDocument()
   })
 
   it("error shows plain message", async () => {
     stubFailure(500, "Phoenix could not save that.")
-    renderWithProviders(<NeedsYouCard gate={merge} />)
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} />)
     fireEvent.click(button("Approve"))
     expect(await screen.findByText("Phoenix could not save that.")).toBeInTheDocument()
     expect(button("Approve")).toBeEnabled()
     void act
+  })
+
+  it("approve on a merge with flags asks first, lists them and merges on Merge anyway", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, flags: ["full suite did not pass", "handed to the Phoenix agent"] }} />)
+    fireEvent.click(button("Approve"))
+    const list = await screen.findByRole("list", { name: "What went wrong" })
+    expect(list.textContent).toBe("Full suite did not pass")
+    expect(calls.length).toBe(0)
+    fireEvent.click(button("Merge anyway"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "approve", note: "" })
+  })
+
+  it("approve on a merge whose run has a failed or skipped part asks first; Cancel sends nothing", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    const base = runDetail()
+    const run = runDetail({
+      tasks: { "1": { ...base.tasks["1"]!, status: "passed" }, "4": { ...base.tasks["1"]!, status: "skipped" } },
+      steps: [line({ group: "run-finish", task: null, step: "full-suite", status: "failed" })],
+    })
+    renderWithProviders(<NeedsYouCard gate={cleanMerge} run={run} />)
+    fireEvent.click(button("Approve"))
+    const items = await screen.findAllByRole("listitem")
+    expect(items.map((i) => i.textContent)).toEqual(["Task 4 was skipped", "Final test run failed"])
+    fireEvent.click(button("Cancel"))
+    await waitFor(() => expect(screen.queryByRole("list", { name: "What went wrong" })).toBeNull())
+    expect(calls.length).toBe(0)
+  })
+
+  it("approve on a question that is not a merge never asks, flags or not", async () => {
+    const { calls } = mockApi(answerRoute("r.1"))
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, kind: "plan", flags: ["changes safety code"] }} />)
+    fireEvent.click(button("Approve"))
+    await waitFor(() => expect(calls.length).toBe(1))
+  })
+})
+
+const unlock: Gate = {
+  ...escalation, id: "r-fail.4", run: "r-fail", kind: "repair-unlock", task: null, step: null, links: [], flags: [],
+  title: "The agent asks to reset the worktree and force a repair past its check on r-fail: the worktree is stuck",
+  why: "the worktree is stuck", actions: ["approve", "deny"], unlock_steps: ["reset-worktree", "force"], asked_by: "agent",
+}
+
+describe("NeedsYouCard: the agent asks to unlock a repair", () => {
+  it("shows the run, the repairs in plain words, the reason and Allow once / Don't allow", () => {
+    mockApi({})
+    renderWithProviders(<NeedsYouCard gate={unlock} />)
+    const body = screen.getByTestId("repair-unlock")
+    expect(body).toHaveTextContent("The Phoenix agent asks you to allow, once, a repair it may not do alone on build r-fail")
+    const items = screen.getByRole("list", { name: "Repairs asked for" }).querySelectorAll("li")
+    expect([...items].map((i) => i.textContent)).toEqual(["reset the worktree", "force a repair past its check"])
+    expect(body).toHaveTextContent("Why: the worktree is stuck")
+    expect(screen.getByText("Repair")).toBeInTheDocument()
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Allow once", "Don't allow"])
+  })
+
+  it("Allow once asks first; Cancel sends nothing, confirming sends approve", async () => {
+    const { calls } = mockApi(answerRoute("r-fail.4"))
+    renderWithProviders(<NeedsYouCard gate={unlock} />)
+    fireEvent.click(button("Allow once"))
+    expect(await screen.findByText(/The Phoenix agent may then reset the worktree and force a repair past its check on this build, one time/)).toBeInTheDocument()
+    fireEvent.click(button("Cancel"))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Yes, allow once" })).toBeNull())
+    expect(calls.length).toBe(0)
+    fireEvent.click(button("Allow once"))
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, allow once" }))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "approve", note: "" })
+    expect(await screen.findByText(/Allowed once/)).toBeInTheDocument()
+  })
+
+  it("Don't allow sends deny at once", async () => {
+    const { calls } = mockApi(answerRoute("r-fail.4"))
+    renderWithProviders(<NeedsYouCard gate={{ ...unlock, asked_by: "chat:demo-site" }} />)
+    expect(screen.getByTestId("repair-unlock")).toHaveTextContent("A chat in demo-site asks you")
+    fireEvent.click(button("Don't allow"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "deny", note: "" })
+    expect(await screen.findByText(/Not allowed/)).toBeInTheDocument()
   })
 })

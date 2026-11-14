@@ -16,12 +16,51 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from phoenix9 import atomic, events, gates, pause, runs as runs_mod, state, summary
+from phoenix9 import atomic, events, gates, pause, runs as runs_mod, scrub, state, summary
 
 ENDED = ("done", "failed", "stopped")
 TASK_FINAL = ("passed", "failed", "skipped")
 LOCK_WAIT_S = 10.0
 NOTES = {"stopped": "the run was stopped", "failed": "the run failed", "done": "the run ended"}
+
+
+RUN_GROUPS = ("run-start", "run-finish")
+REASON_MAX = 160
+
+
+def _first_line(text) -> str:
+    """The first non-empty line of some text, trimmed."""
+    return next((x.strip() for x in str(text or "").splitlines() if x.strip()), "")
+
+
+def failed_step(st: dict, title_of: Callable[[str], str]) -> dict | None:
+    """The first failed run-start or run-finish step of a run as {step, title, reason, text, error}, or None.
+
+    `text` is the line Alex sees ("Failed at: Full suite: 2 tests failed"); `error` is the run's
+    recorded reason ("Full suite failed: 2 tests failed"). Both are scrubbed."""
+    line = next((x for x in st.get("steps") or []
+                 if x.get("status") == "failed" and x.get("group") in RUN_GROUPS and x.get("task") is None), None)
+    if line is None:
+        return None
+    name = line.get("step") or ""
+    title = title_of(name) or name
+    reason = _first_line(scrub.scrub(line.get("note") or "")).removeprefix("The checks did not pass:").strip()
+    if len(reason) > REASON_MAX:
+        reason = reason[:REASON_MAX - 3].rstrip() + "..."
+    return {"step": name, "title": title, "reason": reason,
+            "text": f"Failed at: {title}: {reason}" if reason else f"Failed at: {title}",
+            "error": f"{title} failed: {reason}" if reason else f"{title} failed"}
+
+
+def mark_failed_step(s: dict, found: dict | None) -> None:
+    """Write (or, with None, clear) the failed step fields of a run's state: failed_step, failed_at, error."""
+    s.pop("failed_step", None)
+    s.pop("failed_at", None)
+    if found is None:
+        return
+    s["failed_step"] = found["step"]
+    s["failed_at"] = {k: found[k] for k in ("step", "title", "reason", "text")}
+    s["error"] = found["error"]
 
 
 class StopRequested(Exception):
@@ -72,8 +111,11 @@ def check(run_dir) -> None:
 
 
 def end_run(run_dir, status: str, *, reason: str = "", who: str = "phoenix", adapters=None,
-            after_stop: Callable[[], None] | None = None, lib_root=None) -> dict:
+            after_stop: Callable[[], None] | None = None, lib_root=None,
+            failed_at: dict | None = None) -> dict:
     """End the run as `status` (done | failed | stopped) the one clean way; returns {status, notes}.
+
+    `failed_at` (from failed_step) names the run-start or run-finish step a failed run failed at.
 
     The caller holds the run lock (the runner while walking, or a stop from outside). A run that already
     ended is left exactly as it is."""
@@ -96,6 +138,8 @@ def end_run(run_dir, status: str, *, reason: str = "", who: str = "phoenix", ada
         s["status"] = status            # final in the SAME update: no reader ever sees a tidied run still waiting
         if status == "failed" and reason:
             s["error"] = reason
+        if status == "failed" and failed_at is not None:
+            mark_failed_step(s, failed_at)
     state.update(run_dir, tidy)
     gates.close_questions(run_dir, f"run {status}", who=who)   # before the slow work: nothing is left to adopt
     pause.drop_stale(run_dir, st["project"], st["run_id"], f"run {status}")   # an ended run never pauses
@@ -104,7 +148,7 @@ def end_run(run_dir, status: str, *, reason: str = "", who: str = "phoenix", ada
     notes = runs_mod.discard_branch(adapters, st["project"], st["run_id"]) \
         if status == "stopped" and adapters is not None else []
     _request_file(run_dir).unlink(missing_ok=True)
-    words = "; ".join(x for x in (reason, *notes) if x)
+    words = "; ".join(x for x in (reason or (failed_at or {}).get("error", ""), *notes) if x)
     data = {"reason": words} if words else {}
     if who != "phoenix":
         data["who"] = who

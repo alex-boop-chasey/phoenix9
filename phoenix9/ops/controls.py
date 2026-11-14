@@ -192,6 +192,7 @@ CONTROLS = (
           inputs=(P_PROJECT, P_RUN), fixed={"confirm": True}, card="run_card", confirm_with="run_id"),
     _post("build-note", "runs.note", r"/api/runs/(?P<run_id>[^/]+)/note", "change", "later", LATER),
     _post("build-discard", "runs.discard", rf"/api/runs/{RUN}/discard", "destructive", "later", LATER),
+    _post("build-tidy", "runs.tidy", rf"/api/runs/{RUN}/tidy", "destructive", "later", LATER),
     _get("builds-list", "runs.builds", rf"/api/projects/{NAME}/runs", "tool", card="RunCards",
          text="List a project's recent builds, newest first, each with status, finish time and the failed task's one-line reason.",
          inputs=(P_NAME, _in("limit", "integer", description="How many builds at most (10 if left out).", where="query"))),
@@ -292,6 +293,13 @@ CONTROLS = (
     _post("repair-restart-preset", "repair.restart_on_preset", rf"/api/runs/{RUN}/repair/restart", "change", "tool",
           text="Start the build again from the same spec on another preset (the old run stays as it is).",
           inputs=(P_PROJECT, P_RUN, _in("preset", required=True, description="The preset to restart on.")),
+          card="repair_card"),
+    _post("repair-unlock-request", "repair.request_unlock", rf"/api/runs/{RUN}/repair/request-unlock", "change", "tool",
+          text="Ask Alex to allow once a repair the agent may not do alone; Alex answers in the dashboard.",
+          inputs=(P_PROJECT, P_RUN,
+                  _in("steps", "list", True, "The repairs to unlock: replace-spec, keep-hand-fix, reset-worktree, "
+                      "force, unlock-checks, stop or discard."),
+                  _in("why", required=True, description="Why the repair is needed, in one plain line.")),
           card="repair_card"),
     # ---- updates ----
     _get("update-check", "update.status", "/api/update", "tool", card="update_card",
@@ -450,6 +458,7 @@ HELPERS = {
     "runs.summary": "CLI-only: `phoenix run summary`.",
     "timing.lines": "Internal: the plain-English lines `phoenix run timing` prints.",
     "runs.would_lose": "Internal: part of discard's warning.",
+    "runs.tidy_merged": "CLI-only: `phoenix run tidy --merged`.",
     # service
     "service.restart_unit": "Internal: restarts one systemd unit.",
     "service.restart": "CLI-only: `phoenix service restart`.",

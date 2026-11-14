@@ -76,6 +76,12 @@ def tag_commit(layout, tag) -> str:
     return git(layout["origin"], "rev-parse", f"{tag}^{{commit}}")
 
 
+def no_marker(layout, tag) -> bool:
+    """True when no copy of Phoenix carries the updater's pre-<tag> marker."""
+    folders = [layout[k] for k in ("install", "prev", "next", "failed") if (layout[k] / ".git").exists()]
+    return all(f"pre-{tag}" not in git(f, "tag").split() for f in folders)
+
+
 def doctor(layout=None):
     return [str(paths.install() / "bin" / "phoenix"), "doctor"]
 
@@ -132,8 +138,8 @@ def test_install_happy_path(layout, adapters):
     assert out["ok"] and out["result"] == "installed" and out["previous"] == "v9.0"
     inst = layout["install"]
     assert head(inst) == tag_commit(layout, "v9.1")
-    assert git(inst, "rev-parse", "pre-v9.1^{commit}") == old
     assert head(layout["prev"]) == old
+    assert no_marker(layout, "v9.1")
     calls, cwds = adapters.host.calls, adapters.host.cwds
     i = calls.index(["./check.sh"])
     assert cwds[i] == str(layout["next"])
@@ -157,6 +163,7 @@ def test_failing_tests_stop_before_swap(layout, adapters):
     assert systemctl_calls(adapters) == []
     assert not layout["next"].exists()
     assert "2 failed" in (paths.logs() / "update-v9.1-checks.txt").read_text()
+    assert no_marker(layout, "v9.1")
     assert not hold_left()
     assert update_events() == ["update.started", "update.failed"]
     assert len(adapters.notify.messages) == 1
@@ -189,6 +196,7 @@ def test_failed_health_swaps_back(layout, adapters):
     assert out["result"] == "rolled-back" and not out["ok"]
     assert head(layout["install"]) == tag_commit(layout, "v9.0")
     assert head(layout["failed"]) == tag_commit(layout, "v9.1")
+    assert no_marker(layout, "v9.1")
     assert len(restarts(adapters)) == 2
     assert update_events() == ["update.started", "update.rolledback"]
     assert len(adapters.notify.messages) == 1 and "FAIL runner: not running" in adapters.notify.messages[0]
@@ -492,6 +500,7 @@ def test_install_crash_at_any_phase_recovers_old_version(layout, adapters, monke
     moved = phase not in ("preparing", "waiting")
     assert bool(restarts(adapters)) == moved
     assert updater.recover(adapters) is None          # nothing left to do
+    assert no_marker(layout, "v9.1")
     adapters.host.script(doctor(), rc=0)
     assert updater.install("v9.1", adapters, who="alex")["result"] == "installed"
 
@@ -998,3 +1007,37 @@ def test_install_replaces_a_changed_chat_unit_and_makes_the_launcher_executable(
     assert ["systemctl", "daemon-reload"] in adapters.host.calls
     assert (inst / "deploy" / "chat-launch.sh").stat().st_mode & 0o111
     assert "unit file claude-rc-chat@.service updated" in (paths.logs() / "updater.log").read_text()
+
+
+def test_recovery_deletes_a_marker_left_by_a_killed_install(layout, adapters, monkeypatch):
+    """A killed install never reached its own clean-up; recovery deletes the pre-<tag> marker."""
+    def die(*a, **k):
+        git(layout["install"], "tag", "-f", "pre-v9.1", "HEAD")      # what a killed process leaves behind
+        raise Crash("killed")
+    real = updater._drop_marker
+    monkeypatch.setattr(updater, "_drop_marker", lambda *a: None)
+    monkeypatch.setattr(updater, "_prepare", die)
+    killed(monkeypatch)
+    with pytest.raises(Crash):
+        updater.install("v9.1", adapters, who="alex")
+    assert not no_marker(layout, "v9.1")
+    monkeypatch.setattr(updater, "_drop_marker", real)
+    monkeypatch.setattr(updater, "_recover_after_error", REAL_RECOVER_AFTER_ERROR)
+    assert updater.recover(adapters)["result"] == "recovered"
+    assert no_marker(layout, "v9.1")
+
+
+def test_release_tag_ignores_markers_and_old_tags(layout, monkeypatch):
+    """The API's health tag is the highest v9.N on HEAD; a stray pre-v9.N marker or other tag never counts."""
+    from phoenix9.ops import app
+    inst = layout["install"]
+    monkeypatch.setenv("PHOENIX_LIBRARY", str(inst))
+    for name in ("pre-v9.26", "pre-v9.3", "v8.4", "v9.01"):
+        git(inst, "tag", name, "HEAD")
+    assert app.release_tag() == "v9.0"
+    git(inst, "tag", "v9.10", "HEAD")
+    git(inst, "tag", "v9.9", "HEAD")
+    assert app.release_tag() == "v9.10"
+    for name in ("v9.0", "v9.9", "v9.10"):
+        git(inst, "tag", "-d", name)
+    assert app.release_tag() == ""

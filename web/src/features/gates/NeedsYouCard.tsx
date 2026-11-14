@@ -6,11 +6,15 @@ import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { DocButtons } from "@/features/docs/DocButtons"
+import { MergeAnywayBody } from "@/features/gates/MergeAnywayBody"
+import { mergeWarnings } from "@/features/gates/mergeWarnings"
+import { RepairUnlockBody } from "@/features/gates/RepairUnlockBody"
+import { askerText, unlockList } from "@/features/gates/repairUnlock"
 import { Icon } from "@/components/Icon"
 import { Textarea } from "@/components/ui/textarea"
 import { ApiError } from "@/lib/api"
 import { useAnswerGate } from "@/lib/queries"
-import type { Gate, GateAction } from "@/lib/types"
+import type { Gate, GateAction, RunDetail } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 const LABEL: Record<string, string> = {
@@ -25,8 +29,12 @@ const LABEL: Record<string, string> = {
 
 const KNOWN: GateAction[] = ["approve", "back", "skip", "stop", "acknowledged"]
 
+/** The buttons of a repair-unlock question (the agent asks Alex to allow a repair once). */
+const UNLOCK_LABEL: Record<string, string> = { approve: "Allow once", deny: "Don't allow" }
+
 /** The label for an action: the known one, else the action's own name. */
-const labelOf = (action: GateAction) => LABEL[action] ?? action
+const labelOf = (action: GateAction, gate?: Gate) =>
+  (gate?.kind === "repair-unlock" ? UNLOCK_LABEL[action] : undefined) ?? LABEL[action] ?? action
 
 const ESCALATION_HELP =
   "Fix it, then press Acknowledged; the task runs once more."
@@ -37,12 +45,14 @@ const DELEGATED_HELP =
 const DELEGATED_FLAG = "handed to the Phoenix agent"   // the backend flag (failmodes.HANDOFF_FLAG); keep in step
 
 /** An amber card that shows one open question for Alex, with the buttons that answer it (none when readOnly). */
-export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean }) {
+export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = false, run }: { gate: Gate; compact?: boolean; reviewHref?: string; readOnly?: boolean; run?: RunDetail }) {
   const answer = useAnswerGate(gate.project)
   const [pressed, setPressed] = useState<GateAction | null>(null)
   const [noting, setNoting] = useState(false)
   const [note, setNote] = useState("")
   const [confirmStop, setConfirmStop] = useState(false)
+  const [confirmMerge, setConfirmMerge] = useState(false)
+  const [confirmUnlock, setConfirmUnlock] = useState(false)
   const [done, setDone] = useState<GateAction | null>(null)
   const [gone, setGone] = useState(false)
   const [already, setAlready] = useState(false)
@@ -74,6 +84,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
 
   const busy = answer.isPending
   const escalation = gate.kind === "escalation"
+  const unlock = gate.kind === "repair-unlock"
   const offers = (a: GateAction) => gate.actions.includes(a)
   const primary: GateAction = escalation ? "acknowledged" : "approve"
   const order: GateAction[] = escalation
@@ -81,9 +92,16 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
     : ["approve", "back", "skip", "stop", "acknowledged"]
   const extra = gate.actions.filter((a) => !KNOWN.includes(a))
   const shown = [...order.filter(offers), ...extra]
+  const warnings = gate.kind === "merge" ? mergeWarnings({ gate, run }) : []
+  const press = (action: GateAction) => {
+    if (action === "stop") setConfirmStop(true)
+    else if (action === "approve" && unlock) setConfirmUnlock(true)
+    else if (action === "approve" && warnings.length > 0) setConfirmMerge(true)
+    else send(action)
+  }
 
   const button = (action: GateAction) => {
-    const label = labelOf(action)
+    const label = labelOf(action, gate)
     const spin = pressed === action && <Loader2 className="animate-spin" aria-hidden />
     if (action === "back") {
       return (
@@ -98,7 +116,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         size={compact ? "sm" : "default"}
         variant={action === primary ? "default" : action === "stop" ? "destructive" : "outline"}
         disabled={busy}
-        onClick={() => (action === "stop" ? setConfirmStop(true) : send(action))}
+        onClick={() => press(action)}
       >
         {spin}
         {label}
@@ -108,13 +126,13 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
 
   let body
   if (done) {
-    body = <p role="status" className="font-semibold">Answered: Phoenix is carrying on</p>
+    body = <p role="status" className="font-semibold">{answeredText(gate, done)}</p>
   } else if (already) {
     body = <p role="status" className="font-semibold">Someone already answered this.</p>
   } else {
     body = (
       <>
-        {gate.why && <p className="text-sm">{gate.why}</p>}
+        {unlock ? <RepairUnlockBody gate={gate} /> : gate.why && <p className="text-sm">{gate.why}</p>}
         {gate.flags.length > 0 && (
           <div className="flags">
             {gate.flags.map((f) => (
@@ -197,6 +215,24 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         destructive
         onConfirm={() => send("stop")}
       />
+      <ConfirmDialog
+        open={confirmMerge}
+        onOpenChange={setConfirmMerge}
+        title="Merge even though the run is not clean?"
+        body={<MergeAnywayBody warnings={warnings} />}
+        confirmLabel="Merge anyway"
+        destructive
+        onConfirm={() => send("approve")}
+      />
+      <ConfirmDialog
+        open={confirmUnlock}
+        onOpenChange={setConfirmUnlock}
+        title="Allow this repair once?"
+        body={`${askerText(gate)} may then ${unlockList(gate.unlock_steps ?? [])} on this build, one time, within 30 minutes.`}
+        confirmLabel="Yes, allow once"
+        destructive
+        onConfirm={() => send("approve")}
+      />
     </article>
   )
 }
@@ -206,7 +242,14 @@ function where(gate: Gate): string {
   const parts = [gate.task != null ? `Task ${gate.task}` : null, gate.step ? `${stepName(gate.step)} step` : null]
   const found = parts.filter(Boolean).join(" · ")
   if (found) return found
+  if (gate.kind === "repair-unlock") return "Repair"
   return gate.kind === "merge" ? "Merge step" : gate.kind === "plan" ? "Plan" : gate.kind === "deploy" ? "Deploy" : "Build"
+}
+
+/** What the card says once answered. */
+function answeredText(gate: Gate, action: GateAction): string {
+  if (gate.kind !== "repair-unlock") return "Answered: Phoenix is carrying on"
+  return action === "approve" ? "Allowed once: the agent may do this repair within 30 minutes." : "Not allowed: the agent was told no."
 }
 
 /** "builder" -> "Builder". */

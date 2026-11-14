@@ -361,6 +361,20 @@
     "confirm_with": "run_id"
   },
   {
+    "name": "build-tidy",
+    "description": "Remove a finished run's worktree, local branch and GitHub branch once its merge request is merged on GitHub.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tidy",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "builds-list",
     "description": "List a project's recent builds, newest first, each with status, finish time and the failed task's one-line reason.",
     "inputs": [
@@ -1993,7 +2007,7 @@
   },
   {
     "name": "repair-report",
-    "description": "Write and return the run report: {run_id, project, path, text}.",
+    "description": "Write and return the run report: {run_id, project, path, text, failed_steps}.",
     "inputs": [],
     "risk": "read",
     "agent": "later",
@@ -2237,6 +2251,57 @@
     "why": "",
     "method": "POST",
     "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/skip",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "repair_card",
+    "confirm_with": ""
+  },
+  {
+    "name": "repair-unlock-request",
+    "description": "Ask Alex to allow once a repair the agent may not do alone; Alex answers in the dashboard.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "steps",
+        "type": "list",
+        "required": true,
+        "description": "The repairs to unlock: replace-spec, keep-hand-fix, reset-worktree, force, unlock-checks, stop or discard.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": true,
+        "description": "Why the repair is needed, in one plain line.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock",
     "fixed": {},
     "fixed_query": {},
     "card": "repair_card",

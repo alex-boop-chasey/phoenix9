@@ -457,11 +457,13 @@ def _recover_install(u: _Update, d: dict, job: dict) -> bool:
     """Install job: before the swap drop -next; from the swap on, put the old copy back. True if it moved."""
     if job["phase"] in ("preparing", "waiting"):
         _rm(d["next"])
+        _drop_marker(u, d, job["tag"])
         return False
     if job["phase"] == "swapping":
         _swap_in(d)                  # finish the half move first, so every copy is in a known place
     _restore(d)                      # swapped / restarted / restoring: the new copy was never confirmed
     _rm(d["next"])
+    _drop_marker(u, d, job["tag"])
     return True
 
 
@@ -592,6 +594,22 @@ def _install(u: _Update, tag: str, idle_timeout_min: int) -> dict:
     events.emit("update.started", project=None, tag=tag, previous=frm["tag"], who=u.who)
     u.start("install", tag, frm, {"tag": tag, "commit": commit}, "preparing")
     u.git(d["install"], "tag", "-f", f"pre-{tag}", "HEAD")
+    try:
+        return _install_from_marker(u, d, tag, frm, idle_timeout_min)
+    finally:
+        _drop_marker(u, d, tag)
+
+
+def _drop_marker(u: _Update, d: dict, tag: str) -> None:
+    """Delete the install's `pre-<tag>` marker from every copy that may carry it (a stray one once made
+    the installed copy report the marker as its release)."""
+    for folder in (d["install"], d["prev"], d["next"], d["failed"]):
+        if (folder / ".git").exists():
+            u.try_git(folder, "tag", "-d", f"pre-{tag}")
+
+
+def _install_from_marker(u: _Update, d: dict, tag: str, frm: dict, idle_timeout_min: int) -> dict:
+    """Install steps from the clone on (the caller made the `pre-<tag>` marker and deletes it after)."""
     _prepare(u, d, tag)
     if not _checks(u, d["next"], tag):
         return _failed_before_swap(u, d, tag, frm, "tests-failed",

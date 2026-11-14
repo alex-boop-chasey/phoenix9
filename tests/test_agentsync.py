@@ -22,6 +22,9 @@ def folders(tmp_path, phoenix_env, monkeypatch, adapters):
     (src / "skills" / "phoenix-agent" / "commands.md").write_text("<!-- phoenix 9.9 inputs abc -->\nbody\n")
     (src / "skills" / "phoenix-agent" / "SKILL.md").write_text("skill\n")
     (src / "agent-rules.md").write_text(RULES)
+    (src / "agents").mkdir()
+    (src / "agents" / "fixer.md").write_text("fixer\n")
+    (src / "agents" / "checker.md").write_text("checker\n")
     (agent / "CLAUDE.md").write_text("# Old\n\n" + LOCAL)
     monkeypatch.setattr("phoenix9.ops.common.make_adapters", lambda: adapters)
     return agent
@@ -41,6 +44,41 @@ def test_refresh_copies_pack_and_rebuilds_rules(folders, adapters):
 
 def test_doctor_lines_fail_before_refresh(folders, adapters):
     assert not agentsync.pack_current()[0] and not agentsync.rules_current()[0]
+    assert not agentsync.helpers_current()[0]
+
+
+def test_refresh_copies_helpers_and_keeps_other_files(folders, adapters):
+    helpers = folders / ".claude" / "agents"
+    helpers.mkdir(parents=True)
+    (helpers / "fixer.md").write_text("old fixer\n")
+    (helpers / "mine.md").write_text("Alex's own helper\n")
+    adapters.host.files["/root/.claude/sessions/1.json"] = ""
+    out = agentsync.refresh_agent(adapters)
+    assert out["helpers"] == 2
+    assert (helpers / "fixer.md").read_text() == "fixer\n" and (helpers / "checker.md").read_text() == "checker\n"
+    assert (helpers / "mine.md").read_text() == "Alex's own helper\n"     # never deleted
+    assert agentsync.helpers_current() == (True, "agent helpers current")
+
+
+def test_helpers_through_a_symlink_are_skipped(folders, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (folders / ".claude").mkdir()
+    (folders / ".claude" / "agents").symlink_to(elsewhere)
+    assert agentsync.copy_helpers() == [] and not list(elsewhere.iterdir())
+
+
+def test_doctor_warns_when_helpers_differ(folders, adapters):
+    ctx = doctor.Context(adapters, "full")
+    ok, detail, fix = doctor.check_agent_helpers(ctx)
+    assert ok and detail.startswith("Warning:") and "checker.md" in detail and "fixer.md" in detail and fix
+    agentsync.copy_helpers()
+    (folders / ".claude" / "agents" / "fixer.md").write_text("edited by hand\n")
+    ok, detail, _ = doctor.check_agent_helpers(ctx)
+    assert ok and "fixer.md" in detail and "checker.md" not in detail
+    agentsync.copy_helpers()
+    assert doctor.check_agent_helpers(ctx) == (True, "agent helpers current", "")
+    assert "agent-helpers" in doctor.CHECKS_BY_MODE["full"]
 
 
 def test_safety_files_are_only_added(folders, phoenix_env):

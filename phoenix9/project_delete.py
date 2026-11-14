@@ -36,8 +36,21 @@ CLAUDE = "claude"           # the Claude Code program name (only matched in ps o
 OWN_SOURCES = ("empty", "template")   # project.json sources where Phoenix itself made the GitHub repo
 
 
-def _repo(folder) -> str | None:
-    """The project's GitHub repo as owner/name, or None (shown in the plan; NOT proof the project owns it)."""
+NO_OWN_REPO = "No GitHub repo of its own: nothing to delete on GitHub."
+
+
+def _shared(folder, host) -> str | None:
+    """The projects folder's shared repo when it is the only repo found for the project (code/ not its own repo)."""
+    return project.shared_repo_of(folder, project.repo_of(folder),
+                                  lambda where, *args: _git_out(host, where, *args)) or None
+
+
+def _repo(folder, host) -> str | None:
+    """The project's own GitHub repo as owner/name, or None (shown in the plan; NOT proof the project owns it).
+
+    The projects folder's shared repo, found only because code/ sits inside it, is not the project's repo."""
+    if _shared(folder, host):
+        return None
     parts = project.split_repo(project.repo_of(folder))
     return f"{parts['owner']}/{parts['name']}" if parts["owner"] else None
 
@@ -92,7 +105,10 @@ def repo_verdict(name: str, folder: Path, host) -> dict:
     Only when every rule holds: Phoenix created the repo (project.json source empty/template with the repo
     recorded, and `phoenix_made_repo`, written only when Phoenix creates a repo, naming exactly that repo), code/ is its own git repo (not a plain folder inside a parent repo), code/'s origin is that repo,
     and no other project, removed-projects row or the projects folder's own repo points at it."""
-    shown = _repo(folder)
+    shared = _shared(folder, host)
+    if shared:
+        return {"repo": None, "delete": False, "shared_repo": shared, "why": NO_OWN_REPO}
+    shown = _repo(folder, host)
     if not shown:
         return {"repo": None, "delete": False, "why": "There is no GitHub repo."}
 
@@ -452,11 +468,12 @@ def plan(name: str, who: str, adapters) -> dict:
     """The dry run: everything that deleting this project would remove, and what stops it; changes nothing."""
     folder = common.project_dir(name)
     host = adapters.host
-    repo = _repo(folder)
+    shared = _shared(folder, host)
+    repo = None if shared else _repo(folder, host)
     prs, note = _open_prs(host, repo)
     chat = _chat(name, adapters)
     result = {"name": name, "folder": str(folder), "size": host.du_bytes(folder), "repo": repo,
-              "repo_delete": repo_verdict(name, folder, host), "open_prs": prs, "unpushed": _unpushed(host, folder),
+              "shared_repo": shared, "repo_delete": repo_verdict(name, folder, host), "open_prs": prs, "unpushed": _unpushed(host, folder),
               "unsaved_edits": _unsaved(host, folder), "runs": _runs(name),
               "keys": [k["name"] for k in keys.list_keys(name)], "chat": chat,
               "deployments": _deployments(name, folder),
@@ -632,7 +649,9 @@ def _make_copy(name: str, who: str, adapters, dest: Path, now: float) -> None:
     has_bundle = (dest / "repo.bundle").is_file()
     bundle_of = _key(_git_out(host, folder / "code", "remote", "get-url", "origin")) if has_bundle else None
     manifest = {"name": name, "folder": str(folder), "repo": repo,
-                "repo_url": project.repo_of(folder) or (f"https://github.com/{repo}" if repo else ""),
+                "repo_url": "" if plan_["shared_repo"] else (
+                    project.repo_of(folder) or (f"https://github.com/{repo}" if repo else "")),
+                "shared_repo": plan_["shared_repo"],
                 "who": who, "when": datetime.fromtimestamp(now, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "files": sorted(p.name for p in dest.iterdir()) + ["manifest.json", "RESTORE.md"],
                 "files_stored": stored, "run_files": run_count, "notes": notes,

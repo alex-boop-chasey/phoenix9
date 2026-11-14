@@ -1016,7 +1016,8 @@ def get_repair_report(req, run_id):
     with req.server.write_lock:
         done = ops_repair.report(run_id)
         found = ops_repair.check(run_id)["problems"]
-    return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found}
+    return {"run_id": done["run_id"], "project": done["project"], "markdown": done["text"], "findings": found,
+            "failed_steps": done["failed_steps"]}
 
 
 def get_repair_diagnose(req, run_id):
@@ -1151,6 +1152,16 @@ def post_repair_restart(req, project, run_id):
         return ops_repair.restart_on_preset(check_name(project), run_id, preset, who=req.who)
 
 
+def post_repair_request_unlock(req, project, run_id):
+    """Ask Alex to allow once a repair the agent or a chat may not do alone (only the dashboard answers it)."""
+    run_id, why = check_run_id(run_id), need(text_field(req, "why"), "why")
+    steps = need(req.body.get("steps"), "steps")
+    if not isinstance(steps, list) or not all(isinstance(x, str) for x in steps):
+        raise BadRequest("'steps' should be a list of repair names.")
+    with req.server.write_lock:
+        return ops_repair.request_unlock(run_id, steps, why, who=req.who, project=check_name(project))
+
+
 def post_run_note(req, run_id):
     """Add a note to a task of a run (the next attempt reads it)."""
     task = req.body.get("task")
@@ -1169,6 +1180,14 @@ def post_run_discard(req, project, run_id):
         raise BadRequest("force has to be true or false.")
     with req.server.write_lock:
         return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project), force=force)
+
+
+def post_run_tidy(req, project, run_id):
+    """Remove a finished, merged run's worktree and branches."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Tidying a run needs confirmation.")
+    with req.server.write_lock:
+        return runs.tidy(check_run_id(run_id), who=WHO, project=check_name(project))
 
 
 def get_gate_review(req, gate_id):
@@ -1368,6 +1387,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tidy", post_run_tidy),
     ("GET", r"/api/report/status", get_report_status),
     ("GET", r"/api/report/daily", get_report_daily),
     ("GET", r"/api/report/daily/now", get_report_daily_now),
@@ -1384,6 +1404,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/rewrite-checks", post_repair_rewrite_checks),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock", post_repair_request_unlock),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")

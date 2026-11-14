@@ -212,3 +212,72 @@ def test_chat_refused_on_a_merge_when_git_cannot_tell(tmp_path):
     folder = make_run(tmp_path)                             # no code repo at all
     state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
     assert not gates.may_answer(open_one(folder), "chat:home", {"home_chat_may_answer": ["merge"]})
+
+
+@pytest.mark.parametrize("who", ["chat:home", "chat:demo"])
+def test_chat_refused_on_a_merge_flagged_full_suite_did_not_pass(tmp_path, who):
+    """An older merge question carrying "full suite did not pass" is Alex's alone, whatever the project allows."""
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    g = open_one(folder)
+    allowed = {"home_chat_may_answer": ["merge"]}
+    assert gates.may_answer(g, who, allowed)
+    g["flags"] = [gates.FLAG_SUITE_FAILED]
+    assert not gates.may_answer(g, who, allowed)
+    assert gates.may_answer(g, "dashboard", allowed)
+
+
+# ---- repair-unlock requests (Alex-approved repair unlock) ----
+
+def open_request(folder):
+    return gates.open_request(folder, kind="repair-unlock", title="The agent asks to reset the worktree", why="stuck",
+                              extra={"unlock_steps": ["reset-worktree"], "asked_by": "agent"})
+
+
+@pytest.mark.parametrize("ended", ["failed", "stopped"])
+def test_a_repair_unlock_request_stays_open_on_an_ended_run(tmp_path, ended):
+    folder = make_run(tmp_path)
+    state.set_status(folder, ended)
+    req = open_request(folder)
+    assert state.load(folder)["status"] == ended
+    assert [g["id"] for g in gates.list_gates()] == [req["id"]]
+    assert gates.close_questions(folder, f"run {ended}") == []        # a run ending (or catch_up) leaves it open
+    assert [g["id"] for g in gates.list_gates()] == [req["id"]]
+    gates.answer(req["id"], "approve", who="dashboard")
+    assert gates.list_gates() == []
+
+
+def test_a_repair_unlock_request_is_never_what_a_run_waits_on(tmp_path):
+    from phoenix9 import runner
+    folder = make_run(tmp_path)
+    state.set_status(folder, "waiting")
+    plain = open_one(folder)
+    req = open_request(folder)
+    assert state.load(folder)["current"]["gate"] is None
+    assert {g["id"] for g in gates.list_gates()} == {plain["id"], req["id"]}
+    assert runner.adopt_gate(folder) == plain["id"]
+
+
+@pytest.mark.parametrize("who,ok", [("dashboard", True), ("cli", False), ("agent", False), ("chat:home", False),
+                                    ("chat:alpha", False)])
+def test_only_the_dashboard_may_answer_a_repair_unlock(who, ok):
+    gate = {"kind": "repair-unlock", "flags": []}
+    assert gates.may_answer(gate, who, {"home_chat_may_answer": ["repair-unlock"]}, "approve") is ok
+    assert gates.may_answer(gate, who, {"home_chat_may_answer": ["repair-unlock"]}, "deny") is ok
+
+
+def test_open_request_refuses_other_kinds(tmp_path):
+    folder = make_run(tmp_path)
+    with pytest.raises(ValueError):
+        gates.open_request(folder, kind="merge", title="x", why="y")
+
+
+def test_a_used_unlock_grant_makes_the_run_count_as_repaired(tmp_path):
+    from phoenix9 import atomic
+    folder = make_run(tmp_path)
+    assert not gates.run_repaired(folder)
+    atomic.write_json(folder / "repairs" / "unlocks.json", {"grants": [{"gate": "x", "used_at": None}]})
+    assert not gates.run_repaired(folder)
+    atomic.write_json(folder / "repairs" / "unlocks.json", {"grants": [{"gate": "x", "used_at": "2026-11-14T10:00:00+00:00"}]})
+    assert gates.run_repaired(folder)

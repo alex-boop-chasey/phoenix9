@@ -5,10 +5,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import atomic, gates, git, paths, resolve, settings, state, status
+from phoenix9 import atomic, gates, git, paths, resolve, runend, scrub, settings, state, status
 from phoenix9.library import load_library
 from phoenix9.repair.snapshot import worktree_of
 
+REASON_LINES = 3
 ENDED_TASK_OK = {"done": ("passed", "skipped"), "failed": gates.TASK_ENDED, "stopped": gates.TASK_ENDED}
 
 
@@ -24,6 +25,29 @@ class Finding:
 def _tasks(st: dict):
     """The run's tasks as (number, task) pairs in number order."""
     return sorted(((int(n), t) for n, t in (st.get("tasks") or {}).items()), key=lambda x: x[0])
+
+
+def _step_title(name: str) -> str:
+    """A step's display title from the library (its name when the library cannot say)."""
+    try:
+        return load_library(paths.library()).step(name).title or name
+    except Exception:  # noqa: BLE001 - a missing or broken library still leaves the name
+        return name
+
+
+def failed_steps(st: dict, title_of=None) -> list[dict]:
+    """Every failed run-start or run-finish step line: {step, group, title, reasons} (first reason lines, scrubbed)."""
+    title_of = title_of or _step_title
+    out = []
+    for x in st.get("steps") or []:
+        if x.get("status") != "failed" or x.get("group") not in runend.RUN_GROUPS or x.get("task") is not None:
+            continue
+        lines = [ln.strip().removeprefix("The checks did not pass:").strip()
+                 for ln in scrub.scrub(str(x.get("note") or "")).splitlines()]
+        lines = [ln for ln in lines if ln][:REASON_LINES]
+        name = x.get("step") or ""
+        out.append({"step": name, "group": x.get("group"), "title": title_of(name) or name, "reasons": lines})
+    return out
 
 
 def check_statuses(run_dir: Path, st: dict) -> list[Finding]:

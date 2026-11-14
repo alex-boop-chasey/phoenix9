@@ -81,6 +81,26 @@ def _worktree(run_dir: Path) -> list[str]:
         return [f"- Git cannot read the worktree: {err}"]
 
 
+def _failed_step_lines(failed: list[dict]) -> list[str]:
+    """Each failed run-start or run-finish step in one line, with its first reason lines beneath."""
+    out = []
+    for f in failed:
+        out.append(f"- {f['title']}: failed")
+        out += [f"      {line}" for line in f["reasons"]]
+    return out
+
+
+def _check_lines(st: dict, found: list, failed: list[dict]) -> list[str]:
+    """What the check found; a failed run never reads as "no problems"."""
+    if found:
+        return [f"{i}. {f.text}" for i, f in enumerate(found, 1)]
+    if failed:
+        return ["Nothing is inconsistent, but these steps failed:", *[f"- {f['title']}" for f in failed]]
+    if st.get("status") == "failed":
+        return ["Nothing is inconsistent, but the run failed: see the tasks above."]
+    return ["No problems found."]
+
+
 def build(run_dir) -> str:
     """The report text for a run, worked out from its state now."""
     run_dir = Path(run_dir)
@@ -88,6 +108,7 @@ def build(run_dir) -> str:
     open_ids = {g["id"] for g in gates.run_gates(run_dir) if g["state"] == "open"}
     view = status.run_view(st, open_ids) if st.get("status") in status.ACTIVE else None
     found = check_mod.run_checks(run_dir)
+    failed = check_mod.failed_steps(st)
     cur = st.get("current") or {}
     now = view["now"] if view else f"Now: {st.get('status')}."
     parts = [f"# Run report: {st.get('run_id', run_dir.name)}", "",
@@ -95,10 +116,11 @@ def build(run_dir) -> str:
              f"- Status: {st.get('status')}", f"- {now}",
              f"- Current task {cur.get('task')}, step {cur.get('step')}", "",
              "## Tasks", *_task_lines(run_dir, st), "",
+             *(["## Failed steps", *_failed_step_lines(failed), ""] if failed else []),
              "## Open question", *_questions(run_dir), "",
              "## Worktree", *_worktree(run_dir), "",
              "## What the check found",
-             *([f"{i}. {f.text}" for i, f in enumerate(found, 1)] or ["No problems found."]), ""]
+             *_check_lines(st, found, failed), ""]
     if found:
         parts += ["## Repair note lines (copy what you need)", *dict.fromkeys(fix_line(f) for f in found), ""]
     parts += ["## Details", f"- Run folder: {run_dir}", f"- Worktree: {worktree_of(run_dir)}",

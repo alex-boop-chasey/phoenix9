@@ -4,7 +4,7 @@ import re
 
 from phoenix9 import atomic, events, runs as core, settings, state
 from phoenix9.ops import common, runs as runs_ops
-from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, lock, notes, report as report_mod, resume as resume_mod, safety, snapshot
+from phoenix9.repair import apply as apply_mod, check as check_mod, diagnose as diagnose_mod, lock, notes, report as report_mod, resume as resume_mod, safety, snapshot, unlock
 from phoenix9.repair.steps import is_chat
 
 
@@ -22,11 +22,30 @@ def _may_repair(folder, who: str) -> None:
         raise common.Conflict(f"'{who}' may not repair runs in {folder.parent.name}.")
 
 
-def _refuse_loosening(folder, note, who: str, approve_unlock: bool) -> None:
-    """Refuse, before anything changes, a repair from the agent or chat that would loosen a safety check."""
-    why = safety.refusal(folder, note, who, approve_unlock)
+def _refuse_loosening(folder, note, who: str, approve_unlock: bool) -> list[str]:
+    """Refuse, before anything changes, a repair from the agent or chat that would loosen a safety check, unless
+    Alex approved exactly that in the dashboard; returns the unlocks his grant covers (empty when none is needed).
+
+    Without a grant the caller must also be allowed to repair runs of the project; Alex's approval of this one
+    repair on this run stands in for that."""
+    needed = safety.needed_unlocks(folder, note, approve_unlock) if safety.is_agent(who) else []
+    if needed is None:
+        raise common.Conflict(safety.NEVER_REFUSAL)
+    if needed and unlock.find(folder, who, needed) is None:
+        raise common.Conflict(safety.REFUSAL)
+    if not needed:
+        _may_repair(folder, who)
+    return needed
+
+
+def _use_grant(folder, note, who: str, approve_unlock: bool, needed: list[str], dry_run: bool) -> bool:
+    """Use Alex's grant for this repair (a dry run only looks); returns approve_unlock for the apply."""
+    if not needed:
+        return approve_unlock
+    why = safety.refusal(folder, note, who, approve_unlock, use=not dry_run)
     if why:
         raise common.Conflict(why)
+    return approve_unlock or "unlock-checks" in needed
 
 
 @contextlib.contextmanager
@@ -52,6 +71,27 @@ def undo(run_id: str, to: int | None = None, who: str = "cli", project: str | No
     return {"run_id": run_id, "project": folder.parent.name, **done}
 
 
+def request_unlock(run_id: str, steps, why: str, who: str = "agent", project: str | None = None) -> dict:
+    """Ask Alex to allow, once, repairs the agent or a chat may not do alone; he answers in the dashboard.
+
+    Opens a repair-unlock question on the run (the run itself is not changed). Only the dashboard can answer
+    it; approving gives a one-time grant for exactly these repairs on this run, for 30 minutes."""
+    folder = _run_folder(run_id, project)
+    if not safety.is_agent(who):
+        raise common.OpsError("Only the agent or a chat needs Alex's approval; you can do this repair yourself.")
+    asker = who.split(":", 1)[1] if is_chat(who) else ""
+    if asker and asker != "home" and asker != folder.parent.name:
+        raise common.Conflict(f"A project chat may only ask about runs of its own project, not {folder.parent.name}.")
+    try:
+        gate = unlock.request(folder, steps, why, who)
+    except unlock.UnlockError as err:
+        raise common.OpsError(str(err)) from None
+    common.record_command(who, f"repair request-unlock {run_id} --steps {','.join(gate['unlock_steps'])}",
+                          folder.parent.name)
+    return {"run_id": run_id, "project": folder.parent.name, "gate": gate["id"], "title": gate["title"],
+            "steps": gate["unlock_steps"], "why": gate["why"]}
+
+
 def check(run_id: str, project: str | None = None) -> dict:
     """Check a run for broken state: {run_id, project, ok, problems: [{code, text, task}]}."""
     folder = _run_folder(run_id, project)
@@ -61,10 +101,12 @@ def check(run_id: str, project: str | None = None) -> dict:
 
 
 def report(run_id: str, project: str | None = None) -> dict:
-    """Write and return the run report: {run_id, project, path, text}."""
+    """Write and return the run report: {run_id, project, path, text, failed_steps}."""
     folder = _run_folder(run_id, project)
     text = report_mod.write(folder)
-    return {"run_id": run_id, "project": folder.parent.name, "path": str(report_mod.report_path(folder)), "text": text}
+    failed = check_mod.failed_steps(state.load(folder) or {})
+    return {"run_id": run_id, "project": folder.parent.name, "path": str(report_mod.report_path(folder)), "text": text,
+            "failed_steps": failed}
 
 
 def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unlock: bool = False) -> dict:
@@ -74,11 +116,12 @@ def apply(note_path: str, who: str = "cli", dry_run: bool = False, approve_unloc
     except snapshot.RepairRefused as err:
         raise common.OpsError(str(err)) from None
     folder = _run_folder(note.run)
-    _refuse_loosening(folder, note, who, approve_unlock)
-    _may_repair(folder, who)
+    needed = _refuse_loosening(folder, note, who, approve_unlock)
     with _one_at_a_time(folder):
+        approve_unlock = _use_grant(folder, note, who, approve_unlock, needed, dry_run)
         try:
-            return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+            return apply_mod.apply(note_path, who, dry_run=dry_run, approve_unlock=approve_unlock,
+                                   granted=tuple(needed))
         except snapshot.RepairRefused as err:
             raise common.OpsError(str(err)) from None
 
@@ -93,13 +136,14 @@ def apply_text(run_id: str, text: str, who: str = "dashboard", dry_run: bool = F
         raise common.OpsError(str(err)) from None
     if note.run != run_id:
         raise common.OpsError(f"line 1: the note is for run '{note.run}', not '{run_id}'.")
-    _refuse_loosening(folder, note, who, approve_unlock)
-    _may_repair(folder, who)
+    needed = _refuse_loosening(folder, note, who, approve_unlock)
     with _one_at_a_time(folder):
+        approve_unlock = _use_grant(folder, note, who, approve_unlock, needed, dry_run)
         path = snapshot.repairs_dir(folder) / "notes" / f"{snapshot.next_number(folder)}-{apply_mod.slug_of(note.why)}.md"
         atomic.write_text(path, text if text.endswith("\n") else text + "\n")
         try:
-            return apply_mod.apply(path, who, dry_run=dry_run, approve_unlock=approve_unlock)
+            return apply_mod.apply(path, who, dry_run=dry_run, approve_unlock=approve_unlock,
+                                   granted=tuple(needed))
         except snapshot.RepairRefused as err:
             raise common.Conflict(str(err)) from None
 

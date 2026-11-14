@@ -143,7 +143,8 @@ def plan_text(p: dict) -> str:
     """The delete plan in plain English."""
     lines = [f"Deleting {p['name']} would remove:",
              f"  Folder: {p['folder']} ({_size(p['size'])})",
-             f"  GitHub repo: {p['repo'] or '(none)'}{_repo_mark(p)}"]
+             f"  GitHub repo: {p['repo'] or ('none of its own, nothing to delete on GitHub' if p.get('shared_repo') else '(none)')}"
+             f"{_repo_mark(p)}"]
     if p.get("open_prs_note"):
         lines.append(f"    {p['open_prs_note']}")
     lines.append(f"  Open merge requests: {len(p['open_prs'])}")

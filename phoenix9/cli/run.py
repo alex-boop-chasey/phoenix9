@@ -1,4 +1,4 @@
-"""Commands for `phoenix run`: start, status, list, log, stop, discard."""
+"""Commands for `phoenix run`: start, status, list, log, stop, discard, tidy."""
 import time
 
 from phoenix9.cli.output import problem, show, table
@@ -87,6 +87,12 @@ def add(sub, common) -> None:
     p.add_argument("--force", action="store_true",
                    help="also when the run has an open merge request or commits not on main (that work is lost)")
     p.set_defaults(func=discard)
+    p = group.add_parser("tidy", parents=[common],
+                         help="remove a finished run's worktree and branches once its merge request is merged on GitHub")
+    p.add_argument("run_id", nargs="?")
+    p.add_argument("--merged", action="store_true", help="tidy every finished run of every project that was merged")
+    p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=tidy)
 
 
 def start(args) -> int:
@@ -107,7 +113,10 @@ def _status_text(r: dict) -> str:
     passed = sum(1 for t in tasks.values() if t["status"] == "passed")
     lines = [f"Run {r['run_id']} ({r['project']}) is {r['status']}.",
              f"Tasks: {passed} of {len(tasks)} passed."]
-    if r.get("error"):
+    failed_at = r.get("failed_at") if r["status"] == "failed" else None
+    if failed_at:
+        lines.append(failed_at["text"])
+    elif r.get("error"):
         lines.append(f"Reason: {r['error']}")
     lines.append(table([[n, t["title"], t["status"], t["tries"]] for n, t in tasks.items()],
                        ["task", "title", "status", "tries"]))
@@ -268,6 +277,31 @@ def discard(args) -> int:
     r = runs.discard(args.run_id, who=args.who, force=args.force)
     words = f"Discarded the work of run {r['run_id']}."
     return show(args, r, "\n".join([words, *(f"Note: {n}" for n in r["notes"])]))
+
+
+def tidy(args) -> int:
+    """Tidy one merged run, or every merged run with --merged (needs --yes)."""
+    if bool(args.run_id) == bool(args.merged):
+        return problem(args, "Name one run, or say --merged for every finished run that was merged.")
+    what = f"run {args.run_id}" if args.run_id else "every finished run whose merge request is merged"
+    if not args.yes:
+        return problem(args, f"This deletes the worktree and branches (here and on GitHub) of {what}; "
+                             "its records stay. Add --yes to go ahead.")
+    if args.run_id:
+        r = runs.tidy(args.run_id, who=args.who)
+        return show(args, r, "\n".join([_tidied_text(r), *(f"Note: {n}" for n in r["notes"])]))
+    r = runs.tidy_merged(who=args.who)
+    lines = [_tidied_text(t) + "".join(f" Note: {n}." for n in t["notes"]) for t in r["tidied"]]
+    lines += [f"Left run {s['run_id']} ({s['project']}) alone: {s['why']}." for s in r["skipped"]]
+    lines.append(f"Tidied {len(r['tidied'])} run{'s' if len(r['tidied']) != 1 else ''}, "
+                 f"left {len(r['skipped'])} alone.")
+    return show(args, r, "\n".join(lines))
+
+
+def _tidied_text(r: dict) -> str:
+    """One plain line saying what tidying a run removed."""
+    gone = f"removed its {', '.join(r['removed'])}" if r["removed"] else "nothing was left to remove"
+    return f"Tidied run {r['run_id']} ({r['project']}): {gone}."
 
 
 def pause(args) -> int:

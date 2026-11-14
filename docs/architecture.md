@@ -329,6 +329,14 @@ committed lockfile),
 Optional `[steps.<name>]` tables override step defaults (layer 2 in 5.1).
 The profile's container image files live in `profiles/<name>/image/`.
 
+Web builds run Vitest only (Alex's decision, 2026-11-14): the web profile's suite, task and check commands are
+Vitest, and browser checks are Alex's hand test. The planner, builder, check writer and reviewer prompts say:
+Vitest tests for logic and components only, no Playwright or other browser tests, never add Playwright to a project,
+and no Done-when bullet that needs a browser. The planner puts what Alex should click on a `Try by hand:` line in
+the task's goal text; the summary (`summary.py`) lists those lines of passed tasks under "Try by hand". A template
+that would add Playwright (a `run` command naming it, a `playwright.config.*` or a `package.json` naming it in
+`files/`) is refused (`templates.py`). Playwright files a project already has are left alone and never run.
+
 A run needs a profile: `ops/runs.start` refuses (before creating anything) when the effective settings, including
 per-run overrides, have none, and `Runner._setup` fails a run whose plan has an AI step and no profile, so an empty
 image never reaches docker. The refusal (`settings.no_profile_message`) points at `phoenix settings set <name> profile <type>`.
@@ -693,7 +701,9 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
 - **How a run ends (one end function, one stop path; `phoenix9/runend.py`).** `runend.end_run` is the only
   place a run becomes `done | failed | stopped`. Its FIRST state update does everything a reader looks at:
   unfinished tasks and `waiting | running | pending` step lines become `skipped`, `current.gate` is cleared
-  and the final status is set (`error` = the reason for a failure); the run's open questions are closed
+  and the final status is set (`error` = the reason for a failure; when a run-start or run-finish step
+  failed it, `failed_step` = its name, `error` = "<title> failed: <first reason line>" and `failed_at`
+  `{step, title, reason, text}` with `text` the line Alex sees, "Failed at: <title>: <reason>"); the run's open questions are closed
   (section 8) straight after. Only then does the slow work run: finish steps with `after_stop = true`
   (stop only; they see the final status and add their own step lines), the branch and worktree are
   discarded (stop only; a failed run keeps them for repair), `run.finished` is emitted (`who` when not
@@ -743,7 +753,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
   `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` and `agent.sync_skipped {path, symlink, why}` come from `phoenix update after-install` (nothing was written); `agent.restarted_for_rules {why}` from the runner's agent watchdog.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
@@ -752,6 +762,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
+  `run.tidied {who, removed, notes}` (project and run set) is written by `phoenix run tidy`.
   `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set); `run.pause.dropped {who, reason}` when a Pause now request is thrown away because the run ended, waited for an answer or was queued (it never pauses a run later by surprise).
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
@@ -765,8 +776,14 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   project's `notes/changelog.md` for project changes (control spec section 2).
 - Gate file `gates/<gate-id>.json`: `{id, run, project, kind, title, why, task, step, links: [{label,
   url}], actions, flags, created, answered: false}`. `kind`: `merge | plan | human-task | escalation |
-  deploy | step`. `actions`: `["approve","back","skip","stop"]`, or for escalations see below.
+  deploy | step | budget | repair-unlock`. `actions`: `["approve","back","skip","stop"]`, or for escalations see below.
   `flags`: e.g. `["changes safety code"]`.
+  A `repair-unlock` question (`phoenix repair request-unlock`, `phoenix9/repair/unlock.py`) is a request beside the
+  run, not in its path: `gates.open_request` writes it without changing the run, it stays open until answered whatever
+  the run does (a run ending never closes it), the runner never adopts it, and only who `dashboard` may answer it
+  (`approve` / `deny`). Approve writes a one-time grant (`repairs/unlocks.json`: exactly those repairs, that run, that
+  asker; 30 minutes or one use) that `repair/safety.py` and `ops.runs._may_stop` use once; every approval, use, denial
+  and expiry is a `repair.unlock {what, text, gate, steps, who}` event and a line in `repairs/notes/alex-approvals.md`.
   Escalation actions are `["acknowledged", "skip", "stop"]` (acknowledged = rerun the task once).
 - `back` always needs a note (it is fed to the step that runs again).
 - What each answer does (`runner.STEP_ANSWERS`, `runner.TASK_ANSWERS`):
@@ -1022,10 +1039,12 @@ open only via the gate helpers and close only with `gates.close_questions` or `g
   `Environment=PHOENIX_WHO=chat:home`, then `systemctl daemon-reload` and restart the unit. Project chats get
   `Environment=PHOENIX_WHO=chat:%i` from `deploy/claude-rc-chat@.service`.
 - **Doctor lines**: `agent-unit`, `agent-session`, `agent-socket` (folder 700, socket 600), `agent-transcript`
-  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`).
+  (unknown lines at most 5 %), `agent-folder` (has CLAUDE.md and `.claude/settings.json`), `agent-helpers` (a
+  warning when `.claude/agents/` lacks or differs from the installed helper files).
 - **Deploy files** (`deploy/agent/`): `agent-rules.md` (the rulebook; the admin setup step copies it to the agent
   folder as `CLAUDE.md`, because builds may not write a file of that name), `settings.json` (the session-start
-  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker helpers).
+  hook running `phoenix agent brief`) and `agents/` (navigator, editor, checker, fixer helpers; `phoenix update
+  after-install` copies them to the agent folder's `.claude/agents/`, adding and updating, never deleting).
 - **Safety files**: `phoenix9/agentlink.py` (the only code that writes to the agent's socket; path and
   message rules), `phoenix9/transcript.py` (reads untrusted agent output; must never act on it) and
   `deploy/agent/agent-rules.md` (the agent's own rules) and `phoenix9/project_delete.py` (deletes a whole project) are in `safety_files` in `deploy/self-project.toml`.
@@ -1150,7 +1169,9 @@ the card opens the approval card of a repair control: re-run a step, rewrite a t
 (with a reason), resume from a step, restart on another preset, raise max tries. `repair-apply` (free text) stays
 `later`, so the agent cannot send arbitrary notes. One repair at a time per run (`phoenix9/repair/lock.py`, and one open
 repair approval per run in the agent). A repair asked by who `agent` that would loosen a safety check is refused with a
-plain message (`phoenix9/repair/safety.py`). Every repair is recorded as a `repair.applied` event with who `agent`.
+plain message (`phoenix9/repair/safety.py`) that says to ask Alex with `phoenix repair request-unlock`; Alex
+allows it once in the dashboard (`repair-unlock` question, section on gate files). Turning off a safety step or a
+safety setting is never unlocked. Every repair is recorded as a `repair.applied` event with who `agent`.
 ### Search, the bell and the daily report (agent v3 build 5)
 All three are plain rules over typed data: no AI runs in Phoenix. Anything said in plain English about them comes
 from the agent, which reads them as quoted data. Every text goes through `phoenix9/scrub.py` first and no money
@@ -1613,7 +1634,7 @@ number) over the installed copy, health-checks it and rolls back on failure (upd
   another tag that moved on origin never blocks updates; if the REQUESTED tag moved on origin the
   fetch fails and is `refused` "release v9.N changed on origin" (found with `ls-remote`); other fetch
   failures `refused` "could not fetch";
-  tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD`; clone `install` into
+  tag missing = `refused`; `update.started`; `git tag -f pre-<tag> HEAD` (deleted from every copy once the install ends, whatever the result, and by recovery); clone `install` into
   `-next`, checkout the tag, origin url copied, HEAD verified; in `-next`: `pnpm -C web install
   --frozen-lockfile` and `pnpm -C web build` (when web/package.json exists), `./check.sh` (output to
   the checks file) - a failure is `tests-failed`, `-next` removed, install untouched; hold + wait for
@@ -1719,7 +1740,7 @@ never stops the others; exit 0 only when all pass. Details name files and modes,
 | `upstream` | every running `cloudflared` and `code-server` process (what sits in front of the dashboard) runs as a uid in `[access] peer_uids` (default `[0]`), and that setting is valid; passes with a note when neither is running; fix: run it as root or add its uid to `peer_uids` (section 8.5) | yes | | yes |
 | `home` | HOME folders exist; `secrets/`, `keys/` 0700; their files 0600 | yes | yes | yes |
 | `secrets` | `claude.env` present; `github.env` present or "github not connected" | yes | | yes |
-| `images` | every profile image used by a project exists (`DockerRunner.image_exists`) | | yes | yes |
+| `images` | every profile image used by a project exists (`DockerRunner.image_exists`); any other library profile whose image is missing is listed as a warning with its `phoenix images build --profile <name>` command | | yes | yes |
 | `proxy-rule` | "firewall rule for the key proxy": `ufw status` (host adapter) lists the section 14 rule; OK when ufw is not installed or not active; the fix is the exact `ufw allow ...` line | | yes | yes |
 | `firewall` | `docker.probe_firewall` with a temporary proxy on the bridge gateway (no rules, dummy key, stopped in `finally`). The detail lists only the FAILED checks (`failed checks: ...`), or `the probe container stopped early (exit N): <last error line>` when the entrypoint stopped it before the probe ran; when the key proxy is unreachable the fix is the exact ufw rule | | yes | yes |
 | `claude` | one tiny session (`max_turns` 1, firewall on) exits 0 with a result event | | | yes |
@@ -1772,6 +1793,15 @@ a second dialog listing what would be lost, whose button "Discard anyway and los
 It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
 status stays as it was), writes a `run.discarded` event
 and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".
+
+`phoenix run tidy <run>` (and `--merged` for every finished run of every project; `ops.runs.tidy`,
+`ops.runs.tidy_merged`, POST `/api/runs/<project>/<run_id>/tidy`) cleans up a finished run whose merge request
+was merged outside Phoenix's merge step (squash merges count): `gh pr view <url> --json state,headRefOid` must
+say MERGED, and the run's local branch must hold nothing beyond the merged commit. It removes the worktree, the
+local `phoenix/<run>` branch and the GitHub branch (only while GitHub's tip is still the merged commit). The
+run's records stay; state.json gets `tidied`, `tidied_at`, `tidied_by` and a `run.tidied` event is written.
+Runs that are not finished, already discarded or tidied, without a merge request, or whose merge request is
+open, closed without merging or unknown are left alone, each with its reason. The runner does not tidy by itself.
 
 ## Reply blocks and dashboard control
 

@@ -72,7 +72,7 @@ def run_jobs(ctx, jobs, checkout, out_dir, n, log_dir=None, prefix="verify"):
         scrubbed = scrub.scrub(log.read_text(errors="replace")) if log.exists() else ""
         atomic.write_text(log, scrubbed)
         ctx.log(f"{command} -> exit {rc}")
-        parts.append(reports.judge(rc, out_dir, names, expected, rc == docker.TIMEOUT_RC))
+        parts.append(reports.judge(rc, out_dir, names, expected, rc == docker.TIMEOUT_RC, command))
         stash(out_dir, label)
         logs.append(log)
         codes.append(rc)

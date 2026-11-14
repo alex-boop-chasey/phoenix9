@@ -50,7 +50,7 @@ function PlanView({ plan }: { plan: DeletePlan }) {
       <ul>
         <li>Folder <code>{plan.folder}</code> ({formatBytes(plan.size)})</li>
         <li>
-          {plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : "No GitHub repo"}
+          {plan.repo ? <>GitHub repo <code>{plan.repo}</code></> : plan.shared_repo ? "No GitHub repo of its own: nothing to delete on GitHub." : "No GitHub repo"}
           {plan.repo && plan.repo_delete ? (
             <span className="help" data-testid="repo-verdict">
               {plan.repo_delete.delete ? " (will be deleted)" : ` (kept: ${plan.repo_delete.reason ?? plan.repo_delete.why})`}

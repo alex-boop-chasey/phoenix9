@@ -7,7 +7,7 @@ import { RelativeTime } from "@/components/RelativeTime"
 import { Tag } from "@/components/Tag"
 import type { BuildRow } from "@/lib/types"
 
-import { edgeOf, ResultBadge, rowResult, TaskBar, taskBarHint, taskPieces } from "./parts"
+import { edgeOf, ResultBadge, rowBadge, TaskBar, taskBarHint, taskPieces } from "./parts"
 
 /** Newest first, by start time (queued builds by creation time). */
 export function newestFirst(rows: BuildRow[]): BuildRow[] {
@@ -59,7 +59,7 @@ export function BuildList({ name, rows, selected }: { name: string; rows: BuildR
                 <td className="tcell" title={hint}>
                   <TaskBar pieces={pieces} label={`${row.tasks_passed} of ${row.tasks_total} tasks done`} hint={hint} />
                 </td>
-                <td><ResultBadge status={row.status} text={rowResult(row)} /></td>
+                <td><ResultBadge status={row.status} {...rowBadge(row)} /></td>
                 <td className="mono">{row.duration || "-"}</td>
                 <td className="mono">{row.cost || "-"}</td>
               </tr>

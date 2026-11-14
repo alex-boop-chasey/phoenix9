@@ -13,11 +13,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
+import { unlockUsedText } from "@/features/gates/repairUnlock"
 import { useBuilds, usePauseRun, useResumeRun, useRunEstimates, useStopRun } from "@/lib/queries"
 import type { RunDetail, RunEstimates } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
-import { edgeOf, ResultBadge } from "./parts"
+import { badgeResult, edgeOf, ResultBadge } from "./parts"
 import { currentLine, buildLeft, stepProgress, toGo } from "./progress"
 import { liveClock, StepList, StepListLead } from "./StepList"
 import { runSummary, useRunLive } from "./useRunLive"
@@ -63,7 +64,8 @@ function Summary({ d, name, cost, started, duration, taskLine, live, estimates, 
   const edge = edgeOf(d.status)
   const failed = tasks.filter((t) => t.status === "failed").length
   const text = d.status === "running" && taskLine ? `Running ${taskLine.toLowerCase()}` : undefined
-  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "paused" ? "Paused" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
+  const result = text ?? (d.status === "done" ? "Done" : d.status === "waiting" ? "Waiting for you" : d.status === "paused" ? "Paused" : d.status === "failed" ? (failed ? `${failed} of ${total} tasks failed` : d.failed_at?.text || "Failed") : d.status === "stopped" ? "Stopped" : "Starting…")
+  const badge = badgeResult(d.status, failed, result, d.failed_at)
   // The ring follows the step the build is on now; with no history for it, it just turns calmly (O41).
   const moving = d.status === "running" || d.status === "queued"
   const step = moving ? stepProgress(d, estimates, now) : { fill: restingFill(d, total, passed), line: "" }
@@ -83,7 +85,7 @@ function Summary({ d, name, cost, started, duration, taskLine, live, estimates, 
           </svg>
         </div>
         <div className="stackg" style={{ gap: 6 }}>
-          <ResultBadge status={d.status} text={result} />
+          <ResultBadge status={d.status} {...badge} />
           <span className="small" data-testid="sum-line">{sumLine(d, total, passed)}</span>
           {step.line && <span className="small" data-testid="step-to-go">{step.line}</span>}
           {left !== null && left > 0 && <span className="small" data-testid="build-to-go">Whole build: {toGo(left)}</span>}
@@ -195,7 +197,7 @@ export function RunningView({ name, runId, mode }: Props) {
       {s.waitingForRunner && (
         <p className="row small" role="status" data-testid="starting"><Wheel />Starting… the first step runs in a moment.</p>
       )}
-      {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} />)}
+      {s.gatesAbove.map((g) => <NeedsYouCard key={g.id} gate={g} run={d} />)}
       <div className="run">
         {/* The lead sits above both columns' second row, so the card's top lines up with the first step (O42). */}
         <div className="stack run-lead"><StepListLead run={d} /></div>
@@ -207,6 +209,9 @@ export function RunningView({ name, runId, mode }: Props) {
         />
       </div>
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}
+      {(d.unlocks_used ?? []).map((u, i) => (
+        <p key={`${u.at}-${i}`} className="small" data-testid="unlock-used">{unlockUsedText(u)}</p>
+      ))}
       <ConfirmDialog
         open={pausing} onOpenChange={setPausing} title="Pause now?"
         body="Stop the build at once? The work so far is kept and it carries on from the same step when you resume."

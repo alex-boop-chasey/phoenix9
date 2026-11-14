@@ -146,6 +146,35 @@ test("the waiting merge step shows the open merge question as the review", async
   expect(await within(stepRow(null, "merge")).findByText("Does things.")).toBeInTheDocument()
 })
 
+test("approving the merge of a run whose full suite failed asks first and lists it", async () => {
+  const gate = { id: "r.1", run: "r", project: "alpha", kind: "merge", title: "Merge Tiny?", why: "", task: null, step: "merge",
+    links: [], actions: ["approve", "back", "skip", "stop"], flags: [], created: "", answered: false } as never
+  const run = runDetail({
+    steps: [
+      line({ group: "run-finish", task: null, step: "full-suite", status: "failed", note: "2 tests failed" }),
+      line({ group: "run-finish", task: null, step: "merge", status: "waiting", finished: "" }),
+    ],
+    tasks: {}, gates: [gate],
+  })
+  run.plan.steps = [
+    { name: "full-suite", title: "Full suite", group: "run-finish", order: 9, on: true, reason: "", kind: "script" },
+    { name: "merge", title: "Merge", group: "run-finish", order: 10, on: true, reason: "", kind: "gate" },
+  ] as never
+  run.plan.groups = { "run-start": [], task: [], "run-finish": ["full-suite", "merge"] } as never
+  const { calls } = mockApi({ "GET /api/gates/r.1/review": { gate: "r.1", run: "r", project: "alpha", title: "Merge Tiny?", why: "", answered: false,
+    summary: "Does things.", tasks: { passed: 0, total: 0, retried: [] }, full_suite: { status: "failed", note: "" },
+    safety: { flag: false, files: [] }, files: [], added: 0, removed: 0, merge_request: "" },
+    "POST /api/gates/r.1/answer": { gate: "r.1", action: "approve", note: "", who: "alex", at: "" } })
+  renderWithProviders(<StepList run={run} />)
+  await within(stepRow(null, "merge")).findByText("Does things.")
+  fireEvent.click(screen.getByRole("button", { name: "Approve & merge" }))
+  const list = await screen.findByRole("list", { name: "What went wrong" })
+  expect(list.textContent).toBe("Final test run failed")
+  expect(calls.some((c) => c.path.endsWith("/answer"))).toBe(false)
+  fireEvent.click(screen.getByRole("button", { name: "Merge anyway" }))
+  await waitFor(() => expect(calls.some((c) => c.path.endsWith("/answer"))).toBe(true))
+})
+
 test("switched-off steps show why", () => {
   show()
   const off = stepRow(1, "review")

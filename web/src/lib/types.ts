@@ -80,6 +80,8 @@ export interface ProjectRow {
   repo: string
   repo_owner: string
   repo_name: string
+  /** The projects folder's shared repo when that is the only repo found (repo is then empty); null otherwise. */
+  shared_repo?: string | null
   profile: string
   services: string[]
   size: number | null
@@ -116,7 +118,7 @@ export interface ChangelogLine {
   text: string
 }
 
-export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step"
+export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step" | "repair-unlock"
 export type KnownGateAction = "approve" | "back" | "skip" | "stop" | "acknowledged"
 /** A gate's own extra action (for example "done") is any other word. */
 export type GateAction = KnownGateAction | (string & {})
@@ -135,6 +137,10 @@ export interface Gate {
   flags: string[]
   created: string
   answered: boolean
+  /** repair-unlock only: the repairs the agent asks Alex to allow once. */
+  unlock_steps?: string[]
+  /** repair-unlock only: who asked ("agent" or "chat:<project>"). */
+  asked_by?: string
 }
 
 /** The reply of the projects search: attention rows first (if asked), the rest, and counts per status. */
@@ -159,7 +165,9 @@ export interface ImportResult { name: string; path: string; repo: string | null;
 export interface DeleteLink { target: string; note: string; links: string[] }
 export interface DeletePlan {
   name: string; folder: string; size: number; repo: string | null
-  repo_delete?: { repo: string | null; delete: boolean; why: string; reason?: string }
+  /** The projects folder's shared repo when that is the only repo found (the project has none of its own). */
+  shared_repo?: string | null
+  repo_delete?: { repo: string | null; delete: boolean; why: string; reason?: string; shared_repo?: string }
   open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
   unpushed: number; unsaved_edits?: number; runs: { count: number }; keys: string[]; keys_note?: string
   keep_days?: number
@@ -275,6 +283,16 @@ export interface BuildRow {
   carrying_on?: boolean
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
+  /** The run-start or run-finish step a failed build failed at; null otherwise. */
+  failed_at?: FailedAt | null
+}
+
+/** The step a failed build failed at: `text` is the whole line, e.g. "Failed at: Full suite: 2 tests failed". */
+export interface FailedAt {
+  step: string
+  title: string
+  reason: string
+  text: string
 }
 
 export interface RunTask {
@@ -354,6 +372,14 @@ export interface RunRepair {
   rolled_back: boolean
 }
 
+/** One repair the agent or a chat did with Alex's dashboard approval. */
+export interface UnlockUsed {
+  at: string
+  who: string
+  steps: string[]
+  text: string
+}
+
 export interface RunDetail {
   run_id: string
   project: string
@@ -385,6 +411,10 @@ export interface RunDetail {
   branch?: string
   /** Repairs applied to the run, oldest first. */
   repairs?: RunRepair[]
+  /** Repairs done with Alex's one-time approval (repair-unlock), oldest first. */
+  unlocks_used?: UnlockUsed[]
+  /** The run-start or run-finish step a failed build failed at. */
+  failed_at?: FailedAt | null
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */
   discarded?: boolean
   discarded_at?: string

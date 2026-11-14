@@ -23,6 +23,21 @@ def _unpinned(command: str) -> list[str]:
     return bad
 
 
+def _adds_playwright(values: dict, folder) -> bool:
+    """True when a template would put Playwright into a new project (Alex checks pages by hand instead)."""
+    if any("playwright" in command.lower() for command in values["run"]):
+        return True
+    files = folder / "files"
+    if not files.is_dir():
+        return False
+    for path in files.rglob("*"):
+        if path.name.lower().startswith("playwright.config"):
+            return True
+        if path.name == "package.json" and path.is_file() and "playwright" in path.read_text(errors="replace").lower():
+            return True
+    return False
+
+
 def _parse(data: dict, folder, where: str):
     """Check one template.toml; returns (template dict or None, problems)."""
     values, problems = library.check_fields(data, FIELDS, where)
@@ -36,6 +51,9 @@ def _parse(data: dict, folder, where: str):
                 problems.append(f"{where}: '{word}' needs an exact version (name@1.2.3), not latest or none")
     elif values["kind"] == "files" and not (folder / "files").is_dir():
         problems.append(f"{where}: kind 'files' needs a files/ folder")
+    if _adds_playwright(values, folder):
+        problems.append(f"{where}: templates may not add Playwright or browser tests (Vitest only; "
+                        "Alex checks pages by hand)")
     values["folder"] = str(folder)
     return (None if problems else values), problems
 

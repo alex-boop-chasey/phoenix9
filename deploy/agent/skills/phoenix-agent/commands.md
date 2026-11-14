@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs 57eb6b606eb19956 -->
+<!-- phoenix 9.1.0 inputs 2d4c92d50f4b84c9 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -162,6 +162,14 @@ throw away a failed or stopped run's worktree and branch (here and on GitHub)
 - `<run_id>`
 - `--yes`: confirm that you mean it
 - `--force`: also when the run has an open merge request or commits not on main (that work is lost)
+
+### `phoenix run tidy`
+
+remove a finished run's worktree and branches once its merge request is merged on GitHub
+
+- `<run_id>`
+- `--merged`: tidy every finished run of every project that was merged
+- `--yes`: confirm that you mean it
 
 ## `phoenix gate`
 
@@ -832,6 +840,15 @@ start the build again on another preset
 - `<run_id>`
 - `--project PROJECT`: the project of the run (the run id alone is enough)
 - `--preset PRESET`: the preset to restart on
+
+### `phoenix repair request-unlock`
+
+ask Alex to allow, once, a repair the agent may not do alone
+
+- `<run_id>`
+- `--project PROJECT`: the project of the run (the run id alone is enough)
+- `--steps STEPS`: the repairs to unlock, comma separated: replace-spec, keep-hand-fix, reset-worktree, force, unlock-checks, stop, discard
+- `--why WHY`: the reason Alex reads, in one line
 
 ## `phoenix report`
 

@@ -49,7 +49,10 @@ the surrounding files in /workspace where you need context.
 3. Were the checks gamed? Code that detects that it runs under test, hard-coded answers that match
    the checks, skipped or weakened tests.
 4. Scope creep: changes that the task did not ask for (other features, big refactors, unrelated files).
-5. Anything dangerous: deleting data, disabling safety or security, leaking secrets, adding network
+5. Web projects follow this rule for tests: Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, and do not add Playwright to the project: Alex checks pages by hand. A change that adds
+   Playwright or a browser test fails (name the file to remove); a change that deletes or edits Playwright files
+   the project already had fails too.
+6. Anything dangerous: deleting data, disabling safety or security, leaking secrets, adding network
    calls or commands that the task did not need.
 
 Be concrete and fair. Fail the change only for real problems, not for style taste.

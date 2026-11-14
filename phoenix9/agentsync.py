@@ -1,4 +1,4 @@
-"""After an install: refresh the agent folder's knowledge pack and rules file, and grow Phoenix's own safety list."""
+"""After an install: refresh the agent folder's knowledge pack, helper files and rules file, and grow Phoenix's own safety list."""
 import re
 import tomllib
 from datetime import datetime, timezone
@@ -102,11 +102,9 @@ def _safe_target(path: Path) -> bool:
     return False
 
 
-def copy_skills() -> list[str]:
-    """Copy deploy/agent/skills/ into the agent folder's .claude/skills/; returns the files written.
-    A target with a symlink anywhere on its path inside the agent folder is skipped (and logged)."""
-    src = installed_agent_dir() / "skills"
-    dst = agent_folder() / ".claude" / "skills"
+def _copy_folder(src: Path, dst: Path) -> list[str]:
+    """Copy every file under `src` to the same place under `dst` (add and update, never delete); returns the files
+    written. A target with a symlink anywhere on its path inside the agent folder is skipped (and logged)."""
     done = []
     if not src.is_dir():
         return done
@@ -117,6 +115,31 @@ def copy_skills() -> list[str]:
         atomic.write_text(dst / rel, f.read_text(encoding="utf-8"), 0o644)
         done.append(str(rel))
     return done
+
+
+def copy_skills() -> list[str]:
+    """Copy deploy/agent/skills/ into the agent folder's .claude/skills/; returns the files written."""
+    return _copy_folder(installed_agent_dir() / "skills", agent_folder() / ".claude" / "skills")
+
+
+def copy_helpers() -> list[str]:
+    """Copy the agent's helper files (deploy/agent/agents/) into the agent folder's .claude/agents/; returns the
+    files written. Files there that Phoenix did not ship are left alone."""
+    return _copy_folder(installed_agent_dir() / "agents", agent_folder() / ".claude" / "agents")
+
+
+def helpers_current(host=None) -> tuple[bool, str]:
+    """Whether every installed helper file is in the agent folder's .claude/agents/ with the same text."""
+    src = installed_agent_dir() / "agents"
+    names = sorted(str(p.relative_to(src)) for p in src.rglob("*") if p.is_file() and not p.is_symlink()) \
+        if src.is_dir() else []
+    if not names:
+        return True, "the installed copy ships no agent helpers, so there is nothing to compare"
+    dst = agent_folder() / ".claude" / "agents"
+    stale = [n for n in names if _read(host, dst / n) != _read(None, src / n)]
+    if not stale:
+        return True, "agent helpers current"
+    return False, "agent helpers missing or out of date: " + ", ".join(stale)
 
 
 def refresh_rules() -> str:
@@ -144,9 +167,10 @@ def refresh_rules() -> str:
 
 def refresh_agent(adapters) -> dict:
     """Copy the knowledge pack, rebuild the rules and restart the agent only if it is idle;
-    {skills, rules, restarted}."""
+    {skills, helpers, rules, restarted}."""
     from phoenix9 import agentlink, chat
     files = copy_skills()
+    helpers = copy_helpers()
     result = refresh_rules()
     restarted = False
     if result == "updated":
@@ -155,7 +179,7 @@ def refresh_agent(adapters) -> dict:
             restarted = True
         else:
             atomic.write_text(paths.home() / PENDING, "agent rules updated; restart when idle\n", 0o644)
-    return {"skills": len(files), "rules": result, "restarted": restarted}
+    return {"skills": len(files), "helpers": len(helpers), "rules": result, "restarted": restarted}
 
 
 def pending_restart() -> bool:

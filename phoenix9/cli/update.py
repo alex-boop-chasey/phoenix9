@@ -124,7 +124,8 @@ def release(args) -> int:
 def after_install(args) -> int:
     """Refresh the agent folder from the installed copy (run by the updater after an install)."""
     r = ops.after_install(args.who)
-    words = ["Knowledge pack copied (%d files)." % r["skills"], "Agent rules: %s." % r["rules"]]
+    words = ["Knowledge pack copied (%d files)." % r["skills"], "Agent helpers copied (%d files)." % r.get("helpers", 0),
+             "Agent rules: %s." % r["rules"]]
     if r["restarted"]:
         words.append("The agent was restarted.")
     elif r["rules"] == "updated":

@@ -281,3 +281,49 @@ def test_a_used_unlock_grant_makes_the_run_count_as_repaired(tmp_path):
     assert not gates.run_repaired(folder)
     atomic.write_json(folder / "repairs" / "unlocks.json", {"grants": [{"gate": "x", "used_at": "2026-11-14T10:00:00+00:00"}]})
     assert gates.run_repaired(folder)
+
+
+# ---- the new agent ("agent") is held to the same Alex-only rules as chat:* callers ----
+
+def test_agent_never_answers_a_budget_question(tmp_path):
+    folder = make_run(tmp_path)
+    g = open_one(folder, kind="budget")
+    for action in g["actions"]:
+        assert not gates.may_answer(g, "agent", {"home_chat_may_answer": ["budget"]}, action)
+    assert gates.may_answer(g, "dashboard", {})
+
+
+@pytest.mark.parametrize("flag", list(gates.ALEX_ONLY_FLAGS))
+def test_agent_refused_on_a_flagged_merge(tmp_path, flag):
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    g = open_one(folder)
+    assert gates.may_answer(g, "agent", {}, "approve")                  # a plain finished merge: still allowed
+    g["flags"] = [flag]
+    assert not gates.may_answer(g, "agent", {}, "approve")
+    assert gates.may_answer(g, "dashboard", {}, "approve")
+
+
+def test_agent_refused_on_a_merge_a_chat_fixed(tmp_path):
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    state.update(folder, lambda s: [t.update(status="passed") for t in s["tasks"].values()])
+    g = open_one(folder)
+    code_with_run_branch(folder, "Outside fix\n\nPhoenix-Fix-By: chat:home")
+    assert not gates.may_answer(g, "agent", {}, "approve")
+    assert gates.may_answer(g, "dashboard", {}, "approve")
+
+
+def test_agent_refused_on_a_merge_whose_tasks_are_not_finished(tmp_path):
+    folder = make_run(tmp_path)
+    code_with_run_branch(folder)
+    assert not gates.may_answer(open_one(folder), "agent", {}, "approve")
+
+
+def test_agent_on_a_handed_over_escalation_may_only_acknowledge(tmp_path):
+    folder = make_run(tmp_path)
+    g = open_one(folder, kind="escalation", flags=[gates.HANDOFF_FLAG])
+    assert gates.may_answer(g, "agent", {}, "acknowledged")
+    assert not gates.may_answer(g, "agent", {}, "skip")
+    assert not gates.may_answer(g, "agent", {}, "stop")

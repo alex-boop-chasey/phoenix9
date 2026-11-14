@@ -47,9 +47,10 @@ class AgentNext:
             raise AgentUnavailable(NOT_SET_UP)
         return value
 
-    def get_json(self, path: str) -> dict:
-        """GET a path and return its JSON object; raises AgentUnavailable when the answer is not a good JSON object."""
-        reply = self.request("GET", path)
+    def get_json(self, path: str, timeout: float | None = None) -> dict:
+        """GET a path and return its JSON object; raises AgentUnavailable when the answer is not a good JSON object.
+        timeout (seconds) replaces the usual TIMEOUT when given."""
+        reply = self.request("GET", path, timeout=timeout)
         body = b"".join(reply.chunks)
         try:
             data = json.loads(body)

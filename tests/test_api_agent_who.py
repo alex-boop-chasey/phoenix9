@@ -35,7 +35,14 @@ def paused_run():
 
 
 def gate_id():
-    """Make project alpha with an open merge question; returns the gate id."""
+    """Make project alpha with an open plan question; returns the gate id. (A merge whose run git cannot vouch for
+    is Alex's alone, for the agent as for chats: test_agent_refused_on_an_unchecked_merge.)"""
+    add_spec(make_project("alpha"))
+    return open_gate(kind="plan")[0]["id"]
+
+
+def merge_gate_id():
+    """Make project alpha with an open merge question (tasks not finished, no code repo); returns the gate id."""
     add_spec(make_project("alpha"))
     return open_gate()[0]["id"]
 
@@ -106,3 +113,11 @@ def test_agent_gate_answer_is_checked_and_recorded_as_agent(api, upd):
     """The gate answer carries who 'agent' into the answer itself."""
     status, body, _ = run_case(api, CASES[7], agent=True)
     assert status == 200 and body["data"]["who"] == "agent"
+
+
+def test_agent_refused_on_an_unchecked_merge(api, upd):
+    """A merge question whose run is not finished (or git cannot tell) is Alex's alone: the agent is refused."""
+    case = ("gate-answer", lambda s: f"/api/gates/{s}/answer", {"action": "approve"}, merge_gate_id)
+    status, body, whos = run_case(api, case, agent=True)
+    assert status != 200 and "may not answer merge questions" in body["message"]
+    assert not whos

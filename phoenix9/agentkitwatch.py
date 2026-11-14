@@ -6,7 +6,12 @@ from phoenix9 import agentnext, atomic, paths, scrub, settings
 UNIT = "phoenix-agentkit"
 BAD_CHECKS_NEEDED = 2     # bad checks in a row before a restart
 BACKOFF_S = 600           # wait this long after a restart before trying again
+MAX_RESTARTS = 3          # restarts in a row that did not bring it back healthy before the watchdog gives up
+STATUS_TIMEOUT_S = 5      # the /status check never holds the runner loop longer than this
 NOTICE = "Phoenix restarted the agent service: it was not answering."
+RESTART_FAILED = "Phoenix tried to restart the agent service (it was not answering), but the restart failed"
+GIVE_UP = (f"The agent service keeps failing: Phoenix restarted it {MAX_RESTARTS} times in a row and it never came "
+           "back healthy, so it has stopped restarting it. It needs a look (journalctl -u phoenix-agentkit).")
 
 
 def memory_path():
@@ -15,17 +20,27 @@ def memory_path():
 
 
 def _load() -> dict:
-    """The remembered {bad, last_restart, stopped}; fresh values when the file is missing or odd."""
+    """The remembered {bad, last_restart, stopped, restarts, gave_up}; fresh values when the file is missing or odd.
+
+    restarts = restarts in a row that have not (yet) brought the service back healthy; gave_up = the watchdog
+    stopped restarting after MAX_RESTARTS of them and told Alex once."""
     data = atomic.read_json(memory_path(), {})
     data = data if isinstance(data, dict) else {}
-    bad, last = data.get("bad"), data.get("last_restart")
-    return {"bad": bad if isinstance(bad, int) and not isinstance(bad, bool) and bad >= 0 else 0,
+    bad, last, tries = data.get("bad"), data.get("last_restart"), data.get("restarts")
+    return {"bad": _count(bad),
             "last_restart": last if isinstance(last, (int, float)) and not isinstance(last, bool) else None,
-            "stopped": data.get("stopped") is True}
+            "stopped": data.get("stopped") is True,
+            "restarts": _count(tries),
+            "gave_up": data.get("gave_up") is True}
+
+
+def _count(value) -> int:
+    """A remembered count, or 0 when it is not a whole number of zero or more."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
 def memory() -> dict:
-    """What the watchdog remembers (for doctor): {bad, last_restart, stopped}."""
+    """What the watchdog remembers (for doctor): {bad, last_restart, stopped, restarts, gave_up}."""
     return _load()
 
 
@@ -52,7 +67,7 @@ def _active(adapters) -> bool:
 def _answers(adapters) -> bool:
     """True when the agent service answers /status."""
     try:
-        adapters.agentnext.get_json("/status")
+        adapters.agentnext.get_json("/status", timeout=STATUS_TIMEOUT_S)
     except agentnext.AgentUnavailable:
         return False
     return True
@@ -73,16 +88,30 @@ def check_once(adapters) -> str:
     active = _active(adapters)
     did = ""
     if not active and stopped_on_purpose(adapters):
-        mem["bad"], mem["stopped"] = 0, True
+        mem.update(bad=0, stopped=True, restarts=0, gave_up=False)     # someone stopped it: start counting afresh
     elif active and _answers(adapters):
-        mem["bad"], mem["stopped"] = 0, False
+        mem.update(bad=0, stopped=False, restarts=0, gave_up=False)    # healthy again
     else:
         mem["stopped"] = False
         mem["bad"] += 1
-        if mem["bad"] >= BAD_CHECKS_NEEDED and not _backing_off(mem, now):
-            adapters.host.systemctl("restart", UNIT)
-            mem["last_restart"], mem["bad"] = now, 0
-            adapters.notify.send(scrub.scrub(NOTICE))
-            did = "restarted the agent service"
+        if mem["gave_up"]:
+            pass                                    # already told Alex once; never restart until it is healthy again
+        elif mem["bad"] >= BAD_CHECKS_NEEDED and not _backing_off(mem, now):
+            if mem["restarts"] >= MAX_RESTARTS:
+                mem["gave_up"], mem["bad"] = True, 0
+                adapters.notify.send(scrub.scrub(GIVE_UP))
+                did = "gave up restarting the agent service"
+            else:
+                rc, _, err = adapters.host.systemctl("restart", UNIT)
+                mem["last_restart"], mem["bad"] = now, 0
+                mem["restarts"] += 1
+                if rc == 0:
+                    adapters.notify.send(scrub.scrub(NOTICE))
+                    did = "restarted the agent service"
+                else:
+                    why = (err or "").strip().splitlines()
+                    detail = f" (systemctl exit {rc}: {why[-1][:200]})" if why else f" (systemctl exit {rc})"
+                    adapters.notify.send(scrub.scrub(RESTART_FAILED + detail + "."))
+                    did = "tried to restart the agent service, but the restart failed"
     atomic.write_json(memory_path(), mem)
     return did

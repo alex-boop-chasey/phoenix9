@@ -355,18 +355,19 @@ def _changed_by_chat(project: str, run: str, head: str | None) -> bool:
 def may_answer(gate: dict, who: str, project_settings: dict, action: str | None = None) -> bool:
     """Home chat callers (chat:*) may answer only kinds the project lists; everyone else anything.
 
-    A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the home chat.
+    A spending-cap (`budget`) question is Alex's alone: chat:* callers and the new agent (`agent`) never.
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
     flag "handed to the Phoenix agent" (set when a failed task is handed to it); the new agent (`agent`) likewise
     may answer such a handed-over gate only with `acknowledged`.
     A merge question flagged for a repair, a missing or failed full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
-    commit on the run branch, checked live) is Alex's alone: chat:* callers never.
+    commit on the run branch, checked live) is Alex's alone: chat:* callers and the new agent never.
     A repair-unlock request is answered only from the dashboard (Alex's press): never a chat, the agent or a command."""
     if gate.get("kind") == "repair-unlock":
         return who == "dashboard"
-    if who.startswith("chat:") and gate.get("kind") == "budget":
+    ai_caller = who.startswith("chat:") or who == "agent"
+    if ai_caller and gate.get("kind") == "budget":
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
-    if who.startswith("chat:") and gate.get("kind") == "merge" and (
+    if ai_caller and gate.get("kind") == "merge" and (
             any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
         return False
     if who in ("chat:home", "agent") and gate["kind"] == "escalation" and HANDOFF_FLAG in (gate.get("flags") or []):

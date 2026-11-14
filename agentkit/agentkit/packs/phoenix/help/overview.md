@@ -43,6 +43,8 @@ Some things are Alex's alone and you never try them:
 - deleting a project or a repo (the Delete button on the project's Settings page)
 - changing a safety setting (Phoenix refuses you; Alex does it in Settings)
 - raising a spending cap or answering a question about the budget
+- answering a merge question flagged for a repair, a failed or missing full suite, or a fix by a chat (Phoenix
+  refuses you; tell Alex to answer it on the dashboard)
 - allowing a repair that needs his say (you may only ask with `repair-unlock-request`)
 
 ## Names

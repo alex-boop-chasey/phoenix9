@@ -80,6 +80,8 @@ export interface ProjectRow {
   repo: string
   repo_owner: string
   repo_name: string
+  /** The projects folder's shared repo when that is the only repo found (repo is then empty); null otherwise. */
+  shared_repo?: string | null
   profile: string
   services: string[]
   size: number | null
@@ -163,7 +165,9 @@ export interface ImportResult { name: string; path: string; repo: string | null;
 export interface DeleteLink { target: string; note: string; links: string[] }
 export interface DeletePlan {
   name: string; folder: string; size: number; repo: string | null
-  repo_delete?: { repo: string | null; delete: boolean; why: string; reason?: string }
+  /** The projects folder's shared repo when that is the only repo found (the project has none of its own). */
+  shared_repo?: string | null
+  repo_delete?: { repo: string | null; delete: boolean; why: string; reason?: string; shared_repo?: string }
   open_prs: { number: number; title: string; url: string }[]; open_prs_note?: string
   unpushed: number; unsaved_edits?: number; runs: { count: number }; keys: string[]; keys_note?: string
   keep_days?: number

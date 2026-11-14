@@ -565,6 +565,45 @@ def repo_of(folder: Path) -> str:
     return git.remote_url(code) if code.is_dir() else ""
 
 
+def _git_out(where: Path, *args: str) -> str | None:
+    """The trimmed output of one git command in `where`, or None when it fails."""
+    try:
+        done = git.run_git(where, *args, check=False, timeout=10)
+    except (OSError, git.GitError):
+        return None
+    return done.stdout.decode(errors="replace").strip() if done.returncode == 0 else None
+
+
+def _repo_key(repo) -> str | None:
+    """owner/name in lower case (GitHub names ignore case), or None when it is not a GitHub repo."""
+    parts = split_repo(str(repo or ""))
+    return f"{parts['owner']}/{parts['name']}".lower() if parts["owner"] else None
+
+
+def shared_repo_of(folder: Path, repo: str, git_out=None) -> str:
+    """The projects folder's shared repo (owner/name) when it is the repo found for this project and code/ is
+    not its own git repo, else ''. `git_out(where, *args)` runs git (output or None); a host adapter's in delete."""
+    key = _repo_key(repo)
+    run = git_out or _git_out
+    if not key or _repo_key(run(paths.projects(), "remote", "get-url", "origin")) != key:
+        return ""
+    code = folder / "code"
+    if code.is_dir() and not code.is_symlink():
+        top = run(code, "rev-parse", "--show-toplevel")
+        if top and os.path.realpath(top) == os.path.realpath(code):
+            return ""           # code/ is a repo of its own: whatever its origin, it is the project's
+    parts = split_repo(repo)
+    return f"{parts['owner']}/{parts['name']}"
+
+
+def own_repo_of(folder: Path, git_out=None) -> tuple[str, str]:
+    """(repo, shared): the project's own repo ('' when the only one found is the projects folder's shared repo)
+    and that shared repo ('' otherwise)."""
+    repo = repo_of(folder)
+    shared = shared_repo_of(folder, repo, git_out)
+    return ("", shared) if shared else (repo, "")
+
+
 def split_repo(repo: str) -> dict:
     """{owner, name} from OWNER/NAME or a GitHub URL; both None when it is not a GitHub repo."""
     m = re.search(r"github\.com[:/]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?/?$", repo or "")
@@ -677,12 +716,12 @@ def harness_status(name: str) -> str:
 def info(name: str, adapters, size_wait: bool = True) -> dict:
     """Everything known about one project; size is measured (or cached) unless size_wait is False."""
     folder = paths.projects() / name
-    repo = repo_of(folder)
+    repo, shared = own_repo_of(folder)
     at, words = last_used(name, adapters.clock.now())
     nbytes = size(name, adapters) if size_wait else cached_size(name)
     return {"name": name, "description": description(folder), "path": str(folder), "repo": repo,
             "repo_owner": split_repo(repo)["owner"], "repo_name": split_repo(repo)["name"],
-            "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
+            "shared_repo": shared or None, "profile": profile_of(folder), "services": _services_of(folder), "size": nbytes,
             "vscode_url": vscode_link(name)["url"], "vscode": vscode_link(name), "last_used": words, "last_used_at": at, "harness": harness_status(name),
             "has_phoenix_toml": (folder / "phoenix.toml").is_file()}
 

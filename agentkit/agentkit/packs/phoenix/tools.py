@@ -340,7 +340,7 @@ def diagnose_card(project: str, data: Any) -> dict:
 def repair_card(project: str, data: Any, values: dict) -> dict:
     """Card data for a repair result: what was asked, the reason given, and the outcome as Phoenix said it."""
     data = data if isinstance(data, dict) else {}
-    keep = {k: values[k] for k in ("task", "tries", "preset", "step", "finish_step") if values.get(k) is not None}
+    keep = {k: values[k] for k in ("task", "tries", "preset", "step", "finish_step", "steps") if values.get(k) is not None}
     return {"project": project or str(data.get("project") or ""), "run_id": str(data.get("run_id") or values.get("run_id") or ""),
             "reason": str(values.get("why") or ""), "asked": keep, "result": data}
 

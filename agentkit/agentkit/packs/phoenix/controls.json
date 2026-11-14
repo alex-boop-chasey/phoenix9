@@ -2284,13 +2284,13 @@
       }
     ],
     "risk": "change",
-    "agent": "later",
-    "why": "The agent's tool for asking comes with the dashboard card for the question (O67 part 2).",
+    "agent": "tool",
+    "why": "",
     "method": "POST",
     "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock",
     "fixed": {},
     "fixed_query": {},
-    "card": "",
+    "card": "repair_card",
     "confirm_with": ""
   },
   {

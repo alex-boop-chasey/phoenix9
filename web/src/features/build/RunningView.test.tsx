@@ -203,6 +203,22 @@ test("a failed build whose tasks all passed names the step it failed at", async 
     "title", "Failed at: Full suite: 2 tests failed")
 })
 
+test("a repair done with Alex's approval shows as a line on the run", async () => {
+  const at = new Date(2026, 10, 14, 14, 2).toISOString()
+  const used = [{ at, who: "agent", steps: ["reset-worktree"], text: "Repaired by the agent with Alex's approval" }]
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "failed", gates: [], unlocks_used: used }) }))
+  show()
+  expect(await screen.findByTestId("unlock-used")).toHaveTextContent(
+    "Repaired by the agent with your approval, 14:02: reset the worktree")
+})
+
+test("no approved repair, no line", async () => {
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "failed", gates: [] }) }))
+  show()
+  await screen.findByTestId("result")
+  expect(screen.queryByTestId("unlock-used")).toBeNull()
+})
+
 test("build tab opens on the running view when a run is active", async () => {
   mockApi(routes())
   show("/p/demo-site/build")

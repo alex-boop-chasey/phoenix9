@@ -13,6 +13,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { NeedsYouCard } from "@/features/gates/NeedsYouCard"
+import { unlockUsedText } from "@/features/gates/repairUnlock"
 import { useBuilds, usePauseRun, useResumeRun, useRunEstimates, useStopRun } from "@/lib/queries"
 import type { RunDetail, RunEstimates } from "@/lib/types"
 
@@ -208,6 +209,9 @@ export function RunningView({ name, runId, mode }: Props) {
         />
       </div>
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}
+      {(d.unlocks_used ?? []).map((u, i) => (
+        <p key={`${u.at}-${i}`} className="small" data-testid="unlock-used">{unlockUsedText(u)}</p>
+      ))}
       <ConfirmDialog
         open={pausing} onOpenChange={setPausing} title="Pause now?"
         body="Stop the build at once? The work so far is kept and it carries on from the same step when you resume."

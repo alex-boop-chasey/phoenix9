@@ -211,3 +211,48 @@ describe("NeedsYouCard", () => {
     await waitFor(() => expect(calls.length).toBe(1))
   })
 })
+
+const unlock: Gate = {
+  ...escalation, id: "r-fail.4", run: "r-fail", kind: "repair-unlock", task: null, step: null, links: [], flags: [],
+  title: "The agent asks to reset the worktree and force a repair past its check on r-fail: the worktree is stuck",
+  why: "the worktree is stuck", actions: ["approve", "deny"], unlock_steps: ["reset-worktree", "force"], asked_by: "agent",
+}
+
+describe("NeedsYouCard: the agent asks to unlock a repair", () => {
+  it("shows the run, the repairs in plain words, the reason and Allow once / Don't allow", () => {
+    mockApi({})
+    renderWithProviders(<NeedsYouCard gate={unlock} />)
+    const body = screen.getByTestId("repair-unlock")
+    expect(body).toHaveTextContent("The Phoenix agent asks you to allow, once, a repair it may not do alone on build r-fail")
+    const items = screen.getByRole("list", { name: "Repairs asked for" }).querySelectorAll("li")
+    expect([...items].map((i) => i.textContent)).toEqual(["reset the worktree", "force a repair past its check"])
+    expect(body).toHaveTextContent("Why: the worktree is stuck")
+    expect(screen.getByText("Repair")).toBeInTheDocument()
+    expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Allow once", "Don't allow"])
+  })
+
+  it("Allow once asks first; Cancel sends nothing, confirming sends approve", async () => {
+    const { calls } = mockApi(answerRoute("r-fail.4"))
+    renderWithProviders(<NeedsYouCard gate={unlock} />)
+    fireEvent.click(button("Allow once"))
+    expect(await screen.findByText(/reset the worktree and force a repair past its check on this build, one time/)).toBeInTheDocument()
+    fireEvent.click(button("Cancel"))
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Yes, allow once" })).toBeNull())
+    expect(calls.length).toBe(0)
+    fireEvent.click(button("Allow once"))
+    fireEvent.click(await screen.findByRole("button", { name: "Yes, allow once" }))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "approve", note: "" })
+    expect(await screen.findByText(/Allowed once/)).toBeInTheDocument()
+  })
+
+  it("Don't allow sends deny at once", async () => {
+    const { calls } = mockApi(answerRoute("r-fail.4"))
+    renderWithProviders(<NeedsYouCard gate={{ ...unlock, asked_by: "chat:demo-site" }} />)
+    expect(screen.getByTestId("repair-unlock")).toHaveTextContent("A chat in demo-site asks you")
+    fireEvent.click(button("Don't allow"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "deny", note: "" })
+    expect(await screen.findByText(/Not allowed/)).toBeInTheDocument()
+  })
+})

@@ -293,13 +293,13 @@ CONTROLS = (
           text="Start the build again from the same spec on another preset (the old run stays as it is).",
           inputs=(P_PROJECT, P_RUN, _in("preset", required=True, description="The preset to restart on.")),
           card="repair_card"),
-    _post("repair-unlock-request", "repair.request_unlock", rf"/api/runs/{RUN}/repair/request-unlock", "change", "later",
-          "The agent's tool for asking comes with the dashboard card for the question (O67 part 2).",
+    _post("repair-unlock-request", "repair.request_unlock", rf"/api/runs/{RUN}/repair/request-unlock", "change", "tool",
           text="Ask Alex to allow once a repair the agent may not do alone; Alex answers in the dashboard.",
           inputs=(P_PROJECT, P_RUN,
                   _in("steps", "list", True, "The repairs to unlock: replace-spec, keep-hand-fix, reset-worktree, "
                       "force, unlock-checks, stop or discard."),
-                  _in("why", required=True, description="Why the repair is needed, in one plain line."))),
+                  _in("why", required=True, description="Why the repair is needed, in one plain line.")),
+          card="repair_card"),
     # ---- updates ----
     _get("update-check", "update.status", "/api/update", "tool", card="update_card",
          text="Check whether a newer Phoenix is available.", fixed_query={"refresh": "1"}),

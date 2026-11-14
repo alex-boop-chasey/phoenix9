@@ -116,7 +116,7 @@ export interface ChangelogLine {
   text: string
 }
 
-export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step"
+export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step" | "repair-unlock"
 export type KnownGateAction = "approve" | "back" | "skip" | "stop" | "acknowledged"
 /** A gate's own extra action (for example "done") is any other word. */
 export type GateAction = KnownGateAction | (string & {})
@@ -135,6 +135,10 @@ export interface Gate {
   flags: string[]
   created: string
   answered: boolean
+  /** repair-unlock only: the repairs the agent asks Alex to allow once. */
+  unlock_steps?: string[]
+  /** repair-unlock only: who asked ("agent" or "chat:<project>"). */
+  asked_by?: string
 }
 
 /** The reply of the projects search: attention rows first (if asked), the rest, and counts per status. */
@@ -364,6 +368,14 @@ export interface RunRepair {
   rolled_back: boolean
 }
 
+/** One repair the agent or a chat did with Alex's dashboard approval. */
+export interface UnlockUsed {
+  at: string
+  who: string
+  steps: string[]
+  text: string
+}
+
 export interface RunDetail {
   run_id: string
   project: string
@@ -395,6 +407,8 @@ export interface RunDetail {
   branch?: string
   /** Repairs applied to the run, oldest first. */
   repairs?: RunRepair[]
+  /** Repairs done with Alex's one-time approval (repair-unlock), oldest first. */
+  unlocks_used?: UnlockUsed[]
   /** The run-start or run-finish step a failed build failed at. */
   failed_at?: FailedAt | null
   /** The build's worktree and branch were thrown away (`phoenix run discard`). */

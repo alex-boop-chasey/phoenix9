@@ -137,44 +137,54 @@ test("the panel gives focus back to the header button", () => {
   expect(btn).toHaveFocus()
 })
 
-test("breadcrumbs show on the page", () => {
+test("breadcrumbs show on the page, starting after Projects", () => {
   setup({ route: "/p/demo-site/build" })
   const trail = screen.getByRole("navigation", { name: "Breadcrumb" })
-  expect(trail).toHaveTextContent("Projects/demo-site/Build")
+  expect(trail).toHaveTextContent("demo-site/Build")
+  expect(within(trail).queryByText("Projects")).toBeNull()
 })
 
-test("the header holds no Projects link; the logo still goes to projects", () => {
+test("Projects is in the top bar's main menu, in the right-hand section, not beside the logo", () => {
   setup({ route: "/p/demo-site/build" })
   const header = document.querySelector("header.top") as HTMLElement
-  expect(within(header).queryByRole("link", { name: "Projects" })).toBeNull()
-  expect(within(header).queryByText("Projects")).toBeNull()
+  const menu = within(header).getByRole("navigation", { name: "Main menu" })
+  const link = within(menu).getByRole("link", { name: "Projects" })
+  expect(link).toHaveAttribute("href", "/")
+  expect(link.querySelector("svg")).not.toBeNull()
+  const main = header.querySelector(".top-main") as HTMLElement
+  expect(main.contains(menu)).toBe(true)
+  expect(main.firstElementChild).toBe(menu)
+  expect(main.contains(header.querySelector(".top-r"))).toBe(true)
+  expect((header.querySelector(".brand") as HTMLElement).contains(menu)).toBe(false)
   expect(within(header).getByRole("link", { name: "Phoenix, go to projects" })).toHaveAttribute("href", "/")
 })
 
-test("the trail starts with a Projects link with its icon on every page", () => {
-  for (const route of ["/", "/p/demo-site/build", "/settings", "/styles", "/new"]) {
+test("the Projects menu item is current on project pages only", () => {
+  for (const [route, current] of [["/", true], ["/p/demo-site/build", true], ["/new", true], ["/import", true], ["/settings", false], ["/styles", false]] as const) {
     const view = setup({ route })
-    const trail = screen.getByRole("navigation", { name: "Breadcrumb" })
-    const first = trail.firstElementChild as HTMLElement
-    expect(first.tagName).toBe("A")
-    expect(first).toHaveAttribute("href", "/")
-    expect(first).toHaveAccessibleName("Projects")
-    expect(first.querySelector("svg")).not.toBeNull()
-    expect(within(trail).getAllByText("Projects")).toHaveLength(1)
-    if (route === "/") expect(first).toHaveAttribute("aria-current", "page")
-    else expect(first).not.toHaveAttribute("aria-current")
+    const link = within(screen.getByRole("navigation", { name: "Main menu" })).getByRole("link", { name: "Projects" })
+    if (current) expect(link).toHaveAttribute("aria-current", "page")
+    else expect(link).not.toHaveAttribute("aria-current")
     view.unmount()
   }
 })
 
-test("the settings trail reads Projects / Phoenix settings / Updates", () => {
+test("no trail when it would only repeat the page's own name", () => {
+  for (const route of ["/", "/new", "/import", "/settings", "/p/demo-site"]) {
+    const view = setup({ route })
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).toBeNull()
+    view.unmount()
+  }
+})
+
+test("the settings trail reads Phoenix settings / Updates", () => {
   setup({ route: "/settings?tab=updates" })
-  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Updates")
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Phoenix settings/Updates")
 })
 
 test("the settings trail follows ?section= too", () => {
   setup({ route: "/settings?section=logs" })
-  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Projects/Phoenix settings/Logs")
+  expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Phoenix settings/Logs")
 })
 
 test("crumbs per route", () => {

@@ -1,8 +1,6 @@
 import { Fragment } from "react"
 import { Link, useLocation, useSearchParams } from "react-router"
 
-import { Icon } from "@/components/Icon"
-
 export interface Crumb {
   label: string
   to?: string
@@ -34,7 +32,8 @@ export function crumbsFor(pathname: string): Crumb[] {
   return [{ label: "Projects", to: "/" }]
 }
 
-/** Breadcrumbs above the page content; the first item is always the Projects link (current on the projects page). */
+/** Breadcrumbs above the page content. Projects lives in the main menu (top bar), so the trail
+ * starts after it; a trail of one item (the page's own name) is not shown. */
 export function Crumbs() {
   const { pathname } = useLocation()
   const [params] = useSearchParams()
@@ -47,15 +46,12 @@ export function Crumbs() {
     }
   }
   const rest = items[0]?.label === "Projects" ? items.slice(1) : items
+  if (rest.length < 2) return null
   return (
     <nav className="crumbs" aria-label="Breadcrumb">
-      <Link className="crumbs-home" to="/" aria-current={pathname === "/" ? "page" : undefined}>
-        <Icon name="squares-four" size="sm" />
-        Projects
-      </Link>
       {rest.map((c, i) => (
         <Fragment key={i}>
-          <span aria-hidden="true">/</span>
+          {i > 0 && <span aria-hidden="true">/</span>}
           {c.to ? <Link to={c.to}>{c.label}</Link> : <span aria-current="page">{c.label}</span>}
         </Fragment>
       ))}

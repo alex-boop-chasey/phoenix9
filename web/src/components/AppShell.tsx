@@ -3,6 +3,7 @@ import { Link, matchPath, useLocation } from "react-router"
 
 import { Bell } from "@/components/Bell"
 import { Crumbs } from "@/components/Crumbs"
+import { MainMenu } from "@/components/MainMenu"
 import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
@@ -63,7 +64,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="app overflow-x-hidden">
-      <header className="top gut">
+      <header className="top">
+        <div className="top-in gut">
         <Link className="brand" to="/" aria-label="Phoenix, go to projects">
           <span className="mark"><Icon name="flame" /></span>
           <span className="wordmark">
@@ -71,6 +73,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             {info && <span title="Installed release">{info.label ?? info.version}</span>}
           </span>
         </Link>
+        <div className="top-main">
+        <MainMenu />
         <div className="top-r">
           {update?.supported && update.available && (
             <Link className="upd" to="/settings?tab=updates">
@@ -92,6 +96,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name="gear" />
             <span className="wtxt">Settings</span>
           </Link>
+        </div>
+        </div>
         </div>
       </header>
 

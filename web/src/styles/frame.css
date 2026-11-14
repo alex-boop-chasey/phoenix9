@@ -1,7 +1,17 @@
 /* The frame: header, project switcher, well, breadcrumbs, agent drawer, phone picker sheet (from the mockup) */
 @layer components {
 .app{height:100vh; height:100dvh; display:flex; flex-direction:column; overflow:hidden}
-.top{position:relative; flex:none; z-index:30; height:60px; display:flex; align-items:center; gap:12px; background:var(--bg-page); border-bottom:1px solid var(--line)}
+.top{position:relative; flex:none; z-index:30; height:60px; background:var(--bg-page); border-bottom:1px solid var(--line)}
+.top-in{height:100%; width:100%; max-width:1600px; margin:0 auto; display:flex; align-items:center; gap:12px}
+.top-main{flex:1 1 auto; min-width:0; display:flex; align-items:center; gap:12px}
+/* Wide screens: the same columns as .shell, so the main menu starts above the page area (text lined up with the page's content) */
+@media (min-width:1000px){ .top-in{display:grid; grid-template-columns:224px minmax(0,1fr); column-gap:16px} .mainmenu{padding-left:25px} }
+.mainmenu{display:flex; align-items:center; gap:20px; min-width:0}
+.mm-item{display:inline-flex; align-items:center; gap:6px; height:40px; color:var(--text-2); text-decoration:none; font:600 14px/1 var(--f-body); border-bottom:2px solid transparent; border-top:2px solid transparent}
+.mm-item:hover{color:var(--text); border-bottom-color:var(--line-strong)}
+.mm-item[aria-current="page"]{color:var(--text); border-bottom-color:var(--accent)}
+.mm-item:focus-visible{outline:2px solid var(--focus); outline-offset:2px; border-radius:var(--r-sm)}
+@media (max-width:520px){ .mainmenu{display:none} }
 .brand{display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text); min-width:0}
 .mark{width:36px; height:36px; border-radius:var(--r-md); display:grid; place-items:center; color:#fff; flex:none;
   background:radial-gradient(circle at 50% 120%,#7DD8FF,#2E8BFF 55%,#0F3C9A); box-shadow:0 0 0 1px rgba(255,255,255,.08) inset,0 6px 20px -6px var(--accent-glow)}
@@ -18,7 +28,7 @@
 .hbtn.picker{display:none; border:1px solid var(--line-strong); color:var(--text)}
 @media (max-width:999px){ .hbtn.picker{display:inline-flex} }
 @media (max-width:899px){ .hbtn .wtxt{display:none} }
-@media (max-width:520px){ .upd{display:none} .wordmark b{font-size:19px} .top-r{gap:2px} .hbtn{min-width:44px; height:44px; padding:0} .hbtn.picker{padding:0} .top{gap:8px} }
+@media (max-width:520px){ .upd{display:none} .wordmark b{font-size:19px} .top-r{gap:2px} .hbtn{min-width:44px; height:44px; padding:0} .hbtn.picker{padding:0} .top-in, .top-main{gap:8px} }
 
 .shell{flex:1 1 auto; min-height:0; width:100%; display:grid; grid-template-rows:minmax(0,1fr); gap:16px; padding-top:16px; padding-bottom:16px; max-width:1600px; margin:0 auto}
 @media (min-width:1000px){ .shell{grid-template-columns:224px minmax(0,1fr)} }
@@ -54,10 +64,6 @@
 .crumbs{display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:13px; color:var(--text-2); margin-bottom:10px}
 .crumbs a{color:var(--text-2); text-decoration:none} .crumbs a:hover{color:var(--accent-text); text-decoration:underline}
 .crumbs span[aria-current]{color:var(--text)}
-.crumbs a.crumbs-home{display:inline-flex; align-items:center; gap:6px; padding:2px 0; color:var(--text-2); font-weight:600; font-size:14px; border-bottom:2px solid transparent}
-.crumbs a.crumbs-home:hover{color:var(--text); text-decoration:none; border-bottom-color:var(--line-strong)}
-.crumbs a.crumbs-home[aria-current="page"]{color:var(--text); border-bottom-color:var(--accent)}
-.crumbs a.crumbs-home:focus-visible{outline:2px solid var(--focus); outline-offset:2px; border-radius:var(--r-sm)}
 .scrim{position:fixed; inset:0; z-index:40; background:var(--scrim); opacity:0; pointer-events:none; transition:opacity var(--dur-slow)}
 .scrim.open{opacity:1; pointer-events:auto}
 .drawer{position:fixed; z-index:41; top:60px; right:0; bottom:0; width:min(440px,100vw); background:var(--surface); border-left:1px solid var(--line-strong); box-shadow:var(--shadow-3); display:flex; flex-direction:column; transform:translateX(100%); visibility:hidden; transition:transform var(--dur-slow) cubic-bezier(.32,.72,0,1),visibility 0s var(--dur-slow)}

@@ -7,7 +7,7 @@ import pytest
 
 from helpers import scripted
 from helpers.scripted import fail, on
-from helpers.stepunit import load, make_ctx, make_work
+from helpers.stepunit import git, load, make_ctx, make_work, write
 from phoenix9 import gates, runs, scrub, state
 from phoenix9.ops import runs as ops_runs
 from phoenix9.runner import Runner
@@ -77,6 +77,44 @@ def test_full_suite_skips_without_suite_command(tmp_path, adapters):
     res = full_suite.run(ctx)
     assert res.status == "skip" and res.reasons == ["the profile has no full suite command"]
     assert adapters.docker.argvs == []
+
+
+def fake_pnpm(command, script):
+    """What pnpm runs for a command: extra arguments to `pnpm test` reach only the last tool of the test script."""
+    if command.startswith("pnpm test"):
+        extra = command[len("pnpm test"):]
+        parts = [p.strip() for p in script.split("&&")]
+        return parts[:-1] + [parts[-1] + extra]
+    return [command.removeprefix("pnpm exec ")]
+
+
+def test_web_full_suite_runs_vitest_with_its_report_when_test_script_chains_playwright(tmp_path, adapters):
+    # the rachel-showcase shape: the project's own test script runs Vitest and then Playwright
+    work = make_work(tmp_path)
+    script = "vitest run && playwright test"
+    write(work, {"package.json": '{"scripts": {"test": "%s"}}\n' % script})
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "package")
+    ctx = make_ctx(tmp_path, adapters, work, "full-suite", profile="web")
+    ctx.task = None
+    seen = {}
+
+    def spy(argv, *a, **k):
+        out = Path(next(x for x in argv if ",dst=/out" in x).split("src=", 1)[1].split(",", 1)[0])
+        command = argv[-1]
+        seen["command"] = command
+        for tool in fake_pnpm(command, script):
+            if tool.startswith("playwright"):
+                return 1                     # Playwright stops on an option meant for Vitest (or a missing browser)
+            if "--outputFile=/out/vitest.json" in tool:
+                shutil.copy(REPO / "tests" / "data" / "reports" / "vitest-pass.json", out / "vitest.json")
+        return 0
+    adapters.docker.run = spy
+    res = full_suite.run(ctx)
+    assert res.status == "pass", res.reasons
+    assert "pnpm test" not in seen["command"] and "playwright" not in seen["command"]
+    assert "vitest run --passWithNoTests --reporter=json --outputFile=/out/vitest.json" in seen["command"]
+    assert fake_pnpm(f"pnpm test {ctx.project.profile['test']['report_args']}", script)[-1].startswith("playwright")
 
 
 # ------------------------------------------------------------- scripted runs with the real finish steps

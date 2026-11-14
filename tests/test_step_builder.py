@@ -239,7 +239,7 @@ def test_profile_test_block_validated(tmp_path):
     path = lib / "profiles" / "web" / "profile.toml"
     path.write_text(path.read_text() + 'bogus = "x"\n')
     assert any("test.bogus" in p for p in settings.check_profile(lib, "web"))
-    path.write_text(path.read_text().replace('["vitest-json", "playwright-json"]', '["vitest-json", "nope"]')
+    path.write_text(path.read_text().replace('["vitest-json"]', '["vitest-json", "nope"]')
                     .replace('bogus = "x"\n', ""))
     assert any("unknown report 'nope'" in p for p in settings.check_profile(lib, "web"))
 

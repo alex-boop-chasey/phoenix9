@@ -6,8 +6,8 @@ screenshots = true
 suggested_deployer = "none"
 
 [test]
-cmd = "pnpm test"
-task_cmd = "pnpm test"
+cmd = "pnpm exec vitest run --passWithNoTests"
+task_cmd = "pnpm exec vitest run --passWithNoTests"
 report = "vitest-json"
 report_path = "test-report.json"
 checks_dir = "tests/phoenix"

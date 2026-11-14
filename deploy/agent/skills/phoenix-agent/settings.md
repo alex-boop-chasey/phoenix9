@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs e20ab913d5bd9f0b -->
+<!-- phoenix 9.1.0 inputs e0adb65986929b94 -->
 # Settings (phoenix.toml)
 
 Change with `phoenix settings`. Unknown keys are errors.
@@ -104,9 +104,9 @@ Steps: pick-up, spec-check, branch, planner, service-setup, check-writer, red-ch
 
 ## Profiles
 
-- `desktop`: Desktop app; image `phoenix9-step-desktop:1`; test `pnpm test`; deployer `none`
-- `mobile`: Mobile app; image `phoenix9-step-mobile:1`; test `pnpm test`; deployer `expo-eas`
+- `desktop`: Desktop app; image `phoenix9-step-desktop:1`; test `pnpm exec vitest run --passWithNoTests`; deployer `none`
+- `mobile`: Mobile app; image `phoenix9-step-mobile:1`; test `pnpm exec vitest run --passWithNoTests`; deployer `expo-eas`
 - `platform`: Platform; image `phoenix9-step-platform:1`; test `./check.sh`; deployer `none`
 - `python-script`: Python script; image `phoenix9-step-python:1`; test `python3 -m pytest -q`; deployer `none`
 - `research`: Research; image `phoenix9-step-research:1`; test `true`; deployer `none`
-- `web`: Web app; image `phoenix9-step-web:1`; test `pnpm test`; deployer `vps-docker`
+- `web`: Web app; image `phoenix9-step-web:1`; test `pnpm exec vitest run --passWithNoTests`; deployer `vps-docker`

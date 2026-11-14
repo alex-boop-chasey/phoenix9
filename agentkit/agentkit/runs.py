@@ -1,5 +1,6 @@
 """Server-side runs: a reply is an asyncio task that keeps going with no browser attached."""
 import asyncio
+import re
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
@@ -19,6 +20,8 @@ REPAIR_BUSY = ("Another repair for this run is already waiting for Alex's answer
                "ask for a second one. Wait until it is finished, then look at the run again.")
 BAD_INPUTS = "Refused: those inputs are not allowed (an unknown field, such as keys), so nothing was sent."
 FAILED = "The agent could not finish this reply."
+CONTEXT_KEYS = ("page", "project", "run")
+SAFE = re.compile(r"[A-Za-z0-9/_.-]{1,80}")
 
 
 class RunBusy(Exception):
@@ -41,6 +44,19 @@ def _refusal_text(pause: dict) -> str:
     """The reason the model is told for a refused call: the pause's own message, else Alex's refusal."""
     result = pause.get("result")
     return result["message"] if isinstance(result, dict) and result.get("message") else REFUSED
+
+
+def clean_context(raw) -> dict:
+    """Keep only page, project and run values of a safe shape; anything else is dropped, never an error."""
+    if not isinstance(raw, dict):
+        return {}
+    return {k: raw[k] for k in CONTEXT_KEYS if isinstance(raw.get(k), str) and SAFE.fullmatch(raw[k])}
+
+
+def context_line(context: dict) -> str:
+    """The one line the model is told about what Alex has open, e.g. [Alex is looking at: project demo]."""
+    parts = [f"{k} {context[k]}" for k in CONTEXT_KEYS if context.get(k)]
+    return f"[Alex is looking at: {' · '.join(parts)}]" if parts else ""
 
 
 class Runs:
@@ -68,8 +84,17 @@ class Runs:
             self.history[thread_id] = llm.load_messages(saved) if saved else []
         return self.history[thread_id]
 
-    def start(self, thread_id: str, message: str) -> str:
-        """Start a run in the background and return its id at once; one run per thread."""
+    def _new_context(self, thread_id: str, context) -> dict | None:
+        """The cleaned context when it differs from the last one the model was told in this thread, else None."""
+        context = clean_context(context)
+        return context if context and context != self.store.load_context(thread_id) else None
+
+    def start(self, thread_id: str, message: str, context=None) -> str:
+        """Start a run in the background and return its id at once; one run per thread.
+
+        `context` is what Alex has open ({page, project, run}); the model alone sees it, as one line before the
+        message, and only when it differs from the last one sent in this thread. The chat log keeps his own words.
+        """
         if thread_id in self.active:
             raise RunBusy(BUSY)
         if self.store.pending_pauses(thread_id):
@@ -78,12 +103,12 @@ class Runs:
         run_id = wire.new_id()
         if (thread := self.store.get_thread(thread_id)) and thread["title"] == DEFAULT_TITLE:
             self.store.set_title(thread_id, message.strip()[:TITLE_LENGTH])
-        self._launch(thread_id, run_id, message)
+        self._launch(thread_id, run_id, message, context=self._new_context(thread_id, context))
         return run_id
 
-    def _launch(self, thread_id: str, run_id: str, message: str | None, results=None) -> None:
+    def _launch(self, thread_id: str, run_id: str, message: str | None, results=None, context: dict | None = None) -> None:
         """Run a turn as a background task, tracked as the thread's active run."""
-        task = asyncio.create_task(self._drive(thread_id, run_id, message, results))
+        task = asyncio.create_task(self._drive(thread_id, run_id, message, results, context))
         self.active[thread_id] = task
         task.add_done_callback(lambda _t: self._finished(thread_id))
 
@@ -217,14 +242,20 @@ class Runs:
         for event in events:
             self.store.append_event(thread_id, event)
 
-    async def _drive(self, thread_id: str, run_id: str, message: str | None, results=None) -> None:
-        """Run one turn and log its events; always ends with RUN_FINISHED or RUN_ERROR (unless paused)."""
+    async def _drive(self, thread_id: str, run_id: str, message: str | None, results=None,
+                     context: dict | None = None) -> None:
+        """Run one turn and log its events; always ends with RUN_FINISHED or RUN_ERROR (unless paused).
+
+        The chat log shows `message` as Alex wrote it; the model gets the context line before it when one is given,
+        and the context counts as told once the turn's history is saved.
+        """
+        prompt = f"{context_line(context)}\n{message}" if context and message is not None else message
         msg_id, text_open, paused, offered = wire.new_id(), False, False, None
         self._log(thread_id, wire.run_started(thread_id, run_id))
         if message is not None:
             self._log(thread_id, wire.user_message(wire.new_id(), message))
         try:
-            async for item in llm.run_turn(self.agent, message, self._history(thread_id), results):
+            async for item in llm.run_turn(self.agent, prompt, self._history(thread_id), results):
                 if item[0] == "text":
                     if not text_open:
                         self._log(thread_id, wire.text_start(msg_id))
@@ -240,6 +271,8 @@ class Runs:
                 elif item[0] == "done":
                     self.history[thread_id] = item[1]
                     self.store.save_history(thread_id, llm.dump_messages(item[1]))
+                    if context:
+                        self.store.save_context(thread_id, context)
                     for call in item[3]:
                         inputs = call.args_as_dict()
                         if self._inputs_refused(call.tool_name, inputs):  # refused before any card; the args are not logged
@@ -317,7 +350,7 @@ def start_route(runs: Runs, denied):
         if not isinstance(message, str) or not message.strip():
             return JSONResponse({"error": "message is required"}, status_code=400)
         try:
-            run_id = runs.start(thread_id, message)
+            run_id = runs.start(thread_id, message, context=body.get("context"))
         except RunBusy as e:
             return JSONResponse({"error": str(e)}, status_code=409)
         return JSONResponse({"run_id": run_id}, status_code=202)

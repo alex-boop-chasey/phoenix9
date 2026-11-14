@@ -22,6 +22,8 @@ CREATE TABLE IF NOT EXISTS pauses (
     call_id TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS histories (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS contexts (
+    thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, model TEXT NOT NULL,
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
@@ -168,6 +170,18 @@ class Store:
         """Return the saved message history, or None."""
         rows = self._read("SELECT data FROM histories WHERE thread_id=?", (thread_id,))
         return rows[0]["data"] if rows else None
+
+    # page context
+    def save_context(self, thread_id: str, context: dict) -> None:
+        """Keep the page context last told to the model in a thread (so it survives a restart)."""
+        self._write(lambda db: db.execute(
+            "INSERT INTO contexts VALUES (?,?) ON CONFLICT(thread_id) DO UPDATE SET data=excluded.data",
+            (thread_id, json.dumps(quote.scrub(context), sort_keys=True))))
+
+    def load_context(self, thread_id: str) -> dict | None:
+        """Return the page context last told to the model in a thread, or None."""
+        rows = self._read("SELECT data FROM contexts WHERE thread_id=?", (thread_id,))
+        return json.loads(rows[0]["data"]) if rows else None
 
     @staticmethod
     def _pause(row: sqlite3.Row) -> dict:

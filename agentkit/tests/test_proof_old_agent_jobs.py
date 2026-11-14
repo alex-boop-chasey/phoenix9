@@ -74,6 +74,39 @@ def test_job_01():
     assert "a step is one small piece of a build" in INSTRUCTIONS and "a task is one item of a spec" in INSTRUCTIONS
 
 
+def test_job_02():
+    from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    async def reply(messages, _info):
+        """A model that diagnoses the run named in the page context line, then answers."""
+        if any(isinstance(m, ModelResponse) for m in messages):
+            yield "Task 2 failed its check."
+            return
+        (prompt,) = [p.content for m in messages if isinstance(m, ModelRequest) for p in m.parts
+                     if isinstance(p, UserPromptPart)]
+        line = prompt.splitlines()[0]
+        assert line.startswith("[Alex is looking at: ") and prompt.endswith("why did this fail?")
+        bits = dict(b.split(" ", 1) for b in line[len("[Alex is looking at: "):-1].split(" · "))
+        args = {"run_id": bits["run"], "project": bits["project"]}
+        yield {0: DeltaToolCall(name="run-diagnose", json_args=json.dumps(args), tool_call_id="call-0")}
+
+    async def go():
+        fake, store = FakePhoenix(), Store(":memory:")
+        pack = build_pack(fake.client())
+        r = runs.Runs(store, llm.build_pack_agent(FunctionModel(stream_function=reply), pack), pack)
+        tid = store.create_thread()["id"]
+        r.start(tid, "why did this fail?", context={"project": "beta", "run": FAILED_RUN})
+        await r.active[tid]
+        assert [q.url.path for q in fake.requests] == [f"/api/repair/{FAILED_RUN}/diagnose"]
+        assert types(store, tid)[-1] == "RUN_FINISHED" and requests_in(store, tid) == []
+        shown = [e["value"]["text"] for _, e in store.events_after(tid) if e.get("name") == "user_message"]
+        assert shown == ["why did this fail?"]   # the chat shows Alex's words; only the model saw the line
+        assert "[Alex is looking at: ...]" in INSTRUCTIONS
+
+    run(go())
+
+
 def test_job_03():
     async def go():
         _f, store, r, _a, seen = build([("step-session", {"project": "beta", "run_id": FAILED_RUN, "task": 2})])

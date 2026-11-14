@@ -13,18 +13,20 @@ settings.json, spec.json and each attempt's tasks/<n>/attempt-<k>/result.json.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 from pathlib import Path
 
-from phoenix9 import atomic, chatlink, events, gatenotify, gates, paths, scrub, state, taskfile
+from phoenix9 import agentnext as agentnext_mod
+from phoenix9 import atomic, events, gatenotify, gates, paths, scrub, state, taskfile
+from phoenix9.agentnext import AgentUnavailable
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
 
 MAX_ESCALATIONS = 2          # a task is escalated at most this many times, then it is failed
 EARLY_PREFIXES = ("SPEC_PROBLEM", "AUTH_ERROR")   # reasons that make retrying pointless
 HANDOFF_FLAG = gates.HANDOFF_FLAG
-HANDOFF_WHO = "build escalation"      # the agent sees the sender as "Phoenix (build escalation)"
 
 
 # ---------------------------------------------------------------------- attempt records
@@ -141,28 +143,57 @@ def _links(run_dir: Path, task_no: int, tries: int) -> list[dict]:
             for k in range(1, tries + 1) if attempt_dir(run_dir, task_no, k).is_dir()]
 
 
-def handoff_text(run_id: str, task_no: int) -> str:
-    """The one line sent to the Phoenix agent: only the run and task, never failure text or file content."""
-    return f"[Phoenix · escalation] {run_id} task {task_no}"
+HANDOFF_PATH = "/handoffs"
+HANDOFF_TIMEOUT = 10     # seconds: a hand-off is one short call; a slow agent must not hold up the runner
+NOT_SET_UP = "it isn't set up yet"
+NOT_ANSWERING = "it isn't answering"
+ODD_ANSWER = "it answered in a way Phoenix does not understand"
 
 
-def _hand_to_agent(run_dir: Path, gate: dict, run_id: str, project: str, task_no: int) -> str:
-    """Send the hand-off message. Returns "" when it was sent, else the plain reason it was not."""
+def handoff_body(run_id: str, task_no: int, gate_id: str, project: str) -> dict:
+    """What is sent to the agent: only the four ids, never failure text or file content."""
+    return {"run_id": run_id, "task": int(task_no), "gate_id": gate_id, "project": project}
+
+
+def _first_sentence(text: str) -> str:
+    line = " ".join(str(text).split())
+    return line.split(". ")[0].rstrip(".")[:200]
+
+
+def _hand_to_agent(agentnext, gate: dict, run_id: str, project: str, task_no: int) -> str:
+    """POST the hand-off to the agent's /handoffs. Returns "" when it took the question (200/202 with a
+    thread_id), else the plain reason it did not (not set up, not answering, no key, refused)."""
+    if agentnext is None or not getattr(agentnext, "set_up", True):
+        return NOT_SET_UP
+    body = json.dumps(handoff_body(run_id, task_no, gate["id"], project)).encode()
     try:
-        chatlink.send(handoff_text(run_id, task_no), {"project": project, "run": run_id}, who=HANDOFF_WHO)
-    except Exception as err:  # noqa: BLE001 - an agent that is asleep or broken must fall back to Alex, not crash
-        return scrub.scrub(str(err).strip().splitlines()[0] if str(err).strip() else type(err).__name__)
-    return ""
+        reply = agentnext.request("POST", HANDOFF_PATH, body, {"Content-Type": "application/json"},
+                                  timeout=HANDOFF_TIMEOUT)
+        raw = b"".join(reply.chunks)
+    except AgentUnavailable as err:
+        return NOT_SET_UP if str(err) == agentnext_mod.NOT_SET_UP else NOT_ANSWERING
+    except Exception:  # noqa: BLE001 - an agent that is down or broken must fall back to Alex, not crash
+        return NOT_ANSWERING
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        data = None
+    data = data if isinstance(data, dict) else {}
+    if reply.status in (200, 202) and isinstance(data.get("thread_id"), str) and data["thread_id"]:
+        return ""
+    if reply.status == 409 and isinstance(data.get("error"), str) and data["error"].strip():
+        return scrub.scrub(_first_sentence(data["error"]))
+    return ODD_ANSWER
 
 
 def escalate(runner, run_dir, task_no: int, reasons) -> dict:
-    """Open the escalation gate for a task and tell Alex, or hand it to the Phoenix agent (delegate).
+    """Open the escalation gate for a task and tell Alex, or hand it to the agent (delegate).
 
     The gate: kind escalation, actions acknowledged / skip / stop, title "Task N needs you", why = the
     last reasons, links = the attempt folders. In delegate mode the gate carries the flag
-    HANDOFF_FLAG and ONE message goes to the agent through chatlink.send; Alex hears nothing unless
-    the agent is asleep or the send fails: then the flag is replaced by a note saying so and Alex is
-    told, exactly as in pause mode.
+    HANDOFF_FLAG and ONE hand-off (only the ids) goes to the agent's /handoffs; Alex gets one short line
+    saying the agent is looking at it (no failure text). When the agent cannot take it the flag is
+    replaced by a note saying why and Alex is told, exactly as in pause mode.
     """
     from phoenix9.runner import _open_gate
     run_dir = Path(run_dir)
@@ -179,11 +210,15 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
         runner.adapters.notify.send(told)
         gatenotify.mark_sent(runner.adapters, run_dir, gate)     # this is its one message; reminders follow it
         return gate
-    problem = _hand_to_agent(run_dir, gate, run_id, project, task_no)
+    problem = _hand_to_agent(getattr(runner.adapters, "agentnext", None), gate, run_id, project, task_no)
     if problem:
         note = f"could not be handed to the Phoenix agent ({problem}); waiting for you"
         gate = gates.set_flags(run_dir, gate["id"], [note])
         runner.adapters.notify.send(f"Phoenix: the Phoenix agent could not be reached: {problem}. {told}")
+        return gate
+    runner.adapters.notify.send(f"Phoenix: task {task_no} of {project} ran out of tries; the agent is looking at it. "
+                                "Open the agent to see what it suggests.")
+    gatenotify.mark_sent(runner.adapters, run_dir, gate)     # its one message; reminders follow as for any gate
     return gate
 
 

@@ -682,7 +682,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   a reason starts with `SPEC_PROBLEM` or `AUTH_ERROR`, or it failed for exactly the same reasons as
   the attempt before. Then `on_failure`: `continue` = task `failed` + flagged, dependents `skipped`;
   `pause` = escalation gate + one notify; `delegate` = the same gate (flag "handed to the Phoenix
-  agent") plus one message to the agent (section 12). `acknowledged` = commit any outside fix,
+  agent") handed to the new agent's `POST /handoffs` (section 12). `acknowledged` = commit any outside fix,
   `attempt_base` = the worktree's HEAD (always, so a crash after the fix commit keeps the fix), one
   more attempt; if that fails, the mode once more, then `failed`. .env-style files found in the
   worktree at that point are moved to `tasks/<n>/outside-env/<path>` (never committed), with the
@@ -1342,8 +1342,8 @@ all go through `adapters.host`; the fakes record them. Tests set `PHOENIX_DELETE
 ## 11. Fixed safety rules (always on; harness spec 8)
 
 1. No AI runs in Phoenix's own processes. Claude only runs inside step containers. There is no
-   exception: the `delegate` failure mode only posts one message into the Phoenix agent's inbox
-   (`agentlink.send`); the agent is a separate, already-running session that Phoenix never starts or drives.
+   exception: the `delegate` failure mode only posts the question's ids to the agent service's `POST /handoffs`
+   (`failmodes._hand_to_agent`); the agent is a separate, already-running service that Phoenix never drives.
    `phoenix9/chat.py` is the only place that restarts the Phoenix agent's service (`chat.agent_restart`, the one other process control there: a `systemctl restart` of the `agent.unit` setting, used by the
    watchdog `phoenix9/agentwatch.py`, which the runner loop calls every 60 s unless `agent.watchdog = false`;
    memory in `logs/agent-watch.json`). Project chats (`phoenix9/chat.py` and `phoenix9/projectchat.py`)
@@ -1448,16 +1448,19 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   container or service recipe needs; the host Merge step never needed the helper) through the `host` adapter in phase 2; phase 4's key proxy is for
   step containers and service setup. The Merge step is a script step on the host, so no container ever
   holds the GitHub token either way.
-- **Hand to the Phoenix agent** (`on_failure = "delegate"`): when a task runs out of tries the escalation
-  gate opens as in pause mode, with the flag "handed to the Phoenix agent", and Phoenix posts ONE message
-  through `agentlink.send` (from-name "Phoenix (build escalation)"): `[Phoenix · escalation] <run id> task <n>`.
-  Nothing else goes in it (no failure text, no file content): the agent reads the task file and
-  `phoenix repair report`, fixes with a fix note, a repair note, settings or a quick edit on the build's
-  own worktree, and answers `acknowledged` (`chat:home` may answer only that, only on a gate with the
-  flag: `gates.may_answer`). If the agent is asleep or the send fails, the flag is replaced by a note on
-  the gate saying so and Alex is told, exactly as in pause mode. At most `failmodes.MAX_ESCALATIONS` (2)
-  hand-offs per task; after that the task fails as in pause mode. Old state files may still carry a task
-  `delegate` field; it is read and ignored.
+- **Hand to the agent** (`on_failure = "delegate"`): when a task runs out of tries the escalation gate opens
+  as in pause mode, with the flag "handed to the Phoenix agent", and the runner posts ONE hand-off to the new
+  agent's `POST /handoffs` (through the `agentnext` adapter, short timeout): exactly `{run_id, task, gate_id,
+  project}`. Nothing else goes in it (no failure text, no file content); the agent opens its own chat for it,
+  looks at the build with its tools and suggests a build note or a repair, which wait for Alex's Approve.
+  Alex gets one short line: "task N of <project> ran out of tries; the agent is looking at it. Open the agent
+  to see what it suggests." Reminders follow as for any question. The agent (`agent`) may answer only
+  `acknowledged` on a gate with the flag (`gates.may_answer`; `chat:home` keeps the same rule until the old
+  agent is retired). If the agent is not set up, not answering, has no key or refuses (any answer but
+  200/202 with a `thread_id`), the flag is replaced by a note on the gate saying why and Alex is told,
+  exactly as in pause mode. The dashboard's agent proxy refuses `/handoffs`, so only the runner can hand
+  over. At most `failmodes.MAX_ESCALATIONS` (2) hand-offs per task; after that the task fails as in pause
+  mode. Old state files may still carry a task `delegate` field; it is read and ignored.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the
@@ -1778,7 +1781,7 @@ while one runs; each progress line is a job step, `result` = the `{ok, built, sk
 
 ### Project chats
 
-Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). A build handed to the agent (`on_failure = "delegate"`) is only a message into that same inbox (section 7); no session is started.
+Each project has one remote-control Claude conversation, run by the systemd template `deploy/claude-rc-chat@.service` (instance `claude-rc-chat@<project>`, working folder `/srv/projects/<name>`). `install.sh` copies the template into place. Phoenix only starts and stops these units (`phoenix9/chat.py` through the Host adapter) and writes messages into the conversation's inbox socket; no AI runs in Phoenix's own processes (rule 1). A build handed to the agent (`on_failure = "delegate"`) goes to the new agent service's `POST /handoffs`, not to a project chat; no session is started.
 
 - **Launcher**: the unit runs `deploy/chat-launch.sh <project>`. It reads `Conversation id` from `.phoenix/chat.md` and re-attaches that conversation (`claude remote-control --session-id <id> --permission-mode bypassPermissions`). With no document, or when the re-attach fails within 90 seconds, it moves the document to `.phoenix/chat.old.md` and starts a new conversation (`claude remote-control --name <name> --create-session-in-dir`). Stopping the unit passes SIGTERM to Claude (`KillMode=mixed`) and never falls through to a new conversation.
 - **Five states** (`projectchat.state` -> `{state, bridge_session_id, web_url, app_url, last_active}`): `none` (unit inactive or failed, no chat document), `asleep` (unit inactive or failed, chat document exists), `waking` (unit activating, or active without a live conversation that has its claude.ai id yet), `awake` (live conversation, idle), `working` (live conversation, busy). The unit state comes from systemd, the conversation from the registry (`chatlink.find_in`, the unit's main process or its direct child).

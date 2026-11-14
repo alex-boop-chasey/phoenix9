@@ -43,6 +43,7 @@ WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit 
 MAX_REPLY = 2000
 WHO = "dashboard"
 AGENT_NEXT = "/api/agent-next"
+RUNNER_ONLY_AGENT_PATHS = ("handoffs",)   # agent service routes the dashboard may never reach
 
 
 class BadRequest(Exception):
@@ -1662,6 +1663,8 @@ class Handler(BaseHTTPRequestHandler):
         rest = self.path_only[len(AGENT_NEXT):]
         if method not in ("GET", "POST") or not rest.startswith("/") or ".." in rest.split("/") or "//" in rest:
             return self.fail(404, "Not found.")
+        if unquote(rest).split("/")[1].strip().lower() in RUNNER_ONLY_AGENT_PATHS:
+            return self.fail(404, "Not found.")   # only the runner hands a failed task to the agent
         query = urlsplit(self.path).query
         headers = {"Accept": self.headers.get("Accept") or "*/*"}
         if self.headers.get("Last-Event-ID"):

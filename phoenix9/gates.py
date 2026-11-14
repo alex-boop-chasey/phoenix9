@@ -357,7 +357,8 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
 
     A spending-cap (`budget`) question is Alex's alone: chat:* callers never, not even the home chat.
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
-    flag "handed to the Phoenix agent" (set when a failed task is handed to it).
+    flag "handed to the Phoenix agent" (set when a failed task is handed to it); the new agent (`agent`) likewise
+    may answer such a handed-over gate only with `acknowledged`.
     A merge question flagged for a repair, a missing or failed full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
     commit on the run branch, checked live) is Alex's alone: chat:* callers never.
     A repair-unlock request is answered only from the dashboard (Alex's press): never a chat, the agent or a command."""
@@ -368,7 +369,7 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
     if who.startswith("chat:") and gate.get("kind") == "merge" and (
             any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
         return False
-    if who == "chat:home" and gate["kind"] == "escalation" and HANDOFF_FLAG in (gate.get("flags") or []):
+    if who in ("chat:home", "agent") and gate["kind"] == "escalation" and HANDOFF_FLAG in (gate.get("flags") or []):
         return action == "acknowledged"
     if not who.startswith("chat:"):
         return True

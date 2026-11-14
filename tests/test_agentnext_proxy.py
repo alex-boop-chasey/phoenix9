@@ -142,3 +142,13 @@ def test_token_is_not_in_any_log_line_even_when_down(api):
     api("/api/agent-next/status")
     log = paths.logs() / "api.log"
     assert TOKEN not in (log.read_text() if log.exists() else "")
+
+
+def test_handoffs_is_refused(api):
+    fake = agent(api)
+    for path in ("/handoffs", "/handoffs/", "/Handoffs", "/%68andoffs", "/handoffs?x=1"):
+        status, body = api("/api/agent-next" + path, "POST", POST_HEADERS,
+                           {"run_id": "r", "task": 1, "gate_id": "r.1", "project": "p"})
+        assert status == 404 and body["message"] == "Not found.", path
+    assert api("/api/agent-next/handoffs")[0] == 404
+    assert fake.calls == []

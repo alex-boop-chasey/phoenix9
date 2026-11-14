@@ -31,6 +31,7 @@ class AgentNext:
     def __init__(self, config: dict | None = None):
         """Take the settings from global.toml [agent_next] unless a dict is given."""
         table = config if config is not None else settings.read_global().get("agent_next")
+        self.set_up = isinstance(table, dict)   # False when global.toml has no [agent_next] table
         table = table if isinstance(table, dict) else {}
         self.url = str(table.get("url") or DEFAULT_URL).rstrip("/")
         self.token_file = str(table.get("token_file") or DEFAULT_TOKEN_FILE)
@@ -58,18 +59,22 @@ class AgentNext:
             raise AgentUnavailable("The new agent answered, but not in a way Phoenix understands.")
         return data
 
-    def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None) -> Reply:
-        """Send one call (path includes any query) and return the reply; the body streams until it is read."""
+    def request(self, method: str, path: str, body: bytes | None = None, headers: dict | None = None,
+                timeout: float | None = None) -> Reply:
+        """Send one call (path includes any query) and return the reply; the body streams until it is read.
+        timeout (seconds) replaces the usual TIMEOUT when given."""
         token = self.token()
         sent = dict(headers or {})
         sent["Authorization"] = "Bearer " + token
-        return self.send(method, self.url + path, sent, body)
+        if timeout is None:
+            return self.send(method, self.url + path, sent, body)
+        return self.send(method, self.url + path, sent, body, timeout=timeout)
 
-    def send(self, method: str, url: str, headers: dict, body: bytes | None) -> Reply:
+    def send(self, method: str, url: str, headers: dict, body: bytes | None, timeout: float = TIMEOUT) -> Reply:
         """Make the HTTP call (the one place that touches the network; tests replace it)."""
         req = urllib.request.Request(url, data=body, method=method, headers=headers)
         try:
-            resp = urllib.request.urlopen(req, timeout=TIMEOUT)
+            resp = urllib.request.urlopen(req, timeout=timeout)
         except urllib.error.HTTPError as err:
             resp = err
         except (urllib.error.URLError, OSError):

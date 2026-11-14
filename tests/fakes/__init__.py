@@ -532,9 +532,9 @@ class FakeAgentNext(AgentNext):
         self.down = False   # True: the service does not answer
         self.gate = None   # an optional callable run between chunks (tests use it to prove chunks arrive early)
 
-    def send(self, method, url, headers, body):
+    def send(self, method, url, headers, body, timeout=None):
         """Record the call and return the scripted reply."""
-        self.calls.append({"method": method, "url": url, "headers": dict(headers), "body": body})
+        self.calls.append({"method": method, "url": url, "headers": dict(headers), "body": body, "timeout": timeout})
         if self.down:
             raise AgentUnavailable(NOT_RUNNING)
         return Reply(self.status, self.content_type, self._yield())

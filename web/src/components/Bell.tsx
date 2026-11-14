@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 
 import { Icon } from "@/components/Icon"
-import { usePhoneWidth } from "@/features/agent/panelState"
+import { usePhoneWidth } from "@/lib/panelState"
 import { fullWhen, shortWhen } from "@/lib/format"
 import { useBell, useBellDismiss, useBellDismissAll } from "@/lib/queries"
 import type { BellItem } from "@/lib/types"

@@ -1,34 +1,7 @@
 // What page Alex is on, as the small context the Phoenix agent is told about, and what has been sent already.
 import type { AgentContext } from "@/features/agent/useAgent"
 
-const SAFE = /^[A-Za-z0-9/_.-]{1,80}$/
-
-/** Where Alex is: the context keys plus a plain label for the chip. */
-export interface PageContext {
-  context: AgentContext
-  folder: string
-  selected?: string
-}
-
-const TOP_PAGES: Record<string, string> = { "/": "projects", "/new": "new", "/import": "import", "/styles": "styles", "/settings": "settings" }
-
-/** Work out the page, project and run from a router location. */
-export function readPageContext(pathname: string, search: string): PageContext {
-  const context: AgentContext = {}
-  const m = /^\/p\/([^/]+)(?:\/([^/]+))?\/?$/.exec(pathname)
-  if (m) {
-    const name = decodeURIComponent(m[1] ?? "")
-    context.project = name
-    context.page = m[2] ? `project/${m[2]}` : "project"
-  } else {
-    const top = TOP_PAGES[pathname.replace(/(.)\/$/, "$1")] as string | undefined
-    if (top) context.page = top
-  }
-  if (context.page && !SAFE.test(context.page)) delete context.page
-  const run = new URLSearchParams(search).get("run")
-  if (run && SAFE.test(run)) context.run = run
-  return { context, folder: context.project ?? "Phoenix", selected: context.run }
-}
+export { readPageContext, type PageContext } from "@/features/agentnext/pageContext"
 
 /** The parts of `now` that differ from what the agent was last told (nothing when equal). */
 export function changedParts(now: AgentContext, told: AgentContext | undefined): AgentContext {

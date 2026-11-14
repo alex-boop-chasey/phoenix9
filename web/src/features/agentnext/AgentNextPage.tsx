@@ -1,77 +1,12 @@
 // The /agent-next page: the chat on assistant-ui, with our own cards, approval buttons and page moves.
-import { useCallback, useEffect, useMemo, useState } from "react"
-import { useNavigate } from "react-router"
-
-import { Button } from "@/components/ui/button"
 import { AllowanceBar } from "./Allowance"
+import { Conversation } from "./Conversation"
 import { History } from "./History"
-import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
-import { COMPONENTS, ToolCall } from "./components"
-import { FlowLine, flowFrom } from "./flowcard"
-import {
-  AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, agentAvailable, agentGet, cardsFromEvents, linesFromEvents, olderFlowSteps, useAgentNextRuntime,
-  type Allowance, type CardItem, type ChatLine, type Frame, type ThreadInfo,
-} from "./runtime"
-
-/** The cards we can draw, chosen by name; anything else is not drawn. */
-
-/** One typed card, drawn from its data. */
-function Card({ card, older, onSend }: { card: CardItem; older?: boolean; onSend?: (message: string) => void }) {
-  if (older) {
-    const flow = flowFrom(card.data)
-    return flow ? <FlowLine card={flow} /> : null
-  }
-  const Draw = COMPONENTS[card.component]
-  return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId, onSend })}</> : null
-}
-
-const LAST_THREAD = "agent-next-thread"
+import { rememberThread, useThreads } from "./useThreads"
 
 /** The agent's page: history and allowance beside one open conversation. */
 export default function AgentNextPage() {
-  const [threads, setThreads] = useState<ThreadInfo[]>([])
-  const [allowance, setAllowance] = useState<Allowance | null>(null)
-  const [current, setCurrent] = useState("")
-  const [earlier, setEarlier] = useState<ChatLine[]>([])
-  const [earlierCards, setEarlierCards] = useState<CardItem[]>([])
-  const [opened, setOpened] = useState(0)
-  const [follow, setFollow] = useState<{ frames: Frame[] } | undefined>(undefined)
-  const [problem, setProblem] = useState<string | null>(null)
-
-  const refresh = useCallback(async () => {
-    const list = await agentGet<{ threads: ThreadInfo[] }>("threads")
-    if (list) setThreads(list.threads)
-    const spend = await agentGet<Allowance>("spend")
-    if (spend) setAllowance(spend)
-  }, [])
-  const open = useCallback(async (id: string) => {
-    const got = await agentGet<{ events: Frame[]; running?: boolean }>(`threads/${id}`)
-    if (!got) return
-    // A run still going is replayed and followed by the conversation itself, so only a finished one is shown here.
-    setEarlier(got.running ? [] : linesFromEvents(got.events))
-    setEarlierCards(got.running ? [] : cardsFromEvents(got.events))
-    setFollow(got.running ? { frames: got.events } : undefined)
-    setCurrent(id)
-    localStorage.setItem(LAST_THREAD, id)
-    setOpened((n) => n + 1)
-  }, [])
-  useEffect(() => {
-    void agentAvailable().then((got) => {
-      setProblem(got.ok ? null : got.message)
-      if (!got.ok) return
-      void refresh()
-      const last = localStorage.getItem(LAST_THREAD)
-      if (last) void open(last)
-    })
-  }, [refresh, open])
-  const fresh = () => {
-    localStorage.removeItem(LAST_THREAD)
-    setFollow(undefined)
-    setEarlier([])
-    setEarlierCards([])
-    setCurrent("")
-    setOpened((n) => n + 1)
-  }
+  const { threads, allowance, current, earlier, earlierCards, opened, follow, problem, refresh, open, fresh } = useThreads()
 
   if (problem) {
     return (
@@ -88,55 +23,8 @@ export default function AgentNextPage() {
         <AllowanceBar allowance={allowance} />
       </aside>
       <div className="min-w-0 flex-1">
-        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} earlierCards={earlierCards} follow={follow} onRunEnd={refresh} />
+        <Conversation key={`${current}-${opened}`} thread={current} earlier={earlier} earlierCards={earlierCards} follow={follow} onRunEnd={refresh} onThread={rememberThread} />
       </div>
     </div>
-  )
-}
-
-/** One conversation: the chat, cards, approvals, Stop and the message box. */
-function Conversation({ thread, earlier, earlierCards, follow, onRunEnd }: { thread: string; earlier: ChatLine[]; earlierCards: CardItem[]; follow?: { frames: Frame[] }; onRunEnd: () => void }) {
-  const navigate = useNavigate()
-  const browserHandler = useMemo(() => makeGoTo((hash) => navigate(hash)), [navigate])
-  const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread, follow)
-
-  const allCards = useMemo(() => [...earlierCards, ...side.cards], [earlierCards, side.cards])
-  const older = useMemo(() => olderFlowSteps(allCards), [allCards])
-
-  const [wasRunning, setWasRunning] = useState(false)
-  useEffect(() => {
-    if (side.running) setWasRunning(true)
-    else if (wasRunning) { setWasRunning(false); onRunEnd() }
-  }, [side.running, wasRunning, onRunEnd])
-
-  return (
-    <AssistantRuntimeProvider runtime={runtime}>
-      <div className="flex flex-col gap-3">
-        <h1>Agent</h1>
-        {[...earlier, ...(side.caught ?? [])].map((l) => <p key={l.id} data-role={l.role}>{l.text}</p>)}
-        <ThreadPrimitive.Root>
-          <ThreadPrimitive.Viewport className="flex flex-col gap-2">
-            <ThreadPrimitive.Messages>
-              {({ message }) => (
-                <p data-role={message.role}>
-                  {message.content.map((part, i) => (part.type === "text" ? <span key={i}>{part.text}</span> : null))}
-                </p>
-              )}
-            </ThreadPrimitive.Messages>
-          </ThreadPrimitive.Viewport>
-        </ThreadPrimitive.Root>
-        {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
-        {allCards.map((c) => <Card key={c.toolCallId} card={c} older={older.has(c.toolCallId)} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />)}
-        {side.approvals.map((a) => (
-          <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
-        ))}
-        <SuggestionChips actions={side.suggestions} onSend={(m) => runtime.thread.append({ role: "user", content: [{ type: "text", text: m }] })} />
-        <ComposerPrimitive.Root className="flex gap-2">
-          <ComposerPrimitive.Input className="input" placeholder="Ask the agent" aria-label="Message" />
-          <ComposerPrimitive.Send asChild><Button variant="primary">Send</Button></ComposerPrimitive.Send>
-          {side.running && <Button variant="secondary" onClick={() => void agent.stop()}>Stop</Button>}
-        </ComposerPrimitive.Root>
-      </div>
-    </AssistantRuntimeProvider>
   )
 }

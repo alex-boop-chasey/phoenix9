@@ -1,7 +1,7 @@
 // The nav reply block: a row of buttons that move the dashboard while the panel stays open.
 import { Button } from "@/components/ui/button"
 import type { BlockProps } from "@/features/agent/blocks/types"
-import { navigateKeepingPanel } from "@/features/agent/navigate"
+import { navigateKeepingPanel } from "@/lib/navigate"
 
 interface NavLink { hash: string; label: string }
 

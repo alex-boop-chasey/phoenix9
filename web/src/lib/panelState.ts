@@ -1,4 +1,4 @@
-// Remembered Agent panel settings (open, wide) and the phone-width check; every storage access is guarded.
+// Remembered Agent drawer settings (open, wide) and the phone-width check; every storage access is guarded.
 import { useEffect, useState } from "react"
 
 const OPEN_KEY = "phoenix.agent.open"

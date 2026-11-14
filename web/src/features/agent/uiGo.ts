@@ -1,7 +1,7 @@
 // Follow the agent's `ui.go` events: move the dashboard while the Agent panel is open, ignore them when it is closed.
 import { useCallback, useState } from "react"
 
-import { navigateKeepingPanel } from "@/features/agent/navigate"
+import { navigateKeepingPanel } from "@/lib/navigate"
 import type { PhoenixEvent } from "@/lib/types"
 
 /** The last move the agent made: where it went and the hash shown just before. */

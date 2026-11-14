@@ -3,7 +3,7 @@ import { useState } from "react"
 
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Button } from "@/components/ui/button"
-import { navigateKeepingPanel } from "@/features/agent/navigate"
+import { navigateKeepingPanel } from "@/lib/navigate"
 import { post, get } from "@/lib/api"
 import { routeHash } from "@/lib/routes"
 import { safeUrl } from "@/lib/safeUrl"

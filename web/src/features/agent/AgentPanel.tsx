@@ -12,7 +12,7 @@ import { Composer } from "@/features/agent/Composer"
 import { ContextChip } from "@/features/agent/ContextChip"
 import { MessageList } from "@/features/agent/messages"
 import type { UiMove } from "@/features/agent/uiGo"
-import { readWide, usePhoneWidth, writeWide } from "@/features/agent/panelState"
+import { readWide, usePhoneWidth, writeWide } from "@/lib/panelState"
 
 const LOOK: Record<AgentState, { cls: string; word: string }> = {
   idle: { cls: "b-ok", word: "Idle" },

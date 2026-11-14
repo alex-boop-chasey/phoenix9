@@ -2,7 +2,7 @@ import { act, fireEvent, screen } from "@testing-library/react"
 import { useRef, useState } from "react"
 
 import { AgentPanel } from "@/features/agent/AgentPanel"
-import { navigateKeepingPanel } from "@/features/agent/navigate"
+import { navigateKeepingPanel } from "@/lib/navigate"
 import { useUiGo } from "@/features/agent/uiGo"
 import { useLiveEvents } from "@/lib/live"
 import { agentRoutes, mockApi } from "@/test/mockApi"

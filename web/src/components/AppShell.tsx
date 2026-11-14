@@ -8,10 +8,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
-import { AgentPanel } from "@/features/agent/AgentPanel"
-import { useAgentAlerts } from "@/features/agent/alerts"
-import { useUiGo } from "@/features/agent/uiGo"
-import { readOpen, usePhoneWidth, writeOpen } from "@/features/agent/panelState"
+import { AgentDrawer, type DrawerAsk } from "@/features/agentnext/AgentDrawer"
+import { readOpen, usePhoneWidth, writeOpen } from "@/lib/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { PAGE_SCROLLER_ID, scrollPageTop } from "@/lib/focus"
 import { useInfo, useProjects } from "@/lib/queries"
@@ -26,10 +24,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const phone = usePhoneWidth()
   const [sheet, setSheet] = useState(false)
   const [wire, setWire] = useState(false)
-  const unread = useAgentAlerts(drawer, () => setDrawer(true))
+  const [ask, setAsk] = useState<DrawerAsk | null>(null)
   const agentBtn = useRef<HTMLButtonElement>(null)
-  const go = useUiGo(drawer)
-  useLiveEvents(undefined, go.onEvent)
+  useLiveEvents()
 
   const current = matchPath("/p/:name/*", pathname)?.params.name ?? matchPath("/p/:name", pathname)?.params.name
   const update = info?.update
@@ -49,7 +46,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         setSheet(false)
       } else if (e.key === "." && e.ctrlKey) setDrawer((d) => !d)
     }
-    const onOpen = () => setDrawer(true)
+    // The event may carry a message to send (detail.message); the drawer sends it once it has loaded.
+    const onOpen = (e: Event) => {
+      setDrawer(true)
+      const text = (e as CustomEvent<{ message?: unknown } | null>).detail?.message
+      if (typeof text === "string" && text.trim()) setAsk((a) => ({ key: (a?.key ?? 0) + 1, text: text.trim() }))
+    }
     document.addEventListener("keydown", onKey)
     window.addEventListener("phoenix:open-agent", onOpen)
     return () => {
@@ -89,7 +91,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>
-            {unread > 0 && <span className="cnt" data-testid="agent-unread" aria-label={`${unread} unread`}>{unread}</span>}
           </button>
           <ThemeToggle />
           <Link className="hbtn" to="/settings" aria-label="Settings" title="Phoenix settings">
@@ -113,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className={(drawer && phone) || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
-      <AgentPanel open={drawer} onClose={closeDrawer} opener={agentBtn} moved={go.moved} onBack={go.back} />
+      <AgentDrawer open={drawer} onClose={closeDrawer} opener={agentBtn} ask={ask} />
       <div className={sheet ? "sheet open" : "sheet"} role="dialog" aria-label="Choose a project" aria-hidden={!sheet}>
         <div className="grab" />
         <div className="sw-head">

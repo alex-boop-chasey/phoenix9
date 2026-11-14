@@ -1071,7 +1071,12 @@ Built beside the old agent (section 8.6), which stays as it is. Two layers:
 - **`agentkit/packs/phoenix/`**: the Phoenix pack, kept thin: its tools, browser actions, cards and
   instructions. It reaches Phoenix only through Phoenix's HTTP API (`http://127.0.0.1:8095`).
 
-The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`).
+The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`). The top bar's
+Agent button, Ctrl+. and the `phoenix:open-agent` event (its `detail.message`, when given, is sent) open the same
+chat in a drawer (`AgentDrawer.tsx`); both show the conversation remembered under the browser key `agent-next-thread`.
+The drawer sends `context` {page, project, run} from the router with every message and says it on a chip above the
+message box; while a reply is being written its message box still sends, a queued message shows as "Queued" until
+its turn starts, then the drawer follows that run (it reopens the thread and replays from its last `RUN_STARTED`).
 
 **The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
 listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `config.toml`, `api-key` (mode 600,
@@ -1896,7 +1901,7 @@ breadcrumb such as `test-site › Settings › Build`. A run is accepted when it
   `{hash, label, by: "agent"}` on the global stream, and records a `command` event. `phoenix ui go <to> [--param k=v ...]`
   and `POST /api/ui/go {to, params}` call it; a bad route is exit 1 / HTTP 400 with the reason. Projects searches go
   only through the `projects` route params (`q`, `status`, ...).
-- Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (`features/agent/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.
+- Task 10 (panel follows ui.go): `AppShell` feeds `ui.go` events to `useUiGo(open)` (`features/agent/uiGo.ts`). Panel open: set the hash through `navigateKeepingPanel` (now `lib/navigate.ts`) and show "Moved to <label>" with Back (returns to the hash seen just before the latest move). Panel closed: ignored.
 
 ### Block check (`ops.blocks.check`, `POST /api/blocks/check`, `phoenix block check`)
 - `check({kind, json})` returns `{ok, reason, resolved}`. Not ok (bad JSON, missing or wrong `v`, unknown keys, an `actions` key, over 8 KB, bad values) is a result, not an error; `resolved` is then null.

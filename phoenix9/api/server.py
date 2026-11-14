@@ -1182,6 +1182,14 @@ def post_run_discard(req, project, run_id):
         return runs.discard(check_run_id(run_id), who=WHO, project=check_name(project), force=force)
 
 
+def post_run_tidy(req, project, run_id):
+    """Remove a finished, merged run's worktree and branches."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Tidying a run needs confirmation.")
+    with req.server.write_lock:
+        return runs.tidy(check_run_id(run_id), who=WHO, project=check_name(project))
+
+
 def get_gate_review(req, gate_id):
     """Reply with the merge review of a merge gate."""
     if not GATE_ID_RE.match(gate_id):
@@ -1379,6 +1387,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/resume", post_run_resume),
     ("POST", r"/api/runs/(?P<run_id>[^/]+)/note", post_run_note),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/discard", post_run_discard),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tidy", post_run_tidy),
     ("GET", r"/api/report/status", get_report_status),
     ("GET", r"/api/report/daily", get_report_daily),
     ("GET", r"/api/report/daily/now", get_report_daily_now),

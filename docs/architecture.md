@@ -753,7 +753,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled agent.sync_skipped agent.restarted_for_rules reference.snapshot command`.
   `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` and `agent.sync_skipped {path, symlink, why}` come from `phoenix update after-install` (nothing was written); `agent.restarted_for_rules {why}` from the runner's agent watchdog.
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
@@ -762,6 +762,7 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   is written for every applied repair note and every undo (section 8.4).
   `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
+  `run.tidied {who, removed, notes}` (project and run set) is written by `phoenix run tidy`.
   `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set); `run.pause.dropped {who, reason}` when a Pause now request is thrown away because the run ended, waited for an answer or was queued (it never pauses a run later by surprise).
 - Update event data (section 15; `project` and `run` are null): `update.started {tag, previous, who}`,
   `update.failed {tag, result: tests-failed|images-failed, reason}`, `update.installed {tag,
@@ -1792,6 +1793,15 @@ a second dialog listing what would be lost, whose button "Discard anyway and los
 It sets state.json `discarded: true`, `discarded_at`, `discarded_by` (plus `discard_forced` when forced; the
 status stays as it was), writes a `run.discarded` event
 and the command record; the Build tab then says "Work discarded" and the ledger row "work discarded".
+
+`phoenix run tidy <run>` (and `--merged` for every finished run of every project; `ops.runs.tidy`,
+`ops.runs.tidy_merged`, POST `/api/runs/<project>/<run_id>/tidy`) cleans up a finished run whose merge request
+was merged outside Phoenix's merge step (squash merges count): `gh pr view <url> --json state,headRefOid` must
+say MERGED, and the run's local branch must hold nothing beyond the merged commit. It removes the worktree, the
+local `phoenix/<run>` branch and the GitHub branch (only while GitHub's tip is still the merged commit). The
+run's records stay; state.json gets `tidied`, `tidied_at`, `tidied_by` and a `run.tidied` event is written.
+Runs that are not finished, already discarded or tidied, without a merge request, or whose merge request is
+open, closed without merging or unknown are left alone, each with its reason. The runner does not tidy by itself.
 
 ## Reply blocks and dashboard control
 

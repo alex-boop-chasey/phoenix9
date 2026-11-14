@@ -552,6 +552,125 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
 
+def _merged_head(adapters, url: str) -> tuple[str, str]:
+    """GitHub's state of a merge request and the branch commit it merged ("", "" when GitHub does not answer)."""
+    try:
+        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state,headRefOid",
+                                      "--jq", '.state + " " + .headRefOid')
+    except Exception:   # noqa: BLE001 - no answer means we cannot prove it is merged
+        return "", ""
+    words = out.split() if rc == 0 else []
+    return (words[0].upper() if words else ""), (words[1] if len(words) > 1 else "")
+
+
+def _branch_beyond(project: str, run_id: str, head: str) -> bool:
+    """True when the run's local branch has commits that the merged commit `head` does not (or that can't be told)."""
+    from phoenix9 import git as gitmod
+    code = paths.projects() / project / "code"
+    if not (code / ".git").exists():
+        return False
+    try:
+        ref = f"refs/heads/{gitmod.branch_name(run_id)}"
+        tip = gitmod.git(code, "rev-parse", "-q", "--verify", ref, check=False).strip()
+        if not tip or tip == head:
+            return False
+        gitmod.git(code, "merge-base", "--is-ancestor", tip, head)
+        return False
+    except (gitmod.GitError, OSError):
+        return True
+
+
+def _tidy_refusal(adapters, folder: Path, st: dict, who: str) -> tuple[str, str]:
+    """Why this run may not be tidied ("" when it may) and the merged commit of its merge request."""
+    run_id, project = st["run_id"], st["project"]
+    if st["status"] not in FINISHED:
+        return f"it is {st['status']}, not finished", ""
+    if st.get("discarded"):
+        return "its work was already discarded", ""
+    if st.get("tidied"):
+        return "it was already tidied", ""
+    if not _may_stop(project, who):
+        return f"'{who}' may not tidy runs in {project}", ""
+    mr = folder / "merge-request.txt"
+    url = mr.read_text(encoding="utf-8", errors="replace").strip() if mr.is_file() else ""
+    if not url:
+        return "it has no merge request", ""
+    found, head = _merged_head(adapters, url)
+    if found == "OPEN":
+        return f"its merge request {url} is still open", ""
+    if found == "CLOSED":
+        return f"its merge request {url} was closed without merging", ""
+    if found != "MERGED":
+        return f"GitHub did not say whether its merge request {url} was merged", ""
+    if not head:
+        return f"GitHub did not say which commit its merge request {url} merged", ""
+    if _branch_beyond(project, run_id, head):
+        return "its branch has commits that were not in the merged merge request", ""
+    return "", head
+
+
+def tidy(run_id: str, who: str = "cli", project: str | None = None) -> dict:
+    """Remove a finished run's worktree, local branch and GitHub branch once its merge request is merged on GitHub.
+
+    The run's records stay. Refused for a run that is not finished, or whose merge request is open, closed
+    without merging or unknown; the message says why."""
+    folder = _run_folder(run_id)
+    if project is not None and folder.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    st = state.load(folder)
+    adapters = common.make_adapters()
+    why, head = _tidy_refusal(adapters, folder, st, who)
+    if why:
+        raise OpsError(f"Run {run_id} was not tidied: {why}.")
+    return _tidy(adapters, folder, st, head, who)
+
+
+def _tidy(adapters, folder: Path, st: dict, head: str, who: str) -> dict:
+    """Remove the run's worktree and branches, mark the run tidied and record it."""
+    run_id, project = st["run_id"], st["project"]
+    removed, notes = core.tidy_branch(adapters, project, run_id, head)
+    stamp = state.now()
+    state.update(folder, lambda s: s.update(tidied=True, tidied_at=stamp, tidied_by=who))
+    events_core.emit("run.tidied", project=project, run=run_id, who=who, removed=removed, notes=notes)
+    common.record_command(who, f"run tidy {run_id}", project, f"tidied the merged run {run_id}")
+    return {"run_id": run_id, "project": project, "status": st["status"], "tidied": True,
+            "removed": removed, "notes": notes}
+
+
+def tidy_merged(who: str = "cli") -> dict:
+    """Tidy every finished run of every project whose merge request is merged; list each run left alone and why."""
+    adapters, tidied, skipped = common.make_adapters(), [], []
+    for row in core.list_runs():
+        folder = core.run_dir(row["project"], row["run_id"])
+        st = state.load(folder)
+        if st["status"] in FINISHED and not st.get("discarded") and not st.get("tidied") \
+                and not _anything_left(row["project"], row["run_id"]):
+            why, head = "nothing is left to tidy", ""
+        else:
+            why, head = _tidy_refusal(adapters, folder, st, who)
+        if why:
+            skipped.append({"run_id": row["run_id"], "project": row["project"], "status": st["status"], "why": why})
+        else:
+            tidied.append(_tidy(adapters, folder, st, head, who))
+    return {"tidied": tidied, "skipped": skipped}
+
+
+def _anything_left(project: str, run_id: str) -> bool:
+    """True while the run still has a worktree, a local branch or a remembered GitHub branch in the project's code/."""
+    from phoenix9 import git as gitmod
+    if paths.work(project, run_id).exists():
+        return True
+    code = paths.projects() / project / "code"
+    if not (code / ".git").exists():
+        return False
+    try:
+        branch = gitmod.branch_name(run_id)
+        return any(gitmod.git(code, "rev-parse", "-q", "--verify", ref, check=False).strip()
+                   for ref in (f"refs/heads/{branch}", f"refs/remotes/origin/{branch}"))
+    except (gitmod.GitError, OSError):
+        return True
+
+
 list = list_
 
 

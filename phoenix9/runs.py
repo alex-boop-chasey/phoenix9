@@ -123,3 +123,42 @@ def discard_branch(adapters, project: str, run_id: str) -> list[str]:
     except Exception as err:
         notes.append(f"the run's branch was not cleaned up: {err}")
     return notes
+
+
+def tidy_branch(adapters, project: str, run_id: str, merged_head: str) -> tuple[list[str], list[str]]:
+    """Remove a merged run's worktree, local branch and GitHub branch; returns (what was removed, notes), never raises.
+
+    The GitHub branch is deleted only while its tip is still the merged commit `merged_head`."""
+    code, removed, notes = paths.projects() / project / "code", [], []
+    if not (code / ".git").exists():
+        return removed, notes
+    git = adapters.git
+    try:
+        branch = git.branch_name(run_id)
+        work = paths.work(project, run_id)
+        if work.exists():
+            git.remove_worktree(code, work)
+            removed.append("worktree")
+        if git.git(code, "rev-parse", "-q", "--verify", f"refs/heads/{branch}", check=False).strip():
+            git.git(code, "branch", "-D", branch, check=False)
+            removed.append("local branch")
+        if git.remote_url(code):
+            rc, out, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "ls-remote", "--heads", "origin",
+                                            f"refs/heads/{branch}"], timeout=120)
+            tip = out.split()[0] if rc == 0 and out.strip() else ""
+            if rc != 0:
+                notes.append(f"GitHub did not say whether the branch {branch} is still there, so it was left alone")
+            elif tip and tip != merged_head:
+                notes.append(f"the branch {branch} on GitHub has commits added after the merge, so it was kept")
+            elif tip:
+                rc, _, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
+                                             timeout=120)
+                if rc == 0:
+                    removed.append("GitHub branch")
+                else:
+                    notes.append(f"the branch {branch} was not deleted on GitHub")
+            if rc == 0 and not tip:
+                git.git(code, "branch", "-D", "-r", f"origin/{branch}", check=False)
+    except Exception as err:
+        notes.append(f"the run's branch was not cleaned up: {err}")
+    return removed, notes

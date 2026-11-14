@@ -361,6 +361,20 @@
     "confirm_with": "run_id"
   },
   {
+    "name": "build-tidy",
+    "description": "Remove a finished run's worktree, local branch and GitHub branch once its merge request is merged on GitHub.",
+    "inputs": [],
+    "risk": "destructive",
+    "agent": "later",
+    "why": "Planned for a later agent build; for now Alex uses the dashboard.",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/tidy",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": ""
+  },
+  {
     "name": "builds-list",
     "description": "List a project's recent builds, newest first, each with status, finish time and the failed task's one-line reason.",
     "inputs": [

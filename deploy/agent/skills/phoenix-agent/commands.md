@@ -1,4 +1,4 @@
-<!-- phoenix 9.1.0 inputs bf8b8910e370c1d9 -->
+<!-- phoenix 9.1.0 inputs 2d4c92d50f4b84c9 -->
 # Phoenix commands
 
 Every command takes `--json` (machine-readable answer) and `--who NAME` (who is running it).
@@ -162,6 +162,14 @@ throw away a failed or stopped run's worktree and branch (here and on GitHub)
 - `<run_id>`
 - `--yes`: confirm that you mean it
 - `--force`: also when the run has an open merge request or commits not on main (that work is lost)
+
+### `phoenix run tidy`
+
+remove a finished run's worktree and branches once its merge request is merged on GitHub
+
+- `<run_id>`
+- `--merged`: tidy every finished run of every project that was merged
+- `--yes`: confirm that you mean it
 
 ## `phoenix gate`
 

@@ -277,3 +277,123 @@ def test_a_discard_grant_is_for_one_run_only(demo, tmp_path):
     with pytest.raises(common.OpsError, match="may not discard"):
         ops_runs.discard(second, who="chat:home")
     assert work.exists() and not state.load(folder).get("discarded")
+
+
+# ---- O22: phoenix run tidy (finished runs merged outside Phoenix) ----
+
+def merged_run(demo, tmp_path, status="done", answer="MERGED", n=7):
+    """A finished run with a commit on its branch and a merge request GitHub answers with `answer` and that commit."""
+    run_id, folder, work = failed_run(demo, tmp_path, status)
+    commit_on_branch(work)
+    head = git(work, "rev-parse", "HEAD").strip()
+    url = f"https://github.com/rebirth-wd/demo/pull/{n}"
+    (folder / "merge-request.txt").write_text(url + "\n")
+    common.make_adapters().host.script(["gh", "pr", "view", url], 0, f"{answer} {head}\n", "")   # the API's own fakes too
+    return run_id, folder, work, head
+
+
+def pushes(demo):
+    return [c for c in demo["adapters"].host.calls if "push" in c and "--delete" in c]
+
+
+def test_tidy_removes_a_merged_runs_worktree_and_branch_but_keeps_its_records(demo, tmp_path):
+    run_id, folder, work, _ = merged_run(demo, tmp_path)   # a squash merge: the commit is not on main
+    r = ops_runs.tidy(run_id, who="alex")
+    assert r["tidied"] is True and r["status"] == "done" and r["removed"] == ["worktree", "local branch"]
+    assert not work.exists() and branches(demo) == ""
+    st = state.load(folder)
+    assert st["status"] == "done" and st["tidied"] is True and st["tidied_by"] == "alex" and st["tidied_at"]
+    assert not st.get("discarded") and (folder / "merge-request.txt").exists()
+    ev = [e for e in events.read(folder / "events.jsonl") if e["type"] == "run.tidied"]
+    assert ev and ev[0]["data"]["who"] == "alex"
+    assert f"run tidy {run_id}" in (paths.logs() / "commands.jsonl").read_text()
+    assert ops_runs.detail("demo", run_id)["branch"] is None
+    with pytest.raises(common.OpsError, match="already tidied"):
+        ops_runs.tidy(run_id)
+
+
+def test_tidy_deletes_the_github_branch_only_while_it_is_the_merged_commit(demo, tmp_path):
+    from phoenix9 import git as gitmod
+    git(demo["code"], "remote", "add", "origin", "https://github.com/rebirth-wd/demo.git")
+    ls_remote = ["git", *gitmod.SAFE, "-C", str(demo["code"]), "ls-remote"]
+    run_id, _, _, head = merged_run(demo, tmp_path)
+    demo["adapters"].host.script(ls_remote, 0, f"{head}\trefs/heads/phoenix/{run_id}\n", "")
+    r = ops_runs.tidy(run_id)
+    assert "GitHub branch" in r["removed"] and len(pushes(demo)) == 1
+    other, _, _, _ = merged_run(demo, tmp_path, n=8)
+    demo["adapters"].host.script(ls_remote, 0, f"{'1' * 40}\trefs/heads/phoenix/{other}\n", "")
+    r = ops_runs.tidy(other)
+    assert "GitHub branch" not in r["removed"] and len(pushes(demo)) == 1
+    assert "commits added after the merge" in r["notes"][0]
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "waiting", "paused", "paused-limit"])
+def test_tidy_never_touches_a_run_that_is_not_finished(demo, tmp_path, status):
+    run_id, folder, work, _ = merged_run(demo, tmp_path, status)
+    with pytest.raises(common.OpsError, match=f"it is {status}"):
+        ops_runs.tidy(run_id)
+    assert work.exists() and branches(demo) != "" and not state.load(folder).get("tidied")
+
+
+@pytest.mark.parametrize("answer, why", [("OPEN", "still open"), ("CLOSED", "closed without merging"),
+                                         ("", "did not say whether")])
+def test_tidy_refuses_a_merge_request_that_is_not_merged(demo, tmp_path, answer, why):
+    run_id, folder, work, _ = merged_run(demo, tmp_path, answer=answer)
+    if not answer:
+        demo["adapters"].host.script(["gh", "pr", "view"], 1, "", "no network")
+    with pytest.raises(common.OpsError, match=why):
+        ops_runs.tidy(run_id)
+    assert work.exists() and branches(demo) != "" and not pushes(demo)
+
+
+def test_tidy_refuses_without_a_merge_request_or_with_commits_after_the_merge(demo, tmp_path):
+    run_id, folder, work = failed_run(demo, tmp_path, "done")
+    with pytest.raises(common.OpsError, match="no merge request"):
+        ops_runs.tidy(run_id)
+    other, _, work2, _ = merged_run(demo, tmp_path, n=8)
+    (work2 / "later.py").write_text("print('later')\n")    # a commit the merged request never had
+    git(work2, "add", "-A")
+    git(work2, "commit", "-q", "-m", "later")
+    with pytest.raises(common.OpsError, match="not in the merged merge request"):
+        ops_runs.tidy(other)
+    assert work.exists() and work2.exists()
+
+
+def test_tidy_merged_tidies_every_merged_run_and_says_why_others_were_left(demo, tmp_path):
+    merged, _, merged_work, _ = merged_run(demo, tmp_path, n=1)
+    running, _, running_work, _ = merged_run(demo, tmp_path, "running", n=2)
+    still_open, _, open_work, _ = merged_run(demo, tmp_path, answer="OPEN", n=3)
+    gone, _, gone_work = failed_run(demo, tmp_path, "done")
+    git(demo["code"], "worktree", "remove", "--force", str(gone_work))
+    git(demo["code"], "branch", "-D", f"phoenix/{gone}")
+    r = ops_runs.tidy_merged(who="alex")
+    assert [t["run_id"] for t in r["tidied"]] == [merged] and not merged_work.exists()
+    why = {s["run_id"]: s["why"] for s in r["skipped"]}
+    assert why[running] == "it is running, not finished" and running_work.exists()
+    assert "still open" in why[still_open] and open_work.exists()
+    assert why[gone] == "nothing is left to tidy"
+
+
+def test_cli_tidy(demo, tmp_path, capsys):
+    run_id, _, work, _ = merged_run(demo, tmp_path)
+    code, _, err = run_cmd(capsys, "run", "tidy", run_id)
+    assert code == 1 and "--yes" in err and work.exists()
+    code, _, err = run_cmd(capsys, "run", "tidy", run_id, "--merged", "--yes")
+    assert code == 1 and work.exists()
+    code, out, _ = run_cmd(capsys, "run", "tidy", run_id, "--yes")
+    assert code == 0 and "removed its worktree, local branch" in out and not work.exists()
+    other, _, other_work, _ = merged_run(demo, tmp_path, "waiting", n=8)
+    code, out, _ = run_cmd(capsys, "run", "tidy", "--merged", "--yes")
+    assert code == 0 and f"Left run {other} (demo) alone: it is waiting, not finished." in out
+    assert "Tidied 0 runs, left 2 alone." in out and other_work.exists()
+
+
+def test_api_tidy(demo, tmp_path, api):
+    from test_api_server import POST_HEADERS
+    run_id, _, work, _ = merged_run(demo, tmp_path)
+    assert api(f"/api/runs/demo/{run_id}/tidy", "POST", POST_HEADERS, {})[0] == 400
+    status, body = api(f"/api/runs/demo/{run_id}/tidy", "POST", POST_HEADERS, {"confirm": True})
+    assert status == 200, body
+    assert body["data"]["tidied"] is True and not work.exists()
+    status, body = api(f"/api/runs/demo/{run_id}/tidy", "POST", POST_HEADERS, {"confirm": True})
+    assert status == 400 and "already tidied" in json.dumps(body)

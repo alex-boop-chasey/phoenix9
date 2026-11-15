@@ -1224,6 +1224,18 @@ def post_repair_restart(req, project, run_id):
         return ops_repair.restart_on_preset(check_name(project), run_id, preset, who=req.who)
 
 
+def post_run_again(req, project, run_id):
+    """Start a failed or stopped build again with the same settings (only the preset may change); needs confirm."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Running a build again needs confirmation.")
+    run_id = check_run_id(run_id)
+    preset = req.body.get("preset")
+    if preset is not None and (not isinstance(preset, str) or not preset.strip()):
+        raise BadRequest("'preset' must be a preset's name.")
+    with req.server.write_lock:
+        return runs.run_again(check_name(project), run_id, preset=preset.strip() if preset else None, who=req.who)
+
+
 def post_repair_request_unlock(req, project, run_id):
     """Ask Alex to allow once a repair the agent or a chat may not do alone (only the dashboard answers it)."""
     run_id, why = check_run_id(run_id), need(text_field(req, "why"), "why")
@@ -1422,6 +1434,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", rf"/api/projects/{NAME}/runs", post_run_start),
     ("POST", rf"/api/projects/{NAME}/hotfix", post_hotfix),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/stop", post_run_stop),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/again", post_run_again),
     ("GET", r"/api/edits", get_edits),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/finish", post_edit_finish),
     ("POST", r"/api/edits/(?P<edit_id>[^/]+)/abandon", post_edit_abandon),

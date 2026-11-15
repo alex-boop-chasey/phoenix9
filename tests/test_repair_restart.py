@@ -11,7 +11,7 @@ def started(monkeypatch):
     """Replace the start path with a recorder, so no Docker is needed."""
     calls = []
 
-    def fake(project, spec_path, overrides=None, who="cli"):
+    def fake(project, spec_path, overrides=None, who="cli", **kw):
         calls.append((project, str(spec_path), overrides, who))
         return {"run_id": "new-run", "project": project, "status": "queued"}
     monkeypatch.setattr(runs_ops, "start", fake)
@@ -46,6 +46,6 @@ def test_unknown_preset_refused(tmp_path, started):
 def test_same_preset_refused(tmp_path, started, monkeypatch):
     r = make_run(tmp_path, status="failed")
     monkeypatch.setattr(runs_ops, "detail", lambda project, run_id: {"preset": "quick"})
-    with pytest.raises(common.Conflict):
+    with pytest.raises(common.Conflict, match="use Run again"):
         ops.restart_on_preset(r["project"], r["run"], "quick")
     assert not started

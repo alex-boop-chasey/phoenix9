@@ -47,7 +47,7 @@ def test_route_records_the_agent(api, tmp_path, route, body):
 
 def test_restart_route_records_the_agent(api, tmp_path, monkeypatch):
     make_run(tmp_path, status="failed")
-    monkeypatch.setattr(runs_ops, "start", lambda project, spec, overrides=None, who="cli":
+    monkeypatch.setattr(runs_ops, "start", lambda project, spec, overrides=None, who="cli", **kw:
                         {"run_id": "new-run", "project": project, "status": "queued"})
     as_agent(api)
     status, reply = api(f"{BASE}/restart", "POST", HEADERS, {"preset": "full"})

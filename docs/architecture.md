@@ -755,13 +755,13 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   task.finished gate.opened gate.answered project.created project.changed settings.changed
   update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command command.failed`.
   `command.failed {what, program, exit_code, stderr_tail}` comes from `phoenix9/proc.py` when an outside program run for a real action (one given a plain `what` label) fails; `program` is the program and its first word only (e.g. `git push`), never other arguments; `stderr_tail` is scrubbed; project/run/task/step come from the runner's `proc.context`.
-  `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
+  `reference.snapshot {files, links, copied_from?}` is written when a run is made and the project has reference material, or when Run again copies the old run's frozen folder (`copied_from` = old run id) (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` comes from `phoenix update after-install` (nothing was written).
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
   `plan.queued|continued|abandoned {plan, who}` come from `phoenix plan`; `plan.started|waiting|done|failed {plan, ...}` from the runner service.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
-  `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
+  `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`; Run again writes `run.note {who, new_run, note: "Run again as <new id>"}` on the old run.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
   `run.tidied {who, removed, notes}` (project and run set) is written by `phoenix run tidy`.
   `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set); `run.pause.dropped {who, reason}` when a Pause now request is thrown away because the run ended, waited for an answer or was queued (it never pauses a run later by surprise).

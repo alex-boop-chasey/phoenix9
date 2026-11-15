@@ -21,10 +21,16 @@ def _run_folder(run_id: str) -> Path:
     return folder
 
 
-def start(project: str, spec_path, overrides: dict | None = None, who: str = "cli") -> dict:
-    """Queue a new run of a spec in a project and return its id."""
+def start(project: str, spec_path, overrides: dict | None = None, who: str = "cli", carried: bool = False,
+          reference_from: Path | None = None) -> dict:
+    """Queue a new run of a spec in a project and return its id.
+
+    `carried` means the overrides are an earlier run's, accepted when that build first started (Run again), so a
+    chat or the agent is not refused for their safety settings; `reference_from` is that run's folder, whose frozen
+    reference documents the new run gets."""
     folder = common.project_dir(project)
-    _refuse_chat_overrides(who, overrides)
+    if not carried:
+        _refuse_chat_overrides(who, overrides)
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as err:
@@ -64,7 +70,7 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         raise OpsError(f"{project} is being changed right now (it may be being deleted). Try again in a minute.") from None
     try:
         common.project_dir(project)        # a delete may have finished while this waited
-        run_dir = core.create_run(project, Path(spec_path), overrides)
+        run_dir = core.create_run(project, Path(spec_path), overrides, reference_from=reference_from)
     except (ValueError, OSError) as err:
         if isinstance(err, OpsError):
             raise
@@ -76,6 +82,45 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     project_core.mark_used(project)
     common.record_command(who, f"run start {project}", project, f"started run {run_id}")
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
+
+
+def run_again(project: str, run_id: str, preset: str | None = None, who: str = "cli") -> dict:
+    """Start a failed or stopped build again with the same spec, reference documents and settings; only the preset may change."""
+    old = _run_folder(run_id)
+    if old.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    if not _may_stop(project, who):
+        raise common.Conflict(f"'{who}' may not repair runs in {project}.")
+    status = (state.load(old) or {}).get("status")
+    if status not in ("failed", "stopped"):
+        raise common.Conflict(f"The run is {status}; only a failed or stopped build can be run again.")
+    kept = atomic.read_json(old / "overrides.json") or {}
+    overrides = dict(kept)
+    if preset is not None:
+        if preset not in settings.PRESETS:
+            raise OpsError(f"'{preset}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+        if preset == "custom" and not _has_based_on(project, kept):
+            raise OpsError("The custom preset needs a preset it is based on, and this build has none. "
+                           "Pick simple, quick or full instead.")
+        if preset != kept.get("preset"):
+            _refuse_chat_overrides(who, {"preset": preset})   # only the changed preset is new
+        overrides["preset"] = preset
+    started = start(project, old / "spec.md", overrides, who=who, carried=True, reference_from=old)
+    events_core.emit("run.note", project=project, run=run_id, who=who, new_run=started["run_id"],
+                     note=f"Run again as {started['run_id']}")
+    common.record_command(who, f"run again {run_id}", project, f"ran {run_id} again as {started['run_id']}")
+    return {"run_id": started["run_id"], "project": project, "status": started["status"], "from_run": run_id,
+            "preset": overrides.get("preset")}
+
+
+def _has_based_on(project: str, kept: dict) -> bool:
+    """True when the kept overrides or the project's settings say which preset "custom" is based on."""
+    if kept.get("based_on"):
+        return True
+    try:
+        return bool(settings.load_project(common.project_dir(project)).get("based_on"))
+    except (settings.SettingsError, OpsError):
+        return False
 
 
 def _refuse_chat_overrides(who, overrides: dict | None) -> None:

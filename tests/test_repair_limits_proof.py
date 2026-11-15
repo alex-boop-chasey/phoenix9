@@ -56,7 +56,7 @@ def test_each_repair_records_who_agent(tmp_path, repair):
 def test_restart_on_preset_records_who_agent(tmp_path, monkeypatch):
     """Restarting on another preset records who `agent` on the old run's events."""
     r = make(tmp_path, "failed")
-    monkeypatch.setattr(runs_ops, "start", lambda project, spec, overrides=None, who="cli":
+    monkeypatch.setattr(runs_ops, "start", lambda project, spec, overrides=None, who="cli", **kw:
                         {"run_id": "new-run", "project": project, "status": "queued"})
     ops.restart_on_preset(r["project"], r["run"], "full", who="agent")
     done = agent_events("repair.applied")

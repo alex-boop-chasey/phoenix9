@@ -1,4 +1,4 @@
-"""Commands for `phoenix run`: start, status, list, log, stop, discard, tidy."""
+"""Commands for `phoenix run`: start, again, status, list, log, stop, discard, tidy."""
 import time
 
 from phoenix9.cli.output import problem, show, table
@@ -23,6 +23,12 @@ def add(sub, common) -> None:
     p.add_argument("project")
     p.add_argument("--brief", required=True, help="a small description of the change")
     p.set_defaults(func=hotfix)
+    p = group.add_parser("again", parents=[common],
+                         help="start a failed or stopped build again with the same spec, reference documents and settings")
+    p.add_argument("run_id")
+    p.add_argument("--preset", help="use another preset (everything else stays the same)")
+    p.add_argument("--yes", action="store_true", help="confirm that you mean it")
+    p.set_defaults(func=again)
     p = group.add_parser("status", parents=[common], help="show how a run is going")
     p.add_argument("run_id")
     p.add_argument("--watch", action="store_true", help="keep printing new events until the run stops")
@@ -100,6 +106,15 @@ def start(args) -> int:
     overrides = {"preset": args.preset} if args.preset else None
     r = runs.start(args.project, args.spec, overrides, who=args.who)
     return show(args, r, f"Queued run {r['run_id']} for {r['project']}.")
+
+
+def again(args) -> int:
+    """Start a failed or stopped build again (needs --yes); prints the new run id."""
+    if not args.yes:
+        return problem(args, f"This starts run {args.run_id} again as a new build with the same settings. "
+                             "Add --yes to go ahead.")
+    r = runs.run_again(_project_of(args.run_id), args.run_id, preset=args.preset, who=args.who)
+    return show(args, r, f"Started run {args.run_id} again as {r['run_id']}.")
 
 
 def hotfix(args) -> int:

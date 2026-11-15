@@ -32,8 +32,11 @@ def _tasks_from_spec(parsed) -> dict:
     return {str(t.number): state.new_task(t.title, t.depends_on) for t in parsed.tasks}
 
 
-def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> Path:
-    """Make a queued run: read-only spec copy, state.json, run.queued event; returns the run folder."""
+def create_run(project: str, spec_path: Path, overrides: dict | None = None, reference_from: Path | None = None) -> Path:
+    """Make a queued run: read-only spec copy, state.json, run.queued event; returns the run folder.
+
+    With `reference_from` (an earlier run's folder) the run gets a copy of that run's frozen reference folder
+    instead of a fresh snapshot of the project's."""
     text = Path(spec_path).read_text(encoding="utf-8")
     parsed = spec_mod.parse(text)
     title = parsed.title or Path(spec_path).stem
@@ -49,7 +52,10 @@ def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> 
         atomic.write_json(folder / "overrides.json", overrides)
     atomic.write_json(folder / "state.json", state.new_state(run_id, project, _tasks_from_spec(parsed)))
     events.emit("run.queued", project=project, run=run_id, title=title)
-    refsnapshot.snapshot(project, folder)
+    if reference_from is not None:
+        refsnapshot.copy_from(Path(reference_from), folder)
+    else:
+        refsnapshot.snapshot(project, folder)
     return folder
 
 

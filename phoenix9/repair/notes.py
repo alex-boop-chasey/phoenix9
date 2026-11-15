@@ -20,6 +20,7 @@ STEP_FORMS = [
     ("close-question", re.compile(rf"close question (?P<id>{WORD}) as (?P<action>{WORD})")),
     ("rewrite-checks", re.compile(r"rewrite the checks of task (?P<n>\d+) because (?P<why>\S.*)")),
     ("rerun-finish", re.compile(rf"rerun finish step (?P<name>{WORD})")),
+    ("set-aside-old-tries", re.compile(r"set aside the old tries of task (?P<n>\d+)")),
     ("resume", re.compile(r"resume")),
 ]
 INT_ARGS = ("n",)

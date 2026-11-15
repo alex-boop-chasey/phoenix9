@@ -131,12 +131,27 @@ def _result_findings(run_dir: Path, n: int, tries: int, have: list[int]) -> list
     return found
 
 
+def old_tries_left(run_dir: Path, n: int, t: dict, have: list[int]) -> bool:
+    """True when a checks rewrite from before the fix left task n's old attempt folders in place: the task carries
+    the rewrite's check_objection, tries is 0, it has no checks lock and still has attempt folders."""
+    return ("check_objection" in t and not int(t.get("tries", 0)) and bool(have)
+            and not (Path(run_dir) / "tasks" / str(n) / "checks.lock.json").exists())
+
+
+def _old_tries_findings(run_dir: Path, n: int, t: dict, have: list[int]) -> list[Finding]:
+    """The plain finding for old tries a checks rewrite left in place."""
+    if not old_tries_left(run_dir, n, t, have):
+        return []
+    return [Finding("old-tries-left", f"Task {n}'s checks were rewritten; its old tries are still in place.",
+                    task=n, fix={"kind": "set-aside-old-tries", "task": n})]
+
+
 def check_tries(run_dir: Path, st: dict) -> list[Finding]:
     """Per task, `tries` matches the attempt folders and their result.json files."""
     found = []
     for n, t in _tasks(st):
         tries, have = int(t.get("tries", 0)), _attempt_numbers(run_dir, n)
-        problems = _attempt_findings(run_dir, n, tries, have)
+        problems = _old_tries_findings(run_dir, n, t, have) or _attempt_findings(run_dir, n, tries, have)
         found += problems or _result_findings(run_dir, n, tries, have)
     return found
 

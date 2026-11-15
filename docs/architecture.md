@@ -918,6 +918,7 @@ Unknown or malformed lines are refused with their line number. Full step vocabul
 | `close question <id> as <action>` | answers (or `closed`) one question the normal way (`gates.answer`/`gates.close_questions`) |
 | `rewrite the checks of task N because <why>` | throws away the locked checks so Check-writer and Red check run again on resume; needs approval |
 | `rerun finish step <name>` | runs one finish step again on a failed run |
+| `set aside the old tries of task N` | for a run whose checks were rewritten before old tries were set aside (tries 0, no checks lock): moves the task's attempt folders into `repairs/<n>/removed/` |
 | `resume` | puts the run back to `running` (or `queued`) so the runner carries on |
 
 **Apply order** (`apply.apply`): read and parse the note; find the run; refuse if the runner is walking it;
@@ -931,10 +932,13 @@ was not there before, unless the note says `force` (a refused step always rolls 
 **Dry run** (`--dry-run`, API `dry_run`): the steps run on a scratch copy of the run folder; nothing real
 changes, no snapshot, no event; the `## Result` says "Dry run" and the outcome has `would_roll_back`.
 
-**Snapshot and undo**: a snapshot holds the run folder files (not `run.lock`), the worktree head and branch,
+**Snapshot and undo**: a snapshot holds the run's state files (the top files, `gates/`, each attempt's
+`result.json` and each task's `checks.lock.json`; undo puts them back and removes ones made later), the worktree head and branch,
 and a worktree patch that went through `git.scan_secrets` and the scrubber; a patch with a finding is
 refused, not written. `phoenix repair undo <run> [--to N] --yes` restores snapshot N (default the newest);
-new attempts go aside into `repairs/<m>/removed/`. Undo is itself a repair: it takes a snapshot first and
+new attempts go aside into `repairs/<m>/removed/` (also a fresh `attempt-k` made after a repair set an older
+`attempt-k` aside, which comes back). `rewrite the checks` sets the task's attempt folders aside the same way
+("older tries kept with the repair"), so the next try is `attempt-1` again. Undo is itself a repair: it takes a snapshot first and
 writes the same `repair.applied` event, log line and changelog line.
 
 **The walked-run refusal**: a repair never touches a run the runner is walking: status `running` with a

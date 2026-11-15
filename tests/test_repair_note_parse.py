@@ -21,6 +21,7 @@ FORMS = {
     "close question q-1 as answered": ("close-question", {"id": "q-1", "action": "answered"}),
     "rewrite the checks of task 6 because wrong": ("rewrite-checks", {"n": 6, "why": "wrong"}),
     "rerun finish step review": ("rerun-finish", {"name": "review"}),
+    "set aside the old tries of task 4": ("set-aside-old-tries", {"n": 4}),
     "resume": ("resume", {}),
 }
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from phoenix9 import scrub
 from phoenix9.stepctx import StepContext
 
 _PLACEHOLDER = re.compile(r"\{\{\s*([\w-]+)\s*\}\}")
@@ -42,6 +43,18 @@ def finish_line(text: str) -> tuple[str, str]:
         if line.startswith(prefix):
             return kind, line[len(prefix):].strip()
     return "none", ""
+
+
+REASON_CHARS = 300
+
+
+def session_reason(session) -> str:
+    """Why a session that did not end `ok` stopped, from its last words (its error output when it never wrote
+    a result), scrubbed and on one line (cut to 300 characters); '' when it ended ok or said nothing."""
+    if getattr(session, "kind", "ok") == "ok":
+        return ""
+    text = " ".join(scrub.scrub(str(getattr(session, "text", "") or "")).split())
+    return text[-REASON_CHARS:]
 
 
 def profile_test(ctx: StepContext) -> dict:

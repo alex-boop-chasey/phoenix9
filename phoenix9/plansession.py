@@ -17,7 +17,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-from phoenix9 import atomic, docker as docker_mod, events, git, hold, paths, pause, plans, scrub, settings, spec
+from phoenix9 import aistep, atomic, docker as docker_mod, events, git, hold, paths, pause, plans, scrub, settings, spec
 from phoenix9 import claude as claude_mod
 
 STEP = "_plan-session"
@@ -273,7 +273,8 @@ def run_job(adapters, rec: dict) -> dict:
             if result.kind != "ok":
                 why = ("Claude's usage limit was hit; continue it later with `phoenix plan continue`."
                        if result.kind == "rate_limited" else f"The planning session ended before it finished ({result.kind}).")
-                raise PlanFailed(why)
+                reason = aistep.session_reason(result)
+                raise PlanFailed(f"{why} It said: {reason}" if reason and result.kind != "rate_limited" else why)
             if not pause.valid_session_id(result.session_id or ""):
                 raise PlanFailed("The planning session gave no Claude session id, so it cannot be continued.")
             resume = result.session_id

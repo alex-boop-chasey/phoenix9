@@ -26,7 +26,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from phoenix9 import atomic, paths, pause, prices, state
-from phoenix9.docker import Mount
+from phoenix9.docker import Mount, stderr_path
 from phoenix9.scrub import Scrubber, scrub
 
 # The Claude Code tools Phoenix supports in `ai.tools` / `ai.tools_denied` (passed as-is to
@@ -68,6 +68,14 @@ MODEL_UNAVAILABLE = re.compile(
     r"|invalid model|unknown model|issue with the selected model"
     r"|overloaded[^.\n]{0,60}\bmodel\b|\bmodel\b[^.\n]{0,60}overloaded"
     r"|not_found_error",
+    re.I,
+)
+
+# What the Claude command prints on stderr when it refuses its command line at startup (an option it does not
+# know or cannot use), before writing any stream line. Checked only when a failed session left no result.
+REJECTED_AT_START = re.compile(
+    r"unknown option|unrecognized (?:option|argument)|invalid (?:option|argument|value|choice)|too many arguments"
+    r"|option[^.\n]{0,60}(?:not supported|not allowed|not available|requires)|does not support",
     re.I,
 )
 
@@ -321,10 +329,20 @@ def _is_model_unavailable(raw: dict, text: str) -> bool:
     return bool(raw.get("is_error")) and len(text) <= 600 and bool(MODEL_UNAVAILABLE.search(text))
 
 
+def _refused_at_start(raw: dict, rc: int, text: str) -> bool:
+    """True when a failed session wrote no result and its error output says the model or an option cannot be used.
+
+    Such a session never reached Claude: the command stopped at startup, so trying the next model is the same
+    move as for a model the API refused."""
+    short = (text or "").strip()
+    return (not raw and rc != 0 and bool(short)
+            and bool(MODEL_UNAVAILABLE.search(short) or REJECTED_AT_START.search(short)))
+
+
 def _classify(raw: dict, rc: int, text: str) -> str:
-    """Decide the kind of a finished session from its result object and exit code."""
+    """Decide the kind of a finished session from its result object, exit code and (without a result) its stderr."""
     if not raw:
-        return "crashed"
+        return "model_unavailable" if _refused_at_start(raw, rc, text) else "crashed"
     if _is_rate_limited(raw, text):
         return "rate_limited"
     if _is_model_unavailable(raw, text):
@@ -339,7 +357,9 @@ def parse(out_file: Path, rc: int = 0, stderr_file: Path | None = None,
     """Read a stream-json log and return what the session ended with.
 
     Only the single final `type: result` line counts; no result, an extra result line or a cut-off
-    log is `crashed`. `now` and `tz` are used to read a reset time like "resets 3:45pm".
+    log is `crashed`, unless `stderr_file` says the command refused its model or an option at startup
+    (`model_unavailable`, so the fallback models are tried). `now` and `tz` are used to read a reset time
+    like "resets 3:45pm".
     The cost is the result line's total; without one it is worked out from the log's token counts
     (`estimate_cost`, priced by `model` when a message names none), or marked unknown (`cost_known`).
     """
@@ -488,13 +508,13 @@ def run(cmd: list[str], cwd: Path, env_files: list[Path], log_path: Path,
         raise ValueError("claude.run needs a starter; Phoenix itself runs Claude only through Claude.launch")
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    stderr_path = log_path.with_name(log_path.name + ".stderr")
+    err_path = stderr_path(log_path)
     scrubber = Scrubber.from_env_files(env_files)
     scrubber.add(secrets or [])
     proc = start(cmd, cwd, env_files)
     lines: queue.Queue = queue.Queue()
     out_thread = threading.Thread(target=_pump, args=(proc.stdout, lines), daemon=True)
-    err_thread = threading.Thread(target=_save_stderr, args=(proc.stderr, stderr_path, scrubber), daemon=True)
+    err_thread = threading.Thread(target=_save_stderr, args=(proc.stderr, err_path, scrubber), daemon=True)
     out_thread.start()
     err_thread.start()
     with open(log_path, "wb") as log:
@@ -504,7 +524,7 @@ def run(cmd: list[str], cwd: Path, env_files: list[Path], log_path: Path,
     rc = proc.wait()
     out_thread.join(timeout=5)
     err_thread.join(timeout=5)
-    result = parse(log_path, rc, stderr_path, tz=tz)
+    result = parse(log_path, rc, err_path, tz=tz)
     if stopped:
         result.kind = stopped
         result.resets_at = None

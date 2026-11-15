@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from phoenix9 import atomic, runs, spec
-from phoenix9.aistep import fence, profile_test
+from phoenix9.aistep import fence, profile_test, session_reason
 from phoenix9.docker import Mount
 from phoenix9.stepctx import StepResult
 
@@ -73,7 +73,9 @@ def mounts(ctx) -> dict:
 def after(ctx, session) -> StepResult:
     """Read /out/spec.md only; bad plan = fail with its problems; good plan = open the plan gate."""
     if session.kind in EARLY_END:
-        return StepResult("fail", [f"The planner session ended before it finished ({session.kind})."])
+        why = f"The planner session ended before it finished ({session.kind})."
+        reason = session_reason(session)
+        return StepResult("fail", [f"{why} It said: {reason}" if reason else why])
     path = _out_dir(ctx) / "spec.md"
     if not path.is_file():
         return StepResult("fail", ["The planner wrote no /out/spec.md."])

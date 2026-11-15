@@ -252,6 +252,7 @@ class FakeDocker:
         self.argvs: list[list[str]] = []
         self.exit_codes: list[int] = []
         self.outputs: list[str] = []
+        self.errors: list[str] = []              # what each run prints on stderr, in turn (default nothing)
         self.orphans: list[str] = []
         self.removed: list[str] = []
         self.stopped: list[str] = []
@@ -294,13 +295,16 @@ class FakeDocker:
         return rc
 
     def run(self, argv, stdout_path, stderr_path, timeout_s, name, append_stdout=False):
-        """Record the argv; write the next scripted output to stdout_path; return the next exit code."""
+        """Record the argv; write the next scripted output (and stderr text) to the given files; return the next exit code."""
         self.calls.append(("run", (list(argv), stdout_path, stderr_path, timeout_s, name), {}))
         self.argvs.append(list(argv))
         if stdout_path:
             text = self.outputs.pop(0) if self.outputs else ""
             with open(stdout_path, "a" if append_stdout else "w") as f:
                 f.write(text)
+        if stderr_path and stderr_path != stdout_path and self.errors:
+            with open(stderr_path, "a") as f:
+                f.write(self.errors.pop(0))
         return self.exit_codes.pop(0) if self.exit_codes else 0
 
     def run_step(self, *args, **kwargs):

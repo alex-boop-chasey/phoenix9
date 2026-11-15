@@ -5,14 +5,17 @@ import { Button } from "@/components/ui/button"
 import { findRoute, routeHash } from "@/lib/routes"
 import { NeedsYou, cardClass } from "./cardparts"
 import type { ApprovalItem } from "./runtime"
+import { TOOL_WORDS } from "./toolWords"
 
 /** One follow-up the agent offered: a message to send or a link to open. */
 export interface Suggestion { label: string; message?: string; link?: string }
 
 const TOOL_NAMES: Record<string, string> = { "notifications-set": "Change build notifications" }
 
+/** The card's title in plain words; never the tool's id. */
 function plainName(tool: string): string {
-  return TOOL_NAMES[tool] ?? tool
+  if (TOOL_NAMES[tool]) return TOOL_NAMES[tool]
+  return Object.prototype.hasOwnProperty.call(TOOL_WORDS, tool) ? TOOL_WORDS[tool]!.doing : "A change"
 }
 
 function words(value: unknown): string {

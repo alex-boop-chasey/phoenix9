@@ -189,8 +189,9 @@ def test_api_has_no_chat_route_or_chat_fields(api):
     assert api("/api/projects/alpha/chat/start", "POST", POST_HEADERS, {})[0] == 404
     status, body = api("/api/projects/alpha")
     assert status == 200 and body["data"]["vscode"]["reason"] is None
-    for gone in ("chat", "chat_url", "chats", "state"):
+    for gone in ("chat_url", "chats", "state"):
         assert gone not in body["data"]
+    assert body["data"]["chat"]["state"] == "none"   # the list's chat shape, so the header dot works (step 11)
 
 
 def test_list_folders_lists_visible_subfolders_only(env):

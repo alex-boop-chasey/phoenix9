@@ -175,7 +175,8 @@ def test_show_json_has_changelog_and_gates(env, capsys):
     project.edit("alpha", env["fakes"], "alex", description_text="Fresh words.")
     code, out, _ = run_cmd(capsys, "project", "show", "alpha", "--json")
     data = json.loads(out)
-    assert code == 0 and data["changelog"] and data["gates"] == [] and "chat" not in data
+    assert code == 0 and data["changelog"] and data["gates"] == []
+    assert data["chat"]["state"] == "none"          # same chat shape as the project list (owner's fix, step 11)
 
 
 def test_show_plain_has_no_chat_lines(env, capsys):

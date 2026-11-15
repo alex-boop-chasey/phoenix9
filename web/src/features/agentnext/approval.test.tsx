@@ -29,9 +29,16 @@ test("after a decision the buttons are gone and the decision shows", () => {
 
 test("other tools list each input as label and value", () => {
   render(<ApprovalCard item={{ ...item, toolName: "rename_thing", input: { new_name: "beta" } }} onDecide={() => {}} />)
-  expect(screen.getByText("rename_thing")).toBeInTheDocument()
+  expect(screen.getByText("A change")).toBeInTheDocument()
+  expect(screen.queryByText("rename_thing")).toBeNull()
   expect(screen.getByText("new name:")).toBeInTheDocument()
   expect(screen.getByText("beta")).toBeInTheDocument()
+})
+
+test("a known tool's title is its plain words, not its id", () => {
+  render(<ApprovalCard item={{ ...item, toolName: "run-again", input: { project: "alpha" } }} onDecide={() => {}} />)
+  expect(screen.getByText("Running a build again")).toBeInTheDocument()
+  expect(screen.queryByText("run-again")).toBeNull()
 })
 
 test("the card shows the tool's plain description", () => {

@@ -5,7 +5,6 @@
 .dr-h{display:flex; gap:12px; align-items:center; padding:16px 20px; border-bottom:1px solid var(--line)}
 .dr-h .h2{font-size:17px}
 .dr-b{flex:1; display:grid; place-items:center; padding:24px; text-align:center}
-.dr-f{padding:16px 20px; border-top:1px solid var(--line); display:flex; gap:8px}
 }
 
 /* Header tools; the body holds the history list (full screen only) beside the conversation */
@@ -46,9 +45,24 @@
 .ag-code code{background:none; padding:0}
 .ag-h{font-weight:700; font-size:15px}
 
-/* Context chip */
-.ag-ctx{display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:8px 20px; border-bottom:1px solid var(--line); font-size:12.5px; color:var(--text-2)}
-.ag-ctx .mono{font-family:var(--f-mono)}
+/* The conversation scrolls; the message box under it stays on the bottom edge (both sizes, above the phone keyboard) */
+.drawer .dr-b.ag-chat{display:flex; flex-direction:column; place-items:stretch; padding:0; text-align:left; min-height:0; overflow:hidden}
+.ag-conv{flex:1; min-height:0; display:flex; flex-direction:column}
+.ag-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:12px; padding:24px}
+.ag-back{padding:16px 24px 0}
+.ag-comp{flex:none; padding:8px 16px max(12px, env(safe-area-inset-bottom,0px))}
+.ag-allow{padding:0 4px 8px; font-size:13px; color:var(--text-2)}
+.ag-allow.used{color:var(--attn-text)}
+.ag-field{display:flex; flex-direction:column; gap:8px; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--surface)}
+.ag-field:focus-within{outline:2px solid var(--focus); outline-offset:1px}
+.ag-row{display:flex; align-items:flex-end; gap:8px; min-width:0}
+.ag-input{flex:1; min-width:0; resize:none; border:0; outline:0; background:transparent; color:var(--text); font:400 15px/24px var(--f-body); padding:8px 4px; min-height:40px}
+.ag-input::placeholder{color:var(--text-2)}
+.ag-input:focus-visible{outline:0}
+.ag-row .btn-icon{flex:none}
+
+/* Context chip: a small pill inside the message box, above the text */
+.ag-ctx{align-self:flex-start; display:block; max-width:100%; height:24px; padding:0 10px; border-radius:999px; background:var(--surface-2); font-size:12px; line-height:24px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 
 /* Not-answering card and the history menu */
 .ag-asleep{padding:24px 8px}
@@ -70,5 +84,11 @@
 .ag-steps .i{color:var(--ok)}
 .drawer .dr-h{position:relative}
 .drawer:has(.ag-working.ag-busy) .dr-h::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--accent); animation:pulse 2s ease-in-out infinite}
-@media (max-width:719px){.ag-working summary{min-height:44px}}
+@media (max-width:719px){
+  .ag-working summary{min-height:44px}
+  .ag-scroll{padding:16px}
+  .ag-comp{padding-left:12px; padding-right:12px}
+  .ag-input{font-size:16px; min-height:44px; padding:10px 4px}
+  .ag-row .btn-icon{--h:44px}
+}
 @media (prefers-reduced-motion:reduce){.drawer .dr-h::after{animation:none !important}}

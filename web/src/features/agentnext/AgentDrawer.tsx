@@ -6,11 +6,11 @@ import { Navigate, useLocation } from "react-router"
 import { Icon } from "@/components/Icon"
 import { navigateKeepingPanel } from "@/lib/navigate"
 import { usePhoneWidth } from "@/lib/panelState"
-import { AllowanceBar } from "./Allowance"
+import { AllowanceNote } from "./Allowance"
 import { Conversation, type QueuedMessage } from "./Conversation"
 import { History } from "./History"
 import { NotAnsweringCard } from "./NotAnswering"
-import { contextToSend, lookingAt, readPageContext } from "./pageContext"
+import { chipWords, contextToSend, lookingAt, readPageContext } from "./pageContext"
 import type { ThreadInfo } from "./runtime"
 import { rememberThread, useThreads } from "./useThreads"
 
@@ -129,6 +129,7 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer
   const { pathname, search } = useLocation()
   const parts = useMemo(() => readPageContext(pathname, search).context, [pathname, search])
   const context = useMemo(() => contextToSend(parts), [parts])
+  const looking = lookingAt(context ?? {})
 
   // Messages sent while the agent writes; they stay listed until their turn starts.
   const [queued, setQueued] = useState<QueuedMessage[]>([])
@@ -202,11 +203,15 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer
       <div className="ag-body">
       {full && !t.problem && <History threads={t.threads} current={current} onOpen={openThread} />}
       <div className="ag-main">
-      <div className="dr-b" style={{ display: "block", textAlign: "left", overflowY: "auto" }}>
-        {t.problem && (t.reason
-          ? <NotAnsweringCard key={t.reason} reason={t.reason} message={t.problem} onBack={onBack} />
-          : <p role="alert">{t.problem}</p>)}
-        {back && !t.problem && t.ready && <p role="status" className="ag-empty">The agent is back.</p>}
+      <div className="dr-b ag-chat">
+        {t.problem && (
+          <div className="ag-scroll">
+            {t.reason
+              ? <NotAnsweringCard key={t.reason} reason={t.reason} message={t.problem} onBack={onBack} />
+              : <p role="alert">{t.problem}</p>}
+          </div>
+        )}
+        {back && !t.problem && t.ready && <p role="status" className="ag-empty ag-back">The agent is back.</p>}
         {started && !t.problem && (
           <Conversation
             key={`${current}-${opened}`}
@@ -217,7 +222,8 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer
             onRunEnd={onRunEnd}
             heading={false}
             context={context}
-            chip={<p className="ag-ctx" data-testid="agent-context">{lookingAt(context ?? {})}</p>}
+            chip={<p className="ag-ctx" role="note" data-testid="agent-context" aria-label={looking} title={looking}>{chipWords(context ?? {})}</p>}
+            notice={<AllowanceNote allowance={t.allowance} />}
             goTo={navigateKeepingPanel}
             queued={queued.filter((m) => !threadRef.current || m.thread === threadRef.current)}
             onQueued={onQueued}
@@ -228,9 +234,6 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer
             onApprovalWaiting={news}
           />
         )}
-      </div>
-      <div className="dr-f">
-        <div className="flex-1"><AllowanceBar allowance={t.allowance} /></div>
       </div>
       </div>
       </div>

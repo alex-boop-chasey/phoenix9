@@ -124,7 +124,7 @@ test("Ctrl+. toggles the new agent drawer and the button opens it", async () => 
   expect(panel).toHaveClass("open")
   expect(within(panel).getByRole("heading", { name: "Agent" })).toBeInTheDocument()
   expect(within(panel).getByRole("button", { name: "Expand to full screen" })).toBeInTheDocument()
-  expect(await within(panel).findByText("plenty left this month")).toBeInTheDocument()
+  expect(await within(panel).findByTestId("agent-context")).toBeInTheDocument()
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })
   expect(panel).not.toHaveClass("open")
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })

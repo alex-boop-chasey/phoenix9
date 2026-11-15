@@ -82,7 +82,7 @@ describe("the agent drawer", () => {
   it("says what the agent will be told and sends that context with the message", async () => {
     const svc = service({ streams: [{ frames: [[1, started("r1")], [2, said("u1", "what is this project?")], [3, finished("r1")]] }] })
     setup()
-    expect(screen.getByTestId("agent-context")).toHaveTextContent("Looking at: demo-site, build 20261110-0900")
+    expect(screen.getByTestId("agent-context")).toHaveTextContent("demo-site · build 20261110-0900")
     await userEvent.type(screen.getByLabelText("Message"), "what is this project?")
     await userEvent.click(screen.getByRole("button", { name: "Send" }))
     await waitFor(() => expect(runPosts(svc.posts)).toHaveLength(1))
@@ -94,7 +94,57 @@ describe("the agent drawer", () => {
   it("names a top page in plain words and sends no run when none is open", async () => {
     service()
     setup("/settings")
-    expect(screen.getByTestId("agent-context")).toHaveTextContent("Looking at: Phoenix settings")
+    expect(screen.getByTestId("agent-context")).toHaveTextContent("Phoenix settings")
+  })
+
+  it("puts the short chip inside the message box, labelled with what the agent is looking at", async () => {
+    service()
+    setup("/")
+    const chip = screen.getByRole("note", { name: "Looking at: the project list" })
+    expect(chip).toBe(screen.getByTestId("agent-context"))
+    expect(chip).toHaveTextContent(/^Project list$/)
+    expect(chip).toHaveAttribute("title", "Looking at: the project list")
+    const field = chip.closest(".ag-field")!
+    expect(field).not.toBeNull()
+    expect(field).toContainElement(screen.getByLabelText("Message"))
+    expect(field.closest(".ag-comp")).not.toBeNull()
+    expect(document.querySelector(".ag-scroll")).not.toContainElement(field as HTMLElement)
+  })
+
+  it("has a growing text box and icon buttons with labels for Send and Stop", async () => {
+    localStorage.setItem("agent-next-thread", "t1")
+    service({ streams: [{ frames: [[7, started("r1")], [8, said("u1", "first")]], hold: [[9, finished("r1")]] }] })
+    setup()
+    expect(await screen.findByText("It is under Health.")).toBeInTheDocument()
+    const box = screen.getByLabelText("Message")
+    expect(box.tagName).toBe("TEXTAREA")
+    expect(box).toHaveAttribute("placeholder", "Ask the agent")
+    expect(box).toHaveAttribute("autocomplete", "off")
+    expect(box).toHaveAttribute("enterkeyhint", "send")
+    const send = screen.getByRole("button", { name: "Send" })
+    expect(send).toHaveTextContent("")
+    expect(send.querySelector('[data-icon="paper-plane"]')).not.toBeNull()
+    await userEvent.type(box, "first{Enter}")
+    const stop = await screen.findByRole("button", { name: "Stop" })
+    expect(stop.querySelector('[data-icon="stop"]')).not.toBeNull()
+    expect(stop.nextElementSibling).toBe(screen.getByRole("button", { name: "Send" }))
+  })
+
+  it("sends to the queue when Send is pressed while the agent works", async () => {
+    localStorage.setItem("agent-next-thread", "t1")
+    const svc = service({
+      runs: [raw({ run_id: "r1", queued: false }, 202), raw({ run_id: "r2", queued: true }, 202)],
+      streams: [{ frames: [[7, started("r1")], [8, said("u1", "first")]], hold: [[9, finished("r1")]] }],
+    })
+    setup()
+    expect(await screen.findByText("It is under Health.")).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText("Message"), "first{Enter}")
+    await screen.findByRole("button", { name: "Stop" })
+    await userEvent.type(screen.getByLabelText("Message"), "second")
+    await userEvent.click(screen.getByRole("button", { name: "Send" }))
+    expect(await screen.findByTestId("agent-queued")).toHaveTextContent("second")
+    expect(screen.getByLabelText("Message")).toHaveValue("")
+    expect(runPosts(svc.posts).map((b) => b.message)).toEqual(["first", "second"])
   })
 
   it("keeps the message box usable while it works: a second message shows as Queued and is followed when it starts", async () => {

@@ -59,3 +59,16 @@
 .ag-menu-item{display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; background:none; border:0; padding:8px 10px; border-radius:var(--r-sm); color:var(--text); cursor:pointer; font-size:13px}
 .ag-menu-item:hover,.ag-menu-item:focus-visible{background:var(--surface-2)}
 .ag-menu-note{padding:8px 10px; color:var(--text-2); font-size:13px}
+
+/* The "Working…" line: one quiet line while the agent works, then a closed "N steps" list.
+   The only motion: a thin accent line under the header that shows (and gently pulses) while the agent works. */
+.ag-working{font-size:13px; color:var(--text-2)}
+.ag-working summary{display:inline-flex; align-items:center; min-height:32px; cursor:pointer; border-radius:999px}
+.ag-working summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ag-steps{display:flex; flex-direction:column; gap:4px; padding:4px 0 0 16px}
+.ag-steps li{display:flex; align-items:center; gap:8px}
+.ag-steps .i{color:var(--ok)}
+.drawer .dr-h{position:relative}
+.drawer:has(.ag-working.ag-busy) .dr-h::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--accent); animation:pulse 2s ease-in-out infinite}
+@media (max-width:719px){.ag-working summary{min-height:44px}}
+@media (prefers-reduced-motion:reduce){.drawer .dr-h::after{animation:none !important}}

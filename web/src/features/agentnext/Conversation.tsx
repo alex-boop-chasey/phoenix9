@@ -4,13 +4,14 @@ import { useNavigate } from "react-router"
 
 import { Button } from "@/components/ui/button"
 import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
-import { COMPONENTS, ToolCall } from "./components"
+import { COMPONENTS } from "./components"
 import { FlowLine, flowFrom } from "./flowcard"
 import type { PageParts } from "./pageContext"
 import {
   AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, olderFlowSteps, useAgentNextRuntime,
   type CardItem, type ChatLine, type Frame,
 } from "./runtime"
+import { WorkingLine } from "./WorkingLine"
 
 /** A message sent while the agent was still writing: it waits its turn on the service. */
 export interface QueuedMessage { runId: string; text: string; thread: string; queued: boolean }
@@ -65,6 +66,8 @@ export function Conversation(props: ConversationProps) {
 
   const allCards = useMemo(() => [...earlierCards, ...side.cards], [earlierCards, side.cards])
   const older = useMemo(() => olderFlowSteps(allCards), [allCards])
+  // Calls that drew a card show the card instead; the rest are this turn's steps.
+  const steps = useMemo(() => (side.calls ?? []).filter((c) => !c.component), [side.calls])
 
   const [wasRunning, setWasRunning] = useState(false)
   useEffect(() => {
@@ -132,7 +135,7 @@ export function Conversation(props: ConversationProps) {
             </ThreadPrimitive.Messages>
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
-        {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
+        <WorkingLine calls={steps} running={side.running} />
         {allCards.map((c) => <Card key={c.toolCallId} card={c} older={older.has(c.toolCallId)} onSend={say} />)}
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />

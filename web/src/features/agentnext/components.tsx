@@ -377,10 +377,9 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   },
 }
 
-/** One tool call: running state, then its card, or a plain "Used <tool>" line. */
+/** One finished tool call's card; nothing otherwise (the "Working…" line says what the agent does). */
 export function ToolCall({ call, onOpen }: { call: ToolCallItem; onOpen?: (p: ProjectCardData) => void }) {
-  if (call.running) return <p data-testid="tool-running" aria-busy="true">Running {call.toolName}…</p>
-  const Draw = call.component ? COMPONENTS[call.component] : undefined
-  if (!Draw) return <p data-testid="tool-used">Used {call.toolName}</p>
+  const Draw = !call.running && call.component ? COMPONENTS[call.component] : undefined
+  if (!Draw) return null
   return <>{Draw({ data: call.data, tool: call.toolName, callId: call.toolCallId, onOpen })}</>
 }

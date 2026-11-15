@@ -1,5 +1,5 @@
 // Proof: the assistant-ui chat shows streamed text, a project card, a go_to move and an approval, from a mocked stream.
-import { screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import { renderFullAgent } from "@/test/agentPanel"
@@ -61,6 +61,22 @@ describe("agent-next proof", () => {
     await say("what projects?")
     expect(await screen.findByText("You have one project.")).toBeInTheDocument()
     expect(await screen.findByTestId("project-cards")).toHaveTextContent("alpha")
+  })
+
+  it("shows what it did as a closed list of plain steps, never the tool ids", async () => {
+    const done = (id: string): Ev => ({ type: "TOOL_CALL_RESULT", messageId: `r-${id}`, toolCallId: id, content: "{}" })
+    mockService([[started, ...call("s1", "library-profiles", "{}"), done("s1"), ...call("s2", "projects-list", "{}"), done("s2"),
+      ...call("s3", "suggest_next_actions", "{}"), done("s3"), ...text("m1", "Here is what I found."), finished]])
+    setup()
+    await say("I want a new Android app")
+    expect(await screen.findByText("Here is what I found.")).toBeInTheDocument()
+    const steps = await screen.findByTestId("agent-steps")
+    expect(steps).not.toHaveAttribute("open")
+    expect(within(steps).getByText("3 steps")).toBeInTheDocument()
+    await userEvent.click(within(steps).getByText("3 steps"))
+    expect(within(steps).getAllByRole("listitem").map((li) => li.textContent))
+      .toEqual(["Checked project types", "Looked at your projects", "Suggested next steps"])
+    expect(screen.queryByText(/library-profiles|projects-list|suggest_next_actions/)).toBeNull()
   })
 
   it("go_to checks the page, navigates and posts the browser result", async () => {

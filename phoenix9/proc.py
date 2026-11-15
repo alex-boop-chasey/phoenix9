@@ -131,12 +131,23 @@ def record_failure(what: str, program_name: str, rc: int, text) -> None:
         pass
 
 
+NO_SHELL = "Phoenix never runs programs through a shell."
+
+
+def _argv(argv, shell) -> list:
+    """The argument list as a list; refuse `shell=True` and a single command string."""
+    if shell or isinstance(argv, (str, bytes)):
+        raise ValueError(NO_SHELL)
+    return list(argv)
+
+
 def run(argv, *, what: str | None = None, timeout: float | None = 60, cwd=None, env=None, input=None,
-        text: bool = True) -> Result:
+        text: bool = True, shell: bool = False) -> Result:
     """Run a program to the end and return Result(rc, out, err); 124 on timeout, 127 when it is not there.
 
-    With `what` (a plain label of the action), a failure is recorded as one `command.failed` event."""
-    argv = list(argv)
+    With `what` (a plain label of the action), a failure is recorded as one `command.failed` event.
+    `shell=True` or a command string raises ValueError: programs always get an argument list."""
+    argv = _argv(argv, shell)
     try:
         p = subprocess.run(argv, capture_output=True, text=text, timeout=timeout, cwd=cwd, env=env, input=input,
                            stdin=None if input is not None else subprocess.DEVNULL)
@@ -153,5 +164,5 @@ def run(argv, *, what: str | None = None, timeout: float | None = 60, cwd=None, 
 
 
 def popen(argv, **kw) -> Popen:
-    """Start a program and return it running (for the one caller that streams output to files)."""
-    return subprocess.Popen(list(argv), **kw)
+    """Start a program and return it running (for the one caller that streams output to files); never a shell."""
+    return subprocess.Popen(_argv(argv, kw.pop("shell", False)), **kw)

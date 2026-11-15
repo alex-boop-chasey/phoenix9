@@ -545,7 +545,9 @@ unknown timezone with a message naming the setting. They are not safety settings
 through an approval card.
 
 ### 5.3 The ai block (any ai step; harness spec section 5)
-`model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),
+`model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list; when `tools` is
+set, every supported tool it leaves out, plus `NotebookEdit` without `Edit`, is denied too, because under
+`bypassPermissions` only the denied list bites),
 `mcp_servers` (list of names from the registry), `claude_md` (`library` | `project` | `both`),
 `skills` (list of skill folder names), `max_turns`, `timeout` (minutes), and
 `[advisor]` `on`, `model`, `when` (list of `blocked` | `before-done` | `on-demand`), `instructions`.

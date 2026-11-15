@@ -55,8 +55,10 @@ def test_build_command_passes_the_lists(step):
     cmd = claude.build_command(ai, "/p.md", "/r")
     i = cmd.index("--allowedTools")
     assert cmd[i + 1] == ",".join(ai["tools"])
-    if ai["tools_denied"]:
+    denied = claude.denied_tools(ai)   # the step's own denied list first, then every tool it leaves out
+    assert denied[:len(ai["tools_denied"])] == ai["tools_denied"]
+    if denied:
         j = cmd.index("--disallowedTools")
-        assert cmd[j + 1] == ",".join(ai["tools_denied"])
+        assert cmd[j + 1] == ",".join(denied)
     else:
         assert "--disallowedTools" not in cmd

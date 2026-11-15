@@ -97,6 +97,18 @@ class Result:
 
 
 # ------------------------------------------------------------- command line
+def denied_tools(ai: dict) -> list[str]:
+    """The tools a session must not use: `tools_denied`, plus every supported tool `tools` leaves out."""
+    denied = list(ai.get("tools_denied") or [])
+    tools = ai.get("tools") or []
+    if tools:
+        # Under bypassPermissions --allowedTools restricts nothing, so a step's tool list only bites when denied.
+        denied += [name for name, _label, _help in SUPPORTED_TOOLS if name not in tools]
+        if "Edit" not in tools:
+            denied.append("NotebookEdit")
+    return list(dict.fromkeys(denied))
+
+
 def build_command(ai: dict, prompt_file, cwd, system_prompt_file=None, mcp_config=None,
                   resume: str | None = None) -> list[str]:
     """Return the command that runs one Claude Code session, from a step's ai block.
@@ -116,8 +128,9 @@ def build_command(ai: dict, prompt_file, cwd, system_prompt_file=None, mcp_confi
     claude += ["--max-turns", str(int(ai.get("max_turns") or 50))]
     if ai.get("tools"):
         claude += ["--allowedTools", ",".join(ai["tools"])]
-    if ai.get("tools_denied"):
-        claude += ["--disallowedTools", ",".join(ai["tools_denied"])]
+    denied = denied_tools(ai)
+    if denied:
+        claude += ["--disallowedTools", ",".join(denied)]
     if ai.get("mcp_servers"):
         claude += ["--mcp-config", str(mcp_config or MCP_MOUNT)]
     if system_prompt_file:

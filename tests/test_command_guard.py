@@ -2,7 +2,8 @@
 
 This walks the code with `ast` and fails on any `import subprocess` / `from subprocess import ...`, and any call
 that starts a program another way (os.system/popen/exec*/spawn*/posix_spawn*/fork, pty.spawn,
-asyncio.create_subprocess_*), outside the allowed files below.
+asyncio.create_subprocess_*), outside the allowed files below. It also fails on any call anywhere (allowed
+files included) that passes `shell=True`.
 """
 import ast
 import re
@@ -45,6 +46,19 @@ def _starts_program(module: str, name: str) -> bool:
     return False
 
 
+def _passes_shell_true(call) -> bool:
+    """True for a call with `shell=True` (or any other constant that is true) as a keyword."""
+    return any(k.arg == "shell" and isinstance(k.value, ast.Constant) and bool(k.value.value)
+               for k in call.keywords)
+
+
+def shell_offenders(source: str, rel: str) -> list[str]:
+    """Every call in one file's source that passes shell=True."""
+    tree = ast.parse(source, filename=rel)
+    return [f"{rel}:{node.lineno}: shell=True" for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and _passes_shell_true(node)]
+
+
 def offenders(source: str, rel: str) -> list[str]:
     """Every place in one file's source that starts a program outside proc.py."""
     if rel in ALLOWED:
@@ -85,6 +99,13 @@ def test_programs_start_only_in_proc():
     assert not bad, "start programs through phoenix9/proc.py (run, popen) instead:\n" + "\n".join(bad)
 
 
+def test_nothing_passes_shell_true():
+    bad = []
+    for path, rel in _files():
+        bad += shell_offenders(path.read_text(encoding="utf-8"), rel)
+    assert not bad, "Phoenix never runs programs through a shell; pass an argument list instead:\n" + "\n".join(bad)
+
+
 def test_every_allowed_file_exists_and_folders_are_there():
     for rel, why in ALLOWED.items():
         assert (ROOT / rel).is_file(), f"{rel} is allowed ({why}) but does not exist"
@@ -105,3 +126,13 @@ def test_the_guard_catches_a_bad_file(tmp_path):
     assert len(found) == 9, found
     assert offenders("import os\nos.path.join('a')\nos.getpid()\n", "phoenix9/fine.py") == []
     assert offenders(bad.read_text(), "phoenix9/proc.py") == []
+
+
+def test_the_shell_guard_catches_a_bad_file(tmp_path):
+    bad = tmp_path / "bad.py"
+    bad.write_text("from phoenix9 import proc\nimport subprocess\n"
+                   "proc.run('ls', shell=True)\nproc.popen(['ls'], shell=1)\nsubprocess.call('x', shell=True)\n"
+                   "proc.run(['ls'], shell=False)\nf(shell=None)\n")
+    found = shell_offenders(bad.read_text(), "phoenix9/bad.py")
+    assert [f.split(":")[1] for f in found] == ["3", "4", "5"], found
+    assert len(shell_offenders(bad.read_text(), "phoenix9/proc.py")) == 3   # no file is allowed a shell

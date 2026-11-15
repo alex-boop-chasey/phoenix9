@@ -30,6 +30,7 @@ export const keys = {
   explain: (name: string) => ["explain", name] as const,
   plan: (name: string) => ["plan", name] as const,
   keyRows: (name: string) => ["keys", name] as const,
+  keyMake: (name: string) => ["keys", name, "make"] as const,
   specs: (name: string) => ["specs", name] as const,
   changelog: (name: string) => ["changelog", name] as const,
   logs: (project: string) => ["logs", project] as const,
@@ -156,6 +157,8 @@ export const usePlanRows = (name: string) =>
   useQuery({ queryKey: keys.plan(name), queryFn: () => api.plan(name, {}), enabled: !!name })
 export const useKeyRows = (name: string) =>
   useQuery({ queryKey: keys.keyRows(name), queryFn: () => api.keys(name), enabled: !!name })
+export const useKeyMakeStatus = (name: string) =>
+  useQuery({ queryKey: keys.keyMake(name), queryFn: () => api.keyMakeStatus(name), enabled: !!name })
 export const useSpecs = (name: string) =>
   useQuery({ queryKey: keys.specs(name), queryFn: () => api.specs(name), enabled: !!name })
 export const useChangelog = (name: string, limit = 20) =>

@@ -119,7 +119,7 @@ export interface ChangelogLine {
 }
 
 export type GateKind = "merge" | "plan" | "human-task" | "escalation" | "deploy" | "step" | "repair-unlock"
-export type KnownGateAction = "approve" | "back" | "skip" | "stop" | "acknowledged"
+export type KnownGateAction = "approve" | "back" | "skip" | "stop" | "acknowledged" | "fetch"
 /** A gate's own extra action (for example "done") is any other word. */
 export type GateAction = KnownGateAction | (string & {})
 
@@ -217,6 +217,25 @@ export interface KeyRow {
   secret: boolean
   has_value: boolean
   value_if_not_secret: string | null
+}
+
+/** Whether Phoenix can make a chosen service's missing keys (GET /api/projects/<name>/keys/make). */
+export interface KeyMakeRow {
+  service: string
+  title: string
+  state: "ready" | "needs-account-key" | "manual" | "done"
+  words: string
+  link: string
+  missing: string[]
+}
+
+/** What making keys did: names only, never a value. */
+export interface KeyMakeResult {
+  project: string
+  saved: Record<string, string[]>
+  problems: Record<string, string>
+  notes: Record<string, string>
+  still_missing: string[]
 }
 
 export interface KeyInput {

@@ -11,8 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { parseEnvFile, skippedNote, type EnvEntry } from "@/features/projects/envFile"
 import { api } from "@/lib/api"
-import { keys, useKeyRows, useLibraryServices } from "@/lib/queries"
-import type { KeyInput, KeyRow } from "@/lib/types"
+import { keys, useKeyMakeStatus, useKeyRows, useLibraryServices } from "@/lib/queries"
+import type { KeyInput, KeyMakeResult, KeyRow } from "@/lib/types"
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 const DOTS = "••••••"
@@ -301,6 +301,15 @@ export function KeysForm({
     })
   }
 
+  /** After keys were made: the saved rows from the server, keeping rows typed here and not saved yet. */
+  function madeRows(fresh: KeyRow[]) {
+    qc.setQueryData(keys.keyRows(project), fresh)
+    setRows((rs) => {
+      const names = new Set(fresh.map((r) => r.name))
+      return [...fresh.map(fromServer), ...rs.filter((r) => !r.saved && !names.has(r.name.trim()))]
+    })
+  }
+
   if (mode === "saved" && query.isLoading) return <p className="text-sm text-muted-foreground">Loading keys…</p>
 
   return (
@@ -308,6 +317,7 @@ export function KeysForm({
       {problem && (
         <Alert variant="destructive"><AlertDescription>{problem}</AlertDescription></Alert>
       )}
+      {mode === "saved" && project && <KeyMaker project={project} onMade={madeRows} />}
       {draft ? (
         <ul className="stackg">
           {rows.length === 0 && <li className="small">No keys yet. Pick a service above, or press Add.</li>}
@@ -388,6 +398,88 @@ export function KeysForm({
         onConfirm={() => { if (removing) void remove(removing); setRemoving(null) }}
       />
     </div>
+  )
+}
+
+/** "A", "A and B", "A, B and C". */
+const andList = (items: string[]) =>
+  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`
+
+/** What making the keys did, in plain words (names only, never a value). */
+function madeWords(result: KeyMakeResult, titleOf: (service: string) => string): string[] {
+  const lines = Object.entries(result.saved).map(([s, names]) => `Saved ${andList(names)} for ${titleOf(s)}.`)
+  lines.push(...Object.values(result.notes), ...Object.values(result.problems))
+  return lines.length ? lines : ["Nothing new was saved."]
+}
+
+/** "Get the keys for me": shown when Phoenix can make some missing keys with Alex's saved account keys. */
+function KeyMaker({ project, onMade }: { project: string; onMade: (rows: KeyRow[]) => void }) {
+  const qc = useQueryClient()
+  const status = useKeyMakeStatus(project)
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<KeyMakeResult | null>(null)
+  const [named, setNamed] = useState<Record<string, string>>({})
+  const [problem, setProblem] = useState("")
+  const rows = status.data ?? []
+  const ready = rows.filter((r) => r.state === "ready" && r.missing.length > 0)
+  const others = rows.filter((r) => r.state === "needs-account-key" || r.state === "manual")
+  const titleOf = (service: string) => named[service] ?? rows.find((r) => r.service === service)?.title ?? service
+  const titles = andList(ready.map((r) => r.title))
+  if (!ready.length && !result && !problem) return null
+
+  async function make() {
+    setAsking(false)
+    setBusy(true)
+    setProblem("")
+    setNamed(Object.fromEntries(ready.map((r) => [r.service, r.title])))
+    try {
+      const made = await api.makeKeys(project, ready.map((r) => r.service))
+      setResult(made)
+      onMade(await api.keys(project))
+      void qc.invalidateQueries({ queryKey: keys.keyMake(project) })
+    } catch (err) {
+      setProblem(err instanceof Error ? err.message : "Could not make the keys.")
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="stackg" aria-label="Get the keys for me" data-testid="key-maker">
+      {ready.length > 0 && (
+        <div className="row">
+          <Button type="button" size="sm" disabled={busy} onClick={() => setAsking(true)}>
+            <Icon name="key" />Get the keys for me
+          </Button>
+          <span className="small">Phoenix makes them with your saved account keys and saves them unseen.</span>
+        </div>
+      )}
+      {result && (
+        <div className="blk-info" role="status">
+          <Icon name="info" />
+          <span>{madeWords(result, titleOf).join(" ")}</span>
+        </div>
+      )}
+      {problem && <Alert variant="destructive"><AlertDescription>{problem}</AlertDescription></Alert>}
+      {others.length > 0 && (
+        <ul className="stackg" aria-label="Keys Phoenix cannot make">
+          {others.map((r) => (
+            <li key={r.service} className="small">
+              {r.words}
+              {r.link && <> <a href={r.link} target="_blank" rel="noreferrer">Open the {r.title} page</a></>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ConfirmDialog
+        open={asking} onOpenChange={setAsking}
+        title="Get the keys for me?"
+        body={`Make the missing keys for ${titles} with your saved account keys?`}
+        confirmLabel="Make the keys"
+        onConfirm={() => void make()}
+      />
+    </section>
   )
 }
 

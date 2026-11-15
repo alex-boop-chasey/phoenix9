@@ -282,7 +282,7 @@ CONTROLS = (
     _get("gate-review", "gates.review", rf"/api/gates/{GATE}/review", "tool", inputs=(P_GATE,), card="review_card"),
     _post("gate-answer", "gates.answer", rf"/api/gates/{GATE}/answer", "change", "tool",
           text="Answer one of a build's questions.",
-          inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip", "acknowledged")),
+          inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip", "acknowledged", "fetch")),
                   GATE_NOTE), card="gate_card"),
     _post("plan-approve", "gates.answer", rf"/api/gates/{GATE}/answer", "change", "tool",
           text="Approve a build's plan.", inputs=(P_GATE,), fixed={"action": "approve"}, card="gate_card"),

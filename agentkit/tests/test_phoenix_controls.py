@@ -103,6 +103,13 @@ def test_gate_tools_send_their_fixed_action():
         {"action": "approve"}, {"action": "back", "note": "smaller"}]
 
 
+def test_gate_answer_may_offer_get_the_keys_for_me():
+    fake, made = tools()
+    assert "fetch" in input_model(ENTRIES["gate-answer"]).model_json_schema()["properties"]["action"]["enum"]
+    made["gate-answer"].function(gate_id="g-1", action="fetch")
+    assert json.loads(fake.requests[-1].content)["action"] == "fetch"
+
+
 def test_path_parts_must_be_plain():
     for bad in ("../x", "a/b", "", "a b", "..", "a?b"):
         with pytest.raises(PhoenixError):

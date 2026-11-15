@@ -788,7 +788,8 @@
           "approve",
           "back",
           "skip",
-          "acknowledged"
+          "acknowledged",
+          "fetch"
         ],
         "where": "body",
         "into": []

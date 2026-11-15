@@ -2,7 +2,7 @@
 import type {
   DoctorResult, UpdateHistoryRow,
   CreateForm, EditBody, EventsRecent, ExplainView, Gate, GateAction, GateAnswer, GateReview, GithubRepos, GlobalView,
-  DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
+  DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyMakeResult, KeyMakeRow, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, RunEstimates, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
   ChatChange, ChatInfo, ChatOpenResult, ReferenceView, RunAgainResult,
@@ -156,6 +156,9 @@ export const api = {
   saveKeys: (name: string, rows: KeyInput[]) => post<KeyRow[]>(`projects/${e(name)}/keys/save`, { rows }),
   revealKey: (name: string, key: string) =>
     post<{ name: string; value: string }>(`projects/${e(name)}/keys/reveal`, { name: key }),
+  keyMakeStatus: (name: string) => get<KeyMakeRow[]>(`projects/${e(name)}/keys/make`),
+  makeKeys: (name: string, services: string[]) =>
+    post<KeyMakeResult>(`projects/${e(name)}/keys/make`, { services, confirm: true }),
   removeKey: (name: string, key: string) => post<KeyRow[]>(`projects/${e(name)}/keys/remove`, { name: key }),
   setSettings: (name: string, set: Record<string, unknown>) =>
     post<SettingsView>(`projects/${e(name)}/settings`, { set }),

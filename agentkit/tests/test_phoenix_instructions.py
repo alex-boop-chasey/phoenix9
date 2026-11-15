@@ -93,7 +93,8 @@ def test_instructions_say_plainly_when_no_tool_fits():
 
 def test_flow_keys_line_says_keys_make_or_cannot_yet():
     keys = next(line for line in FLOW_INSTRUCTIONS.splitlines() if line.startswith("Keys:"))
-    assert "get or make the keys for him, use keys-make when it is there" in keys
+    assert "get or make the keys for him, call keys-make-status first" in keys
+    assert "which need him (with the page link it gives), then call keys-make" in keys
     assert "say plainly in one line that you can't do that yet" in keys
 
 

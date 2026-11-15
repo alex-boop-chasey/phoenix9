@@ -117,15 +117,28 @@ def sync_chat_doc(project: str, found: dict, now: float) -> bool:
 
 
 def _session_process(host, project: str) -> dict | None:
-    """The project's live conversation process (the unit's main process or its direct child), or None."""
+    """The project's live conversation process (the unit's main process or up to three levels below it), or None."""
     folder = str(paths.projects() / project)
     main = chat.unit_main_pid(host, project)
     found = chatlink.find_in(folder, chatlink.CLAUDE_HOME, host, main)
     if found is None or main is None:
         return None
-    if found["pid"] != main and host.parent_pid(found["pid"]) != main:
+    if not _descends_from(host, found["pid"], main):
         return None
     return found
+
+
+def _descends_from(host, pid: int, ancestor: int, levels: int = 3) -> bool:
+    """Whether `pid` is `ancestor` or sits up to `levels` generations below it. A re-attached conversation runs
+    as launcher (unit main) -> `claude remote-control` -> conversation, so its session is a grandchild."""
+    for _ in range(levels + 1):
+        if pid == ancestor:
+            return True
+        parent = host.parent_pid(pid)
+        if not parent or parent == pid:
+            return False
+        pid = parent
+    return False
 
 
 def _newest(host, found: dict | None, fields: dict | None) -> float | None:

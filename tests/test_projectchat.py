@@ -167,6 +167,21 @@ def test_state_awake_and_working(listed, tmp_path):
     assert pc.state("alpha", make_adapters(tmp_path, "active", "busy", B1))["state"] == "working"
 
 
+def test_state_awake_after_reattach_grandchild(listed, tmp_path):
+    # Re-attach path (chat-launch.sh keeps bash as the unit's main process): launcher 100 ->
+    # `claude remote-control` 50 -> conversation 10. Found live on image-studio 2026-11-15: it stayed "waking".
+    adapters = make_adapters(tmp_path, "active", "idle", B1, parent=50)
+    adapters.host.parents[50] = 100
+    adapters.host.pids |= {50}
+    assert pc.state("alpha", adapters)["state"] == "awake"
+
+
+def test_state_unrelated_process_is_not_the_chat(listed, tmp_path):
+    adapters = make_adapters(tmp_path, "active", "idle", B1, parent=50)
+    adapters.host.parents[50] = 1   # not under the unit
+    assert pc.state("alpha", adapters)["state"] == "waking"
+
+
 def test_state_registry_beats_document(listed, tmp_path):
     put_doc()
     s = pc.state("alpha", make_adapters(tmp_path, "active", "idle", B1))

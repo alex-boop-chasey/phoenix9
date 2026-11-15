@@ -26,6 +26,13 @@ function Card({ card, older, onSend }: { card: CardItem; older?: boolean; onSend
   return Draw ? <>{Draw({ data: card.data, tool: card.component, callId: card.toolCallId, onSend })}</> : null
 }
 
+/** One earlier line: Alex's or the model's words, or a quiet note (what was done on its own, Phoenix's outcome). */
+function Line({ line }: { line: ChatLine }) {
+  return line.role === "note"
+    ? <p data-role="note" className="ag-note" role="note">{line.text}</p>
+    : <p data-role={line.role}>{line.text}</p>
+}
+
 /** What a conversation shows and does; everything after `onRunEnd` is for the drawer and may be left out. */
 export interface ConversationProps {
   thread: string
@@ -131,7 +138,7 @@ export function Conversation(props: ConversationProps) {
       <div className="ag-conv">
       <div className="ag-scroll">
         {heading && <h1>Agent</h1>}
-        {[...earlier, ...(side.caught ?? [])].map((l) => <p key={l.id} data-role={l.role}>{l.text}</p>)}
+        {[...earlier, ...(side.caught ?? [])].map((l) => <Line key={l.id} line={l} />)}
         <ThreadPrimitive.Root>
           <ThreadPrimitive.Viewport className="flex flex-col gap-2">
             <ThreadPrimitive.Messages>
@@ -143,6 +150,7 @@ export function Conversation(props: ConversationProps) {
             </ThreadPrimitive.Messages>
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
+        {(side.notes ?? []).map((l) => <Line key={l.id} line={l} />)}
         <WorkingLine calls={steps} running={side.running} />
         {allCards.map((c) => <Card key={c.toolCallId} card={c} older={older.has(c.toolCallId)} onSend={say} />)}
         {side.approvals.map((a) => (

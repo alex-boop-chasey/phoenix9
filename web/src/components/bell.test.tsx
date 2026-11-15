@@ -276,3 +276,34 @@ test("every row has a quiet Ask the agent button beside Dismiss", async () => {
     expect(within(row).getByRole("button", { name: /^Dismiss: / })).toBeInTheDocument()
   }
 })
+
+const handoff = { id: "agent:demo:r1.3.0.working", kind: "agent", title: "The agent is fixing demo task 3", detail: "Open the agent to watch it.",
+  page: { to: "p/demo/build", params: { run: "r1" }, hash: "#/p/demo/build?run=r1", label: "x" }, thread: "t5", since: "" }
+
+test("a hand-off row opens the agent at its conversation, dismisses it and has no Ask the agent", async () => {
+  const { calls } = show({ count: 1, items: [handoff] }, { ...agentNextRoutes(), ...liveBell([handoff] as unknown as typeof items) })
+  const heard: unknown[] = []
+  const listen = (e: Event) => heard.push((e as CustomEvent).detail)
+  window.addEventListener("phoenix:open-agent", listen)
+  try {
+    fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+    const row = screen.getByTestId("bell-row")
+    expect(within(row).queryByRole("button", { name: /Ask the agent/ })).toBeNull()
+    expect(row).toHaveAttribute("data-quiet", "true")
+    expect(within(row).getByTestId("bell-item")).not.toHaveAttribute("href")
+    fireEvent.click(within(row).getByTestId("bell-item"))
+  } finally {
+    window.removeEventListener("phoenix:open-agent", listen)
+  }
+  expect(heard).toEqual([{ thread: "t5" }])
+  expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/)
+  await waitFor(() => expect(calls.find((c) => c.path === "/api/bell/dismiss")?.body).toEqual({ id: handoff.id }))
+  expect(screen.getByLabelText("Phoenix agent panel", { selector: "aside" })).toHaveClass("open")
+})
+
+test("a hand-off that needs Alex keeps the usual look", async () => {
+  const late = { ...handoff, id: "agent:demo:r1.3.0.working-late", title: "The agent hasn't finished demo task 3" }
+  show({ count: 1, items: [late] })
+  fireEvent.click(await screen.findByRole("button", { name: /Needs you/ }))
+  expect(screen.getByTestId("bell-row")).not.toHaveAttribute("data-quiet")
+})

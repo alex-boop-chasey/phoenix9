@@ -17,6 +17,9 @@ import { rememberThread, useThreads } from "./useThreads"
 /** A message to send when the drawer opens (from the `phoenix:open-agent` event); a new key sends again. */
 export interface DrawerAsk { key: number; text: string }
 
+/** A conversation to show when the drawer opens (from the `phoenix:open-agent` event's `thread`); a new key opens again. */
+export interface DrawerThread { key: number; id: string }
+
 /** The panel's two sizes: the side drawer, or full screen under the top bar. */
 export type AgentSize = "drawer" | "full"
 
@@ -91,7 +94,7 @@ function HistoryMenu({ threads, current, onOpen, onShow }: { threads: ThreadInfo
           {threads.map((t) => (
             <button key={t.id} role="menuitem" className="ag-menu-item" aria-current={t.id === current ? "true" : undefined}
               onClick={() => { setOpen(false); onOpen(t.id) }}>
-              <span>{t.title || "New conversation"}</span>
+              <span>{t.unread && <span className="ag-unread" role="img" aria-label="Unread" />}{t.title || "New conversation"}</span>
               <span className="ag-meta">{lastUsed(t.last_used)}</span>
             </button>
           ))}
@@ -105,9 +108,10 @@ function HistoryMenu({ threads, current, onOpen, onShow }: { threads: ThreadInfo
  * The agent panel, as a slide-in drawer or full screen (`size`; phones always get the drawer, which fills the screen there).
  * Focus goes to the message box on open and back to `opener` on close.
  * `onNews` is called while it is closed when a reply finishes or an approval starts waiting.
+ * `show` names a conversation to open, once the panel has loaded.
  */
-export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer", onSize }: {
-  open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; ask?: DrawerAsk | null; onNews?: () => void
+export function AgentDrawer({ open, onClose, opener, ask, show, onNews, size = "drawer", onSize }: {
+  open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; ask?: DrawerAsk | null; show?: DrawerThread | null; onNews?: () => void
   size?: AgentSize; onSize?: (size: AgentSize) => void
 }) {
   const [started, setStarted] = useState(open)
@@ -158,6 +162,15 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer
   }, [followNext])
   const forget = () => setQueued([])
   const openThread = (id: string) => { forget(); void t.open(id) }
+
+  // A conversation named by the open-agent event is opened once, after the panel has loaded.
+  const shownKey = useRef<number | null>(null)
+  useEffect(() => {
+    if (!show || shownKey.current === show.key || !t.ready || t.problem) return
+    shownKey.current = show.key
+    openThread(show.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [show, t.ready, t.problem])
 
   // A message from the open-agent event is sent once, after the conversation has loaded.
   const [sentAsk, setSentAsk] = useState<number | null>(null)

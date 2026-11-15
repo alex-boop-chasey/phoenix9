@@ -5,7 +5,7 @@ import { AppShell } from "@/components/AppShell"
 import { crumbsFor } from "@/components/Crumbs"
 import { OpenAgentFullScreen } from "@/features/agentnext/AgentDrawer"
 import { info, projects } from "@/test/fixtures"
-import { agentNextRoutes, mockApi } from "@/test/mockApi"
+import { agentNextRoutes, mockApi, raw } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -307,4 +307,48 @@ test("navigating scrolls the page scroller back to the top", async () => {
   main.scrollTop = 300
   fireEvent.click(screen.getByRole("link", { name: "Settings" }))
   expect(main.scrollTop).toBe(0)
+})
+
+test("the open-agent event with a thread opens the drawer on that conversation and marks it seen", async () => {
+  const { calls } = (() => {
+    window.localStorage.clear()
+    return mockApi({
+      ...agentNextRoutes(),
+      "GET /api/agent-next/threads": raw({ threads: [{ id: "t5", title: "Fix demo task 3", created: 1, last_used: 2, unread: true }] }),
+      "GET /api/agent-next/threads/t5": raw({ thread: { id: "t5" }, running: false, events: [
+        { number: 1, event: { type: "CUSTOM", name: "user_message", value: { id: "u1", text: "Please fix demo task 3." } } },
+      ] }),
+      "POST /api/agent-next/threads/t5/seen": raw({ ok: true }),
+      "GET /api/info": info, "GET /api/projects": projects, "GET /api/gates": [], "GET /api/bell": { count: 0, items: [] },
+      "GET /api/events/recent": { events: [], next: 0 },
+    })
+  })()
+  renderWithProviders(<AppShell>x</AppShell>)
+  act(() => { window.dispatchEvent(new CustomEvent("phoenix:open-agent", { detail: { thread: "t5" } })) })
+  const panel = screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
+  expect(panel).toHaveClass("open")
+  expect(await within(panel).findByText("Please fix demo task 3.")).toBeInTheDocument()
+  await waitFor(() => expect(calls.filter((c) => c.method === "POST" && c.path === "/api/agent-next/threads/t5/seen")).toHaveLength(1))
+  expect(window.localStorage.getItem("agent-next-thread")).toBe("t5")
+})
+
+test("the Agent button has a dot while a listed conversation is unread, and it goes when the panel opens", async () => {
+  window.localStorage.clear()
+  mockApi({
+    ...agentNextRoutes(),
+    "GET /api/agent-next/threads": raw({ threads: [{ id: "t5", title: "Fix demo task 3", created: 1, last_used: 2, unread: true }] }),
+    "GET /api/info": info, "GET /api/projects": projects, "GET /api/gates": [], "GET /api/bell": { count: 0, items: [] },
+    "GET /api/events/recent": { events: [], next: 0 },
+  })
+  renderWithProviders(<AppShell>x</AppShell>)
+  expect(await screen.findByTestId("agent-unread")).toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+  await waitFor(() => expect(screen.queryByTestId("agent-unread")).toBeNull())
+})
+
+test("no dot on the Agent button when every conversation is read", async () => {
+  setup()
+  await screen.findByText("0.9.0")
+  await act(async () => { await Promise.resolve() })
+  expect(screen.queryByTestId("agent-unread")).toBeNull()
 })

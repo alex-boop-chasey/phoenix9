@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react"
 
 import {
-  agentAvailable, agentGet, cardsFromEvents, lastRunStart, linesFromEvents, startedRuns,
+  agentAvailable, agentGet, agentSeen, cardsFromEvents, lastRunStart, linesFromEvents, startedRuns,
   type Allowance, type CardItem, type NotAnswering, type ChatLine, type Frame, type ThreadInfo,
 } from "./runtime"
 
@@ -65,9 +65,13 @@ export function useThreads(active = true) {
     setOpened((n) => n + 1)
   }, [])
 
+  /** Open a conversation; it counts as seen (told to the service once, and its unread mark goes here at once). */
   const open = useCallback(async (id: string) => {
     const got = await agentGet<Stored>(`threads/${id}`)
-    if (got && Array.isArray(got.events)) show(id, got)
+    if (!got || !Array.isArray(got.events)) return
+    show(id, got)
+    setThreads((list) => list.map((t) => (t.id === id && t.unread ? { ...t, unread: false } : t)))
+    void agentSeen(id)
   }, [show])
 
   /**

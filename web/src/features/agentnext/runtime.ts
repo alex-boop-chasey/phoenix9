@@ -22,6 +22,8 @@ export type BrowserAnswer = Record<string, unknown>
 /** The things beside the text that the page draws. */
 export interface SideState {
   cards: CardItem[]; approvals: ApprovalItem[]; running: boolean; calls?: ToolCallItem[]; suggestions?: unknown; caught?: ChatLine[]
+  /** Quiet lines that arrived during a reply Alex is watching (a reply caught up with shows them in `caught`). */
+  notes?: ChatLine[]
   /** The service's conversation id once there is one. */
   thread?: string
   /** A plain refusal from the service for the last message sent (for example a full queue). */
@@ -38,11 +40,11 @@ type FollowState = { args: Map<string, string>; names: Map<string, string> }
 export type Frame = { number: number; event: Record<string, any> }
 type Wait = Promise<void>
 
-/** One earlier message of an opened conversation. */
-export interface ChatLine { id: string; role: "user" | "assistant"; text: string }
+/** One earlier message of an opened conversation; a "note" is a quiet line that is neither Alex nor the model. */
+export interface ChatLine { id: string; role: "user" | "assistant" | "note"; text: string }
 
 /** A conversation in the history list. */
-export interface ThreadInfo { id: string; title: string; last_used: number }
+export interface ThreadInfo { id: string; title: string; last_used: number; unread?: boolean }
 
 /** How much of the month's allowance is used, in words only. */
 export interface Allowance { used_share: number; state: "plenty" | "low" | "used_up" }
@@ -55,6 +57,15 @@ export async function agentGet<T>(path: string): Promise<T | null> {
   } catch {
     return null
   }
+}
+
+/** Tell the agent service Alex has opened a conversation (clears its unread mark); quiet when it cannot answer. */
+export async function agentSeen(id: string): Promise<void> {
+  try {
+    await fetch(agentUrl(`threads/${id}/seen`), {
+      method: "POST", headers: { "X-Phoenix": "1", "Content-Type": "application/json" }, body: "{}",
+    })
+  } catch { /* the mark stays on the service; the list shows it again later */ }
 }
 
 /** Why the agent is not answering: it has no API key, its service is not running, or it is not set up on this server. */
@@ -108,6 +119,7 @@ export function linesFromEvents(events: { event: Record<string, any> }[]): ChatL
   const open = new Map<string, ChatLine>()
   for (const { event: e } of events) {
     if (e.type === "CUSTOM" && e.name === "user_message") lines.push({ id: e.value.id, role: "user", text: e.value.text })
+    else if (e.type === "CUSTOM" && e.name === "note" && typeof e.value?.text === "string") lines.push({ id: `note-${lines.length}`, role: "note", text: e.value.text })
     else if (e.type === "TEXT_MESSAGE_START") {
       const line: ChatLine = { id: e.messageId, role: "assistant", text: "" }
       open.set(e.messageId, line)
@@ -374,6 +386,9 @@ export class AgentNextAgent extends AbstractAgent {
       const card = value as CardItem
       const calls = (this.side.calls ?? []).map((c) => (c.toolCallId === card.toolCallId ? { ...c, running: false, component: card.component, data: card.data } : c))
       this.setSide({ ...this.side, cards: [...this.side.cards, card], calls })
+    } else if (name === "note" && typeof value?.text === "string" && !this.kept) {
+      const notes = this.side.notes ?? []
+      this.setSide({ ...this.side, notes: [...notes, { id: `live-note-${notes.length}`, role: "note", text: value.text }] })
     } else if (name === "suggestions") {
       this.setSide({ ...this.side, suggestions: (value as { actions?: unknown })?.actions })
     } else if (name === "approval_request") {

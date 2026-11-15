@@ -150,14 +150,39 @@ test("clicking a row goes to its page, dismisses it and closes the list", async 
   await waitFor(() => expect(calls.find((c) => c.path === "/api/bell/dismiss")?.body).toEqual({ id: "service:phoenix:x" }))
 })
 
-test("Dismiss all empties the list and the badge", async () => {
+test("Dismiss all empties the badge and closes the list", async () => {
   const { calls } = show({ count: 2, items }, liveBell(items))
   await openBell()
   fireEvent.click(screen.getByRole("button", { name: "Dismiss all" }))
-  expect(await screen.findByText("Nothing needs you.")).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByTestId("bell-list")).toBeNull())
   expect(screen.queryByTestId("bell-count")).toBeNull()
   await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/api/bell/dismiss-all")).toBe(true))
   expect(screen.queryByRole("button", { name: "Dismiss all" })).toBeNull()
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /Needs you/ }))
+})
+
+test("dismissing the only item closes the list and focuses the bell", async () => {
+  show({ count: 1, items: [items[0]!] }, liveBell([items[0]!]))
+  await openBell()
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss: demo needs an answer: Which colour?" }))
+  await waitFor(() => expect(screen.queryByTestId("bell-list")).toBeNull())
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: /Needs you/ }))
+})
+
+test("dismissing one of two keeps the list open", async () => {
+  show({ count: 2, items }, liveBell(items))
+  await openBell()
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss: A service is not running" }))
+  await waitFor(() => expect(screen.getAllByTestId("bell-item")).toHaveLength(1))
+  expect(screen.getByTestId("bell-list")).toBeInTheDocument()
+})
+
+test("opening an empty bell shows nothing needs you and stays open", async () => {
+  show({ count: 0, items: [] })
+  fireEvent.click(await screen.findByRole("button", { name: /nothing waiting/ }))
+  await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+  expect(screen.getByTestId("bell-list")).toBeInTheDocument()
+  expect(screen.getByText("Nothing needs you.")).toBeInTheDocument()
 })
 
 test("Dismiss all is only offered for two or more rows", async () => {
@@ -185,7 +210,7 @@ test("the count follows the list as rows go", async () => {
   await waitFor(() => expect(screen.getByTestId("bell-count")).toHaveTextContent("1"))
   fireEvent.click(screen.getByRole("button", { name: /^Dismiss: A service/ }))
   await waitFor(() => expect(screen.queryByTestId("bell-count")).toBeNull())
-  expect(screen.getByText("Nothing needs you.")).toBeInTheDocument()
+  expect(screen.queryByTestId("bell-list")).toBeNull()
   await waitFor(() => expect(screen.getByRole("button", { name: "Needs you: nothing waiting" })).toBeInTheDocument())
 })
 

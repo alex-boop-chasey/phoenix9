@@ -1,6 +1,7 @@
 """Questions waiting on a person: one message when opened, reminders, and the optional plan auto-approve."""
 import pytest
 
+from helpers.fake_secret import fake_secret
 from helpers import scripted
 from helpers.scripted import calls, gate, on
 from phoenix9 import atomic, events, gatenotify, gates, paths, runs, state, watch
@@ -49,11 +50,12 @@ def only_gate(run_dir):
 
 def test_one_message_with_link_when_a_question_opens(tmp_path, runner, adapters):
     write_global('[dashboard]\ndashboard_url = "https://dash.example.com/"\n[notify]\nquiet_minutes = 0\n')
-    run_dir = waiting_run(tmp_path, runner, title="Is this ok?   sk-ant-abcdefghijkl1234 please")
+    key = fake_secret("anthropic")
+    run_dir = waiting_run(tmp_path, runner, title=f"Is this ok?   {key} please")
     (msg,) = adapters.notify.messages
     assert "proj" in msg and "One task" in msg and "Is this ok?" in msg
     assert "https://dash.example.com/p/proj/build" in msg
-    assert "sk-ant-abcdefghijkl1234" not in msg and "SECRET PLAN TEXT" not in msg
+    assert key not in msg and "SECRET PLAN TEXT" not in msg
     assert gatenotify.read_record(run_dir, only_gate(run_dir)["id"])["reminders"] == 0
 
 

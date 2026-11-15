@@ -1,4 +1,5 @@
 """Tests for secret scrubbing."""
+from helpers.fake_secret import fake_secret
 from phoenix9 import scrub
 from phoenix9.scrub import Scrubber, read_env_file
 
@@ -56,8 +57,7 @@ FAKE_ANT = "sk-ant-api03-" + "Ab1_" * 12
 FAKE_GHP = "ghp_" + "a1B2c3D4e5" * 4
 FAKE_GHS = "ghs_" + "Z9y8X7w6V5" * 4
 FAKE_PAT = "github_pat_" + "11ABCDEFG0" * 3 + "_" + "q" * 40
-PEM = ("-----BEGIN OPENSSH PRIVATE KEY-----\n" + ("b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAA\n" * 4)
-       + "-----END OPENSSH PRIVATE KEY-----")
+PEM = fake_secret("private_key")
 
 
 @pytest.mark.parametrize("secret", [FAKE_ANT, FAKE_GHP, FAKE_GHS, FAKE_PAT, PEM])
@@ -132,9 +132,9 @@ def test_traceback_lines_are_not_secret_settings():
 
 def test_settings_next_to_tracebacks_are_still_masked():
     text = ('  File "/tmp/t/check.py", line 3, in <module>\n    x = 1\n'
-            "API_KEY=abc123def456\ntoken: tok-value-99\nsk-ant-abcdefghijkl\n")
+            "API_KEY=abc123def456\ntoken: tok-value-99\n" + fake_secret("anthropic") + "\n")
     out = scrub.scrub(text)
-    assert "abc123def456" not in out and "tok-value-99" not in out and "sk-ant-abcdefghijkl" not in out
+    assert "abc123def456" not in out and "tok-value-99" not in out and fake_secret("anthropic") not in out
     assert "x = 1" in out
     # a known secret value is masked even inside a traceback line
     s = Scrubber(["registered-secret-99"])

@@ -3,6 +3,7 @@ import base64
 
 import pytest
 
+from helpers.fake_secret import fake_secret
 from helpers.stepunit import load, make_ctx, make_work, write
 from phoenix9 import paths
 
@@ -35,7 +36,7 @@ def test_finds_project_secret_raw_and_base64(tmp_path, adapters, work, secret_fi
 
 
 def test_finds_generic_private_key(tmp_path, adapters, work):
-    write(work, {"k.pem": "-----BEGIN RSA PRIVATE KEY-----\nabc\n"})
+    write(work, {"k.pem": fake_secret("private_key") + "\n"})
     result = scan(tmp_path, adapters, work)
     assert result.status == "fail" and "k.pem (line 1)" in result.reasons[0]
 

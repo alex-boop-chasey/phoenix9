@@ -26,6 +26,17 @@ export function Bell() {
   const phone = usePhoneWidth()
   const count = data?.count ?? 0
   const items = data?.items ?? []
+  const shown = useRef(items.length)
+
+  // The list emptied while open (last Dismiss, Dismiss all, or a refresh): close it and hand focus back to the bell.
+  useEffect(() => {
+    const before = shown.current
+    shown.current = items.length
+    if (open && before > 0 && items.length === 0) {
+      setOpen(false)
+      button.current?.focus()
+    }
+  }, [open, items.length])
 
   useEffect(() => {
     const onOpen = () => setOpen(true)

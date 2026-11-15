@@ -4,6 +4,7 @@ import subprocess
 
 import pytest
 
+from helpers.fake_secret import fake_secret
 from phoenix9 import git as g, proc
 from phoenix9.git import Change, GitError
 
@@ -169,20 +170,21 @@ def test_deny_extra_and_locked():
 
 def test_scan_secrets(wt):
     w, base = wt
-    (w / "cfg.py").write_text('KEY = "AKIAABCDEFGHIJKLMNOP"\n')
-    (w / "id_rsa").write_text("-----BEGIN RSA PRIVATE KEY-----\nabc\n")
-    (w / ".env.example").write_text("AWS=AKIAABCDEFGHIJKLMNOP\nSTRIPE=sk_live_xxx\n")
+    aws = fake_secret("aws")
+    (w / "cfg.py").write_text(f'KEY = "{aws}"\n')
+    (w / "id_rsa").write_text(fake_secret("private_key") + "\n")
+    (w / ".env.example").write_text(f"AWS={aws}\nSTRIPE={fake_secret('stripe_live')}\n")
     (w / "fine.txt").write_text("nothing here\n")
     found = g.scan_secrets(g.diff_text(w, base))
     text = "\n".join(found)
     assert "cfg.py" in text and "AWS" in text
     assert "id_rsa" in text and "private key" in text
     assert ".env.example" not in text and "fine.txt" not in text
-    assert "AKIAABCDEFGHIJKLMNOP" not in text
+    assert aws not in text
 
 
 def test_scan_ignores_removed_lines():
-    d = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-sk_live_abc\n"
+    d = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +0,0 @@\n-" + fake_secret("stripe_live") + "\n"
     assert g.scan_secrets(d) == []
 
 

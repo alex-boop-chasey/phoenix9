@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from helpers.fake_secret import fake_secret
 from phoenix9 import atomic, events, hold, paths, scrub, state, updater
 from phoenix9.git import GitError
 
@@ -403,7 +404,7 @@ def test_request_writes_file_and_starts_unit_no_block(layout, adapters):
 
 # 21
 def test_updater_log_scrubbed(layout, adapters):
-    secret = "sk-ant-SUPERSECRETVALUE123"
+    secret = fake_secret("anthropic")
     scrub.add_secrets([secret])
     adapters.host.script(["./check.sh"], rc=1, out=f"token={secret}")
     adapters.host.script(doctor(), rc=1, out=f"FAIL leaked {secret}")

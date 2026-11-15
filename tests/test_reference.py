@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from helpers.fake_secret import fake_secret
 from phoenix9 import paths, reference
 from phoenix9.reference import ReferenceError_
 
@@ -96,8 +97,8 @@ def test_binary_behind_text_extension(proj):
 
 
 def test_secret_refused(proj):
-    for text in (b"token sk-ant-abcdefgh12345678", b"API_KEY=abcdef123456",
-                 b"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"):
+    for text in (("token " + fake_secret("anthropic")).encode(), b"API_KEY=abcdef123456",
+                 fake_secret("private_key").encode()):
         with pytest.raises(ReferenceError_) as e:
             reference.add_file(proj, "n.md", text, "a")
         assert "key manager" in str(e.value)

@@ -320,7 +320,7 @@ class Claude:
                 float(ai.get("timeout") or 30), env_files=list(env_files), domains_file=domains_file,
                 spec_dir=spec_dir, mounts=mounts, workspace_ro=workspace_ro, extra_env=extra_env,
                 session_dir=session_dir, log_file=log_file, reference_dir=reference_dir)
-            return cl.parse(log, rc, model=model)
+            return cl.parse(log, rc, dk.stderr_path(log), model=model)
         return cl.run_with_fallback(ai, one)
 
     def __getattr__(self, name: str):

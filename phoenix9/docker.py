@@ -431,6 +431,12 @@ def claude_run(project: str, run_id: str, task: int | str, attempt: int, role: s
                env_files=[claude_env_file(), *map(Path, env_files)])
 
 
+def stderr_path(log: Path) -> Path:
+    """The file beside a session's stream log that keeps the container's error output (`<log>.stderr`)."""
+    log = Path(log)
+    return log.with_name(log.name + ".stderr")
+
+
 def run_claude_container(runner, project: str, run_id: str, task: int | str, attempt: int, role: str,
                          image: str, workspace: Path, prompt_file: Path, cmd: list[str],
                          timeout_min: float, *, env_files: list[Path] = (), domains_file: Path | None = None,
@@ -442,31 +448,37 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
     """Run one Claude session in a fresh firewalled container. Returns (exit code, log file).
 
     The stream goes to runs/<project>/<run>/logs/<task>-<attempt>-<role>.jsonl (or `log_file`) with secret
-    values scrubbed out afterwards. The claude port (step 9) builds `cmd` and reads the log.
-    A read-only workspace is not handed to the session user (it only has to be readable).
+    values scrubbed out afterwards; the container's error output goes to `<log>.stderr` (scrubbed too), so a
+    Claude command that stops before its first stream line still leaves its reason to read. The claude port
+    (step 9) builds `cmd` and reads both files. A read-only workspace is not handed to the session user (it
+    only has to be readable).
     """
     r = claude_run(project, run_id, task, attempt, role, image, workspace, prompt_file, cmd, env_files,
                    domains_file, spec_dir, scrub_env, pnpm_store, mounts, workspace_ro, extra_env, session_dir, reference_dir)
     argv = build_argv(r, limits)
     out = Path(log_file) if log_file else log_path(project, run_id, task, attempt, role, "jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)
+    err = stderr_path(out)
+    err.unlink(missing_ok=True)                        # the runner appends: never keep an older try's errors
     if not (workspace_ro and session_dir):
         hand_to_agent(runner, Path(workspace))
     hand_to_agent(runner, Path(session_dir) if session_dir else transcript_dir(project, run_id, task, attempt, role))
     runner.rm(r.name)                                  # a leftover with the same name would block the start
     try:
-        rc = runner.run(argv, out, None, timeout_min * 60, r.name)
+        rc = runner.run(argv, out, err, timeout_min * 60, r.name)
     finally:
         runner.rm(r.name)
     _scrub_file(out, r.env_files)
+    _scrub_file(err, r.env_files, always=True)
     return rc, out
 
 
-def _scrub_file(path: Path, env_files: list[Path]) -> None:
-    """Rewrite a log file with the env files' secret values removed."""
+def _scrub_file(path: Path, env_files: list[Path], always: bool = False) -> None:
+    """Rewrite a log file with the env files' secret values removed (`always`: every known secret too)."""
     secrets = scrub.secrets_from(env_files)
-    if secrets and path.exists():
-        path.write_text(scrub.Scrubber(secrets).text(path.read_text(errors="replace")))
+    if path.exists() and (secrets or always):
+        text = scrub.Scrubber(secrets).text(path.read_text(errors="replace"))
+        path.write_text(scrub.scrub(text) if always else text)
 
 
 # ------------------------------------------------------------- check containers

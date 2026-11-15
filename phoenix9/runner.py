@@ -34,7 +34,7 @@ from phoenix9 import claude as claude_mod
 from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
 from phoenix9 import taskfile
-from phoenix9.aistep import checks_text, project_domains, render_prompt, task_text
+from phoenix9.aistep import checks_text, project_domains, render_prompt, session_reason, task_text
 from phoenix9 import docker as docker_mod, stepproxy
 from phoenix9.ops.common import OpsError
 from phoenix9.library import CodeError, Library, Step, load_code, load_library
@@ -1002,7 +1002,8 @@ def run_ai_step(ctx: StepContext, code=None) -> StepResult:
         raise RunPaused(asked.get("who") or "cli")
     claude_mod.record_usage(ctx.run.folder, session, attempt_dir)
     _save_session_id(ctx, session.session_id)
-    ctx.log(f"session ended: {session.kind}")
+    reason = session_reason(session)
+    ctx.log(f"session ended: {session.kind}" + (f": {reason}" if reason else ""))
     if session.kind == "crashed" and settings.image_is_missing(
             ctx.adapters.docker, paths.library(), ctx.project.settings.get("profile") or ""):
         return StepResult("fail", [settings.missing_image_message(ctx.project.settings.get("profile"))])

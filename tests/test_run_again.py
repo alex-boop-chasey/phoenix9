@@ -110,14 +110,64 @@ def test_refused_for_another_project(env):
         runs_ops.run_again("other", old)
 
 
-def test_agent_keeps_a_safety_key_but_cannot_change_one(env):
+def test_agent_cannot_run_again_a_build_with_its_own_safety_key(env):
     old = first_run(env, {"on_failure": "continue"})
     with pytest.raises(common.OpsError, match="may not start a build"):     # a new start with it is refused
         runs_ops.start("demo", paths.runs("demo") / old / "spec.md", {"on_failure": "continue"}, who="agent")
-    out = runs_ops.run_again("demo", old, who="agent")
-    assert overrides_of(out["run_id"]) == {"on_failure": "continue"}
+    with pytest.raises(common.OpsError, match="Alex can run it again from the dashboard"):   # and so is Run again
+        runs_ops.run_again("demo", old, who="agent")
+    assert len(runs_ops.list_("demo")) == 1
     with pytest.raises(TypeError):                                          # there is no way to pass other changes
         runs_ops.run_again("demo", old, overrides={"on_failure": "pause"}, who="agent")
+
+
+def test_chat_cannot_run_again_a_build_with_its_own_safety_key(env, monkeypatch):
+    monkeypatch.setattr(runs_ops, "_may_stop", lambda project, who: True)   # a chat allowed to repair this project
+    old = first_run(env, {"steps": {"verify": {"on": False}}})
+    with pytest.raises(common.OpsError, match="steps.verify.on"):
+        runs_ops.run_again("demo", old, who="chat:demo")
+    assert len(runs_ops.list_("demo")) == 1
+
+
+def test_agent_may_run_again_a_build_without_safety_keys(env):
+    old = first_run(env, {"preset": "quick"})
+    out = runs_ops.run_again("demo", old, who="agent")
+    assert overrides_of(out["run_id"]) == {"preset": "quick"}
+
+
+@pytest.mark.parametrize("who", ["dashboard", "cli"])
+def test_dashboard_and_cli_keep_a_safety_key(env, who):
+    old = first_run(env, {"on_failure": "continue"})
+    out = runs_ops.run_again("demo", old, who=who)
+    assert overrides_of(out["run_id"]) == {"on_failure": "continue"}
+
+
+def test_restart_on_preset_refuses_the_agent_for_a_safety_key(env):
+    old = first_run(env, {"preset": "quick", "on_failure": "continue"})
+    with pytest.raises(common.OpsError, match="Alex can run it again from the dashboard"):
+        ops_repair.restart_on_preset("demo", old, "full", who="agent")
+    assert len(runs_ops.list_("demo")) == 1
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "waiting", "paused"])
+def test_second_run_again_refused_while_the_first_is_going(env, status):
+    old = first_run(env)
+    first = runs_ops.run_again("demo", old, who="dashboard")["run_id"]
+    state.update(paths.runs("demo") / first, lambda s: s.__setitem__("status", status))
+    with pytest.raises(common.Conflict, match=f"already run again as {first}, which is still {status}"):
+        runs_ops.run_again("demo", old, who="dashboard")
+    with pytest.raises(common.Conflict, match=first):                         # restart on a preset goes the same way
+        ops_repair.restart_on_preset("demo", old, "full", who="agent")
+    assert len(runs_ops.list_("demo")) == 2
+
+
+@pytest.mark.parametrize("status", ["done", "failed", "stopped"])
+def test_run_again_allowed_once_the_first_has_ended(env, status):
+    old = first_run(env)
+    first = runs_ops.run_again("demo", old)["run_id"]
+    state.update(paths.runs("demo") / first, lambda s: s.__setitem__("status", status))
+    out = runs_ops.run_again("demo", old)
+    assert out["run_id"] not in (old, first) and len(runs_ops.list_("demo")) == 3
 
 
 def test_chat_without_permission_is_refused(env):

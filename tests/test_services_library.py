@@ -134,10 +134,10 @@ def test_neon_proxy_allows_only_reads():
     assert neon["proxy"]["upstream"] == "https://console.neon.tech" and neon["proxy"]["key"] == "NEON_API_KEY"
     assert {r["method"] for r in neon["proxy"]["allow"]} == {"GET"}
     assert [r["path"] for r in neon["proxy"]["allow"]] == [
-        "/api/v2/projects", "/api/v2/projects/*", "/api/v2/projects/*/branches", "/api/v2/projects/*/connection_uri"]
+        "/api/v2/projects", "/api/v2/projects/*", "/api/v2/projects/*/branches"]
     spec = proxy.spec_from_service(neon)
     assert proxy.find_rule(spec.rules, "GET", "/api/v2/projects")
-    assert proxy.find_rule(spec.rules, "GET", "/api/v2/projects/abc/connection_uri")
+    assert proxy.find_rule(spec.rules, "GET", "/api/v2/projects/abc/connection_uri") is None   # other projects' passwords
     assert proxy.find_rule(spec.rules, "DELETE", "/api/v2/projects/abc") is None
     assert proxy.find_rule(spec.rules, "POST", "/api/v2/projects") is None
     assert neon["check"]["method"] == "GET" and neon["check"]["path"] == "/api/v2/projects"

@@ -25,8 +25,8 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
           reference_from: Path | None = None) -> dict:
     """Queue a new run of a spec in a project and return its id.
 
-    `carried` means the overrides are an earlier run's, accepted when that build first started (Run again), so a
-    chat or the agent is not refused for their safety settings; `reference_from` is that run's folder, whose frozen
+    `carried` means the overrides are an earlier run's (Run again); run_again itself refuses a chat or the agent
+    when they hold a safety setting, so start skips that check here; `reference_from` is that run's folder, whose frozen
     reference documents the new run gets."""
     folder = common.project_dir(project)
     if not carried:
@@ -99,7 +99,13 @@ def run_again(project: str, run_id: str, preset: str | None = None, who: str = "
     status = (state.load(old) or {}).get("status")
     if status not in ("failed", "stopped"):
         raise common.Conflict(f"The run is {status}; only a failed or stopped build can be run again.")
+    _refuse_second_run_again(project, run_id, old)
     kept = atomic.read_json(old / "overrides.json") or {}
+    from phoenix9.ops import settings as ops_settings
+    hit = _safety_hits(kept) if ops_settings._is_chat(who) else []
+    if hit:   # carried settings skip the start check, so a chat or the agent cannot re-run them either
+        raise OpsError(f"'{who}' may not run this build again: it was started with its own {', '.join(hit)}. "
+                       "This is a safety setting: Alex can run it again from the dashboard.")
     overrides = dict(kept)
     if preset is not None:
         if preset not in settings.PRESETS:
@@ -116,6 +122,19 @@ def run_again(project: str, run_id: str, preset: str | None = None, who: str = "
     common.record_command(who, f"run again {run_id}", project, f"ran {run_id} again as {started['run_id']}")
     return {"run_id": started["run_id"], "project": project, "status": started["status"], "from_run": run_id,
             "preset": overrides.get("preset")}
+
+
+def _refuse_second_run_again(project: str, run_id: str, old: Path) -> None:
+    """Refuse while an earlier "Run again" of this run has not ended yet (queued, running, waiting or paused)."""
+    for event in events_core.read(old / "events.jsonl"):
+        new_id = (event.get("data") or {}).get("new_run")
+        if event.get("type") != "run.note" or not new_id:
+            continue
+        new_folder = paths.runs(project) / new_id
+        status = (state.load(new_folder) or {}).get("status") if new_folder.is_dir() else None
+        if status and status not in FINISHED:
+            raise common.Conflict(f"{run_id} was already run again as {new_id}, which is still {status}. "
+                                  "Wait for it to end, or stop it, before running this build again.")
 
 
 def _has_based_on(project: str, kept: dict) -> bool:
@@ -172,10 +191,18 @@ def _refuse_chat_overrides(who, overrides: dict | None) -> None:
     from phoenix9.ops import settings as ops_settings
     if not overrides or not ops_settings._is_chat(who):
         return
-    hit = sorted(k for k in settings._flatten(overrides) if ops_settings.is_safety_key(k, common.library()))
+    hit = _safety_hits(overrides)
     if hit:
         raise OpsError(f"'{who}' may not start a build with its own {', '.join(hit)}. "
                        "This is a safety setting: Alex changes it in Settings or starts the build from the dashboard.")
+
+
+def _safety_hits(overrides: dict | None) -> list[str]:
+    """The dotted safety keys in these overrides (what a chat or the agent may not start a build with)."""
+    from phoenix9.ops import settings as ops_settings
+    if not overrides:
+        return []
+    return sorted(k for k in settings._flatten(overrides) if ops_settings.is_safety_key(k, common.library()))
 
 
 def plan(project: str, overrides: dict | None = None) -> dict:

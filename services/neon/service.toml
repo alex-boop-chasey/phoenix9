@@ -58,9 +58,8 @@ path = "/api/v2/projects/*"
 [[proxy.allow]]
 method = "GET"
 path = "/api/v2/projects/*/branches"
-[[proxy.allow]]
-method = "GET"
-path = "/api/v2/projects/*/connection_uri"
+# No connection_uri rule: it returns database passwords for any project on the account.
+# Builds get their own database through the DATABASE_URL project key instead.
 
 [check]
 method = "GET"

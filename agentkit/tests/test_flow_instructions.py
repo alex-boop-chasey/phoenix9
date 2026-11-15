@@ -5,7 +5,7 @@ from fake_phoenix import FakePhoenix
 TOOLS = (
     "flow", "ask_choice", "project-check-name", "library-profiles", "library-templates", "library-services",
     "project-create", "job-status", "ask_for_key", "ask_env_file", "hotfix-start", "project-specs",
-    "build-plan", "build-start", "next_steps", "suggest_next_actions")
+    "build-plan", "build-start", "next_steps", "suggest_next_actions", "keys-make-status", "keys-make")
 
 
 def test_flow_instructions_name_every_tool_and_it_exists():

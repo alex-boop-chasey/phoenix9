@@ -58,6 +58,24 @@ def _ends_in(svc: dict) -> dict:
     return {k: "…" + v[-4:] for k, v in saved.items() if v and k in svc["account_keys"]}
 
 
+def _maker_name(svc: dict) -> str:
+    """The optional maker key ([make] key that is not an account key, e.g. a management key), or ''."""
+    key = (svc.get("make") or {}).get("key", "")
+    return key if key and key not in svc["account_keys"] else ""
+
+
+def _make_key(svc: dict, connected: bool) -> dict | None:
+    """{name, saved} for the optional maker key (never its value); None when the service has none."""
+    name = _maker_name(svc)
+    if not name:
+        return None
+    try:
+        saved = bool(connected and keys.read_secret_file(svc["secrets_file"]).get(name))
+    except keys.KeyError_:
+        saved = False
+    return {"name": name, "saved": saved}
+
+
 def _setting_rows(svc: dict, entry: dict) -> list[dict]:
     """The service's plain account settings with their saved (or default) values."""
     saved = entry.get("settings") if isinstance(entry.get("settings"), dict) else {}
@@ -93,6 +111,7 @@ def _row(svc: dict, registry: dict) -> dict:
             "account_settings": _setting_rows(svc, entry),
             "note": "no account connection needed" if only else "",
             "account_keys": list(svc["account_keys"]),
+            "make_key": None if only else _make_key(svc, connected),
             "checked": "not checked" if only else entry.get("checked", "not checked"),
             "checked_at": entry.get("checked_at", ""),
             "project_keys": [{"name": k["name"], "secret": k["secret"], "public": k["public"], "required": k["required"],
@@ -174,8 +193,11 @@ def _check_settings(svc: dict, settings_in: dict) -> dict:
 
 
 def _check_values(svc: dict, values: dict, was_connected: bool) -> None:
-    """The account keys must be exactly the wanted ones (a connected service may send only the ones it replaces)."""
-    want, got = set(svc["account_keys"]), {k for k, v in values.items() if v or k not in svc["account_keys"]}
+    """The account keys must be exactly the wanted ones (a connected service may send only the ones it replaces);
+    the optional maker key may come too and is never required."""
+    extra = _maker_name(svc)
+    want = set(svc["account_keys"])
+    got = {k for k, v in values.items() if (v or k not in svc["account_keys"]) and k != extra}
     if was_connected and got <= want:
         return
     parts = []
@@ -196,13 +218,14 @@ def connect(name: str, values: dict, *, who: str, check: bool = True, settings_i
     was = _is_connected(svc, registry.get(name, {}))
     _check_values(svc, values, was)
     extra = _check_settings(svc, settings_in or {})
-    values = {k: v for k, v in values.items() if v} if was else dict(values)
+    maker = _maker_name(svc)
+    values = {k: v for k, v in values.items() if v} if was else {k: v for k, v in values.items() if v or k != maker}
     if values:
         saved = _guard(keys.read_secret_file, svc["secrets_file"]) if was else {}
         _guard(keys.write_secret_file, svc["secrets_file"], {**saved, **values})
     key_name = (svc["proxy"] or {}).get("key")
     if check and svc["check"]:
-        key = (values or _guard(keys.read_secret_file, svc["secrets_file"])).get(key_name, "")
+        key = values.get(key_name) or _guard(keys.read_secret_file, svc["secrets_file"]).get(key_name, "")
         result = _check(svc, key, common.make_adapters(), {**(registry.get(name, {}).get("settings") or {}), **extra})
     else:
         result = "not checked"

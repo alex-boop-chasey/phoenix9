@@ -3,7 +3,7 @@ import os
 import stat
 from datetime import datetime, timezone
 
-from phoenix9 import keys, paths, services, settings
+from phoenix9 import keymaker, keys, paths, services, settings
 from phoenix9.ops import common
 
 
@@ -98,6 +98,26 @@ def reveal(project: str, name: str, who: str) -> dict:
         raise common.NotFound(f"{project} has no key called {name}.")
     common.record_command(who, f"project keys {project} reveal {name}", project)
     return {"name": name, "value": value}
+
+
+def make_status(project: str) -> list:
+    """Per chosen service: can Phoenix make its missing keys (ready), does it need an account key, or is it by hand."""
+    common.project_dir(project)
+    return keymaker.status(project)
+
+
+def make(project: str, services_wanted: list | None, who: str) -> dict:
+    """Make the project's missing service keys with the saved account keys and save them unseen (names only back)."""
+    common.project_dir(project)
+    if services_wanted is not None and (not isinstance(services_wanted, list)
+                                        or not all(isinstance(s, str) for s in services_wanted)):
+        raise common.OpsError("The services should be a list of service names.")
+    if not keymaker.may_make(who):
+        raise common.OpsError(keymaker.refusal(who))
+    try:
+        return keymaker.make(project, services_wanted or None, who=who)
+    except keys.KeyError_ as err:
+        raise common.OpsError(str(err)) from None
 
 
 # ---------- keys audit: names, modes and problems; never a value ----------

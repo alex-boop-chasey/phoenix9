@@ -15,10 +15,11 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, handoff as ops_handoff, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
+MAX_AGENT_UPLOAD_BODY = 14 * 1024 * 1024  # only POST agent-next .../attachments: a 10 MB file in base64 plus its name
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
@@ -42,6 +43,7 @@ WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit 
 MAX_REPLY = 2000
 WHO = "dashboard"
 AGENT_NEXT = "/api/agent-next"
+AGENT_REPLY_HEADERS = ("Content-Disposition", "X-Content-Type-Options")   # the agent's own headers passed on
 RUNNER_ONLY_AGENT_PATHS = ("handoffs",)   # agent service routes the dashboard may never reach
 
 
@@ -903,6 +905,22 @@ def post_keys_save(req, name):
         return keys.save(check_name(name), rows, WHO)
 
 
+def get_keys_make(req, name):
+    """Reply with which services' missing keys Phoenix can make."""
+    return keys.make_status(check_name(name))
+
+
+def post_keys_make(req, name):
+    """Make the project's missing service keys (needs confirm: true); names only come back."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Making keys needs confirmation.")
+    wanted = req.body.get("services")
+    if wanted is not None and (not isinstance(wanted, list) or not all(isinstance(s, str) for s in wanted)):
+        raise BadRequest("'services' should be a list of service names.")
+    with req.server.write_lock:
+        return keys.make(check_name(name), wanted, req.who)
+
+
 def post_keys_reveal(req, name):
     """Reveal one key value."""
     key = body_text(req, "name")
@@ -1210,6 +1228,23 @@ def post_repair_rewrite_checks(req, project, run_id):
         return ops_repair.rewrite_checks(run_id, task, why, who=req.who)
 
 
+def post_handoff_fix(req, project, run_id):
+    """The agent's own fix on a task handed to it: try again (with a note) or rewrite its checks once."""
+    project, run_id, task = check_name(project), check_run_id(run_id), need(int_field(req, "task"), "task")
+    action = need(text_field(req, "action"), "action")
+    why, note = text_field(req, "why") or "", text_field(req, "note") or ""
+    with req.server.write_lock:
+        return ops_handoff.fix(project, run_id, task, action, why=why, note=note, who=req.who)
+
+
+def post_handoff_give_up(req, project, run_id):
+    """The agent hands a task handed to it back to Alex, with the reason."""
+    project, run_id, task = check_name(project), check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_handoff.give_up(project, run_id, task, why, who=req.who)
+
+
 def post_repair_max_tries(req, project, run_id):
     """Raise a run's max tries through a repair note."""
     run_id, tries = check_run_id(run_id), need(int_field(req, "tries"), "tries")
@@ -1354,6 +1389,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
     ("GET", rf"/api/projects/{NAME}/delete-plan", get_delete_plan),
     ("GET", rf"/api/projects/{NAME}/keys", get_keys),
+    ("GET", rf"/api/projects/{NAME}/keys/make", get_keys_make),
     ("GET", rf"/api/projects/{NAME}/settings", get_settings),
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
@@ -1424,6 +1460,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/global/addresses", post_global_addresses),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
+    ("POST", rf"/api/projects/{NAME}/keys/make", post_keys_make),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),
     ("POST", rf"/api/projects/{NAME}/keys/remove", post_keys_remove),
     ("POST", rf"/api/projects/{NAME}/settings", post_settings),
@@ -1465,9 +1502,12 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock", post_repair_request_unlock),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/fix", post_handoff_fix),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/give-up", post_handoff_give_up),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")
+AGENT_UPLOAD_PATH = re.compile(r"^/api/agent-next/threads/[^/]+/attachments/?$")
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]
 
 
@@ -1642,7 +1682,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = b"".join(reply.chunks)
         if method == "GET" and rest == "/status":
             raw = ops_agentnext.tell_no_key(raw)
-        self.send_raw(reply.status, reply.content_type, raw)
+        passed = {k: v for k, v in getattr(reply, "headers", {}).items() if k in AGENT_REPLY_HEADERS}
+        self.send_raw(reply.status, reply.content_type, raw, headers=passed)
 
     def relay_stream(self, reply):
         """Send the agent's event stream on, chunk by chunk, until either side leaves."""
@@ -1676,6 +1717,8 @@ class Handler(BaseHTTPRequestHandler):
         limit = MAX_BODY
         if self.command == "POST" and UPLOAD_PATH.match(self.path_only):
             limit = MAX_UPLOAD_BODY
+        elif self.command == "POST" and AGENT_UPLOAD_PATH.match(self.path_only):
+            limit = MAX_AGENT_UPLOAD_BODY
         if length == 0 and self.command == "DELETE":
             self.body = {}
             return self.body

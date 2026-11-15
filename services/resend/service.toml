@@ -54,3 +54,13 @@ path = "/domains/*"
 method = "GET"
 path = "/domains"
 expect = [200]
+
+[make]
+needs = "full access (to make sending keys)"
+key_page = "https://resend.com/api-keys"
+[[make.allow]]
+method = "GET"
+path = "/domains"
+[[make.allow]]
+method = "POST"
+path = "/api-keys"

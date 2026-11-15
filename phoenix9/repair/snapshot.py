@@ -9,6 +9,7 @@ from phoenix9 import atomic, events, git, heartbeat, paths, runend, scrub, state
 
 TOP_FILES = ("state.json", "settings.json", "plan.json", "things.json", "spec.json", "spec.md", "overrides.json")
 FROZEN = "repairs/frozen.json"
+CHECKS_LOCK = "checks.lock.json"        # tasks/<n>/checks.lock.json: a checks rewrite removes it, undo puts it back
 NEVER_READ = ("secrets", "keys")
 
 
@@ -55,6 +56,7 @@ def _files_to_copy(run_dir: Path) -> list[Path]:
     if gates.is_dir():
         found += sorted(p.relative_to(run_dir) for p in gates.rglob("*") if _copyable(p))
     found += sorted(p.relative_to(run_dir) for p in run_dir.glob("tasks/*/attempt-*/result.json") if _copyable(p))
+    found += sorted(p.relative_to(run_dir) for p in run_dir.glob(f"tasks/*/{CHECKS_LOCK}") if _copyable(p))
     return found
 
 
@@ -225,10 +227,11 @@ def _snapshot_before(run_dir: Path, n: int) -> Path:
 
 
 def _in_scope(rel: str) -> bool:
-    """True for run files a snapshot owns: the top files, gates/ and attempt result.json files."""
+    """True for run files a snapshot owns: the top files, gates/, attempt result.json files and task checks locks."""
     parts = rel.split("/")
     return rel in TOP_FILES or rel == FROZEN or parts[0] == "gates" or (
-        len(parts) == 4 and parts[0] == "tasks" and parts[2].startswith("attempt-") and parts[3] == "result.json")
+        len(parts) == 4 and parts[0] == "tasks" and parts[2].startswith("attempt-") and parts[3] == "result.json") or (
+        len(parts) == 3 and parts[0] == "tasks" and parts[2] == CHECKS_LOCK)
 
 
 def _kept_files(before: Path) -> list[str]:
@@ -246,10 +249,22 @@ def _attempts_at(before: Path, kept: list[str]) -> set[str]:
     return {k.rsplit("/", 1)[0] for k in kept if k.endswith("/result.json") and k.startswith("tasks/")}
 
 
-def _move_aside_new_attempts(run_dir: Path, m: int, existed: set[str]) -> None:
-    """Move attempt folders that did not exist at the snapshot into repairs/<m>/removed/."""
+def _set_aside_later(run_dir: Path, n: int, last: int) -> set[str]:
+    """Attempt folders a repair n..last moved aside: one with the same name in the run now was made after it."""
+    found = set()
+    for k in range(n, last + 1):
+        removed = repairs_dir(run_dir) / str(k) / "removed"
+        found |= {p.relative_to(removed).as_posix() for p in removed.glob("tasks/*/attempt-*") if p.is_dir()} \
+            if removed.is_dir() else set()
+    return found
+
+
+def _move_aside_new_attempts(run_dir: Path, m: int, existed: set[str], newer: set[str] = frozenset()) -> None:
+    """Move attempt folders that did not exist at the snapshot (or were made again after a repair set the old one
+    aside, `newer`) into repairs/<m>/removed/."""
     for folder in sorted(run_dir.glob("tasks/*/attempt-*")):
-        if folder.is_dir() and folder.relative_to(run_dir).as_posix() not in existed:
+        rel = folder.relative_to(run_dir).as_posix()
+        if folder.is_dir() and (rel not in existed or rel in newer):
             move_to_removed(run_dir, m, folder)
 
 
@@ -287,6 +302,7 @@ def _restore_files(run_dir: Path, before: Path) -> None:
     now_there += [p.relative_to(run_dir).as_posix() for p in (run_dir / "gates").rglob("*") if p.is_file()] \
         if (run_dir / "gates").is_dir() else []
     now_there += [p.relative_to(run_dir).as_posix() for p in run_dir.glob("tasks/*/attempt-*/result.json")]
+    now_there += [p.relative_to(run_dir).as_posix() for p in run_dir.glob(f"tasks/*/{CHECKS_LOCK}")]
     for rel in now_there:
         if _in_scope(rel) and rel not in kept and _copyable(run_dir / rel) and not _symlink_on_way(run_dir, rel):
             (run_dir / rel).unlink()
@@ -351,7 +367,8 @@ def _restore(run_dir: Path, n: int, aside: int, last: int) -> None:
     """Put the run back as snapshot n had it; new attempts go aside into repairs/<aside>/removed/."""
     before = _snapshot_before(run_dir, n)
     existed = _attempts_at(before, _kept_files(before))
-    _move_aside_new_attempts(run_dir, aside, existed)
+    newer = set() if n <= aside <= last else _set_aside_later(run_dir, n, last)
+    _move_aside_new_attempts(run_dir, aside, existed, newer)
     _restore_removed(run_dir, n, last, existed)
     _restore_files(run_dir, before)
     _restore_worktree(run_dir, before)

@@ -103,6 +103,13 @@ def test_gate_tools_send_their_fixed_action():
         {"action": "approve"}, {"action": "back", "note": "smaller"}]
 
 
+def test_gate_answer_may_offer_get_the_keys_for_me():
+    fake, made = tools()
+    assert "fetch" in input_model(ENTRIES["gate-answer"]).model_json_schema()["properties"]["action"]["enum"]
+    made["gate-answer"].function(gate_id="g-1", action="fetch")
+    assert json.loads(fake.requests[-1].content)["action"] == "fetch"
+
+
 def test_path_parts_must_be_plain():
     for bad in ("../x", "a/b", "", "a b", "..", "a?b"):
         with pytest.raises(PhoenixError):
@@ -128,7 +135,8 @@ def test_refusal_is_a_plain_error():
 def test_cards_use_the_pack_card_names():
     pack = build_pack(FakePhoenix().client())
     assert pack.components["builds-list"] == "RunCards" and pack.components["projects-list"] == "project_cards"
-    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file", "open_bell"]
+    assert [t.name for t in pack.browser_tools] == ["go_to", "ask_for_key", "ask_choice", "ask_env_file", "open_bell",
+                                                  "offer_save_attachment"]
 
 
 def test_build_tools_return_build_card_data():

@@ -1,4 +1,4 @@
-"""Conversation store: threads, event logs, pending pauses, hand-offs and usage records in SQLite."""
+"""Conversation store: threads, event logs, pending pauses, hand-offs, attached files and usage records in SQLite."""
 from __future__ import annotations
 
 import json
@@ -12,7 +12,8 @@ from agentkit import quote
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS threads (
-    id TEXT PRIMARY KEY, title TEXT NOT NULL, created REAL NOT NULL, last_used REAL NOT NULL);
+    id TEXT PRIMARY KEY, title TEXT NOT NULL, created REAL NOT NULL, last_used REAL NOT NULL,
+    seen REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS events (
     thread_id TEXT NOT NULL REFERENCES threads(id), seq INTEGER NOT NULL, data TEXT NOT NULL,
     PRIMARY KEY (thread_id, seq));
@@ -25,11 +26,15 @@ CREATE TABLE IF NOT EXISTS histories (
 CREATE TABLE IF NOT EXISTS contexts (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS handoffs (
-    gate_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), created REAL NOT NULL);
+    gate_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), created REAL NOT NULL,
+    project TEXT NOT NULL DEFAULT '', run_id TEXT NOT NULL DEFAULT '', task INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, model TEXT NOT NULL,
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
     cache_read_tokens INTEGER NOT NULL, cache_write_tokens INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY, thread_id TEXT REFERENCES threads(id), name TEXT, mime TEXT, size INTEGER,
+    data BLOB, created REAL, used INTEGER DEFAULT 0);
 """
 
 
@@ -45,8 +50,17 @@ class Store:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys=ON")
         self._db.executescript(SCHEMA)
-        if "call_id" not in [r["name"] for r in self._db.execute("PRAGMA table_info(pauses)")]:
-            self._db.execute("ALTER TABLE pauses ADD COLUMN call_id TEXT NOT NULL DEFAULT ''")
+        self._add_columns("pauses", ("call_id TEXT NOT NULL DEFAULT ''",))
+        self._add_columns("threads", ("seen REAL NOT NULL DEFAULT 0",))
+        self._add_columns("handoffs", ("project TEXT NOT NULL DEFAULT ''", "run_id TEXT NOT NULL DEFAULT ''",
+                                       "task INTEGER NOT NULL DEFAULT 0"))
+
+    def _add_columns(self, table: str, columns: tuple[str, ...]) -> None:
+        """Add the columns an older database file does not have yet (each given as "name TYPE ...")."""
+        have = {r["name"] for r in self._db.execute(f"PRAGMA table_info({table})")}
+        for column in columns:
+            if column.split()[0] not in have:
+                self._db.execute(f"ALTER TABLE {table} ADD COLUMN {column}")
 
     def close(self) -> None:
         """Close the database file."""
@@ -75,7 +89,7 @@ class Store:
         """Make a new thread and return it."""
         tid, now = uuid.uuid4().hex, time.time()
         self._write(lambda db: db.execute(
-            "INSERT INTO threads VALUES (?,?,?,?)", (tid, title, now, now)))
+            "INSERT INTO threads (id, title, created, last_used) VALUES (?,?,?,?)", (tid, title, now, now)))
         return self.get_thread(tid)
 
     def get_thread(self, thread_id: str) -> dict | None:
@@ -84,9 +98,14 @@ class Store:
         return dict(rows[0]) if rows else None
 
     def list_threads(self) -> list[dict]:
-        """Return all threads, most recently used first."""
+        """Return all threads, most recently used first; `unread` is True when it changed after Alex last saw it."""
         rows = self._read("SELECT * FROM threads ORDER BY last_used DESC, created DESC, rowid DESC")
-        return [dict(r) for r in rows]
+        return [{**dict(r), "unread": r["last_used"] > r["seen"]} for r in rows]
+
+    def mark_seen(self, thread_id: str) -> None:
+        """Remember that Alex has seen the thread as it is now."""
+        self._write(lambda db: db.execute(
+            "UPDATE threads SET seen=MAX(last_used, ?) WHERE id=?", (time.time(), thread_id)))
 
     def set_title(self, thread_id: str, title: str) -> None:
         """Rename a thread."""
@@ -186,15 +205,58 @@ class Store:
         return json.loads(rows[0]["data"]) if rows else None
 
     # hand-offs from Phoenix
-    def save_handoff(self, gate_id: str, thread_id: str) -> None:
-        """Remember which thread took Phoenix's hand-off for one build question."""
+    def save_handoff(self, gate_id: str, thread_id: str, project: str = "", run_id: str = "", task: int = 0) -> None:
+        """Remember which thread took Phoenix's hand-off for one build question, and its project, run and task."""
         self._write(lambda db: db.execute(
-            "INSERT INTO handoffs VALUES (?,?,?)", (gate_id, thread_id, time.time())))
+            "INSERT INTO handoffs (gate_id, thread_id, created, project, run_id, task) VALUES (?,?,?,?,?,?)",
+            (gate_id, thread_id, time.time(), project, run_id, task)))
 
     def handoff_thread(self, gate_id: str) -> str | None:
         """The thread that took the hand-off for a build question, or None."""
         rows = self._read("SELECT thread_id FROM handoffs WHERE gate_id=?", (gate_id,))
         return rows[0]["thread_id"] if rows else None
+
+    def handoff_of_thread(self, thread_id: str) -> dict | None:
+        """The hand-off a thread was opened for ({gate_id, project, run_id, task}), or None for any other thread."""
+        rows = self._read("SELECT gate_id, project, run_id, task FROM handoffs WHERE thread_id=? "
+                          "ORDER BY created, rowid LIMIT 1", (thread_id,))
+        return dict(rows[0]) if rows else None
+
+    # attached files (the bytes are kept raw here and never go into events or histories)
+    def add_attachment(self, thread_id: str, name: str, mime: str, data: bytes) -> dict:
+        """Keep one file Alex attached in a thread and return its {id, name, mime, size} (never the bytes)."""
+        aid, name = uuid.uuid4().hex, quote.scrub_text(name)
+        self._write(lambda db: db.execute(
+            "INSERT INTO attachments (id, thread_id, name, mime, size, data, created, used) VALUES (?,?,?,?,?,?,?,0)",
+            (aid, thread_id, name, mime, len(data), sqlite3.Binary(data), time.time())))
+        return {"id": aid, "name": name, "mime": mime, "size": len(data)}
+
+    def attachment(self, attachment_id: str) -> dict | None:
+        """Return one attached file with its bytes ({id, thread_id, name, mime, size, data, created, used}), or None."""
+        rows = self._read("SELECT * FROM attachments WHERE id=?", (attachment_id,))
+        if not rows:
+            return None
+        out = dict(rows[0])
+        out["data"], out["used"] = bytes(out["data"]), bool(out["used"])
+        return out
+
+    def attachment_info(self, attachment_id: str) -> dict | None:
+        """Return one attached file without its bytes ({id, thread_id, name, mime, size, used}), or None."""
+        rows = self._read("SELECT id, thread_id, name, mime, size, used FROM attachments WHERE id=?", (attachment_id,))
+        if not rows:
+            return None
+        out = dict(rows[0])
+        out["used"] = bool(out["used"])
+        return out
+
+    def thread_attachments_size(self, thread_id: str) -> int:
+        """How many bytes of files a thread holds."""
+        rows = self._read("SELECT COALESCE(SUM(size),0) AS total FROM attachments WHERE thread_id=?", (thread_id,))
+        return int(rows[0]["total"])
+
+    def mark_used(self, ids) -> None:
+        """Remember that these files went with a message, so they can't be sent again."""
+        self._write(lambda db: db.executemany("UPDATE attachments SET used=1 WHERE id=?", [(i,) for i in ids]))
 
     @staticmethod
     def _pause(row: sqlite3.Row) -> dict:

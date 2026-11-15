@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from helpers import scripted
-from phoenix9 import gates, keys, paths, project, runs, services, settings, state, summary
+from phoenix9 import gates, keymaker, keys, paths, project, runs, services, settings, state, summary
 from phoenix9.library import load_library
 from phoenix9.ops import common
 from phoenix9.ops import services as ops_services
@@ -315,3 +315,121 @@ def test_setup_facts_reads_old_string_entries(tmp_path):
     project._save_meta(folder, services_set_up=["supabase"])
     assert project.setup_facts(folder)["services_set_up"] == [
         {"name": "supabase", "at": None, "run": None, "run_name": None}]
+
+
+# ---- "Get the keys for me" (fetch) ----
+
+MADE = "MADE-VALUE-" + "f00d" * 6
+
+
+class CloudflareFake:
+    """Makes the Cloudflare keys without calling anything."""
+
+    @staticmethod
+    def make(call, ctx):
+        return {"CLOUDFLARE_ACCOUNT_ID": "acct-made", "CLOUDFLARE_API_TOKEN": MADE, "note": "Made a token."}
+
+
+class SentryRefuses:
+    """Always refuses in plain words."""
+
+    @staticmethod
+    def make(call, ctx):
+        raise keymaker.Refused("Sentry refused to make a key (needs: Project: Write).")
+
+
+@pytest.fixture
+def makers(monkeypatch, adapters):
+    """Fake Cloudflare and Sentry makers, the fake adapters for the key maker, and saved account keys."""
+    monkeypatch.setitem(keymaker.PROVIDERS, "cloudflare", CloudflareFake)
+    monkeypatch.setitem(keymaker.PROVIDERS, "sentry", SentryRefuses)
+    monkeypatch.setattr(common, "make_adapters", lambda: adapters)
+    for name, key in (("cloudflare", "CLOUDFLARE_API_TOKEN"), ("sentry", "SENTRY_AUTH_TOKEN")):
+        keys.write_secret_file(services.get(name)["secrets_file"], {key: SENTINEL})
+
+
+def written(run_dir) -> str:
+    """Every file under the run folder and Phoenix's home outside the key stores."""
+    stores = {paths.secrets(), paths.keys()}
+    files = [*run_dir.rglob("*"), *paths.home().rglob("*")]
+    return "".join(p.read_text(errors="replace") for p in files
+                   if p.is_file() and not any(s in p.parents for s in stores))
+
+
+def test_fetch_offered_first_with_status_lines(tmp_path, adapters, makers):
+    make_project(services='["cloudflare", "clerk"]')
+    run_dir = new_run(tmp_path)
+    assert Runner(adapters, make_lib(tmp_path / "lib")).drive(run_dir) == "waiting"
+    gate = open_gate(run_dir)
+    assert gate["actions"] == ["fetch", "done", "defer", "skip", "stop"]
+    assert "Phoenix can make CLOUDFLARE_ACCOUNT_ID with your saved Cloudflare key." in gate["why"]
+    assert keymaker.MANUAL_LINKS["clerk"] in gate["why"] and "Project > Settings > Keys" in gate["why"]
+
+
+def test_no_ready_service_no_fetch_action(tmp_path, adapters):
+    make_project(services='["cloudflare", "clerk"]')       # no Cloudflare account key saved
+    run_dir = new_run(tmp_path)
+    Runner(adapters, make_lib(tmp_path / "lib")).drive(run_dir)
+    gate = open_gate(run_dir)
+    assert gate["actions"] == ["done", "defer", "skip", "stop"]
+    assert "Save a Cloudflare account key" in gate["why"]
+
+
+def test_fetch_saves_and_carries_on(tmp_path, adapters, makers):
+    make_project(services='["cloudflare"]')
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib"))
+    assert runner.drive(run_dir) == "waiting"
+    gates.answer(open_gate(run_dir)["id"], "fetch")
+    assert runner.drive(run_dir) == "done"
+    assert step_line(run_dir)["status"] == "passed"
+    have = {k["name"]: k["has_value"] for k in keys.list_keys("proj")}
+    assert have["CLOUDFLARE_ACCOUNT_ID"] and have["CLOUDFLARE_API_TOKEN"]
+    log = (run_dir / "logs" / "service-setup.log").read_text()
+    assert "keys made for cloudflare: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN" in log
+    assert adapters.proxy.running() == []
+    assert [s["step"] for s in adapters.proxy.started] == ["keys-make"]
+    everything = written(run_dir)
+    assert MADE not in everything and SENTINEL not in everything
+
+
+def test_fetch_from_a_project_chat_makes_nothing_and_asks_again(tmp_path, adapters, makers):
+    make_project(services='["cloudflare"]')
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib"))
+    assert runner.drive(run_dir) == "waiting"
+    first = open_gate(run_dir)
+    gates.answer(first["id"], "fetch", who="chat:proj")
+    assert runner.drive(run_dir) == "waiting"
+    again = open_gate(run_dir)
+    assert again["id"] != first["id"] and again["actions"][0] == "fetch"
+    assert "'chat:proj' may not make keys" in again["why"]
+    have = {k["name"]: k["has_value"] for k in keys.list_keys("proj")}
+    assert not have.get("CLOUDFLARE_API_TOKEN") and not have.get("CLOUDFLARE_ACCOUNT_ID")
+    assert adapters.proxy.started == []
+    gates.answer(again["id"], "fetch", who="agent")
+    assert runner.drive(run_dir) == "done"
+
+
+def test_fetch_partial_reasks_with_only_the_rest(tmp_path, adapters, makers):
+    make_project(services='["cloudflare", "sentry"]')
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib"))
+    runner.drive(run_dir)
+    first = open_gate(run_dir)
+    assert first["title"] == "Paste keys for Cloudflare, Sentry"
+    gates.answer(first["id"], "fetch")
+    assert runner.drive(run_dir) == "waiting"
+    again = open_gate(run_dir)
+    assert again["id"] != first["id"]
+    assert again["title"] == "Paste keys for Sentry"
+    assert "CLOUDFLARE_ACCOUNT_ID" not in again["why"]
+    assert "Sentry refused to make a key (needs: Project: Write)." in again["why"]
+    assert again["actions"][0] == "fetch"          # Sentry is still ready: Alex may try again
+    log = (run_dir / "logs" / "service-setup.log").read_text()
+    assert "could not make the keys for sentry. Sentry refused" in log
+    # Alex pastes the rest and presses Done: the build goes on
+    keys.set_key("proj", "PUBLIC_SENTRY_DSN", SENTINEL, secret=False)
+    gates.answer(again["id"], "done")
+    assert runner.drive(run_dir) == "done"
+    assert MADE not in written(run_dir)

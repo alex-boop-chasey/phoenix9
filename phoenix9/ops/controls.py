@@ -163,6 +163,14 @@ CONTROLS = (
           "Revealing a key would put its value through the model."),
     _post("keys-remove", "keys.remove", rf"/api/projects/{NAME}/keys/remove", "destructive", "later", LATER),
     _get("keys-audit", "keys.audit", "/api/keys/audit", "later", LATER),
+    _get("keys-make-status", "keys.make_status", rf"/api/projects/{NAME}/keys/make", "tool", inputs=(P_NAME,),
+         text="Say which of a project's services Phoenix can make the missing keys for, and which need Alex "
+              "(with the page link)."),
+    _post("keys-make", "keys.make", rf"/api/projects/{NAME}/keys/make", "change", "tool",
+          text="Make the project's missing service keys with Alex's saved account keys and save them unseen; "
+               "says which services still need a key by hand.",
+          inputs=(P_NAME, _in("services", "list", description="Only these services (default: every one that is ready).")),
+          fixed={"confirm": True}),
     # ---- services ----
     _get("services-list", "services.list_", "/api/services", "tool", card="services_card",
          text="List every service and whether it is connected."),
@@ -274,7 +282,7 @@ CONTROLS = (
     _get("gate-review", "gates.review", rf"/api/gates/{GATE}/review", "tool", inputs=(P_GATE,), card="review_card"),
     _post("gate-answer", "gates.answer", rf"/api/gates/{GATE}/answer", "change", "tool",
           text="Answer one of a build's questions.",
-          inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip", "acknowledged")),
+          inputs=(P_GATE, _in("action", "choice", True, "Your answer.", ("approve", "back", "skip", "acknowledged", "fetch")),
                   GATE_NOTE), card="gate_card"),
     _post("plan-approve", "gates.answer", rf"/api/gates/{GATE}/answer", "change", "tool",
           text="Approve a build's plan.", inputs=(P_GATE,), fixed={"action": "approve"}, card="gate_card"),
@@ -334,6 +342,21 @@ CONTROLS = (
                       "force, unlock-checks, stop or discard."),
                   _in("why", required=True, description="Why the repair is needed, in one plain line.")),
           card="repair_card"),
+    _post("handoff-fix", "handoff.fix", rf"/api/runs/{RUN}/handoff/fix", "change", "tool",
+          text="On a build task Phoenix handed to you: try it again (with an optional note for the builder) or, when the "
+               "evidence shows the task's locked check itself is wrong, rewrite its checks (once per task). The task restarts.",
+          inputs=(P_PROJECT, P_RUN, _in("task", "integer", required=True, description="The task number Phoenix handed to you."),
+                  _in("action", "choice", True, "What to do: try again, or rewrite the task's checks.",
+                      ("retry", "rewrite-checks")),
+                  _in("why", description="The evidence, in one plain line (needed to rewrite the checks)."),
+                  _in("note", description="A short note for the builder's next try (one paragraph).")),
+          ),
+    _post("handoff-give-up", "handoff.give_up", rf"/api/runs/{RUN}/handoff/give-up", "change", "tool",
+          text="On a build task Phoenix handed to you: hand the question back to Alex with the reason (use it for anything "
+               "you may not do: skip, stop, spending, merge).",
+          inputs=(P_PROJECT, P_RUN, _in("task", "integer", required=True, description="The task number Phoenix handed to you."),
+                  _in("why", required=True, description="Why it needs Alex, in one plain line.")),
+          ),
     # ---- updates ----
     _get("update-check", "update.status", "/api/update", "tool", card="update_card",
          text="Check whether a newer Phoenix is available.", fixed_query={"refresh": "1"}),

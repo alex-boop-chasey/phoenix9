@@ -80,14 +80,18 @@ def _put(project: str, name: str, value: str, secret: bool) -> None:
 
 
 def set_key(project: str, name: str, value: str, secret: bool = True) -> None:
-    """Store a key value (replacing a key of the same name); an empty value is refused."""
+    """Store a key value (replacing a key of the same name); an empty value is refused.
+
+    `secret` is the key's row in its service definition (secret unless the row says otherwise, and for a key
+    with no row); only a secret value is masked in logs and replies."""
     _check_name(name)
     if not value:
         raise KeyError_(f"The value for {name} is empty.")
     if "\n" in value or "\r" in value:
         raise KeyError_(f"The value for {name} has a line break, which an env file cannot hold.")
     _put(project, name, value, secret)
-    scrub.add_secrets([value])   # from now on every log and agent reply masks it
+    if secret:
+        scrub.add_secrets([value])   # from now on every log and agent reply masks it
     _changed(project, "key set", name)
 
 

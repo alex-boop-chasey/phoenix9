@@ -19,7 +19,7 @@ import shutil
 from pathlib import Path
 
 from phoenix9 import agentnext as agentnext_mod
-from phoenix9 import atomic, events, gatenotify, gates, paths, scrub, state, taskfile
+from phoenix9 import atomic, events, gatenotify, gates, handoff, paths, scrub, state, taskfile
 from phoenix9.agentnext import AgentUnavailable
 from phoenix9.git import is_env_file
 from phoenix9 import spec as spec_mod
@@ -99,18 +99,36 @@ def already_done_marker(run_dir, task_no: int, attempt: int) -> Path:
     return attempt_dir(run_dir, task_no, attempt) / "already-done.txt"
 
 
-def _finish_task(run_dir: Path, task_no: int, status: str, **fields) -> None:
+def _finish_task(run_dir: Path, task_no: int, status: str, adapters=None, **fields) -> None:
     def change(s):
         s["tasks"][str(task_no)].update(status=status, gate=None, **fields)
     st = state.update(run_dir, change)
     taskfile.refresh(run_dir, task_no)
     events.emit("task.finished", project=st["project"], run=st["run_id"], task=task_no, status=status,
                 note=fields.get("flagged") or fields.get("note", ""))
+    if status == "passed" and handoff.current(run_dir, task_no):
+        _handoff_fixed(adapters, run_dir, st, task_no)
+
+
+ACTION_WORDS = {"retry": "it tried again", "rewrite-checks": "it rewrote the task's checks", "": "it tried again"}
+
+
+def _handoff_fixed(adapters, run_dir: Path, st: dict, task_no: int) -> None:
+    """The task passed while the agent had it: record `fixed`, tell Alex in one line and tell the conversation."""
+    item = handoff.finish(run_dir, task_no, "fixed")
+    project, run_id = st["project"], st["run_id"]
+    events.emit("handoff.ended", project=project, run=run_id, task=task_no, gate=item["gate"], state="fixed")
+    if adapters is None:
+        return
+    words = ACTION_WORDS.get(item.get("action", ""), ACTION_WORDS[""])
+    adapters.notify.send(f"Phoenix: the agent fixed {project} task {task_no} ({words}); the build goes on.")
+    post_outcome(getattr(adapters, "agentnext", None), item["gate"], "fixed", project=project, run=run_id, task=task_no)
 
 
 def fail_task(run_dir, task_no: int, reasons) -> None:
     """Task failed: flag it with its reasons and skip every task that depends on it."""
     run_dir = Path(run_dir)
+    handoff.finish(run_dir, task_no, "failed-again")   # a hand-off still open when the task fails did not hold
     flagged = scrub.scrub("; ".join(reasons)) or "it failed"
     _finish_task(run_dir, task_no, "failed", flagged=flagged)
     skip_dependents(run_dir, _spec(run_dir), task_no)
@@ -160,30 +178,61 @@ def _first_sentence(text: str) -> str:
     return line.split(". ")[0].rstrip(".")[:200]
 
 
-def _hand_to_agent(agentnext, gate: dict, run_id: str, project: str, task_no: int) -> str:
-    """POST the hand-off to the agent's /handoffs. Returns "" when it took the question (200/202 with a
-    thread_id), else the plain reason it did not (not set up, not answering, no key, refused)."""
+def _hand_to_agent(agentnext, gate: dict, run_id: str, project: str, task_no: int) -> tuple[str, str]:
+    """POST the hand-off to the agent's /handoffs. Returns (problem, thread_id): ("", thread) when it took the
+    question (200/202 with a thread_id), else (the plain reason it did not, "") (not set up, not answering,
+    no key, refused)."""
     if agentnext is None or not getattr(agentnext, "set_up", True):
-        return NOT_SET_UP
+        return NOT_SET_UP, ""
     body = json.dumps(handoff_body(run_id, task_no, gate["id"], project)).encode()
     try:
         reply = agentnext.request("POST", HANDOFF_PATH, body, {"Content-Type": "application/json"},
                                   timeout=HANDOFF_TIMEOUT)
         raw = b"".join(reply.chunks)
     except AgentUnavailable as err:
-        return NOT_SET_UP if str(err) == agentnext_mod.NOT_SET_UP else NOT_ANSWERING
+        return (NOT_SET_UP if str(err) == agentnext_mod.NOT_SET_UP else NOT_ANSWERING), ""
     except Exception:  # noqa: BLE001 - an agent that is down or broken must fall back to Alex, not crash
-        return NOT_ANSWERING
+        return NOT_ANSWERING, ""
     try:
         data = json.loads(raw)
     except ValueError:
         data = None
     data = data if isinstance(data, dict) else {}
     if reply.status in (200, 202) and isinstance(data.get("thread_id"), str) and data["thread_id"]:
-        return ""
+        return "", data["thread_id"]
     if reply.status == 409 and isinstance(data.get("error"), str) and data["error"].strip():
-        return scrub.scrub(_first_sentence(data["error"]))
-    return ODD_ANSWER
+        return scrub.scrub(_first_sentence(data["error"])), ""
+    return ODD_ANSWER, ""
+
+
+OUTCOME_PATH = "/handoffs/outcome"
+OUTCOMES = ("fixed", "failed-again", "gave-up")
+TRIED_TWICE = "the agent already tried twice; waiting for you"
+
+
+def post_outcome(agentnext, gate_id: str, outcome: str, project: str | None = None, run: str | None = None,
+                 task: int | None = None) -> bool:
+    """Tell the hand-off conversation how it ended (POST /handoffs/outcome). Best effort: any error is only
+    recorded as a `handoff.ended` event with posted=False and never reaches the caller. True when it was taken."""
+    if outcome not in OUTCOMES:
+        raise ValueError(f"not a hand-off outcome: {outcome!r}")
+    ok = False
+    try:
+        if agentnext is not None and getattr(agentnext, "set_up", True):
+            body = json.dumps({"gate_id": gate_id, "outcome": outcome}).encode()
+            reply = agentnext.request("POST", OUTCOME_PATH, body, {"Content-Type": "application/json"},
+                                      timeout=HANDOFF_TIMEOUT)
+            b"".join(reply.chunks)
+            ok = 200 <= reply.status < 300
+    except Exception:  # noqa: BLE001 - the conversation missing one line must never stop a build
+        ok = False
+    if not ok:
+        try:
+            events.emit("handoff.ended", project=project, run=run, task=task, gate=gate_id, outcome=outcome,
+                        posted=False)
+        except Exception:  # noqa: BLE001 - not even a log problem may break the runner
+            pass
+    return ok
 
 
 def escalate(runner, run_dir, task_no: int, reasons) -> dict:
@@ -191,9 +240,11 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
 
     The gate: kind escalation, actions acknowledged / skip / stop, title "Task N needs you", why = the
     last reasons, links = the attempt folders. In delegate mode the gate carries the flag
-    HANDOFF_FLAG and ONE hand-off (only the ids) goes to the agent's /handoffs; Alex gets one short line
-    saying the agent is looking at it (no failure text). When the agent cannot take it the flag is
-    replaced by a note saying why and Alex is told, exactly as in pause mode.
+    HANDOFF_FLAG and ONE hand-off (only the ids) goes to the agent's /handoffs, recorded in
+    tasks/<n>/handoff.json (`handoff`); Alex gets no line now (the bell shows it; the usual reminders follow).
+    When the agent's earlier fix did not hold, that hand-off becomes `failed-again` first. When the agent
+    cannot take it, or already had this task handoff.LIMIT times, the flag is replaced by a note saying why
+    and Alex is told, exactly as in pause mode.
     """
     from phoenix9.runner import _open_gate
     run_dir = Path(run_dir)
@@ -210,15 +261,31 @@ def escalate(runner, run_dir, task_no: int, reasons) -> dict:
         runner.adapters.notify.send(told)
         gatenotify.mark_sent(runner.adapters, run_dir, gate)     # this is its one message; reminders follow it
         return gate
-    problem = _hand_to_agent(getattr(runner.adapters, "agentnext", None), gate, run_id, project, task_no)
+    agentnext = getattr(runner.adapters, "agentnext", None)
+    before = handoff.current(run_dir, task_no)
+    if handoff.load(run_dir, task_no)["count"] >= handoff.LIMIT:
+        if before:
+            handoff.finish(run_dir, task_no, "failed-again")
+            events.emit("handoff.ended", project=project, run=run_id, task=task_no, gate=before["gate"],
+                        state="failed-again")
+        gate = gates.set_flags(run_dir, gate["id"], [TRIED_TWICE])
+        runner.adapters.notify.send(told)
+        gatenotify.mark_sent(runner.adapters, run_dir, gate)
+        return gate
+    if before:                                               # the agent's fix did not hold
+        handoff.finish(run_dir, task_no, "failed-again")
+        events.emit("handoff.ended", project=project, run=run_id, task=task_no, gate=before["gate"],
+                    state="failed-again")
+        post_outcome(agentnext, before["gate"], "failed-again", project=project, run=run_id, task=task_no)
+    problem, thread = _hand_to_agent(agentnext, gate, run_id, project, task_no)
     if problem:
         note = f"could not be handed to the Phoenix agent ({problem}); waiting for you"
         gate = gates.set_flags(run_dir, gate["id"], [note])
         runner.adapters.notify.send(f"Phoenix: the Phoenix agent could not be reached: {problem}. {told}")
         return gate
-    runner.adapters.notify.send(f"Phoenix: task {task_no} of {project} ran out of tries; the agent is looking at it. "
-                                "Open the agent to see what it suggests.")
-    gatenotify.mark_sent(runner.adapters, run_dir, gate)     # its one message; reminders follow as for any gate
+    handoff.start(run_dir, task_no, gate["id"], thread)
+    events.emit("handoff.started", project=project, run=run_id, task=task_no, gate=gate["id"], thread=thread)
+    gatenotify.mark_sent(runner.adapters, run_dir, gate)     # no message now; reminders follow as for any gate
     return gate
 
 

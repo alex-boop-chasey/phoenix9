@@ -90,7 +90,7 @@ export function Bell() {
           <div className="flex min-h-0 flex-col gap-1 overflow-y-auto overscroll-contain p-2">
             {items.length === 0 ? <p className="p-2 text-sm">Nothing needs you.</p> : items.map((item) => (
               <BellRow key={item.id} item={item}
-                onOpen={() => { dismiss.mutate(item); setOpen(false) }}
+                onOpen={() => { if (item.thread) openAgentAt(item.thread); dismiss.mutate(item); setOpen(false) }}
                 onDismiss={() => onDismiss(item)}
                 onAsk={() => { askAgentAbout(item); setOpen(false) }} />
             ))}
@@ -109,27 +109,48 @@ function askAgentAbout(item: BellItem) {
   window.dispatchEvent(new CustomEvent("phoenix:open-agent", { detail: { message: `Tell me about bell item ${item.id}` } }))
 }
 
-/** One row: a link to its page (with title, time and detail) and Dismiss and Ask the agent buttons beside it. */
+/** Open the agent drawer at the conversation of a task handed to the agent. */
+function openAgentAt(thread: string) {
+  window.dispatchEvent(new CustomEvent("phoenix:open-agent", { detail: { thread } }))
+}
+
+/** A hand-off row that does not need Alex: the agent is still fixing it, or it fixed it (shown quietly). */
+function isQuiet(item: BellItem): boolean {
+  return !!item.thread && /\.(working|fixed)$/.test(item.id)
+}
+
+/**
+ * One row: a link to its page (with title, time and detail) and Dismiss and Ask the agent buttons beside it.
+ * A task handed to the agent opens the agent at its conversation instead, and has no Ask the agent (it already is the agent).
+ */
 function BellRow({ item, onOpen, onDismiss, onAsk }: { item: BellItem; onOpen: () => void; onDismiss: () => void; onAsk: () => void }) {
   const when = shortWhen(item.since)
+  const quiet = isQuiet(item)
+  const body = (
+    <>
+      <strong className={`block text-sm [overflow-wrap:anywhere]${quiet ? " font-normal text-muted-foreground" : ""}`}>{item.title}</strong>
+      {when ? <time className="block text-xs text-muted-foreground" dateTime={item.since} title={fullWhen(item.since)}
+        data-testid="bell-when">{when}</time> : null}
+      {item.detail ? <span className="line-clamp-3 break-words text-xs text-muted-foreground" title={item.detail}>{item.detail}</span> : null}
+    </>
+  )
   return (
-    <div className="flex items-start gap-1 rounded hover:bg-muted" data-testid="bell-row">
-      <Link to={(item.page.hash ?? "#/").slice(1) || "/"} data-testid="bell-item" className="block min-w-0 flex-1 rounded p-2 text-left"
-        onClick={onOpen}>
-        <strong className="block text-sm [overflow-wrap:anywhere]">{item.title}</strong>
-        {when ? <time className="block text-xs text-muted-foreground" dateTime={item.since} title={fullWhen(item.since)}
-          data-testid="bell-when">{when}</time> : null}
-        {item.detail ? <span className="line-clamp-3 break-words text-xs text-muted-foreground" title={item.detail}>{item.detail}</span> : null}
-      </Link>
+    <div className="flex items-start gap-1 rounded hover:bg-muted" data-testid="bell-row" data-quiet={quiet ? "true" : undefined}>
+      {item.thread
+        ? <button type="button" data-testid="bell-item" className="block min-w-0 flex-1 rounded p-2 text-left" onClick={onOpen}>{body}</button>
+        : <Link to={(item.page.hash ?? "#/").slice(1) || "/"} data-testid="bell-item" className="block min-w-0 flex-1 rounded p-2 text-left"
+            onClick={onOpen}>{body}</Link>}
       <div className="flex shrink-0 flex-col items-end mt-1 mr-1">
         <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
           aria-label={`Dismiss: ${item.title}`} title="Dismiss" onClick={onDismiss}>
           Dismiss
         </button>
-        <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
-          aria-label={`Ask the agent about: ${item.title}`} title="Ask the agent" onClick={onAsk}>
-          Ask the agent
-        </button>
+        {!item.thread && (
+          <button type="button" className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-card hover:text-foreground"
+            aria-label={`Ask the agent about: ${item.title}`} title="Ask the agent" onClick={onAsk}>
+            Ask the agent
+          </button>
+        )}
       </div>
     </div>
   )

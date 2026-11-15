@@ -20,7 +20,7 @@ export function History(props: { threads: ThreadInfo[]; current: string; onOpen:
               aria-current={t.id === props.current ? "true" : undefined}
               onClick={() => props.onOpen(t.id)}
             >
-              <span>{t.title || "New conversation"}</span>
+              <span>{t.unread && <span className="ag-unread" role="img" aria-label="Unread" />}{t.title || "New conversation"}</span>
               <span className="ag-when">Last used {lastUsed(t.last_used)}</span>
             </button>
           </li>

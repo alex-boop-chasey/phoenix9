@@ -48,3 +48,11 @@ path = "/models"
 method = "GET"
 path = "/key"
 expect = [200]
+
+[make]
+key = "OPENROUTER_MANAGEMENT_KEY"
+needs = "manage API keys (a management key)"
+key_page = "https://openrouter.ai/settings/management-keys"
+[[make.allow]]
+method = "POST"
+path = "/keys"

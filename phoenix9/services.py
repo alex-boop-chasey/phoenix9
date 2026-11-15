@@ -16,6 +16,7 @@ FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
           Field("secrets_file", str, default=""),
           Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
           Field("proxy", dict, default=None), Field("check", dict, default=None),
+          Field("make", dict, default=None),
           Field("account_settings", list, default=[], list_of=dict), Field("tag", str, default="")]
 TAG_MAX = 30
 TAG_WORDS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ,'-]*$")
@@ -29,6 +30,8 @@ KEY_FIELDS = [Field("name", str, required=True), Field("secret", bool, default=T
               Field("help", str, default="")]
 CHECK_FIELDS = [Field("method", str, required=True), Field("path", str, required=True),
                 Field("expect", list, default=[200], list_of=int), Field("fallback_path", str, default="")]
+MAKE_FIELDS = [Field("key", str, default=""), Field("needs", str, default=""), Field("key_page", str, default=""),
+               Field("allow", list, required=True, list_of=dict)]
 PLACEHOLDER = re.compile(r"\{([a-z][a-z0-9_]*)\}")
 
 
@@ -118,6 +121,39 @@ def _check_fallback(got: dict, values: dict, spec, where: str) -> list[str]:
     return []
 
 
+def _check_make(values: dict, where: str, problems: list) -> dict | None:
+    """The checked [make] block (key, needs, key_page, allow): rules only the key maker uses, never a step."""
+    block = values["make"]
+    if block is None:
+        return None
+    if values["support"] != "store-and-wire" or not isinstance(values["proxy"], dict):
+        problems.append(f"{where}: a [make] block needs a store-and-wire service with a [proxy] block")
+        return None
+    got, bad = library.check_fields(block, MAKE_FIELDS, f"{where} [make]")
+    if bad:
+        problems += bad
+        return None
+    got["key"] = got["key"] or values["proxy"].get("key", "")
+    if not KEY_NAME.match(got["key"]):
+        problems.append(f"{where}: [make] key '{got['key']}' must be CAPITAL_LETTERS_AND_UNDERSCORES")
+    if got["key_page"] and not got["key_page"].startswith("https://"):
+        problems.append(f"{where}: [make] key_page must be an https:// link")
+    if not got["allow"]:
+        problems.append(f"{where}: [make] allow must list at least one call")
+        return got
+    try:
+        make_spec(values, got)
+    except ValueError as err:
+        problems.append(f"{where}: [make] {err}")
+    return got
+
+
+def make_spec(service: dict, block: dict | None = None):
+    """The ProxySpec for making keys: the service's [proxy] upstream and auth with ONLY the [make] rules."""
+    block = block or service["make"]
+    return proxy.spec_from_service({"name": service["name"], "proxy": {**service["proxy"], "allow": block["allow"]}})
+
+
 def _parse(data: dict, folder, where: str):
     """Check one service.toml; returns (service dict or None, problems)."""
     values, problems = library.check_fields(data, FIELDS, where)
@@ -133,6 +169,7 @@ def _parse(data: dict, folder, where: str):
             keys.append(key)
         problems += _check_names(values, where) + _check_tag(values, where) + _check_proxy(values, where)
         values["account_settings"] = _check_settings(values, where, problems)
+        values["make"] = _check_make(values, where, problems)
     values["project_keys"] = keys
     values["secrets_file"] = values["secrets_file"] or f"service-{values['name']}.env"
     return (None if problems else values), problems

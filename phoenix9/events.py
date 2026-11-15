@@ -12,6 +12,10 @@ task.finished gate.opened gate.answered project.created project.changed settings
 update.started update.installed update.safety_files_added update.failed update.rolledback deploy.finished run.held command
 """.split())
 EVENT_TYPES = EVENT_TYPES | {"run.discarded", "run.tidied", "project.deleted", "ui.go", "repair.applied", "repair.unlock", "run.note", "run.paused", "run.resumed", "run.pause.dropped", "edit.started", "edit.finished", "edit.abandoned", "edit.stalled", "plan.queued", "plan.started", "plan.continued", "plan.waiting", "plan.done", "plan.failed", "plan.abandoned", "update.safety_files_skipped", "agent.sync_skipped", "agent.restarted_for_rules", "suite.skipped", "reference.snapshot"}
+EVENT_TYPES = EVENT_TYPES | {"handoff.started"}   # handoff.started: a failing task was handed to the Phoenix agent (handoff.py)
+EVENT_TYPES = EVENT_TYPES | {"handoff.acted"}     # handoff.acted: the agent acted on a hand-off (try again or rewrite the checks)
+EVENT_TYPES = EVENT_TYPES | {"handoff.ended"}     # handoff.ended: a hand-off ended (fixed, gave up, failed again) or its outcome could not be posted
+EVENT_TYPES = EVENT_TYPES | {"keys.made"}         # keys.made: the key maker saved project keys (service and key names only; keymaker.py)
 EVENT_TYPES = EVENT_TYPES | {"command.failed"}   # command.failed: an outside program Phoenix ran for a real action failed (proc.py)   # run.discarded: `phoenix run discard` threw a run's work away; run.tidied: `phoenix run tidy` removed a merged run's worktree and branches; project.deleted: a project was deleted entirely; run.pause.dropped: a stale Pause now request was thrown away
 
 

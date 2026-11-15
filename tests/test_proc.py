@@ -40,6 +40,21 @@ def test_timeout_gives_124_and_missing_program_127():
     assert failed_events() == []
 
 
+def test_run_and_popen_never_use_a_shell(tmp_path):
+    marker = tmp_path / "ran"
+    for bad in (dict(argv=["touch", str(marker)], shell=True), dict(argv=f"touch {marker}")):
+        argv = bad.pop("argv")
+        with pytest.raises(ValueError, match="Phoenix never runs programs through a shell."):
+            proc.run(argv, **bad)
+        with pytest.raises(ValueError, match="Phoenix never runs programs through a shell."):
+            proc.popen(argv, stdout=proc.DEVNULL, **bad)
+        with pytest.raises(ValueError):
+            proc.popen(argv.encode() if isinstance(argv, str) else argv, **bad)
+    assert not marker.exists()
+    started = proc.popen([PY, "-c", "print('ok')"], stdout=proc.PIPE, text=True, shell=False)
+    assert started.communicate()[0] == "ok\n"
+
+
 def test_bytes_mode_and_input():
     r = proc.run([PY, "-c", "import sys; sys.stdout.write(sys.stdin.read().upper())"], input=b"abc", text=False)
     assert r == (0, b"ABC", b"")

@@ -103,9 +103,14 @@ def approval_request(approval_id: str, call_id: str, tool_name: str, inputs, con
     return _dump(CustomEvent(name="approval_request", value=value, timestamp=_now()))
 
 
-def user_message(message_id: str, text: str) -> dict:
-    """The CUSTOM event recording what Alex said, so a read of the thread shows the whole conversation."""
+def user_message(message_id: str, text: str, attachments: list[dict] | None = None) -> dict:
+    """The CUSTOM event recording what Alex said, so a read of the thread shows the whole conversation.
+
+    `attachments` lists the files that went with it as {id, name, mime, size} only, never their bytes.
+    """
     value = {"id": message_id, "text": text}
+    if attachments:
+        value["attachments"] = [{k: a[k] for k in ("id", "name", "mime", "size")} for a in attachments]
     return _dump(CustomEvent(name="user_message", value=value, timestamp=_now()))
 
 
@@ -129,3 +134,8 @@ def run_stopped(dropped: int = 0) -> dict:
 def suggestions(actions: list[dict]) -> dict:
     """The CUSTOM event with the checked follow-up actions, sent at the end of the turn."""
     return _dump(CustomEvent(name="suggestions", value={"actions": actions}, timestamp=_now()))
+
+
+def note(text: str) -> dict:
+    """The CUSTOM event with one plain line for the chat that is neither Alex nor the model (shown as a quiet line)."""
+    return _dump(CustomEvent(name="note", value={"text": text}, timestamp=_now()))

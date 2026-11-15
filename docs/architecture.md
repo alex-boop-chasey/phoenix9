@@ -229,7 +229,7 @@ model = "claude-sonnet-5-5"
   (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
 - Service setup is a run-start step at `order = 50`, after Branch (40) and Planner (45), `proxy =
   ["@project"]`, on by default. Per chosen service (phoenix.toml `services`): unknown service fails;
-  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
+  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`, with `fetch` first when a missing service is `ready` in `keymaker.status`; `fetch` = "Get the keys for me": `keymaker.make` for the ready missing services (who `runner`; the log gets saved names and problems only; only when the answer came from `dashboard`, `cli`, `runner` or `agent` (`keymaker.may_make`): a project chat's `fetch` makes nothing and the question is asked again with one line saying so), then carry on as for `done`, or ask again listing only what is still missing with the problems; the gate's `why` also carries each missing service's key maker status line; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
   the step again and it re-checks, still missing = fail; `skip` continues without them); hosts missing
   from the project's `[domains] allow` are added (and to this run's frozen settings); the service's
   `recipe.py` `wire(ctx, service, proxy)` runs once (recorded in `.phoenix/project.json`
@@ -382,6 +382,15 @@ expect = [200]
 fallback_path = "/accounts/{account_id}/tokens/verify"   # optional: tried when path gives no expected status;
                                   # {name} is filled from the service's saved account settings (must be an allowed call)
 
+[make]                            # optional, store-and-wire only: how Phoenix makes this service's project keys
+key = "SUPABASE_ACCESS_TOKEN"     # the account key that may make them (default proxy.key); a name not in
+                                  # account_keys is an optional "maker key" saved in the same secrets file
+needs = "create projects"         # plain words: the permission that account key must have
+key_page = "https://..."          # https link where such an account key is made
+[[make.allow]]                    # the only calls making keys may use (same patterns as proxy.allow,
+method = "POST"                   # upstream = proxy.upstream); never given to a build container
+path = "/v1/projects"
+
 [[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
 name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]
 label = "Organisation"
@@ -405,6 +414,30 @@ suffix, and each name must resolve on its own). Beside it: `install.md` (store-a
 instructions for the Builder: package names per profile, where config goes, env var names, never values)
 and an optional `recipe.py` (`def wire(ctx, service, proxy) -> dict`). Services with account API access
 list no `hosts` for that API: account calls go only through the proxy (github, sentry have none).
+
+**Key maker** (`phoenix9/keymaker.py`, host only). `PROVIDERS` maps a service to a module in
+`phoenix9/keymakers/` with `make(call, ctx) -> {KEY_NAME: value, "note"?: words}`. `call(method, path, body)`
+goes through a key proxy started with ONLY the `[make]` rules and the `[make].key` value (log
+`HOME/logs/proxy-keymaker.jsonl`, timeout 20 s, errors scrubbed); `ctx` = project name, the service's account
+settings, the project's non-secret key values and `have` (the names of its keys that already have a value: a
+maker never makes a secret named there, it only fills in missing plain values such as the account id or the
+from-address). A maker's `MAKES` names the keys its status follows (without it: the required keys).
+`status(project)` gives per chosen service `ready`, `needs-account-key`, `manual` or `done` with plain words
+and a link, from the keys that are required or in `MAKES` and have no value; `make(project, services, who)`
+saves each made value with `keys.set_key` only when that key has no value yet and returns names, problems and
+what is still missing, never values (event `keys.made`, names only). Only values whose key row is `secret =
+true` (or that have no row) join the scrubber. Callers: `dashboard`, `cli`, `runner`, `agent` only
+(`keymaker.may_make`, checked in `ops.keys.make`). The step proxy (`spec_from_service`,
+`stepproxy`) never contains a `[make]` rule.
+Makers today: `cloudflare` (token `phoenix-<project>`: Pages Write on the `account_id` setting, DNS Write on
+the project's non-secret `CLOUDFLARE_ZONE_ID` when set), `sentry` (project slug = project name under the
+`organisation`/`default_team` settings, 409 reuses it; first active key's public DSN), `resend` (sending-only
+key, limited to the from-address domain when Resend has verified it; from-address = project `RESEND_FROM`
+or the `send_from` setting), `neon` (POST `/api/v2/projects` with the `default_region` setting, default
+`aws-ap-southeast-2`, and `org_id` = the `organisation` setting when set; `DATABASE_URL` = pooled URL built from
+`connection_parameters` with `pooler_host`, or the endpoint host plus `-pooler`; `DATABASE_URL_UNPOOLED` = the
+direct `connection_uri`; `NEON_PROJECT_ID`), `openrouter` (key `phoenix-<project>` made with the optional
+`OPENROUTER_MANAGEMENT_KEY`, the `[make].key` that is not an account key; status `ready` needs that key saved).
 
 ### 4.7 Deployer folder: `deployers/<name>/deployer.toml` (+ `deploy.py`)
 
@@ -517,7 +550,9 @@ unknown timezone with a message naming the setting. They are not safety settings
 through an approval card.
 
 ### 5.3 The ai block (any ai step; harness spec section 5)
-`model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list),
+`model`, `fallback_models` (list), `tools` (list, empty = Claude default), `tools_denied` (list; when `tools` is
+set, every supported tool it leaves out, plus `NotebookEdit` without `Edit`, is denied too, because under
+`bypassPermissions` only the denied list bites),
 `mcp_servers` (list of names from the registry), `claude_md` (`library` | `project` | `both`),
 `skills` (list of skill folder names), `max_turns`, `timeout` (minutes), and
 `[advisor]` `on`, `model`, `when` (list of `blocked` | `before-done` | `on-demand`), `instructions`.
@@ -918,6 +953,7 @@ Unknown or malformed lines are refused with their line number. Full step vocabul
 | `close question <id> as <action>` | answers (or `closed`) one question the normal way (`gates.answer`/`gates.close_questions`) |
 | `rewrite the checks of task N because <why>` | throws away the locked checks so Check-writer and Red check run again on resume; needs approval |
 | `rerun finish step <name>` | runs one finish step again on a failed run |
+| `set aside the old tries of task N` | for a run whose checks were rewritten before old tries were set aside (tries 0, no checks lock): moves the task's attempt folders into `repairs/<n>/removed/` |
 | `resume` | puts the run back to `running` (or `queued`) so the runner carries on |
 
 **Apply order** (`apply.apply`): read and parse the note; find the run; refuse if the runner is walking it;
@@ -931,10 +967,13 @@ was not there before, unless the note says `force` (a refused step always rolls 
 **Dry run** (`--dry-run`, API `dry_run`): the steps run on a scratch copy of the run folder; nothing real
 changes, no snapshot, no event; the `## Result` says "Dry run" and the outcome has `would_roll_back`.
 
-**Snapshot and undo**: a snapshot holds the run folder files (not `run.lock`), the worktree head and branch,
+**Snapshot and undo**: a snapshot holds the run's state files (the top files, `gates/`, each attempt's
+`result.json` and each task's `checks.lock.json`; undo puts them back and removes ones made later), the worktree head and branch,
 and a worktree patch that went through `git.scan_secrets` and the scrubber; a patch with a finding is
 refused, not written. `phoenix repair undo <run> [--to N] --yes` restores snapshot N (default the newest);
-new attempts go aside into `repairs/<m>/removed/`. Undo is itself a repair: it takes a snapshot first and
+new attempts go aside into `repairs/<m>/removed/` (also a fresh `attempt-k` made after a repair set an older
+`attempt-k` aside, which comes back). `rewrite the checks` sets the task's attempt folders aside the same way
+("older tries kept with the repair"), so the next try is `attempt-1` again. Undo is itself a repair: it takes a snapshot first and
 writes the same `repair.applied` event, log line and changelog line.
 
 **The walked-run refusal**: a repair never touches a run the runner is walking: status `running` with a
@@ -1030,8 +1069,8 @@ is closed, a finished reply or a new approval card in its open conversation puts
 **How Alex uses it.** The Agent button in the top bar opens the panel (`#/agent-next` opens it full screen); each message carries the page context (page, project, run) and the service tells the model one
 line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
 per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
-`failmodes._hand_to_agent` to `POST /handoffs` (ids only; Alex gets one line), and the agent may only answer
-`acknowledged` on that question. The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
+`failmodes._hand_to_agent` to `POST /handoffs` (ids only; recorded in `tasks/<n>/handoff.json`, no line to Alex until it ends), and the agent may only answer
+`acknowledged` on that question, or act through `handoff-fix` / `handoff-give-up` (`ops.handoff`). The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
 `phoenix-agentkit` after two bad checks in a row, at most every 10 minutes, and leaves a service stopped on purpose alone.
 
 **The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
@@ -1039,8 +1078,8 @@ listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `c
 owned by the agent user, put there by Alex), `token` (the shared token, root:phoenix-agentkit, mode 640),
 `agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
 needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
-`POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
-`POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+`POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /threads/{id}/seen`,
+`POST /threads/{id}/attachments`, `GET /threads/{id}/attachments/{aid}`, `POST /approvals/{id}`, `POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`, `POST /handoffs/outcome`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
 A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
 answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
@@ -1053,6 +1092,33 @@ whose message the service builds from those ids only: `[Phoenix · escalation] r
 <gate_id>, project <project>)`; answer 202 `{thread_id, run_id}`. One hand-off per question (kept in the `handoffs`
 table): a second POST for the same `gate_id` answers 200 with the first thread and starts nothing. With no API key,
 prices not set or the monthly allowance used up it answers 409 in plain words, so Phoenix pauses for Alex instead.
+The `handoffs` table also keeps the hand-off's project, run id and task. In that thread only, a `handoff-fix` or
+`handoff-give-up` call whose `project`, `run_id` and `task` equal the hand-off's is approved at once (Alex's standing
+hand-off rule; pause result `{"decision": "approve", "by": "hand-off rule"}`) and logged as a CUSTOM `note` "Done on its
+own (Alex's hand-off rule): ..."; every other call keeps its card. `POST /handoffs/outcome` takes exactly
+`{gate_id, outcome}` (`fixed`, `failed-again` or `gave-up`; 400 otherwise, 404 when no thread took that question) and
+adds one `note` line from Phoenix to the hand-off thread with no model run. `GET /threads` rows carry `unread`
+(changed since Alex last saw it): a hand-off thread starts unread, sending a message or watching a reply to its end
+marks a thread seen, and so does `POST /threads/{id}/seen`.
+Attachments (`agentkit/agentkit/attachments.py`): `POST /threads/{id}/attachments` takes `{name, mime, data_base64}`
+and answers 201 `{id, name, mime, size}` or 400 with a plain refusal. Pictures (PNG, JPEG, WebP, GIF) and PDF are typed
+by the bytes' signature (a PNG named .pdf is kept as a PNG); text is text/plain, markdown, csv, json and .yaml .yml .toml
+.log by name, must be UTF-8 and is refused when it holds a key-shaped string. At most 10 MB a file, 5 per message, 50 MB
+per thread. The bytes live only in the `attachments` table (raw, not scrubbed); `GET .../attachments/{aid}` returns them
+with `nosniff`, inline for pictures and as a download otherwise. `POST /threads/{id}/runs` takes `attachments: [ids]`
+(this thread's, not sent before; taken at once, also when queued) and then allows an empty message. The model gets the
+text, each picture or PDF as binary content and each text file as a quoted block (scrubbed, cut at 50,000 characters);
+the `user_message` event carries only `{id, name, mime, size}`, and the saved history keeps
+`[attached earlier: <name>]` in place of each file, so the model sees a file only in its own turn. A line after Alex's
+words, "Attached with this message: <name> (file id <id>)", stays in the history so tools can name a file later.
+Browser tool `offer_save_attachment` {attachment_id (a file of this thread, checked through the input model's
+validation context), project} shows `SaveAttachmentCard` (`web/src/features/agentnext/savecard.tsx`): the file, its
+size and "Save into <project>'s reference documents?". Alex's Save reads the bytes from the GET route and posts them to
+`POST /api/projects/<name>/reference/files` as Alex (name cleaned as `reference.clean_name`; over 5 MB or a type
+reference files don't take: Save disabled, result refused; a name already there: Replace sends `replace: true`). The
+agent learns only `status` saved/cancelled/refused and `reason` too-big/wrong-type/exists/other. A browser tool with a
+card in the pack's components logs a `component` event keyed by its pause id (the id the card answers to); the card
+data adds what the input model put under `card` (here the file's name, type, size and thread), never sent to the model.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.
@@ -1065,6 +1131,9 @@ bad inputs are refused before any approval card shows.
 its usual checks, adding the token. global.toml `[agent_next]` holds `url` (default `http://127.0.0.1:8097`),
 `token_file` (default `/var/lib/phoenix9/agentkit/token`) and `uid` (the agent user's uid; with no `uid`, agent
 access is off). The Phoenix-side client is the adapter `phoenix9/agentnext.py`, with a fake in tests/fakes.
+Bodies keep the 64 KB limit except `POST /api/agent-next/threads/<id>/attachments` (up to 14 MB: a 10 MB file in
+base64 plus its name). Replies keep their status and type; of the service's own headers only `Content-Disposition`
+and `X-Content-Type-Options` are passed on (so attachment files open inline or download as the service says).
 
 **Who `agent`.** A connection whose peer uid equals `[agent_next] uid` is the caller who `agent`. It needs
 `X-Phoenix: 1` but no Origin, because it is not a browser. It may use only the routes on the generated allowlist in
@@ -1426,15 +1495,34 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   as in pause mode, with the flag "handed to the Phoenix agent", and the runner posts ONE hand-off to the new
   agent's `POST /handoffs` (through the `agentnext` adapter, short timeout): exactly `{run_id, task, gate_id,
   project}`. Nothing else goes in it (no failure text, no file content); the agent opens its own chat for it,
-  looks at the build with its tools and suggests a build note or a repair, which wait for Alex's Approve.
-  Alex gets one short line: "task N of <project> ran out of tries; the agent is looking at it. Open the agent
-  to see what it suggests." Reminders follow as for any question. The agent (`agent`) may answer only
+  looks at the build with its tools and acts through `handoff-fix` / `handoff-give-up` (no card in that chat:
+  Alex's hand-off rule); anything else it suggests waits for Alex's Approve.
+  Alex gets no line at hand-off time (the bell shows it, see Hand-offs below); reminders follow as for any
+  question. The agent (`agent`) may answer only
   `acknowledged` on a gate with the flag (`gates.may_answer`; `chat:home` keeps the same rule until the old
   agent is retired). If the agent is not set up, not answering, has no key or refuses (any answer but
   200/202 with a `thread_id`), the flag is replaced by a note on the gate saying why and Alex is told,
   exactly as in pause mode. The dashboard's agent proxy refuses `/handoffs`, so only the runner can hand
   over. At most `failmodes.MAX_ESCALATIONS` (2) hand-offs per task; after that the task fails as in pause
   mode. Old state files may still carry a task `delegate` field; it is read and ignored.
+- **Hand-offs** (`phoenix9/handoff.py`): Phoenix keeps the record of every hand-off in the run folder,
+  `tasks/<n>/handoff.json` = `{count, items: [{gate, thread, state, why, action, rewrote_checks, started,
+  ended}]}`; the agent's word never changes it. States: `working` (the agent has it; `thread` is the
+  conversation id from the `/handoffs` reply), `fixed` (the task passed after it), `gave-up` (the agent
+  handed it back to Alex with a reason) and `failed-again` (the task escalated again: the next hand-off
+  follows). At most `handoff.LIMIT` (2) hand-offs per task per run; a later escalation gets the note "the
+  agent already tried twice; waiting for you" and Alex is told as in pause mode. Each end is posted to the
+  conversation (`failmodes.post_outcome` -> agent `POST /handoffs/outcome`, best effort). The bell shows
+  "The agent is fixing <project> task <n>" (the handed question itself stays out of the bell for 30
+  minutes), then "hasn't finished" after 30 minutes, "fixed" or "gave up: <why>", each with the
+  conversation id (`thread`). Telegram gets exactly one line when it ends: "the agent fixed <project> task
+  <n> (...); the build goes on." (or, from the give-up path, that the agent couldn't fix it).
+  The agent acts on its own only through `ops.handoff` (`handoff-fix`: `retry` answers `acknowledged`
+  with an optional note; `rewrite-checks`, once per task per run, uses a one-time grant made by Alex's
+  standing rule (`unlock.grant_for_handoff`) for the normal evidence-checked rewrite, then closes the
+  question so the run goes on with the task pending; `handoff-give-up` ends it `gave-up` and flags the
+  question "the agent gave up: <why>", which makes it Alex's alone). Both refuse anyone but `agent` and any
+  task, run or question that is not the working hand-off.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the

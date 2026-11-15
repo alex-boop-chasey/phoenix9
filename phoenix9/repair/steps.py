@@ -9,7 +9,7 @@ from phoenix9 import (adapters as adapters_mod, atomic, checklock, failmodes, ga
                       settings, spec as specmod, state, summary)
 from phoenix9.aistep import REPAIR_NOTE
 from phoenix9.library import load_library
-from phoenix9.repair import snapshot
+from phoenix9.repair import check as check_mod, snapshot
 from phoenix9.runner import RunFailed, Runner
 
 
@@ -589,8 +589,27 @@ def rewrite_checks(ctx, n: int, why: str) -> str:
             if other.get("status") == "skipped" and (other.get("note") or "").startswith(f"depends on task {n}"):
                 other.update(status="pending", note="")
     state.update(ctx.run_dir, change)
+    kept = _set_aside_tries(ctx, n)      # tries start at 0 again; undo brings them back
     return (f"removed the locked checks of task {n} ({len(files)} file(s)); task {n} is pending and the check "
-            f"writer sees your objection: {objection}")
+            f"writer sees your objection: {objection}" + ("; older tries kept with the repair" if kept else ""))
+
+
+def _set_aside_tries(ctx, n: int) -> int:
+    """Move every attempt folder of task n into this repair's removed/ folder (undo brings them back); return how many."""
+    number = _snapshot_number(ctx)
+    folders = sorted(p for p in (Path(ctx.run_dir) / "tasks" / str(n)).glob("attempt-*") if p.is_dir())
+    for folder in folders:
+        snapshot.move_to_removed(ctx.run_dir, number, folder)
+    return len(folders)
+
+
+def set_aside_old_tries(ctx, n: int) -> str:
+    """Move the old attempt folders of a task whose checks were rewritten (tries 0, no checks lock) aside."""
+    task = _task(ctx, n)
+    if not check_mod.old_tries_left(Path(ctx.run_dir), n, task, check_mod._attempt_numbers(ctx.run_dir, n)):
+        raise StepRefused(f"task {n} has no old tries left from a checks rewrite, so its tries stay where they are")
+    count = _set_aside_tries(ctx, n)
+    return f"set aside {count} old tr{'y' if count == 1 else 'ies'} of task {n}; they are kept with the repair"
 
 
 def make_runner() -> Runner:
@@ -652,7 +671,7 @@ STEPS = {"resume": resume_run, "redo": redo, "keep-hand-fix": keep_hand_fix, "re
          "rebuild-worktree": rebuild_worktree, "mark-done": mark_done, "mark-skipped": mark_skipped, "retry": retry,
          "clear-failures": clear_failures, "add-note": add_note, "set-setting": set_setting,
          "turn-off-step": turn_off_step, "replace-spec": replace_spec, "close-question": close_question,
-         "rewrite-checks": rewrite_checks, "rerun-finish": rerun_finish}
+         "rewrite-checks": rewrite_checks, "rerun-finish": rerun_finish, "set-aside-old-tries": set_aside_old_tries}
 
 
 # Steps a chat session (who chat:*) may never apply: only Alex (cli / dashboard) does these.

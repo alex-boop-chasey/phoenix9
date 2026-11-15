@@ -16,6 +16,7 @@ const saved: KeyRow[] = [
 const routes = (rows: KeyRow[] = saved, extra: Record<string, unknown> = {}) => ({
   "GET /api/projects/demo/keys": rows,
   "POST /api/projects/demo/keys/save": rows,
+  "GET /api/projects/demo/keys/make": [],
   ...extra,
 })
 
@@ -219,4 +220,53 @@ test(".env upload: a name already in the list shows Keep current / Use file's va
   expect(screen.getByDisplayValue("theirs")).toBeInTheDocument()
   expect(screen.queryByDisplayValue("mine")).toBeNull()
   expect(screen.getAllByLabelText("Name")).toHaveLength(2)
+})
+
+// ---- "Get the keys for me" ----
+
+const cfMissing: KeyRow = { name: "CLOUDFLARE_ACCOUNT_ID", secret: false, has_value: false, value_if_not_secret: null }
+const cfMade: KeyRow = { ...cfMissing, has_value: true, value_if_not_secret: "acct-1" }
+const makeRows = [
+  { service: "cloudflare", title: "Cloudflare", state: "ready", missing: ["CLOUDFLARE_ACCOUNT_ID"], link: "",
+    words: "Phoenix can make CLOUDFLARE_ACCOUNT_ID with your saved Cloudflare key." },
+  { service: "sentry", title: "Sentry", state: "ready", missing: ["PUBLIC_SENTRY_DSN"], link: "",
+    words: "Phoenix can make PUBLIC_SENTRY_DSN with your saved Sentry key." },
+  { service: "clerk", title: "Clerk", state: "manual", missing: ["CLERK_SECRET_KEY"],
+    link: "https://dashboard.clerk.com/last-active?path=api-keys",
+    words: "Paste CLERK_SECRET_KEY from https://dashboard.clerk.com/last-active?path=api-keys into Project > Settings > Keys." },
+  { service: "resend", title: "Resend", state: "done", missing: [], link: "", words: "All the Resend keys are saved." },
+]
+
+test("no service Phoenix can make: no Get the keys for me button", async () => {
+  await renderSaved(saved, { "GET /api/projects/demo/keys/make": [makeRows[2], makeRows[3]] })
+  await waitFor(() => expect(screen.queryByTestId("key-maker")).toBeNull())
+  expect(screen.queryByRole("button", { name: "Get the keys for me" })).toBeNull()
+})
+
+test("Get the keys for me confirms, posts confirm:true, refreshes the rows and shows saved names and problems", async () => {
+  let made = false
+  const { calls } = await renderSaved([...saved, cfMissing], {
+    "GET /api/projects/demo/keys": () => (made ? [...saved, cfMade] : [...saved, cfMissing]),
+    "GET /api/projects/demo/keys/make": () => (made ? makeRows.slice(1) : makeRows),
+    "POST /api/projects/demo/keys/make": () => {
+      made = true
+      return { project: "demo", saved: { cloudflare: ["CLOUDFLARE_ACCOUNT_ID"] },
+        problems: { sentry: "Sentry refused to make a key (needs: Project: Write)." }, notes: {}, still_missing: ["PUBLIC_SENTRY_DSN"] }
+    },
+  })
+  const press = await screen.findByRole("button", { name: "Get the keys for me" })
+  // the other services' lines with their links
+  expect(screen.getByText(/Paste CLERK_SECRET_KEY from/)).toBeInTheDocument()
+  expect(screen.getByRole("link", { name: "Open the Clerk page" })).toHaveAttribute("href", makeRows[2]!.link)
+  expect(screen.queryByText("All the Resend keys are saved.")).toBeNull()
+  await userEvent.click(press)
+  expect(await screen.findByText("Make the missing keys for Cloudflare and Sentry with your saved account keys?")).toBeInTheDocument()
+  expect(posts(calls)).toHaveLength(0)
+  await userEvent.click(screen.getByRole("button", { name: "Make the keys" }))
+  await waitFor(() => expect(posts(calls)).toHaveLength(1))
+  expect(posts(calls)[0]!.body).toEqual({ services: ["cloudflare", "sentry"], confirm: true })
+  const said = await screen.findByRole("status")
+  expect(said).toHaveTextContent("Saved CLOUDFLARE_ACCOUNT_ID for Cloudflare.")
+  expect(said).toHaveTextContent("Sentry refused to make a key (needs: Project: Write).")
+  expect(await screen.findByDisplayValue("acct-1")).toBeInTheDocument()
 })

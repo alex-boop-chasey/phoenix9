@@ -78,3 +78,13 @@ path = "/user/tokens/verify"
 # Account tokens (cfat_) fail the user check; they are verified under the account instead.
 fallback_path = "/accounts/{account_id}/tokens/verify"
 expect = [200]
+
+[make]
+needs = "make API tokens (Account API Tokens: Edit)"
+key_page = "https://dash.cloudflare.com/profile/api-tokens"
+[[make.allow]]
+method = "GET"
+path = "/accounts/*/tokens/permission_groups"
+[[make.allow]]
+method = "POST"
+path = "/accounts/*/tokens"

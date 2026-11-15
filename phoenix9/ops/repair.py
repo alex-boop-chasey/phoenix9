@@ -31,7 +31,7 @@ def _refuse_loosening(folder, note, who: str, approve_unlock: bool) -> list[str]
     needed = safety.needed_unlocks(folder, note, approve_unlock) if safety.is_agent(who) else []
     if needed is None:
         raise common.Conflict(safety.NEVER_REFUSAL)
-    if needed and unlock.find(folder, who, needed) is None:
+    if needed and unlock.find(folder, who, needed, safety.rewrite_tasks(note)) is None:
         raise common.Conflict(safety.REFUSAL)
     if not needed:
         _may_repair(folder, who)

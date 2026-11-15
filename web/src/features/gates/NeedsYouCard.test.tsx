@@ -66,6 +66,26 @@ describe("NeedsYouCard", () => {
     expect(calls[0]!.body).toEqual({ action: "defer", note: "" })
   })
 
+  it("the keys question offers Get the keys for me first, with its help line, and posts fetch", async () => {
+    const { calls } = mockApi(answerRoute("r.4"))
+    const keys: Gate = { ...merge, id: "r.4", kind: "human-task", title: "Paste keys for Cloudflare",
+      actions: ["fetch", "done", "defer", "skip", "stop"] }
+    renderWithProviders(<NeedsYouCard gate={keys} />)
+    const names = screen.getAllByRole("button").map((b) => b.textContent)
+    expect(names[0]).toBe("Get the keys for me")
+    expect(screen.getByText("Phoenix makes them with your saved account keys and saves them unseen.")).toBeInTheDocument()
+    fireEvent.click(button("Get the keys for me"))
+    await waitFor(() => expect(calls.length).toBe(1))
+    expect(calls[0]!.body).toEqual({ action: "fetch", note: "" })
+  })
+
+  it("no fetch action, no Get the keys for me button or help", () => {
+    mockApi({})
+    renderWithProviders(<NeedsYouCard gate={{ ...merge, kind: "human-task", actions: ["done", "defer", "skip", "stop"] }} />)
+    expect(screen.queryByRole("button", { name: "Get the keys for me" })).toBeNull()
+    expect(screen.queryByText(/saves them unseen/)).toBeNull()
+  })
+
   it("an unknown action is labelled with its own name", () => {
     mockApi({})
     renderWithProviders(<NeedsYouCard gate={{ ...merge, actions: ["approve", "deploy"] }} />)

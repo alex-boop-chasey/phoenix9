@@ -9,6 +9,7 @@ import { EnvUploadCard, envAskFrom } from "./envcard"
 import { FlowCard, flowFrom } from "./flowcard"
 import { JobCard, PlanCheckCard, SpecsCard, jobFrom, planCheckFrom, specsFrom } from "./guidedcards"
 import { KeyInputCard, keyAskFrom } from "./keycard"
+import { SaveAttachmentCard, saveAskFrom } from "./savecard"
 import { SearchResultsCard, searchFrom } from "./searchcard"
 
 /** Card data for one project, as the Phoenix pack sends it. */
@@ -380,6 +381,10 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
   EnvUploadCard: ({ data, tool, callId }) => {
     const ask = envAskFrom(data)
     return ask && callId ? <EnvUploadCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
+  },
+  SaveAttachmentCard: ({ data, tool, callId }) => {
+    const ask = saveAskFrom(data)
+    return ask && callId ? <SaveAttachmentCard ask={ask} callId={callId} /> : <Fallback tool={tool} />
   },
 }
 

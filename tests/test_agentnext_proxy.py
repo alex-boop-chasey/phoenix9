@@ -1,4 +1,5 @@
 """Tests for /api/agent-next: phoenix-api passes the browser's calls to the agent service, adding the token."""
+import http.client
 import json
 import threading
 import urllib.request
@@ -152,3 +153,61 @@ def test_handoffs_is_refused(api):
         assert status == 404 and body["message"] == "Not found.", path
     assert api("/api/agent-next/handoffs")[0] == 404
     assert fake.calls == []
+
+
+def test_handoff_outcome_is_refused(api):
+    fake = agent(api)
+    for path in ("/handoffs/outcome", "/Handoffs/outcome", "/%68andoffs/outcome", "/handoffs/outcome?x=1"):
+        status, body = api("/api/agent-next" + path, "POST", POST_HEADERS,
+                           {"gate_id": "20261110-100000-demo.1", "outcome": "fixed"})
+        assert status == 404 and body["message"] == "Not found.", path
+    assert fake.calls == []
+
+
+def test_attachment_upload_may_be_big_only_on_its_own_path(api):
+    fake = agent(api)
+    fake.status, fake.chunks = 201, [b'{"id": "a1"}']
+    big = {"name": "photo.jpg", "data_base64": "A" * (13 * 1024 * 1024)}
+    status, body = api("/api/agent-next/threads/t1/attachments", "POST", POST_HEADERS, big)
+    assert status == 201 and body == {"id": "a1"}
+    assert len(fake.calls[0]["body"]) > 13 * 1024 * 1024
+    status, body = announce_only(api, "/api/agent-next/threads/t1/attachments", 14 * 1024 * 1024 + 1)
+    assert status == 400 and body["message"] == "The request was too big."
+    assert len(fake.calls) == 1
+
+
+def announce_only(api, path, length):
+    """POST headers saying `length` bytes follow, without sending them (the server refuses before reading)."""
+    host, port = api.base.removeprefix("http://").split(":")
+    conn = http.client.HTTPConnection(host, int(port))
+    conn.putrequest("POST", path)
+    for key, value in {**POST_HEADERS, "Content-Length": str(length)}.items():
+        conn.putheader(key, value)
+    conn.endheaders()
+    resp = conn.getresponse()
+    body = json.loads(resp.read())
+    conn.close()
+    return resp.status, body
+
+
+def test_seventy_kb_elsewhere_in_the_agent_is_refused(api):
+    fake = agent(api)
+    body70 = {"message": "x" * (70 * 1024)}
+    for path in ("/api/agent-next/threads/t1/runs", "/api/agent-next/threads",
+                 "/api/agent-next/threads/t1/attachments/a1"):
+        status, body = api(path, "POST", POST_HEADERS, body70)
+        assert status == 400 and body["message"] == "The request was too big.", path
+    assert fake.calls == []
+
+
+def test_attachment_reply_headers_are_passed_on(api):
+    fake = agent(api)
+    fake.content_type, fake.chunks = "image/png", [b"\x89PNG\r\n\x1a\nrest"]
+    fake.headers = {"Content-Disposition": 'inline; filename="shot.png"', "X-Content-Type-Options": "nosniff",
+                    "X-Other": "kept back"}
+    status, resp, content = api("/api/agent-next/threads/t1/attachments/a1", raw=True)
+    assert status == 200 and content == b"\x89PNG\r\n\x1a\nrest"
+    assert resp.headers["Content-Type"] == "image/png"
+    assert resp.headers["Content-Disposition"] == 'inline; filename="shot.png"'
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    assert resp.headers.get("X-Other") is None

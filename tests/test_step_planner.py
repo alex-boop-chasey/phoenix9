@@ -372,7 +372,7 @@ def test_planner_default_tools_are_read_and_write_only():
     assert set(ai["tools"]) <= known and set(ai["tools_denied"]) <= known
     cmd = claude.build_command(ai, "/phoenix/prompt.md", "/workspace")
     assert cmd[cmd.index("--allowedTools") + 1] == "Read,Glob,Grep,Write"
-    assert cmd[cmd.index("--disallowedTools") + 1] == "Bash,WebFetch,WebSearch"
+    assert cmd[cmd.index("--disallowedTools") + 1] == "Bash,WebFetch,WebSearch,Edit,NotebookEdit"
 
 
 BROWSER_RULE = ("Write Vitest tests for logic and components only. Do not write Playwright or other browser tests, "

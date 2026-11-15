@@ -23,6 +23,7 @@ const LABEL: Record<string, string> = {
   skip: "Skip task",
   stop: "Stop run",
   acknowledged: "Acknowledged",
+  fetch: "Get the keys for me",
   done: "Done, keys pasted",
   defer: "Build without it for now",
 }
@@ -38,6 +39,7 @@ const labelOf = (action: GateAction, gate?: Gate) =>
 
 const ESCALATION_HELP =
   "Fix it, then press Acknowledged; the task runs once more."
+const FETCH_HELP = "Phoenix makes them with your saved account keys and saves them unseen."
 const DEFER_HELP =
   "\"Build without it for now\" carries on and builds the site so it still works without these keys. Phoenix shows \"Waiting for keys\" until you save them; the next build then switches the service on."
 const DELEGATED_HELP =
@@ -91,7 +93,8 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
     ? ["acknowledged", "skip", "stop"]
     : ["approve", "back", "skip", "stop", "acknowledged"]
   const extra = gate.actions.filter((a) => !KNOWN.includes(a))
-  const shown = [...order.filter(offers), ...extra]
+  // "Get the keys for me" comes first: it is the easiest answer to a keys question
+  const shown = [...extra.filter((a) => a === "fetch"), ...order.filter(offers), ...extra.filter((a) => a !== "fetch")]
   const warnings = gate.kind === "merge" ? mergeWarnings({ gate, run }) : []
   const press = (action: GateAction) => {
     if (action === "stop") setConfirmStop(true)
@@ -114,7 +117,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
       <Button
         key={action}
         size={compact ? "sm" : "default"}
-        variant={action === primary ? "default" : action === "stop" ? "destructive" : "outline"}
+        variant={action === primary || action === "fetch" ? "default" : action === "stop" ? "destructive" : "outline"}
         disabled={busy}
         onClick={() => press(action)}
       >
@@ -132,7 +135,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
   } else {
     body = (
       <>
-        {unlock ? <RepairUnlockBody gate={gate} /> : gate.why && <p className="text-sm">{gate.why}</p>}
+        {unlock ? <RepairUnlockBody gate={gate} /> : gate.why && <p className="text-sm whitespace-pre-line">{gate.why}</p>}
         {gate.flags.length > 0 && (
           <div className="flags">
             {gate.flags.map((f) => (
@@ -143,6 +146,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
           </div>
         )}
         {escalation && <p className="text-sm text-muted-foreground">{ESCALATION_HELP}</p>}
+        {offers("fetch") && <p className="text-sm text-muted-foreground">{FETCH_HELP}</p>}
         {offers("defer") && <p className="text-sm text-muted-foreground">{DEFER_HELP}</p>}
         {gate.flags.includes(DELEGATED_FLAG) && <p className="text-sm text-muted-foreground">{DELEGATED_HELP}</p>}
         {gate.links.length > 0 && (

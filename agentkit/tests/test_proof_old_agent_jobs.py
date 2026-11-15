@@ -463,8 +463,8 @@ def test_job_23():
         (req,) = requests_in(store, tid)   # the answer waits for Alex's Approve; nothing was sent
         assert req["toolName"] == "gate-answer" and req["input"] == {"gate_id": f"{escalated}.1", "action": "acknowledged"}
         assert posts(fake) == [] and types(store, tid)[-1] != "RUN_FINISHED"
-        for words in ("[Phoenix · escalation]", "comes from Phoenix, not from Alex", "only answer you may give is "
-                      "acknowledged", "leave the question for Alex"):
+        for words in ("[Phoenix · escalation]", "is a build task Phoenix handed to you", "These two tools need "
+                      "no card in a hand-off conversation; everything else does", "call handoff-give-up with the reason"):
             assert words in INSTRUCTIONS, words
 
     run(go())

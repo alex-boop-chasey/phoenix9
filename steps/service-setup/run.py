@@ -2,7 +2,7 @@
 import importlib.util
 from pathlib import Path
 
-from phoenix9 import atomic, keys, paths, project, project_services, reports, services, state, summary
+from phoenix9 import atomic, keymaker, keys, paths, project, project_services, reports, services, state, summary
 from phoenix9.stepctx import StepResult
 
 KEYS_WHERE = "Project → Settings → Keys, or `phoenix project keys {name} set KEY`"
@@ -92,13 +92,37 @@ def _notes(chosen: list, lib: dict, deferred: dict | None = None) -> str:
     return "\n".join(out)
 
 
-def _keys_gate(missing: dict, lib: dict, project_name: str) -> StepResult:
-    """A human-task gate listing the missing key names per service."""
+def _keys_gate(missing: dict, lib: dict, project_name: str, problems: dict | None = None) -> StepResult:
+    """A human-task gate listing the missing key names per service (with "fetch" when Phoenix can make some)."""
     lines = [f"{lib[n]['title']}: {', '.join(names)}" for n, names in missing.items()]
     why = ("These keys have no value yet. " + "; ".join(lines) + ". Paste them in "
            + KEYS_WHERE.format(name=project_name) + ", then press Done, or build without it for now.")
+    rows = _make_rows(project_name, missing)
+    told = [p for n, p in (problems or {}).items() if n in missing]
+    why = "\n".join([why, *told, *[r["words"] for r in rows.values()]])
+    actions = ["done", "defer", "skip", "stop"]
+    if any(r["state"] == "ready" for r in rows.values()):
+        actions = ["fetch", *actions]
     return StepResult("gate", gate={"kind": "human-task", "title": f"Paste keys for {', '.join(lib[n]['title'] for n in missing)}",
-                                    "why": why, "actions": ["done", "defer", "skip", "stop"]})
+                                    "why": why, "actions": actions})
+
+
+def _make_rows(project_name: str, missing: dict) -> dict:
+    """Key maker status rows of the services that miss keys (ready, needs-account-key or manual)."""
+    return {r["service"]: r for r in keymaker.status(project_name) if r["service"] in missing and r["state"] != "done"}
+
+
+def _fetch(ctx, missing: dict) -> dict:
+    """Make the missing keys of the ready services; logs names and problems only (never values)."""
+    ready = [n for n, r in _make_rows(ctx.project.name, missing).items() if r["state"] == "ready"]
+    if not ready:
+        return {}
+    result = keymaker.make(ctx.project.name, services=ready, who="runner")
+    for name, saved in result["saved"].items():
+        ctx.log(f"keys made for {name}: {', '.join(saved)}")
+    for name, problem in result["problems"].items():
+        ctx.log(f"could not make the keys for {name}. {problem}")
+    return result["problems"]
 
 
 def _record_deferred(ctx, deferred: dict, lib: dict) -> None:
@@ -119,6 +143,15 @@ def run(ctx) -> StepResult:
         return StepResult("fail", [f"Service {n} is not in Phoenix's services library" for n in unknown])
     _allow_hosts(ctx, chosen, lib)
     missing = {n: m for n in chosen if (m := _missing_keys(ctx, lib[n]))}
+    if missing and (ctx.answer or {}).get("action") == "fetch":
+        asker = str((ctx.answer or {}).get("who") or "")
+        if not keymaker.may_make(asker):          # a project chat may not have keys made: ask again, nothing made
+            ctx.log(f"keys not made: {keymaker.refusal(asker)}")
+            return _keys_gate(missing, lib, ctx.project.name, {next(iter(missing)): keymaker.refusal(asker)})
+        problems = _fetch(ctx, missing)
+        missing = {n: m for n in chosen if (m := _missing_keys(ctx, lib[n]))}
+        if missing:
+            return _keys_gate(missing, lib, ctx.project.name, problems)
     if missing and (ctx.answer or {}).get("action") == "done":
         return StepResult("fail", [f"{lib[n]['title']} still has no value for: {', '.join(m)}" for n, m in missing.items()])
     deferring = bool(missing) and (ctx.answer or {}).get("action") == "defer"

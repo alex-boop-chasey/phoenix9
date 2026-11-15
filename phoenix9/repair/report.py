@@ -21,6 +21,7 @@ def fix_line(f: check_mod.Finding) -> str:
         "step-line": f"- set step line {f.fix.get('line', 0)} to failed",
         "clear-gate": "- clear the waiting question of the run",
         "tries": f"- set tries of task {n} to {max(f.fix.get('folders') or [0])}",
+        "set-aside-old-tries": f"- set aside the old tries of task {n}",
         "attempt-result": f"- rewrite result of task {n} attempt {f.fix.get('attempt')}",
         "close-question": f"- close question {f.fix.get('gate')}",
         "run-status": "- set run to failed",

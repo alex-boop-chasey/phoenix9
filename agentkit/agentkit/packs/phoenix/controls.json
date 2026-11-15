@@ -788,7 +788,8 @@
           "approve",
           "back",
           "skip",
-          "acknowledged"
+          "acknowledged",
+          "fetch"
         ],
         "where": "body",
         "into": []
@@ -963,6 +964,131 @@
     "timeout_s": 0
   },
   {
+    "name": "handoff-fix",
+    "description": "On a build task Phoenix handed to you: try it again (with an optional note for the builder) or, when the evidence shows the task's locked check itself is wrong, rewrite its checks (once per task). The task restarts.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number Phoenix handed to you.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "action",
+        "type": "choice",
+        "required": true,
+        "description": "What to do: try again, or rewrite the task's checks.",
+        "choices": [
+          "retry",
+          "rewrite-checks"
+        ],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": false,
+        "description": "The evidence, in one plain line (needed to rewrite the checks).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "note",
+        "type": "string",
+        "required": false,
+        "description": "A short note for the builder's next try (one paragraph).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/fix",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
+    "name": "handoff-give-up",
+    "description": "On a build task Phoenix handed to you: hand the question back to Alex with the reason (use it for anything you may not do: skip, stop, spending, merge).",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "task",
+        "type": "integer",
+        "required": true,
+        "description": "The task number Phoenix handed to you.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      },
+      {
+        "name": "why",
+        "type": "string",
+        "required": true,
+        "description": "Why it needs Alex, in one plain line.",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/give-up",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
     "name": "health",
     "description": "Answers the service check; not a control.",
     "inputs": [],
@@ -1118,6 +1244,67 @@
     "fixed": {},
     "fixed_query": {},
     "card": "keys_card",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
+    "name": "keys-make",
+    "description": "Make the project's missing service keys with Alex's saved account keys and save them unseen; says which services still need a key by hand.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "services",
+        "type": "list",
+        "required": false,
+        "description": "Only these services (default: every one that is ready).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/make",
+    "fixed": {
+      "confirm": true
+    },
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
+    "name": "keys-make-status",
+    "description": "Say which of a project's services Phoenix can make the missing keys for, and which need Alex (with the page link).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/make",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
     "confirm_with": "",
     "timeout_s": 0
   },

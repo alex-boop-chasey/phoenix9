@@ -1,4 +1,5 @@
-// The Configure dialog for one service: its account keys (saved ones are sealed), its settings, Test connection, Save.
+// The Configure dialog for one service: its account keys (saved ones are sealed), the optional key for making
+// project keys, its settings, Test connection, Save.
 import { useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 import { toast } from "sonner"
@@ -27,6 +28,8 @@ function ConfigureForm({ service, onClose }: { service: ServiceStatus; onClose: 
   const endpoints = service.endpoints ?? {}
   const sealed = (k: string) => service.connected && !!service.ends_in?.[k] && !replacing[k]
   const missing = (service.account_keys ?? []).filter((k) => !sealed(k) && !secrets[k]?.trim())
+  const maker = service.make_key ?? null
+  const makerSealed = !!maker && service.connected && maker.saved && !replacing[maker.name]
 
   async function runTest() {
     if (!endpoints.test) return
@@ -37,7 +40,7 @@ function ConfigureForm({ service, onClose }: { service: ServiceStatus; onClose: 
     setError("")
     setTest({ state: "busy", text: "" })
     try {
-      const sent = Object.fromEntries(Object.entries(secrets).filter(([, v]) => v))
+      const sent = Object.fromEntries(Object.entries(secrets).filter(([k, v]) => v && k !== maker?.name))
       const r = await post<{ ok: boolean; message: string }>(endpoints.test, { values: sent })
       setTest({ state: r.ok ? "ok" : "bad", text: r.message })
     } catch (e) {
@@ -96,6 +99,31 @@ function ConfigureForm({ service, onClose }: { service: ServiceStatus; onClose: 
             )}
           </div>
         ))}
+        {maker && (
+          <div className="field">
+            {makerSealed ? (
+              <>
+                <span className="lbl">Key for making project keys (optional)</span>
+                <div className="sealed">
+                  <Icon name="lock-key" size="sm" />
+                  <span>Saved</span>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setReplacing({ ...replacing, [maker.name]: true })}>Replace</button>
+                </div>
+                <span className="help">Phoenix uses it only to make a project's keys. The value is never shown again.</span>
+              </>
+            ) : (
+              <>
+                <label htmlFor="cf-make-key">Key for making project keys (optional)</label>
+                <input
+                  id="cf-make-key" className="input mono" type="password" autoComplete="off"
+                  placeholder="Paste the key" value={secrets[maker.name] ?? ""}
+                  onChange={(e) => setSecrets({ ...secrets, [maker.name]: e.target.value })}
+                />
+                <span className="help">Lets Phoenix make each project its own key. Sealed when saved.</span>
+              </>
+            )}
+          </div>
+        )}
         {(service.account_settings ?? []).map((s) => (
           <div className="field" key={s.name}>
             <label htmlFor={`cs-${s.name}`}>{s.label}</label>

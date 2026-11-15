@@ -66,10 +66,67 @@ def test_build_command_tools_mcp_and_system_prompt():
     ai = dict(AI, tools=["Read", "Edit"], tools_denied=["WebFetch", "Agent"], mcp_servers=["docs"], max_turns=7)
     inner = _inner(claude.build_command(ai, "p.md", ".", system_prompt_file="/work/system.md"))
     assert _pair(inner, "--allowedTools") == ["--allowedTools", "Read,Edit"]
-    assert _pair(inner, "--disallowedTools") == ["--disallowedTools", "WebFetch,Agent"]
+    # the supported tools Read,Edit leave out are denied too (after the step's own denied list)
+    assert _pair(inner, "--disallowedTools") == ["--disallowedTools", "WebFetch,Agent,Write,Glob,Grep,Bash,WebSearch"]
     assert _pair(inner, "--mcp-config") == ["--mcp-config", claude.MCP_MOUNT]
     assert _pair(inner, "--append-system-prompt-file") == ["--append-system-prompt-file", "/work/system.md"]
     assert _pair(inner, "--max-turns") == ["--max-turns", "7"]
+
+
+def _denied(ai) -> list[str]:
+    inner = _inner(claude.build_command(ai, "p.md", "."))
+    return inner[inner.index("--disallowedTools") + 1].split(",") if "--disallowedTools" in inner else []
+
+
+ALL_TOOLS = [n for n, _label, _help in claude.SUPPORTED_TOOLS]
+
+
+def test_tools_left_out_are_denied_reviewer():
+    ai = dict(AI, tools=["Read", "Glob", "Grep", "Bash", "Write"], tools_denied=[])
+    assert sorted(_denied(ai)) == ["Edit", "NotebookEdit", "WebFetch", "WebSearch"]
+    inner = _inner(claude.build_command(ai, "p.md", "."))
+    assert _pair(inner, "--allowedTools") == ["--allowedTools", "Read,Glob,Grep,Bash,Write"]
+
+
+def test_tools_left_out_are_denied_without_repeats_in_a_stable_order():
+    ai = dict(AI, tools=["Read", "Glob", "Grep", "Bash", "Write"], tools_denied=["Edit", "WebFetch", "WebSearch"])
+    assert _denied(ai) == ["Edit", "WebFetch", "WebSearch", "NotebookEdit"]
+    assert _denied(ai) == _denied(dict(ai))
+
+
+def test_builder_with_all_tools_gets_nothing_extra():
+    assert _denied(dict(AI, tools=list(ALL_TOOLS), tools_denied=[])) == []
+    assert _denied(dict(AI, tools=list(ALL_TOOLS), tools_denied=["Agent"])) == ["Agent"]
+
+
+def test_planner_gets_bash_edit_and_the_web_denied():
+    ai = dict(AI, tools=["Read", "Glob", "Grep", "Write"], tools_denied=["Bash", "WebFetch", "WebSearch"])
+    assert sorted(_denied(ai)) == ["Bash", "Edit", "NotebookEdit", "WebFetch", "WebSearch"]
+
+
+def test_no_tools_list_leaves_the_denied_list_as_it_is():
+    assert _denied(dict(AI, tools=[], tools_denied=[])) == []
+    assert _denied(dict(AI, tools=[], tools_denied=["WebFetch"])) == ["WebFetch"]
+    assert _denied({}) == []
+
+
+def test_real_step_files_deny_every_tool_they_leave_out():
+    import tomllib
+    root = Path(__file__).resolve().parents[1] / "steps"
+    checked = 0
+    for path in sorted(root.glob("*/step.toml")):
+        ai = tomllib.loads(path.read_text()).get("ai") or {}
+        if not ai.get("tools"):
+            continue
+        denied = _denied(ai)
+        assert len(denied) == len(set(denied)), path
+        for name in ALL_TOOLS:
+            if name not in ai["tools"]:
+                assert name in denied, f"{path.parent.name} leaves out {name} but does not deny it"
+        if "Edit" not in ai["tools"]:
+            assert "NotebookEdit" in denied, path.parent.name
+        checked += 1
+    assert checked >= 4
 
 
 def test_build_command_never_bare():
@@ -492,7 +549,7 @@ def test_supported_tools_are_unique_plain_names_with_text():
     assert all(label and help_ for _n, label, help_ in claude.SUPPORTED_TOOLS)
     cmd = claude.build_command(dict(AI, tools=names[:2], tools_denied=[names[-1]]), "/p.md", "/r")
     assert cmd[cmd.index("--allowedTools") + 1] == ",".join(names[:2])
-    assert cmd[cmd.index("--disallowedTools") + 1] == names[-1]
+    assert cmd[cmd.index("--disallowedTools") + 1] == ",".join([names[-1]] + names[2:-1])
 
 
 def test_parse_two_turn_session_with_numbered_results_is_ok():

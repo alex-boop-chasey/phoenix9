@@ -63,11 +63,12 @@ def add(sub, common) -> None:
     group.add_parser("templates", parents=[common], help="the templates menu").set_defaults(func=templates_)
     p = group.add_parser("keys", parents=[common], help="a project's keys (secret values are never shown)")
     p.add_argument("name")
-    p.add_argument("action", nargs="?", choices=("set", "remove"))
+    p.add_argument("action", nargs="?", choices=("set", "remove", "make"))
     p.add_argument("key", nargs="?", metavar="NAME")
     p.add_argument("--secret", action="store_true", help="with set: the value is secret")
     p.add_argument("--from-file", metavar="PATH", help="with set: read the value from this file (else stdin)")
-    p.add_argument("--yes", action="store_true", help="with remove: really delete")
+    p.add_argument("--service", action="append", metavar="S", help="with make: only this service (repeatable)")
+    p.add_argument("--yes", action="store_true", help="with remove: really delete; with make: really make the keys")
     p.set_defaults(func=keys_)
     p = group.add_parser("services", parents=[common], help="a project's services")
     p.add_argument("name")
@@ -308,6 +309,8 @@ def keys_(args) -> int:
         shown = [[r["name"], "secret" if r["secret"] else "plain",
                   ("••••••" if r["secret"] else r["value_if_not_secret"]) if r["has_value"] else "(empty)"] for r in rows]
         return show(args, rows, table(shown, ["key", "kind", "value"]) if rows else "No keys yet.")
+    if args.action == "make":
+        return _make(args)
     if not args.key:
         return problem(args, "Say which key, for example: phoenix project keys NAME set API_KEY --secret", 2)
     if args.action == "set":
@@ -317,6 +320,19 @@ def keys_(args) -> int:
         return problem(args, f"This deletes the key {args.key}. Run it again with --yes to do it.")
     r = keys_ops.remove(args.name, args.key, args.who)
     return show(args, r, f"Removed {args.key} from {args.name}.")
+
+
+def _make(args) -> int:
+    """Make the project's missing service keys (needs --yes); prints names, problems and what is still missing."""
+    if not args.yes:
+        return problem(args, f"This makes {args.name}'s missing service keys with your saved account keys. "
+                             "Run it again with --yes to do it.")
+    r = keys_ops.make(args.name, args.service, args.who)
+    lines = [f"Saved {', '.join(names)} ({service})." for service, names in r["saved"].items()] or ["No keys made."]
+    lines += [f"{service}: {words}" for service, words in r["problems"].items()]
+    lines += [f"{service}: {words}" for service, words in r["notes"].items()]
+    lines.append(f"Still missing: {', '.join(r['still_missing'])}." if r["still_missing"] else "Nothing is missing.")
+    return show(args, r, "\n".join(lines))
 
 
 def services_(args) -> int:

@@ -292,6 +292,7 @@ FLAG_CHANGED_BY_AGENT = "changed by the Phoenix agent"   # a commit on the run b
 FLAG_SUITE_FAILED = "full suite did not pass"   # failed or skipped by hand; a failed suite opens no question since O62
 ALEX_ONLY_FLAGS = (FLAG_MARKED_BY_REPAIR, FLAG_REPAIRED, FLAG_NO_FULL_SUITE, FLAG_CHANGED_BY_AGENT, FLAG_SUITE_FAILED)
 HANDOFF_FLAG = "handed to the Phoenix agent"      # on an escalation gate sent to the agent (failmodes.HANDOFF_FLAG)
+GAVE_UP_PREFIX = "the agent gave up: "             # the flag (with the reason) once the agent handed it back to Alex
 FINISHED_TASK = ("passed", "skipped")
 
 
@@ -358,7 +359,9 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
     A spending-cap (`budget`) question is Alex's alone: chat:* callers and the new agent (`agent`) never.
     The home chat (chat:home) may answer only `acknowledged`, and only on an escalation gate that carries the
     flag "handed to the Phoenix agent" (set when a failed task is handed to it); the new agent (`agent`) likewise
-    may answer such a handed-over gate only with `acknowledged`.
+    may answer such a handed-over gate only with `acknowledged`. Its other way to act on it is `ops.handoff`
+    (try again or rewrite the checks once, or give up), which checks the hand-off record itself.
+    A question the agent gave back to Alex (flag "the agent gave up: ...") is Alex's alone: chat:* and the agent never.
     A merge question flagged for a repair, a missing or failed full suite or a fix by a chat (a `Phoenix-Fix-By: chat:`
     commit on the run branch, checked live) is Alex's alone: chat:* callers and the new agent never.
     A repair-unlock request is answered only from the dashboard (Alex's press): never a chat, the agent or a command."""
@@ -369,6 +372,8 @@ def may_answer(gate: dict, who: str, project_settings: dict, action: str | None 
         return False                      # raising a cap or stopping on cost is Alex's alone, whatever the project allows
     if ai_caller and gate.get("kind") == "merge" and (
             any(f in ALEX_ONLY_FLAGS for f in gate.get("flags") or []) or _merge_changed_since(gate)):
+        return False
+    if ai_caller and any(str(f).startswith(GAVE_UP_PREFIX) for f in gate.get("flags") or []):
         return False
     if who in ("chat:home", "agent") and gate["kind"] == "escalation" and HANDOFF_FLAG in (gate.get("flags") or []):
         return action == "acknowledged"

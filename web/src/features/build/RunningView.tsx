@@ -18,6 +18,7 @@ import { useBuilds, usePauseRun, useResumeRun, useRunEstimates, useStopRun } fro
 import type { RunDetail, RunEstimates } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
+import { RunAgainControl } from "./RunAgainControl"
 import { badgeResult, edgeOf, ResultBadge } from "./parts"
 import { currentLine, buildLeft, stepProgress, toGo } from "./progress"
 import { liveClock, StepList, StepListLead } from "./StepList"
@@ -152,7 +153,12 @@ export function RunningView({ name, runId, mode }: Props) {
             {d.image?.id && <> · image <span className="mono" title={`${d.image.tag} ${d.image.id}`} data-testid="image-id">{d.image.id.replace(/^sha256:/, "").slice(0, 12)}</span></>}
           </p>
         </div>
-        {!s.active && <DiscardControl name={name} run={d} />}
+        {!s.active && (
+          <div className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+            <RunAgainControl name={name} run={d} />
+            <DiscardControl name={name} run={d} />
+          </div>
+        )}
         {s.active && (
           <div className="row" style={{ gap: 8 }}>
             {d.status === "paused" ? (

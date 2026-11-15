@@ -569,6 +569,15 @@ export interface Profile {
   image: string
 }
 
+/** The answer to "Run again": the new run, and the preset it uses (null = the project's default). */
+export interface RunAgainResult {
+  run_id: string
+  project: string
+  status: string
+  from_run: string
+  preset: string | null
+}
+
 export interface Preset {
   name: string
   title: string

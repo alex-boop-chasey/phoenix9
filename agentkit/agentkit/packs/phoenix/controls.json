@@ -866,7 +866,7 @@
   },
   {
     "name": "github-repos",
-    "description": "{connected, repos: [{full_name, owner, private}]} for each account the login can see.",
+    "description": "{connected, repos: [{full_name, owner, private}], problems} for each account the login can see; `problems`",
     "inputs": [],
     "risk": "read",
     "agent": "later",

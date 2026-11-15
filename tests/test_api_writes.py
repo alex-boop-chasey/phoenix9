@@ -9,7 +9,7 @@ from phoenix9.api import server
 from phoenix9.ops import common, keys as keys_ops, projects, runs as runs_ops
 from test_api_server import POST_HEADERS, api, dist, make_project  # noqa: F401  (fixtures)
 
-SPEC = "# Spec: Add Login\n\nProject: alpha\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
+SPEC = "# Spec: Add Login\n\nProject: alpha\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n- `true`\n"
 SECRET = "sk-super-secret-value-123"
 
 

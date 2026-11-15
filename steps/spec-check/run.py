@@ -9,6 +9,12 @@ def planner_on(ctx) -> bool:
     return "planner" in (plan.get("groups") or {}).get("run-start", [])
 
 
+def check_writer_on(ctx) -> bool:
+    """True when this run's resolved plan has the check-writer in any group."""
+    plan = atomic.read_json(ctx.run.folder / "plan.json") or {}
+    return any("check-writer" in steps for steps in (plan.get("groups") or {}).values())
+
+
 def run(ctx):
     """Fail with every problem found in spec.md; else write spec.json.
 
@@ -17,9 +23,9 @@ def run(ctx):
     A spec that already passes the strict check keeps its tasks; any other is saved as a brief (no tasks)."""
     text = (ctx.run.folder / "spec.md").read_text(encoding="utf-8")
     parsed = spec.parse(text)
-    strict = spec.check(text)
+    strict = spec.check(text, needs_commands=not check_writer_on(ctx))
     if not planner_on(ctx):
-        problems = strict + [spec.NEEDS_PLANNER] if strict else []
+        problems = strict + ([spec.NEEDS_PLANNER] if spec.check(text) else []) if strict else []
     else:
         problems = spec.check_description(text)
     if problems:

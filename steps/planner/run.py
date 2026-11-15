@@ -80,7 +80,9 @@ def after(ctx, session) -> StepResult:
     if not path.is_file():
         return StepResult("fail", ["The planner wrote no /out/spec.md."])
     text = path.read_text(encoding="utf-8")
-    problems = spec.check(text)
+    plan = atomic.read_json(ctx.run.folder / "plan.json") or {}
+    writer_on = any("check-writer" in steps for steps in (plan.get("groups") or {}).values())
+    problems = spec.check(text, needs_commands=not writer_on)
     if problems:
         return StepResult("fail", [f"The planned spec has problems: {p}" for p in problems])
     parsed = spec.parse(text)

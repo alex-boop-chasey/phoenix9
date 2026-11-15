@@ -219,3 +219,55 @@ def test_description_check_refuses_empty_and_too_big():
     assert "empty" in spec.check_description("  \n\n")[0]
     big = "# Big\n" + "x" * (spec.MAX_DESCRIPTION_BYTES + 1)
     assert "200 KB" in spec.check_description(big)[0]
+
+
+# ---- needs_commands: with the check-writer off every task needs a runnable item (O78) ----
+
+PROSE_TASK2 = """
+## Task 2: Add the pricing page
+Write the pricing page.
+Done when:
+- the pricing page lists all three plans
+"""
+
+FOR_YOU_TASK2 = """
+## Task 2: Buy the domain
+Buy a domain for the site.
+For you: yes
+Done when:
+- the domain is bought and points at the site
+"""
+
+COMMAND_TASK1 = TASK1.replace("- pnpm build finishes cleanly with no errors",
+                              "- pnpm build finishes cleanly with no errors\n- `pnpm build`")
+
+
+def test_needs_commands_refuses_a_prose_only_task_with_its_heading_line():
+    text = HEADER + TASK1
+    assert spec.check(text) == []                                   # default unchanged
+    (error,) = spec.check(text, needs_commands=True)
+    line = text.splitlines().index("## Task 1: Set up the project") + 1
+    assert error == (f"Line {line}: task 1 has no 'Done when' item Phoenix can run. With the check-writer off, "
+                     "add at least one item that is only a command in backticks, e.g. - `pytest -q tests/test_x.py`.")
+
+
+def test_needs_commands_one_command_bullet_is_enough():
+    assert spec.check(HEADER + COMMAND_TASK1, needs_commands=True) == []
+
+
+def test_needs_commands_one_problem_per_prose_task():
+    errors = spec.check(HEADER + TASK1 + PROSE_TASK2, needs_commands=True)
+    assert len(errors) == 2
+    assert "task 1 has no" in errors[0] and "task 2 has no" in errors[1]
+    errors = spec.check(HEADER + COMMAND_TASK1 + PROSE_TASK2, needs_commands=True)
+    assert len(errors) == 1 and "task 2 has no" in errors[0]
+
+
+def test_needs_commands_skips_for_you_tasks():
+    assert spec.check(HEADER + COMMAND_TASK1 + FOR_YOU_TASK2, needs_commands=True) == []
+
+
+def test_a_command_inside_prose_is_not_runnable():
+    text = HEADER + TASK1.replace("- pnpm build finishes cleanly with no errors", "- running `pnpm build` works with no errors")
+    assert spec.check(text) == []
+    assert "task 1 has no" in spec.check(text, needs_commands=True)[0]

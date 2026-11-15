@@ -320,8 +320,18 @@ def _find_cycle(spec: Spec) -> list[int]:
     return []
 
 
-def check(text: str) -> list[str]:
-    """Return every problem with the spec as a readable note. Empty list = the spec is valid."""
+def _check_commands(task: Task) -> list[str]:
+    """With the check-writer off: a task Phoenix builds needs at least one 'Done when' item that is a command."""
+    if task.for_you or any(c.command for c in task.done_when):
+        return []
+    return [f"Line {task.line}: task {task.number} has no 'Done when' item Phoenix can run. With the check-writer off, "
+            "add at least one item that is only a command in backticks, e.g. - `pytest -q tests/test_x.py`."]
+
+
+def check(text: str, needs_commands: bool = False) -> list[str]:
+    """Return every problem with the spec as a readable note. Empty list = the spec is valid.
+
+    `needs_commands` (the check-writer is off): every task not "for you" needs a runnable 'Done when' command."""
     spec = parse(text)
     errors = list(spec.problems)
     if spec.preset and spec.preset not in PRESETS:
@@ -332,6 +342,8 @@ def check(text: str) -> list[str]:
     numbers = {t.number for t in spec.tasks}
     for t in spec.tasks:
         errors += _check_task(t, numbers)
+        if needs_commands:
+            errors += _check_commands(t)
     cycle = _find_cycle(spec)
     if cycle:
         errors.append("The tasks depend on each other in a cycle: "

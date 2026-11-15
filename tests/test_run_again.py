@@ -10,7 +10,7 @@ from phoenix9 import atomic, events, paths, reference, settings, state
 from phoenix9.api import server
 from phoenix9.ops import common, repair as ops_repair, runs as runs_ops
 
-SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
+SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n- `true`\n"
 POST_HEADERS = {"X-Phoenix": "1", "Origin": "https://phoenix.rebirthwebdesign.com.au", "Content-Type": "application/json"}
 
 

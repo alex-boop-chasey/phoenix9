@@ -191,6 +191,42 @@ def test_bad_plan_fails_with_problems(tmp_path, setup):
     assert not (run_dir / "plan.md").exists()
 
 
+PROSE_PLAN = PLAN.replace("- `test -f README.md`", "- README.md explains how to run hello.py")
+
+
+def test_prose_only_plan_on_a_quick_run_fails_with_the_line(tmp_path, setup):
+    runner = setup()                       # the test library has no check-writer: nothing would write checks
+    runner.adapters.claude.sessions += [planner(PROSE_PLAN)]
+    run_dir = start(tmp_path)
+    assert runner.drive(run_dir) == "failed"
+    row = [x for x in state.load(run_dir)["steps"] if x["step"] == "planner"][0]
+    line = PROSE_PLAN.splitlines().index("## Task 3: Add a readme") + 1
+    assert row["status"] == "failed" and f"Line {line}: task 3 has no 'Done when' item Phoenix can run" in row["note"]
+    assert "task 1" not in row["note"] and "task 2" not in row["note"]      # a command; for you
+    assert not (run_dir / "plan.md").exists()
+
+
+def test_prose_plan_passes_when_the_check_writer_is_on(tmp_path, adapters, project):
+    ctx = unit_ctx(tmp_path, adapters, True)
+    ctx.step.name = "planner"
+    out = ctx.run.folder / "planner-out"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "spec.md").write_text(PROSE_PLAN)
+    session = Result(kind="ok", text="PLAN DONE")
+    assert load("planner").after(ctx, session).status == "fail"
+    atomic.write_json(ctx.run.folder / "plan.json", {"groups": {"run-start": ["planner"], "task": ["check-writer"]}})
+    assert load("planner").after(ctx, session).status == "gate"
+
+
+def test_spec_check_needs_commands_only_when_the_check_writer_is_off(tmp_path, adapters):
+    result = load("spec-check").run(unit_ctx(tmp_path, adapters, False, PROSE_PLAN))
+    assert result.status == "fail" and spec.NEEDS_PLANNER not in result.reasons
+    assert len(result.reasons) == 1 and "task 3 has no 'Done when' item" in result.reasons[0]
+    ctx = unit_ctx(tmp_path / "w", adapters, False, PROSE_PLAN)
+    atomic.write_json(ctx.run.folder / "plan.json", {"groups": {"run-start": ["spec-check"], "task": ["check-writer"]}})
+    assert load("spec-check").run(ctx).status == "pass"
+
+
 def test_good_plan_opens_plan_gate(tmp_path, setup):
     runner = setup()
     runner.adapters.claude.sessions += [planner()]

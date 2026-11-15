@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import atomic, events, git as git_mod, paths, proc, refsnapshot, spec as spec_mod, state
+from . import atomic, events, git as git_mod, paths, proc, refsnapshot, scrub, spec as spec_mod, state
 
 
 def slugify(text: str, limit: int = 30) -> str:
@@ -110,6 +110,35 @@ def adopt_plan(run_dir, plan_path) -> int:
     return len(tasks)
 
 
+STOPPED_PATCH = "stopped-work.patch"
+
+
+def _newest_try_patch(run_dir: Path) -> Path | None:
+    """The newest try's saved changes (tasks/*/attempt-*/diff.patch), or None."""
+    found = [p for p in run_dir.glob("tasks/*/attempt-*/diff.patch") if p.is_file() and p.stat().st_size]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
+def save_stopped_work(git, code: Path, work: Path, run_dir: Path) -> list[str]:
+    """Save the worktree's changes since it branched (committed or not) as stopped-work.patch; returns notes."""
+    notes = []
+    base = git.git(work, "merge-base", git.default_branch(code), "HEAD").strip()
+    text = git.diff_text(work, base, binary=True)
+    if text.strip():
+        clean = scrub.scrub(text)
+        path = run_dir / STOPPED_PATCH
+        atomic.write_text(path, clean, mode=0o600)
+        notes.append(f"The build's unfinished changes are saved in {path} (apply with: git apply {path}).")
+        masked = sum(a != b for a, b in zip(text.splitlines(), clean.splitlines()))
+        if masked:
+            notes.append(f"{masked} line{'s' if masked != 1 else ''} that looked like a secret "
+                         f"{'were' if masked != 1 else 'was'} masked in it.")
+    last = _newest_try_patch(run_dir)
+    if last is not None:
+        notes.append(f"The last try's changes: {last}")
+    return notes
+
+
 def discard_branch(adapters, project: str, run_id: str) -> list[str]:
     """Delete a stopped run's worktree and branch (and its GitHub branch when pushed); returns notes, never raises."""
     code, notes = paths.projects() / project / "code", []
@@ -120,6 +149,10 @@ def discard_branch(adapters, project: str, run_id: str) -> list[str]:
         branch = git.branch_name(run_id)
         work = paths.work(project, run_id)
         if work.exists():
+            try:
+                notes += save_stopped_work(git, code, work, paths.runs(project) / run_id)
+            except Exception as err:
+                notes.append(f"the build's unfinished changes could not be saved: {err}")
             git.remove_worktree(code, work)
         git.git(code, "branch", "-D", branch, check=False)
         if git.remote_url(code) and git.git(code, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", check=False).strip():

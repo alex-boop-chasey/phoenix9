@@ -201,6 +201,10 @@ def test_step_that_crashes_is_a_failed_step(tmp_path, project, adapters, lib):
     assert "bad day" in state.load(run_dir)["tasks"]["1"]["failures"][0]
 
 
+# With no check-writer in the plan, the real Spec check needs a runnable item in every task (O78).
+RUNNABLE_SPEC = SPEC.replace(" works fine\n", " works fine\n- `true`\n")
+
+
 def test_real_start_steps(tmp_path, project, adapters, lib):
     for name in ("pick-up", "spec-check", "branch"):
         dest = lib / "steps" / name
@@ -210,7 +214,7 @@ def test_real_start_steps(tmp_path, project, adapters, lib):
     (lib / "profiles" / "py" / "profile.toml").write_text(
         'image = "img:1"\n\n[test]\ncmd = "pytest -q"\n')
     (project / "phoenix.toml").write_text('profile = "py"\n')
-    run_dir = make_run(tmp_path)
+    run_dir = make_run(tmp_path, spec=RUNNABLE_SPEC)
     final = Runner(adapters, lib).drive(run_dir)
     assert final == "done", events.read(run_dir / "events.jsonl")[-1]
     work = paths.work("proj", run_dir.name)

@@ -53,8 +53,13 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         overrides["preset"] = written
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
-    if description and "planner" not in plan(project, overrides)["groups"].get("run-start", []):
+    groups = plan(project, overrides)["groups"]
+    if description and "planner" not in groups.get("run-start", []):
         raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in strict + [spec.NEEDS_PLANNER]))
+    if not description and not any("check-writer" in steps for steps in groups.values()):
+        problems = spec.check(text, needs_commands=True)   # nothing writes checks: each task needs a command
+        if problems:
+            raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in problems))
     try:
         profile = settings.effective(folder, common.library(), overrides or None).get("profile")
     except settings.SettingsError as err:
@@ -121,6 +126,43 @@ def _has_based_on(project: str, kept: dict) -> bool:
         return bool(settings.load_project(common.project_dir(project)).get("based_on"))
     except (settings.SettingsError, OpsError):
         return False
+
+
+def _preset_check_writer_on(preset: str) -> bool:
+    """True when this preset's file (or the library default it leaves alone) turns the check-writer on."""
+    lib = common.library()
+    data = settings.load_preset(lib.root, settings.preset_name({"preset": preset}))
+    known = settings.all_specs(lib).get("steps.check-writer.on")     # a library without the step: it never runs
+    default = known.default if known else False
+    return bool(settings._nested(data, ["steps", "check-writer", "on"], default))
+
+
+def check_spec(text: str, preset: str | None = None, project: str | None = None) -> dict:
+    """Check spec text as a run would; with the check-writer off every task needs a runnable command.
+
+    Which settings decide: `preset` when given, else `project`'s effective settings, else the spec's `Preset:` line."""
+    if preset:
+        if preset not in settings.PRESETS:
+            raise OpsError(f"'{preset}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+        on, what, checked_for = _preset_check_writer_on(preset), f"the {preset} preset", {"preset": preset}
+    elif project:
+        try:
+            eff = settings.effective(common.project_dir(project), common.library())
+        except settings.SettingsError as err:
+            raise OpsError(f"The project's settings have problems: {err}") from None
+        on = bool(settings._nested(eff.values, ["steps", "check-writer", "on"], False))
+        what, checked_for = f"{project}'s settings", {"project": project}
+    else:
+        written = spec.parse(text).preset
+        if written not in settings.PRESETS or written == "custom":
+            return {"ok": not (problems := spec.check(text)), "problems": problems, "needs_commands": False,
+                    "checked_for": {}, "basis": ""}
+        on, what, checked_for = _preset_check_writer_on(written), f"the {written} preset", {"spec_preset": written}
+    basis = (f"Checked for {what}: the check-writer is on." if on else
+             f"Checked for {what}: the check-writer is off, so every task needs a command.")
+    problems = spec.check(text, needs_commands=not on)
+    return {"ok": not problems, "problems": problems, "needs_commands": not on, "checked_for": checked_for,
+            "basis": basis}
 
 
 def _refuse_chat_overrides(who, overrides: dict | None) -> None:

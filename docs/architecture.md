@@ -586,6 +586,12 @@ Done when:
 ```
 `parse(text) -> dict` and `check(text) -> list[str]` (problems in plain English). Also accepts V8's
 `## Step N` headings as tasks. Max 60 tasks. Spec check writes `spec.json` into the run folder.
+`check(text, needs_commands=True)` is used whenever the check-writer is off (nothing would write checks): every
+task that is not "for you" then needs at least one bullet that is only a backticked command, else one problem per
+task "Line N: task K has no 'Done when' item Phoenix can run. ...". `ops.runs.start` (task-format specs, when the
+resolved plan has no `check-writer`), the Spec check step (`check_writer_on`, from `plan.json`) and the Planner's
+output check use it; `phoenix spec check <file> [--preset P] [--project NAME]` decides from the preset, else the
+project's settings, else the spec's own `Preset:` line, and says which.
 `Preset:` is used as the run's preset override (`ops.runs.start` writes it into `overrides.json`) unless a
 preset is given for the run (`phoenix run start --preset`, or the wizard's own choice).
 
@@ -598,7 +604,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   (mounted as the container user's `~/.claude/projects`, so a session can be continued), `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
   `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
   `{who, at}` (only until the runner acts on it), `pause-request.json` `{who, at}` (same, for Pause now), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
-  (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
+  (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge), `stopped-work.patch` (0600,
+  written when a stopped or discarded run's worktree had changes since it branched, scrubbed; `runs.save_stopped_work`).
 - **Task file** (`phoenix9/taskfile.py`): `tasks/<n>/task.md` is the one readable file of a task. Above the fixed
   line `## Fix notes` Phoenix writes a view from the real state (goal, status, tries, each failed attempt's
   reasons and last 10 scrubbed check-output lines, log paths); it is regenerated (`taskfile.refresh`, at each

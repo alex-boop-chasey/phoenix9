@@ -7,6 +7,7 @@ import { Observable, type Subscriber } from "rxjs"
 import { useEffect, useMemo, useSyncExternalStore } from "react"
 
 import { apiBase } from "@/lib/api"
+import { attachmentsOf, type AttachmentInfo } from "./attach"
 import type { ToolCallItem } from "./components"
 import type { PageParts } from "./pageContext"
 
@@ -28,6 +29,8 @@ export interface SideState {
   thread?: string
   /** A plain refusal from the service for the last message sent (for example a full queue). */
   refused?: string
+  /** The files sent with each message Alex sent in this view, in order (an empty list for a message without). */
+  sentFiles?: AttachmentInfo[][]
 }
 
 /** What the service answered to a message: started now, queued behind the reply being written, or refused. */
@@ -41,7 +44,7 @@ export type Frame = { number: number; event: Record<string, any> }
 type Wait = Promise<void>
 
 /** One earlier message of an opened conversation; a "note" is a quiet line that is neither Alex nor the model. */
-export interface ChatLine { id: string; role: "user" | "assistant" | "note"; text: string }
+export interface ChatLine { id: string; role: "user" | "assistant" | "note"; text: string; attachments?: AttachmentInfo[] }
 
 /** A conversation in the history list. */
 export interface ThreadInfo { id: string; title: string; last_used: number; unread?: boolean }
@@ -118,7 +121,10 @@ export function linesFromEvents(events: { event: Record<string, any> }[]): ChatL
   const lines: ChatLine[] = []
   const open = new Map<string, ChatLine>()
   for (const { event: e } of events) {
-    if (e.type === "CUSTOM" && e.name === "user_message") lines.push({ id: e.value.id, role: "user", text: e.value.text })
+    if (e.type === "CUSTOM" && e.name === "user_message") {
+      const files = attachmentsOf(e.value)
+      lines.push(files.length ? { id: e.value.id, role: "user", text: e.value.text, attachments: files } : { id: e.value.id, role: "user", text: e.value.text })
+    }
     else if (e.type === "CUSTOM" && e.name === "note" && typeof e.value?.text === "string") lines.push({ id: `note-${lines.length}`, role: "note", text: e.value.text })
     else if (e.type === "TEXT_MESSAGE_START") {
       const line: ChatLine = { id: e.messageId, role: "assistant", text: "" }
@@ -163,6 +169,16 @@ function agentUrl(path: string): string {
   return new URL(`agent-next/${path}`, apiBase()).toString()
 }
 
+/** Where a conversation's files are uploaded (POST), through Phoenix's address. */
+export function attachmentsUrl(thread: string): string {
+  return agentUrl(`threads/${thread}/attachments`)
+}
+
+/** Where one attached file is read (GET), through Phoenix's address. */
+export function attachmentUrl(thread: string, id: string): string {
+  return agentUrl(`threads/${thread}/attachments/${id}`)
+}
+
 /** Read an SSE body into numbered events. */
 async function* readFrames(res: Response): AsyncGenerator<Frame> {
   const reader = res.body!.getReader()
@@ -202,6 +218,8 @@ export class AgentNextAgent extends AbstractAgent {
   })
   /** What Alex has open, sent with every message (none on the full page). */
   context: PageParts | undefined = undefined
+  /** Files that go with the next message the chat sends (taken by that message). */
+  private nextFiles: AttachmentInfo[] = []
 
   constructor(thread = "") {
     super()
@@ -233,6 +251,16 @@ export class AgentNextAgent extends AbstractAgent {
     this.deciders.get(approvalId)?.(decision, confirm)
   }
 
+  /** The service's conversation id, starting the conversation first when it has none (as a first message does). */
+  serviceThreadId(): Promise<string> {
+    return this.ensureThread()
+  }
+
+  /** Send these files with the next message the chat sends. */
+  attachNext(files: AttachmentInfo[]) {
+    this.nextFiles = files
+  }
+
   private async ensureThread(): Promise<string> {
     if (this.serviceThread) return this.serviceThread
     this.threadReady ??= this.post("threads", {}).then(async (res) => {
@@ -252,9 +280,11 @@ export class AgentNextAgent extends AbstractAgent {
     })
   }
 
-  /** The body of a message: the words, plus what Alex has open when known. */
-  private messageBody(text: string): Record<string, unknown> {
-    return this.context ? { message: text, context: this.context } : { message: text }
+  /** The body of a message: the words, plus what Alex has open when known, plus the ids of any files. */
+  private messageBody(text: string, files: AttachmentInfo[] = []): Record<string, unknown> {
+    const body: Record<string, unknown> = this.context ? { message: text, context: this.context } : { message: text }
+    if (files.length) body.attachments = files.map((f) => f.id)
+    return body
   }
 
   /** Count the events the thread already holds, so the next run is followed from its own first event. */
@@ -269,10 +299,10 @@ export class AgentNextAgent extends AbstractAgent {
   }
 
   /** Send a message while a reply is being written: the service queues it (or refuses in plain words). */
-  async send(text: string): Promise<SendAnswer> {
+  async send(text: string, files: AttachmentInfo[] = []): Promise<SendAnswer> {
     try {
       const id = await this.ensureThread()
-      const res = await this.post(`threads/${id}/runs`, this.messageBody(text))
+      const res = await this.post(`threads/${id}/runs`, this.messageBody(text, files))
       const answer: SendAnswer = res.ok ? ((await res.json()) as { run_id: string; queued: boolean }) : { error: await refusal(res) }
       this.setSide({ ...this.side, refused: "error" in answer ? answer.error : undefined })
       return answer
@@ -292,11 +322,13 @@ export class AgentNextAgent extends AbstractAgent {
   private async drive(input: RunAgentInput, sub: Subscriber<BaseEvent>) {
     const last = [...input.messages].reverse().find((m) => m.role === "user")
     const text = typeof last?.content === "string" ? last.content : ""
-    this.setSide({ ...this.side, running: true, calls: [], suggestions: undefined, refused: undefined })
+    const files = this.nextFiles
+    this.nextFiles = []
+    this.setSide({ ...this.side, running: true, calls: [], suggestions: undefined, refused: undefined, sentFiles: [...(this.side.sentFiles ?? []), files] })
     try {
       const id = await this.ensureThread()
       await this.catchUpCount(id)
-      const res = await this.post(`threads/${id}/runs`, this.messageBody(text))
+      const res = await this.post(`threads/${id}/runs`, this.messageBody(text, files))
       if (!res.ok) {
         this.setSide({ ...this.side, refused: await refusal(res) })
         return sub.complete()

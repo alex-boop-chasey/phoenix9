@@ -29,7 +29,8 @@ every endpoint calls one function in `phoenix9/ops/`. Paths are relative to the 
   `phoenix9/agentaccess.py` (GET `/api/projects`, `/api/projects/<name>`, `/api/projects/<name>/runs`, `/api/routes`,
   and POST `/api/projects/<name>/settings` for the single key `steps.notify.on`); anything else gets 403. Every
   JSON reply to it goes through `scrub.scrub`, and its settings change is recorded with who `agent`.
-- POST bodies are JSON objects of at most 64 KB.
+- POST bodies are JSON objects of at most 64 KB (reference file uploads up to 8 MB; agent attachment uploads at
+  `/api/agent-next/threads/<id>/attachments` up to 14 MB).
 - The API passes `who="dashboard"` to every ops call that changes something.
 - Key values are only ever returned by the reveal endpoint.
 - Nothing in the API does work itself; it calls ops.
@@ -127,7 +128,7 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/projects/<name>/keys/remove` | `ops.keys.remove` | `{name}` | masked key rows | 400, 404 |
 | POST | `/api/projects/<name>/keys/make` | `ops.keys.make` (`keymaker.make`; records `req.who`, event `keys.made` with names only) | `{services?: [name], confirm: true}` (no confirm: 400 "Making keys needs confirmation.") | `{project, saved: {service: [key names]}, problems: {service: words}, notes: {service: words}, still_missing: [key names]}`; the made values go straight into the keys store and are never returned; a key that already has a value is kept | 400, 404 |
 | GET | `/api/projects/<name>/reference` | `ops.reference.show` | - | `{files: [{name, size, modified, kind}], links: [{url, note}]}` | 404 |
-| POST | `/api/projects/<name>/reference/files` | `ops.reference.add` | `{filename, data_base64, replace?}` (body up to 8 MB, the only route above 64 KB) | the file's entry | 400, 404 |
+| POST | `/api/projects/<name>/reference/files` | `ops.reference.add` | `{filename, data_base64, replace?}` (body up to 8 MB; with agent attachment uploads, the only routes above 64 KB) | the file's entry | 400, 404 |
 | PUT | `/api/projects/<name>/reference/vision` | `ops.reference.set_vision` | `{text}` (saved as `vision.md`, replacing the old one) | the file's entry | 400, 404 |
 | DELETE | `/api/projects/<name>/reference/files/<filename>` | `ops.reference.remove` | none | `{project, name, removed}` | 400, 404 |
 | POST | `/api/projects/<name>/reference/files/remove` | `ops.reference.remove` | `{filename}` (the agent's way: its client sends only GET and POST) | `{project, name, removed}` | 400, 404 |

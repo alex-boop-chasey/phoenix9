@@ -1115,6 +1115,9 @@ bad inputs are refused before any approval card shows.
 its usual checks, adding the token. global.toml `[agent_next]` holds `url` (default `http://127.0.0.1:8097`),
 `token_file` (default `/var/lib/phoenix9/agentkit/token`) and `uid` (the agent user's uid; with no `uid`, agent
 access is off). The Phoenix-side client is the adapter `phoenix9/agentnext.py`, with a fake in tests/fakes.
+Bodies keep the 64 KB limit except `POST /api/agent-next/threads/<id>/attachments` (up to 14 MB: a 10 MB file in
+base64 plus its name). Replies keep their status and type; of the service's own headers only `Content-Disposition`
+and `X-Content-Type-Options` are passed on (so attachment files open inline or download as the service says).
 
 **Who `agent`.** A connection whose peer uid equals `[agent_next] uid` is the caller who `agent`. It needs
 `X-Phoenix: 1` but no Origin, because it is not a browser. It may use only the routes on the generated allowlist in

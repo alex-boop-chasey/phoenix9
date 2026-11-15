@@ -68,6 +68,22 @@
 /* Context chip: a small pill inside the message box, above the text */
 .ag-ctx{align-self:flex-start; display:block; max-width:100%; height:24px; padding:0 10px; border-radius:999px; background:var(--surface-2); font-size:12px; line-height:24px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 
+/* Files: chips above the text (thumbnail or document icon, name, size, remove), thumbnails in sent messages,
+   and a quiet outline on the conversation while files are dragged over it (a state, never an animation) */
+.ag-files{display:flex; flex-wrap:wrap; gap:8px; margin:0; padding:0; list-style:none}
+.ag-file-chip{display:inline-flex; align-items:center; gap:8px; max-width:100%; min-height:32px; padding:0 4px 0 8px; border-radius:999px; background:var(--surface-2); font-size:12px; line-height:16px; color:var(--text-2)}
+.ag-file-thumb{width:24px; height:24px; border-radius:6px; object-fit:cover}
+.ag-file-name{min-width:0; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text)}
+.ag-file-x{display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border:0; border-radius:999px; background:none; color:var(--text-2); cursor:pointer}
+.ag-file-x:hover{background:var(--surface)}
+.ag-file-x:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+.ag-sent-files{display:flex; flex-wrap:wrap; gap:8px; margin-bottom:4px}
+.ag-thumb{display:block; border-radius:8px; overflow:hidden; border:1px solid var(--line)}
+.ag-thumb img{display:block; max-width:160px; max-height:120px; object-fit:cover}
+.ag-thumb:focus-visible,a.ag-file-chip:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+a.ag-file-chip{text-decoration:none; padding-right:10px}
+.ag-conv.ag-drop{outline:2px dashed var(--line-strong); outline-offset:-4px; border-radius:12px}
+
 /* Not-answering card and the history menu */
 .ag-asleep{max-width:400px}
 .ag-hist{position:relative}
@@ -92,6 +108,8 @@
   .ag-comp{padding-left:12px; padding-right:12px}
   .ag-input{font-size:16px; min-height:44px; padding:10px 4px}
   .ag-row .btn-icon{--h:44px}
+  .ag-file-chip{min-height:44px}
+  .ag-file-x{width:44px; height:44px}
 }
 @media (prefers-reduced-motion:reduce){.drawer .dr-h::after{animation:none !important}}
 

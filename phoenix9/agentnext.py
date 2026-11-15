@@ -18,11 +18,16 @@ class AgentUnavailable(Exception):
     """The agent service can't be reached or its token can't be read (the message is plain English)."""
 
 
-class Reply:
-    """An answer from the agent service: status, content type and the body as an iterator of byte chunks."""
+PASSED_HEADERS = ("Content-Disposition", "X-Content-Type-Options")   # agent reply headers passed to the browser
 
-    def __init__(self, status: int, content_type: str, chunks):
+
+class Reply:
+    """An answer from the agent service: status, content type, the body as an iterator of byte chunks and the
+    few headers the browser should see (PASSED_HEADERS)."""
+
+    def __init__(self, status: int, content_type: str, chunks, headers: dict | None = None):
         self.status, self.content_type, self.chunks = status, content_type, chunks
+        self.headers = dict(headers or {})
 
 
 class AgentNext:
@@ -81,7 +86,8 @@ class AgentNext:
         except (urllib.error.URLError, OSError):
             raise AgentUnavailable(NOT_RUNNING) from None
         kind = resp.headers.get("Content-Type", "application/octet-stream")
-        return Reply(resp.status, kind, _chunks(resp))
+        passed = {name: resp.headers[name] for name in PASSED_HEADERS if resp.headers.get(name)}
+        return Reply(resp.status, kind, _chunks(resp), passed)
 
 
 def _chunks(resp):

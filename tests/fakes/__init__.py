@@ -547,13 +547,14 @@ class FakeAgentNext(AgentNext):
         self.status, self.content_type, self.chunks = 200, "application/json", [b'{"ok": true}']
         self.down = False   # True: the service does not answer
         self.gate = None   # an optional callable run between chunks (tests use it to prove chunks arrive early)
+        self.headers: dict = {}   # extra reply headers (as the real adapter keeps them)
 
     def send(self, method, url, headers, body, timeout=None):
         """Record the call and return the scripted reply."""
         self.calls.append({"method": method, "url": url, "headers": dict(headers), "body": body, "timeout": timeout})
         if self.down:
             raise AgentUnavailable(NOT_RUNNING)
-        return Reply(self.status, self.content_type, self._yield())
+        return Reply(self.status, self.content_type, self._yield(), self.headers)
 
     def _yield(self):
         for i, chunk in enumerate(self.chunks):

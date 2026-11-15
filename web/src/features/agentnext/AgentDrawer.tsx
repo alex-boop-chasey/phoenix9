@@ -237,6 +237,7 @@ export function AgentDrawer({ open, onClose, opener, ask, show, onNews, size = "
             context={context}
             chip={<p className="ag-ctx" role="note" data-testid="agent-context" aria-label={looking} title={looking}>{chipWords(context ?? {})}</p>}
             notice={<AllowanceNote allowance={t.allowance} />}
+            allowanceLow={t.allowance?.state === "low"}
             goTo={navigateKeepingPanel}
             queued={queued.filter((m) => !threadRef.current || m.thread === threadRef.current)}
             onQueued={onQueued}

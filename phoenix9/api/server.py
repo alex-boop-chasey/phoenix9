@@ -19,6 +19,7 @@ from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentne
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
+MAX_AGENT_UPLOAD_BODY = 14 * 1024 * 1024  # only POST agent-next .../attachments: a 10 MB file in base64 plus its name
 ORIGINS_ENV = "PHOENIX_API_ORIGINS"
 SERVER_ERROR = "Something went wrong; details are in the API log."
 NOT_BUILT = (b"<!doctype html><html><head><meta charset=utf-8><title>Phoenix 9</title></head><body>"
@@ -42,6 +43,7 @@ WORK_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")  # the same rule as quick edit 
 MAX_REPLY = 2000
 WHO = "dashboard"
 AGENT_NEXT = "/api/agent-next"
+AGENT_REPLY_HEADERS = ("Content-Disposition", "X-Content-Type-Options")   # the agent's own headers passed on
 RUNNER_ONLY_AGENT_PATHS = ("handoffs",)   # agent service routes the dashboard may never reach
 
 
@@ -1505,6 +1507,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")
+AGENT_UPLOAD_PATH = re.compile(r"^/api/agent-next/threads/[^/]+/attachments/?$")
 COMPILED = [(m, re.compile(rf"^{p}/?$"), h) for m, p, h in ROUTES]
 
 
@@ -1679,7 +1682,8 @@ class Handler(BaseHTTPRequestHandler):
         raw = b"".join(reply.chunks)
         if method == "GET" and rest == "/status":
             raw = ops_agentnext.tell_no_key(raw)
-        self.send_raw(reply.status, reply.content_type, raw)
+        passed = {k: v for k, v in getattr(reply, "headers", {}).items() if k in AGENT_REPLY_HEADERS}
+        self.send_raw(reply.status, reply.content_type, raw, headers=passed)
 
     def relay_stream(self, reply):
         """Send the agent's event stream on, chunk by chunk, until either side leaves."""
@@ -1713,6 +1717,8 @@ class Handler(BaseHTTPRequestHandler):
         limit = MAX_BODY
         if self.command == "POST" and UPLOAD_PATH.match(self.path_only):
             limit = MAX_UPLOAD_BODY
+        elif self.command == "POST" and AGENT_UPLOAD_PATH.match(self.path_only):
+            limit = MAX_AGENT_UPLOAD_BODY
         if length == 0 and self.command == "DELETE":
             self.body = {}
             return self.body

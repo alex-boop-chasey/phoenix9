@@ -1,5 +1,4 @@
-// The list of earlier conversations, newest first; clicking one opens it.
-import { Button } from "@/components/ui/button"
+// The list of earlier conversations, newest first, beside the conversation on the full-screen agent; clicking one opens it.
 import type { ThreadInfo } from "./runtime"
 
 /** Say when a conversation was last used, in plain words. */
@@ -7,22 +6,22 @@ function lastUsed(seconds: number): string {
   return seconds ? new Date(seconds * 1000).toLocaleString() : "not yet"
 }
 
-/** The history list with New conversation on top. */
-export function History(props: { threads: ThreadInfo[]; current: string; onOpen: (id: string) => void; onNew: () => void }) {
+/** The history list; the open conversation is marked. New conversation is in the panel's header. */
+export function History(props: { threads: ThreadInfo[]; current: string; onOpen: (id: string) => void }) {
   return (
-    <nav className="flex flex-col gap-2" aria-label="Conversations">
-      <Button variant="secondary" onClick={props.onNew}>New conversation</Button>
-      <ul className="flex flex-col gap-1">
+    <nav className="ag-side" aria-label="Conversations">
+      {!props.threads.length && <p className="ag-menu-note">No earlier conversations.</p>}
+      <ul>
         {props.threads.map((t) => (
           <li key={t.id}>
             <button
               type="button"
-              className="w-full rounded-md px-2 py-1 text-left hover:bg-muted"
+              className="ag-thread"
               aria-current={t.id === props.current ? "true" : undefined}
               onClick={() => props.onOpen(t.id)}
             >
-              <span className="block text-sm">{t.title || "New conversation"}</span>
-              <span className="block text-xs text-muted-foreground">Last used {lastUsed(t.last_used)}</span>
+              <span>{t.title || "New conversation"}</span>
+              <span className="ag-when">Last used {lastUsed(t.last_used)}</span>
             </button>
           </li>
         ))}

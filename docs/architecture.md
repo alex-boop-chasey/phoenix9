@@ -998,10 +998,15 @@ It replaced the old Claude-Code agent (section 8.6). Two layers:
 - **`agentkit/packs/phoenix/`**: the Phoenix pack, kept thin: its tools, browser actions, cards and
   instructions. It reaches Phoenix only through Phoenix's HTTP API (`http://127.0.0.1:8095`).
 
-The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`). The top bar's
-Agent button, Ctrl+. and the `phoenix:open-agent` event (its `detail.message`, when given, is sent) open the same
-chat in a drawer (`AgentDrawer.tsx`); both show the conversation remembered under the browser key `agent-next-thread`.
-The drawer sends `context` {page, project, run} from the router with every message and says it on a chip above the
+The agent is one panel in two sizes (`AgentDrawer.tsx` in `web/src/features/agentnext/`; assistant-ui behind
+`runtime.ts`; styles in `web/src/styles/agent.css`): the side drawer, with a clock button for earlier conversations,
+and full screen under the top bar, with the history list on the left and the conversation in the middle (at most
+720px wide). Expand and Shrink in its header switch sizes without reloading the conversation; the size is remembered
+in the browser (`phoenix.agent.wide`); on phone width it is always the drawer, which fills the screen there. The top
+bar's Agent button opens it and, while it is open, only puts the cursor in the message box; Ctrl+. toggles it, Esc
+closes it. The `phoenix:open-agent` event opens it (its `detail.message`, when given, is sent; `detail.size: "full"`
+opens it full screen), and `#/agent-next` sends that event with `size: "full"` and moves to the projects page. Both
+sizes show the conversation remembered under the browser key `agent-next-thread`. The panel sends `context` {page, project, run} from the router with every message and says it on a chip above the
 message box; while a reply is being written its message box still sends, a queued message shows as "Queued" until
 its turn starts, then the drawer follows that run (it reopens the thread and replays from its last `RUN_STARTED`).
 When `/status` says the agent cannot answer, the drawer shows a card with the reason (no API key, not running, not
@@ -1010,8 +1015,7 @@ set up); when it is not running the card offers "Restart the agent" (asks first,
 `phoenix:open-agent` with "Tell me about bell item <id>" (only the id; bell words come from builds). While the drawer
 is closed, a finished reply or a new approval card in its open conversation puts a dot on the Agent button until it opens.
 
-**How Alex uses it.** The Agent button in the top bar opens the drawer (the only way in besides the full page
-`#/agent-next`); each message carries the page context (page, project, run) and the service tells the model one
+**How Alex uses it.** The Agent button in the top bar opens the panel (`#/agent-next` opens it full screen); each message carries the page context (page, project, run) and the service tells the model one
 line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
 per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
 `failmodes._hand_to_agent` to `POST /handoffs` (ids only; Alex gets one line), and the agent may only answer

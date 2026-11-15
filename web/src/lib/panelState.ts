@@ -1,8 +1,8 @@
-// Remembered Agent drawer settings (open, wide) and the phone-width check; every storage access is guarded.
+// Remembered Agent panel settings (open, full screen) and the phone-width check; every storage access is guarded.
 import { useEffect, useState } from "react"
 
 const OPEN_KEY = "phoenix.agent.open"
-const WIDE_KEY = "phoenix.agent.wide"
+const EXPANDED_KEY = "phoenix.agent.wide"
 const PHONE_QUERY = "(max-width: 719px)"
 
 /** Read a remembered yes/no flag; false when storage is missing or throws. */
@@ -27,10 +27,10 @@ export function writeFlag(key: string, value: boolean) {
 export const readOpen = () => readFlag(OPEN_KEY)
 /** Remember whether the panel is open. */
 export const writeOpen = (open: boolean) => writeFlag(OPEN_KEY, open)
-/** Whether the panel was wide last time. */
-export const readWide = () => readFlag(WIDE_KEY)
-/** Remember whether the panel is wide. */
-export const writeWide = (wide: boolean) => writeFlag(WIDE_KEY, wide)
+/** Whether the panel was full screen last time. */
+export const readExpanded = () => readFlag(EXPANDED_KEY)
+/** Remember whether the panel is full screen. */
+export const writeExpanded = (expanded: boolean) => writeFlag(EXPANDED_KEY, expanded)
 
 /** True while the window is phone width (under 720 px); follows resizes. */
 export function usePhoneWidth(): boolean {

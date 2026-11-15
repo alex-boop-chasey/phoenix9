@@ -1,9 +1,8 @@
 // Proof: the assistant-ui chat shows streamed text, a project card, a go_to move and an approval, from a mocked stream.
-import { render, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter, Route, Routes, useLocation } from "react-router"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 
 type Ev = Record<string, unknown>
 const frame = (n: number, e: Ev) => `id: ${n}\ndata: ${JSON.stringify(e)}\n\n`
@@ -41,20 +40,9 @@ function mockService(streams: Ev[][]) {
   return posts
 }
 
-function Where() {
-  return <p data-testid="where">{useLocation().pathname}</p>
-}
-
+/** The full-screen panel; it moves the dashboard through the address hash (the app's router) and stays open. */
 function setup() {
-  render(
-    <MemoryRouter initialEntries={["/agent-next"]}>
-      <Where />
-      <Routes>
-        {/* The page stays mounted wherever the agent goes, as the panel will when it sits beside every page. */}
-        <Route path="*" element={<AgentNextPage />} />
-      </Routes>
-    </MemoryRouter>,
-  )
+  renderFullAgent()
 }
 
 async function say(message: string) {
@@ -62,7 +50,7 @@ async function say(message: string) {
   await userEvent.click(screen.getByRole("button", { name: "Send" }))
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); window.location.hash = "" })
 
 describe("agent-next proof", () => {
   it("streams text and draws the project card", async () => {
@@ -83,7 +71,8 @@ describe("agent-next proof", () => {
     setup()
     await say("open settings")
     expect(await screen.findByText("Opened it.")).toBeInTheDocument()
-    expect(screen.getByTestId("where")).toHaveTextContent("/settings")
+    expect(window.location.hash).toBe("#/settings")
+    expect(screen.getByLabelText("Phoenix agent panel")).toHaveClass("open")
     const result = posts.find((p) => p.path === "browser-results/g1")
     expect(result?.body.result).toMatchObject({ ok: true })
   })
@@ -96,7 +85,7 @@ describe("agent-next proof", () => {
     setup()
     await say("open nowhere")
     expect(await screen.findByText("I could not.")).toBeInTheDocument()
-    expect(screen.getByTestId("where")).toHaveTextContent("/agent-next")
+    expect(window.location.hash).toBe("")
     expect(posts.find((p) => p.path === "browser-results/g2")?.body.result).toMatchObject({ ok: false })
   })
 

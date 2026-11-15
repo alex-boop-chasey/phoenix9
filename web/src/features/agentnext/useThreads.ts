@@ -1,4 +1,4 @@
-// The conversation list, the allowance and the open conversation, shared by the /agent-next page and the drawer.
+// The conversation list, the allowance and the open conversation of the agent panel (both sizes).
 import { useCallback, useEffect, useState } from "react"
 
 import {
@@ -6,7 +6,7 @@ import {
   type Allowance, type CardItem, type NotAnswering, type ChatLine, type Frame, type ThreadInfo,
 } from "./runtime"
 
-/** The browser's memory of the last conversation, shared by the page and the drawer so both show the same chat. */
+/** The browser's memory of the last conversation, so the panel opens the same chat after a reload. */
 export const LAST_THREAD = "agent-next-thread"
 
 type Stored = { events: Frame[]; running?: boolean }

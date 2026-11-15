@@ -1,7 +1,7 @@
 import { Route, Routes } from "react-router"
 
 import { AppShell } from "@/components/AppShell"
-import AgentNextPage from "@/features/agentnext/AgentNextPage"
+import { OpenAgentFullScreen } from "@/features/agentnext/AgentDrawer"
 import DocPage from "@/features/docs/DocPage"
 import GlobalSettingsPage from "@/pages/GlobalSettingsPage"
 import ImportPage from "@/pages/ImportPage"
@@ -22,7 +22,7 @@ export default function App() {
         <Route path="/styles" element={<StylesPage />} />
         <Route path="/p/:name" element={<ProjectPage />} />
         <Route path="/p/:name/:tab" element={<ProjectPage />} />
-        <Route path="/agent-next" element={<AgentNextPage />} />
+        <Route path="/agent-next" element={<OpenAgentFullScreen />} />
         <Route path="/doc" element={<DocPage />} />
         <Route path="/settings" element={<GlobalSettingsPage />} />
         <Route path="*" element={<NotFound />} />

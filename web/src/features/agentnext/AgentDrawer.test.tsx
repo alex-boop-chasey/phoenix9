@@ -8,9 +8,9 @@ import { MemoryRouter } from "react-router"
 import { AppShell } from "@/components/AppShell"
 import { info, projects } from "@/test/fixtures"
 import { failure, mockApi, raw, type MockRequest, type Route } from "@/test/mockApi"
+import { renderFullAgent } from "@/test/agentPanel"
 import { renderWithProviders } from "@/test/render"
 import { AgentDrawer, type DrawerAsk } from "./AgentDrawer"
-import AgentNextPage from "./AgentNextPage"
 import { RESTART_LIMIT_MS, RESTART_LOOK_MS } from "./NotAnswering"
 
 type Ev = Record<string, unknown>
@@ -140,13 +140,13 @@ describe("the agent drawer", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("This chat is waiting for your answer on a change. Approve or refuse it first.")
   })
 
-  it("shows the same conversation as the full page", async () => {
+  it("shows the same conversation full screen", async () => {
     localStorage.setItem("agent-next-thread", "t1")
     service()
     const drawer = setup()
     expect(await within(screen.getByLabelText("Phoenix agent panel")).findByText("It is under Health.")).toBeInTheDocument()
     drawer.unmount()
-    render(<MemoryRouter initialEntries={["/agent-next"]}><AgentNextPage /></MemoryRouter>)
+    renderFullAgent()
     expect(await screen.findByText("It is under Health.")).toBeInTheDocument()
   })
 
@@ -164,6 +164,92 @@ describe("the agent drawer", () => {
     await userEvent.click(await screen.findByRole("menuitem", { name: /Where is the doctor\?/ }))
     expect(await screen.findByText("It is under Health.")).toBeInTheDocument()
     expect(localStorage.getItem("agent-next-thread")).toBe("t1")
+  })
+})
+
+const shellRoutes = {
+  "GET /api/info": info, "GET /api/projects": projects, "GET /api/gates": [], "GET /api/bell": { count: 0, items: [] },
+  "GET /api/events/recent": { events: [], next: 0 },
+}
+
+/** Make the window phone width (or not) for usePhoneWidth. */
+function stubPhone(phone: boolean) {
+  vi.stubGlobal("matchMedia", (q: string) => ({
+    matches: phone && q.includes("max-width: 719px"), media: q, addEventListener() {}, removeEventListener() {},
+  }))
+}
+
+describe("the two sizes", () => {
+  const panel = () => screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
+
+  /** The whole shell with the agent opened from the Agent button. */
+  function openShell() {
+    service({ extra: shellRoutes })
+    const view = renderWithProviders(<AppShell>x</AppShell>, { route: "/settings" })
+    fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
+    return view
+  }
+
+  it("Expand fills the screen with the history list, and Shrink goes back to the side panel", async () => {
+    localStorage.setItem("agent-next-thread", "t1")
+    openShell()
+    expect(panel()).not.toHaveClass("full")
+    expect(screen.queryByRole("navigation", { name: "Conversations" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Open full page" })).toBeNull()
+    expect(await screen.findByText("It is under Health.")).toBeInTheDocument()
+
+    fireEvent.click(within(panel()).getByRole("button", { name: "Expand to full screen" }))
+    expect(panel()).toHaveClass("full", "open")
+    const list = screen.getByRole("navigation", { name: "Conversations" })
+    expect(await within(list).findByRole("button", { name: /Where is the doctor\?/ })).toHaveAttribute("aria-current", "true")
+    expect(within(panel()).queryByRole("button", { name: "History" })).toBeNull()
+    expect(within(panel()).queryByRole("button", { name: "Expand to full screen" })).toBeNull()
+    expect(screen.getByText("It is under Health.")).toBeInTheDocument()
+
+    fireEvent.click(within(panel()).getByRole("button", { name: "Shrink to side panel" }))
+    expect(panel()).not.toHaveClass("full")
+    expect(panel()).toHaveClass("open")
+    expect(screen.queryByRole("navigation", { name: "Conversations" })).toBeNull()
+    expect(within(panel()).getByRole("button", { name: "History" })).toBeInTheDocument()
+    expect(within(panel()).getByRole("button", { name: "Expand to full screen" })).toBeInTheDocument()
+  })
+
+  it("remembers the size for next time", () => {
+    const view = openShell()
+    fireEvent.click(within(panel()).getByRole("button", { name: "Expand to full screen" }))
+    view.unmount()
+    renderWithProviders(<AppShell>x</AppShell>, { route: "/settings" })
+    expect(panel()).toHaveClass("full", "open")
+    fireEvent.click(within(panel()).getByRole("button", { name: "Shrink to side panel" }))
+    expect(localStorage.getItem("phoenix.agent.wide")).toBe("0")
+  })
+
+  it.each([["side panel", false], ["full screen", true]])("Close hides it in the %s", (_name, full) => {
+    openShell()
+    if (full) fireEvent.click(within(panel()).getByRole("button", { name: "Expand to full screen" }))
+    expect(panel()).toHaveClass("open")
+    fireEvent.click(within(panel()).getByRole("button", { name: "Close" }))
+    expect(panel()).not.toHaveClass("open")
+    expect(panel()).toHaveAttribute("aria-hidden", "true")
+  })
+
+  it("Esc on full screen closes it and puts focus back on the Agent button", async () => {
+    openShell()
+    fireEvent.click(within(panel()).getByRole("button", { name: "Expand to full screen" }))
+    await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus())
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(panel()).not.toHaveClass("open")
+    expect(screen.getByRole("button", { name: "Phoenix agent" })).toHaveFocus()
+  })
+
+  it("hides Expand and Shrink on phone width, where the panel already fills the screen", () => {
+    stubPhone(true)
+    localStorage.setItem("phoenix.agent.wide", "1")
+    openShell()
+    expect(panel()).not.toHaveClass("full")
+    expect(within(panel()).queryByRole("button", { name: "Expand to full screen" })).toBeNull()
+    expect(within(panel()).queryByRole("button", { name: "Shrink to side panel" })).toBeNull()
+    expect(screen.queryByRole("navigation", { name: "Conversations" })).toBeNull()
   })
 })
 

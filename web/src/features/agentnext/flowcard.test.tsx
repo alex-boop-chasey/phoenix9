@@ -1,9 +1,8 @@
 // The flow card: active, done and cancelled flows, the Cancel message, bad data, and a replay showing one current card.
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 import { COMPONENTS } from "./components"
 
 const data = (status: string, step: number, extra: Record<string, unknown> = {}) =>
@@ -56,7 +55,7 @@ describe("replaying a flow", () => {
       return json({})
     }))
     localStorage.setItem("agent-next-thread", "t1")
-    render(<MemoryRouter initialEntries={["/agent-next"]}><AgentNextPage /></MemoryRouter>)
+    renderFullAgent()
     await waitFor(() => expect(screen.getAllByTestId("flow-card")).toHaveLength(1))
     expect(screen.getByText("Step 3 of 4: label3")).toBeInTheDocument()
     expect(screen.getAllByTestId("flow-line")).toHaveLength(2)

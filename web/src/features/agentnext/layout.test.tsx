@@ -1,9 +1,8 @@
-// The /agent-next layout: history list, opening a thread, new conversation, Stop and the allowance bar.
-import { render, screen, waitFor } from "@testing-library/react"
+// The full-screen agent: history list, opening a thread, new conversation, Stop and the allowance bar.
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 
 const frame = (n: number, e: Record<string, unknown>) => `id: ${n}\ndata: ${JSON.stringify(e)}\n\n`
 
@@ -41,7 +40,7 @@ function mockService(state: "plenty" | "low" | "used_up" = "plenty") {
 }
 
 function setup() {
-  render(<MemoryRouter initialEntries={["/agent-next"]}><AgentNextPage /></MemoryRouter>)
+  renderFullAgent()
 }
 
 afterEach(() => vi.unstubAllGlobals())

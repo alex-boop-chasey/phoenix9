@@ -1,12 +1,14 @@
-// The Agent drawer in the top bar: the new agent's conversation on every dashboard page, told which page Alex has open.
+// The Agent panel in the top bar: the new agent's conversation on every dashboard page, told which page Alex has open.
+// One panel in two sizes: the side drawer and full screen (with the history list on the left).
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react"
-import { useLocation } from "react-router"
+import { Navigate, useLocation } from "react-router"
 
 import { Icon } from "@/components/Icon"
 import { navigateKeepingPanel } from "@/lib/navigate"
 import { usePhoneWidth } from "@/lib/panelState"
 import { AllowanceBar } from "./Allowance"
 import { Conversation, type QueuedMessage } from "./Conversation"
+import { History } from "./History"
 import { NotAnsweringCard } from "./NotAnswering"
 import { contextToSend, lookingAt, readPageContext } from "./pageContext"
 import type { ThreadInfo } from "./runtime"
@@ -14,6 +16,15 @@ import { rememberThread, useThreads } from "./useThreads"
 
 /** A message to send when the drawer opens (from the `phoenix:open-agent` event); a new key sends again. */
 export interface DrawerAsk { key: number; text: string }
+
+/** The panel's two sizes: the side drawer, or full screen under the top bar. */
+export type AgentSize = "drawer" | "full"
+
+/** The old `#/agent-next` page: opens the agent full screen over the projects page. */
+export function OpenAgentFullScreen() {
+  useEffect(() => { window.dispatchEvent(new CustomEvent("phoenix:open-agent", { detail: { size: "full" } })) }, [])
+  return <Navigate to="/" replace />
+}
 
 /** Height of the top bar the drawer sits under. */
 const TOP_BAR_PX = 60
@@ -91,11 +102,13 @@ function HistoryMenu({ threads, current, onOpen, onShow }: { threads: ThreadInfo
 }
 
 /**
- * The slide-in agent drawer; focus goes to the message box on open and back to `opener` on close.
+ * The agent panel, as a slide-in drawer or full screen (`size`; phones always get the drawer, which fills the screen there).
+ * Focus goes to the message box on open and back to `opener` on close.
  * `onNews` is called while it is closed when a reply finishes or an approval starts waiting.
  */
-export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
+export function AgentDrawer({ open, onClose, opener, ask, onNews, size = "drawer", onSize }: {
   open: boolean; onClose: () => void; opener: RefObject<HTMLElement | null>; ask?: DrawerAsk | null; onNews?: () => void
+  size?: AgentSize; onSize?: (size: AgentSize) => void
 }) {
   const [started, setStarted] = useState(open)
   useEffect(() => { if (open) setStarted(true) }, [open])
@@ -110,6 +123,8 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
   const aside = useRef<HTMLElement>(null)
   const phone = usePhoneWidth()
   usePhoneSheet(open, phone, aside)
+  const full = size === "full" && !phone
+  useEffect(() => { if (full && started) void refresh() }, [full, started, refresh])
 
   const { pathname, search } = useLocation()
   const parts = useMemo(() => readPageContext(pathname, search).context, [pathname, search])
@@ -141,6 +156,7 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
     else void followNext(m.thread, [m.runId])  // the reply ended meanwhile: this one started at once
   }, [followNext])
   const forget = () => setQueued([])
+  const openThread = (id: string) => { forget(); void t.open(id) }
 
   // A message from the open-agent event is sent once, after the conversation has loaded.
   const [sentAsk, setSentAsk] = useState<number | null>(null)
@@ -156,7 +172,7 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
   return (
     <aside
       ref={aside}
-      className={`drawer${open ? " open" : ""}`}
+      className={`drawer${full ? " full" : ""}${open ? " open" : ""}`}
       aria-label="Phoenix agent panel"
       aria-hidden={!open}
       data-testid="agent-panel"
@@ -170,15 +186,22 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
               <Icon name="plus" />
             </button>
           )}
-          <HistoryMenu threads={t.threads} current={current} onShow={() => void refresh()} onOpen={(id) => { forget(); void t.open(id) }} />
-          <a className="btn btn-ghost btn-icon" href="#/agent-next" aria-label="Open full page" title="Open full page" onClick={onClose}>
-            <Icon name="arrow-up-right" />
-          </a>
+          {!full && <HistoryMenu threads={t.threads} current={current} onShow={() => void refresh()} onOpen={openThread} />}
+          {!phone && onSize && (full
+            ? <button className="btn btn-ghost btn-icon" aria-label="Shrink to side panel" title="Shrink to side panel" onClick={() => onSize("drawer")}>
+                <Icon name="caret-right" />
+              </button>
+            : <button className="btn btn-ghost btn-icon" aria-label="Expand to full screen" title="Expand to full screen" onClick={() => onSize("full")}>
+                <Icon name="arrow-up-right" />
+              </button>)}
           <button className="btn btn-ghost btn-icon" aria-label="Close" title="Close (Esc)" onClick={onClose}>
             <Icon name="x" />
           </button>
         </div>
       </div>
+      <div className="ag-body">
+      {full && !t.problem && <History threads={t.threads} current={current} onOpen={openThread} />}
+      <div className="ag-main">
       <div className="dr-b" style={{ display: "block", textAlign: "left", overflowY: "auto" }}>
         {t.problem && (t.reason
           ? <NotAnsweringCard key={t.reason} reason={t.reason} message={t.problem} onBack={onBack} />
@@ -208,6 +231,8 @@ export function AgentDrawer({ open, onClose, opener, ask, onNews }: {
       </div>
       <div className="dr-f">
         <div className="flex-1"><AllowanceBar allowance={t.allowance} /></div>
+      </div>
+      </div>
       </div>
     </aside>
   )

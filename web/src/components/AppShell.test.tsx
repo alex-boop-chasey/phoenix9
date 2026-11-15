@@ -1,7 +1,9 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { Route, Routes } from "react-router"
 
 import { AppShell } from "@/components/AppShell"
 import { crumbsFor } from "@/components/Crumbs"
+import { OpenAgentFullScreen } from "@/features/agentnext/AgentDrawer"
 import { info, projects } from "@/test/fixtures"
 import { agentNextRoutes, mockApi } from "@/test/mockApi"
 import { renderWithProviders } from "@/test/render"
@@ -121,7 +123,7 @@ test("Ctrl+. toggles the new agent drawer and the button opens it", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Phoenix agent" }))
   expect(panel).toHaveClass("open")
   expect(within(panel).getByRole("heading", { name: "Agent" })).toBeInTheDocument()
-  expect(within(panel).getByRole("link", { name: "Open full page" })).toHaveAttribute("href", "#/agent-next")
+  expect(within(panel).getByRole("button", { name: "Expand to full screen" })).toBeInTheDocument()
   expect(await within(panel).findByText("plenty left this month")).toBeInTheDocument()
   fireEvent.keyDown(document, { key: ".", ctrlKey: true })
   expect(panel).not.toHaveClass("open")
@@ -135,6 +137,49 @@ test("the open-agent event opens the drawer", () => {
   setup()
   act(() => { window.dispatchEvent(new CustomEvent("phoenix:open-agent")) })
   expect(screen.getByLabelText("Phoenix agent panel", { selector: "aside" })).toHaveClass("open")
+})
+
+test("pressing Agent while it is open leaves exactly one agent open and puts the cursor in the message box", async () => {
+  setup()
+  const btn = screen.getByRole("button", { name: "Phoenix agent" })
+  fireEvent.click(btn)
+  const panel = screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
+  const box = await screen.findByLabelText("Message")
+  btn.focus()
+  fireEvent.click(btn)
+  expect(panel).toHaveClass("open")
+  expect(box).toHaveFocus()
+  expect(screen.getAllByTestId("agent-panel")).toHaveLength(1)
+  expect(screen.getAllByLabelText("Message")).toHaveLength(1)
+  fireEvent.click(within(panel).getByRole("button", { name: "Expand to full screen" }))
+  btn.focus()
+  fireEvent.click(btn)
+  expect(panel).toHaveClass("open", "full")
+  expect(box).toHaveFocus()
+  expect(screen.getAllByTestId("agent-panel")).toHaveLength(1)
+})
+
+test("#/agent-next opens the agent full screen over the projects page", async () => {
+  window.localStorage.clear()
+  mockApi({
+    ...agentNextRoutes(),
+    "GET /api/info": info, "GET /api/projects": projects, "GET /api/gates": [], "GET /api/bell": { count: 0, items: [] },
+    "GET /api/events/recent": { events: [], next: 0 },
+  })
+  renderWithProviders(
+    <AppShell>
+      <Routes>
+        <Route path="/" element={<p>Projects page</p>} />
+        <Route path="/agent-next" element={<OpenAgentFullScreen />} />
+      </Routes>
+    </AppShell>,
+    { route: "/agent-next" },
+  )
+  expect(await screen.findByText("Projects page")).toBeInTheDocument()
+  const panel = screen.getByLabelText("Phoenix agent panel", { selector: "aside" })
+  expect(panel).toHaveClass("open", "full")
+  expect(screen.getByRole("navigation", { name: "Conversations" })).toBeInTheDocument()
+  expect(screen.getAllByTestId("agent-panel")).toHaveLength(1)
 })
 
 test("the panel gives focus back to the header button", async () => {

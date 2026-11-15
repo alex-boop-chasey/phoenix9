@@ -589,6 +589,9 @@ def rewrite_checks(ctx, n: int, why: str) -> str:
             if other.get("status") == "skipped" and (other.get("note") or "").startswith(f"depends on task {n}"):
                 other.update(status="pending", note="")
     state.update(ctx.run_dir, change)
+    number = _snapshot_number(ctx)
+    for folder in sorted((Path(ctx.run_dir) / "tasks" / str(n)).glob("attempt-*")):
+        snapshot.move_to_removed(ctx.run_dir, number, folder)    # tries start at 0 again; undo brings them back
     return (f"removed the locked checks of task {n} ({len(files)} file(s)); task {n} is pending and the check "
             f"writer sees your objection: {objection}")
 

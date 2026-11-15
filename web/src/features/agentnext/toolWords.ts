@@ -35,6 +35,8 @@ export const TOOL_WORDS: Record<string, ToolWords> = {
   "global-addresses": { doing: "Changing the dashboard addresses", done: "Changed the dashboard addresses" },
   "global-models": { doing: "Saving the default model", done: "Saved the default model" },
   "global-show": { doing: "Reading the global settings", done: "Read the global settings" },
+  "handoff-fix": { doing: "Working on a task Phoenix handed over", done: "Acted on a task Phoenix handed over" },
+  "handoff-give-up": { doing: "Handing a task back to you", done: "Handed a task back to you" },
   "hotfix-start": { doing: "Starting a small fix", done: "Started a small fix" },
   "job-status": { doing: "Checking on a job", done: "Checked on a job" },
   "keys-list": { doing: "Looking at the keys", done: "Looked at the keys" },

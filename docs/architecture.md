@@ -1031,7 +1031,7 @@ is closed, a finished reply or a new approval card in its open conversation puts
 line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
 per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
 `failmodes._hand_to_agent` to `POST /handoffs` (ids only; recorded in `tasks/<n>/handoff.json`, no line to Alex until it ends), and the agent may only answer
-`acknowledged` on that question. The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
+`acknowledged` on that question, or act through `handoff-fix` / `handoff-give-up` (`ops.handoff`). The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
 `phoenix-agentkit` after two bad checks in a row, at most every 10 minutes, and leaves a service stopped on purpose alone.
 
 **The service.** `phoenix-agentkit.service`, system user `phoenix-agentkit` (it refuses to start as uid 0),
@@ -1447,6 +1447,12 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   minutes), then "hasn't finished" after 30 minutes, "fixed" or "gave up: <why>", each with the
   conversation id (`thread`). Telegram gets exactly one line when it ends: "the agent fixed <project> task
   <n> (...); the build goes on." (or, from the give-up path, that the agent couldn't fix it).
+  The agent acts on its own only through `ops.handoff` (`handoff-fix`: `retry` answers `acknowledged`
+  with an optional note; `rewrite-checks`, once per task per run, uses a one-time grant made by Alex's
+  standing rule (`unlock.grant_for_handoff`) for the normal evidence-checked rewrite, then closes the
+  question so the run goes on with the task pending; `handoff-give-up` ends it `gave-up` and flags the
+  question "the agent gave up: <why>", which makes it Alex's alone). Both refuse anyone but `agent` and any
+  task, run or question that is not the working hand-off.
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the

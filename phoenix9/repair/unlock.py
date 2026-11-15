@@ -145,6 +145,42 @@ def answered(run_dir, gate: dict, action: str, who: str) -> dict | None:
     return grant
 
 
+HANDOFF_RULE = "Alex's standing rule of 2026-11-15"
+
+
+def grant_for_handoff(run_dir, task: int, why: str, gate: str = "") -> dict:
+    """A one-time grant to unlock the locked checks of this run for the agent on a hand-off of task n (Alex's
+    standing rule): same file, same expiry and recorded as an Alex grant is. Returns the grant."""
+    run_dir = Path(run_dir)
+    why, at = clean_why(why), _now()
+    grant = {"gate": gate or f"handoff-task-{int(task)}", "run": run_dir.name, "steps": ["unlock-checks"],
+             "asked_by": "agent", "approved_by": "hand-off rule", "approved_at": _stamp(at),
+             "expires_at": _stamp(at + timedelta(minutes=GRANT_MINUTES)), "used_at": None, "expired_at": None,
+             "handoff_task": int(task)}
+    with _lock(run_dir):
+        data = _load(run_dir)
+        data["grants"].append(grant)
+        atomic.write_json(grants_path(run_dir), data)
+    _record(run_dir, "approved", f"Allowed for the agent on a hand-off of task {int(task)} ({HANDOFF_RULE}): {why}",
+            gate=grant["gate"], steps=grant["steps"], who="hand-off rule")
+    return grant
+
+
+def withdraw(run_dir, grant: dict, why: str) -> bool:
+    """Take a hand-off grant out of the grants file (used or not) and record why; True when it was there."""
+    run_dir = Path(run_dir)
+    with _lock(run_dir):
+        data = _load(run_dir)
+        kept = [g for g in data["grants"] if not (g.get("gate") == grant.get("gate")
+                                                  and g.get("approved_at") == grant.get("approved_at"))]
+        if len(kept) == len(data["grants"]):
+            return False
+        atomic.write_json(grants_path(run_dir), {"grants": kept})
+    _record(run_dir, "withdrawn", f"The hand-off allowance was taken back, {_clock(_now())}: {scrub.scrub(why)}",
+            gate=grant.get("gate"), steps=grant.get("steps"))
+    return True
+
+
 def _live(grant: dict, at: datetime) -> bool:
     """True when the grant is neither used, nor expired, nor past its time."""
     if grant.get("used_at") or grant.get("expired_at"):

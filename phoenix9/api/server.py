@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from phoenix9 import paths, scrub
 from phoenix9.api import stream
-from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
+from phoenix9.ops import bell as ops_bell, agentaccess, agentnext as ops_agentnext, app, blocks as ops_blocks, cards as ops_cards, chat as ops_chat, common, deploy, docs as ops_docs, search as ops_search, doctor as ops_doctor, gates, github, images as ops_images, keys, library, logs, handoff as ops_handoff, projects, reference as ops_reference, repair as ops_repair, report as ops_report, runs, service as ops_service, timing, services, settings, suggest as ops_suggest, ui as ops_ui, update, work as ops_work
 
 MAX_BODY = 64 * 1024
 MAX_UPLOAD_BODY = 8 * 1024 * 1024  # only POST .../reference/files: a 5 MB file in base64 plus its name
@@ -1210,6 +1210,23 @@ def post_repair_rewrite_checks(req, project, run_id):
         return ops_repair.rewrite_checks(run_id, task, why, who=req.who)
 
 
+def post_handoff_fix(req, project, run_id):
+    """The agent's own fix on a task handed to it: try again (with a note) or rewrite its checks once."""
+    project, run_id, task = check_name(project), check_run_id(run_id), need(int_field(req, "task"), "task")
+    action = need(text_field(req, "action"), "action")
+    why, note = text_field(req, "why") or "", text_field(req, "note") or ""
+    with req.server.write_lock:
+        return ops_handoff.fix(project, run_id, task, action, why=why, note=note, who=req.who)
+
+
+def post_handoff_give_up(req, project, run_id):
+    """The agent hands a task handed to it back to Alex, with the reason."""
+    project, run_id, task = check_name(project), check_run_id(run_id), need(int_field(req, "task"), "task")
+    why = need(text_field(req, "why"), "why")
+    with req.server.write_lock:
+        return ops_handoff.give_up(project, run_id, task, why, who=req.who)
+
+
 def post_repair_max_tries(req, project, run_id):
     """Raise a run's max tries through a repair note."""
     run_id, tries = check_run_id(run_id), need(int_field(req, "tries"), "tries")
@@ -1465,6 +1482,8 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/max-tries", post_repair_max_tries),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/restart", post_repair_restart),
     ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/repair/request-unlock", post_repair_request_unlock),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/fix", post_handoff_fix),
+    ("POST", r"/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/handoff/give-up", post_handoff_give_up),
     ("POST", r"/api/gates/(?P<gate_id>[^/]+)/answer", post_gate_answer),
 ]
 UPLOAD_PATH = re.compile(r"^/api/projects/[^/]+/reference/files/?$")

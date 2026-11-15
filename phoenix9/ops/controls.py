@@ -334,6 +334,21 @@ CONTROLS = (
                       "force, unlock-checks, stop or discard."),
                   _in("why", required=True, description="Why the repair is needed, in one plain line.")),
           card="repair_card"),
+    _post("handoff-fix", "handoff.fix", rf"/api/runs/{RUN}/handoff/fix", "change", "tool",
+          text="On a build task Phoenix handed to you: try it again (with an optional note for the builder) or, when the "
+               "evidence shows the task's locked check itself is wrong, rewrite its checks (once per task). The task restarts.",
+          inputs=(P_PROJECT, P_RUN, _in("task", "integer", required=True, description="The task number Phoenix handed to you."),
+                  _in("action", "choice", True, "What to do: try again, or rewrite the task's checks.",
+                      ("retry", "rewrite-checks")),
+                  _in("why", description="The evidence, in one plain line (needed to rewrite the checks)."),
+                  _in("note", description="A short note for the builder's next try (one paragraph).")),
+          ),
+    _post("handoff-give-up", "handoff.give_up", rf"/api/runs/{RUN}/handoff/give-up", "change", "tool",
+          text="On a build task Phoenix handed to you: hand the question back to Alex with the reason (use it for anything "
+               "you may not do: skip, stop, spending, merge).",
+          inputs=(P_PROJECT, P_RUN, _in("task", "integer", required=True, description="The task number Phoenix handed to you."),
+                  _in("why", required=True, description="Why it needs Alex, in one plain line.")),
+          ),
     # ---- updates ----
     _get("update-check", "update.status", "/api/update", "tool", card="update_card",
          text="Check whether a newer Phoenix is available.", fixed_query={"refresh": "1"}),

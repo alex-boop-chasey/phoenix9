@@ -137,3 +137,40 @@ def test_start_with_the_check_writer_on_or_a_command_is_queued(tmp_path, demo, a
     demo("quick")
     assert ops_runs.start("demo", write(tmp_path), {"preset": "full"})["status"] == "queued"
     assert ops_runs.start("demo", write(tmp_path, COMMANDS))["status"] == "queued"
+
+
+CHAIN = "# Steps\nProject: demo\n" + "".join(
+    f"## Task {n}: Step {n}\nDo step {n}.\nDone when:\n- `true`\n" for n in range(1, 7))
+
+
+def test_cli_shows_chain_warnings_after_valid_and_exits_0(capsys, tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(CHAIN)
+    code, out, _ = run_cmd(capsys, "spec", "check", str(f))
+    assert code == 0
+    assert out.index("Spec is valid.") < out.index("Worth a look:")
+    assert "- Tasks 1 -> 2 -> 3 -> 4 -> 5 -> 6 depend on each other in one line: if task 1 fails, 5 tasks" in out
+
+
+def test_cli_json_has_warnings(capsys, tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(CHAIN)
+    code, out, _ = run_cmd(capsys, "spec", "check", str(f), "--json")
+    data = json.loads(out)
+    assert code == 0 and data["ok"] is True and len(data["warnings"]) == 1
+
+
+def test_cli_without_warnings_has_no_worth_a_look(capsys, tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(CHAIN.replace("Do step 3.", "Depends on: none\nDo step 3.").replace("Do step 5.", "Depends on: none\nDo step 5."))
+    code, out, _ = run_cmd(capsys, "spec", "check", str(f), "--json")
+    assert code == 0 and json.loads(out)["warnings"] == []
+    code, out, _ = run_cmd(capsys, "spec", "check", str(f))
+    assert "Worth a look" not in out
+
+
+def test_cli_shows_warnings_after_the_problems(capsys, tmp_path):
+    f = tmp_path / "spec.md"
+    f.write_text(CHAIN.replace("- `true`\n## Task 2", "- short\n## Task 2"))
+    code, out, _ = run_cmd(capsys, "spec", "check", str(f))
+    assert code == 1 and "Worth a look:" in out and "Spec is valid." not in out

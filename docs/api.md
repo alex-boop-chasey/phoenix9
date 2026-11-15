@@ -175,11 +175,13 @@ The message is the ops message, unchanged. The CLI catches all three as `OpsErro
 | POST | `/api/gates/<gate_id>/answer` | `ops.gates.answer` | `{action, note, by?}` | `{gate, action, note, who, at, by?}`; a `budget` gate (spending cap reached) takes `raise` with `by` = dollars to add to the run's frozen cap (more than 0), or `stop`; only Alex can answer it (`gates.may_answer` refuses every `chat:*` caller). CLI `phoenix gate answer <id> raise --by 5`. A `repair-unlock` question takes `approve` (a one-time grant, see `repair/request-unlock`) or `deny`, from the dashboard only (who `dashboard`); it stays open whatever the run does, and a run ending does not close it | 400, 404, 409 |
 
 CLI only (no route): `ops.runs.check_spec(text, preset=None, project=None)` (`phoenix spec check <file> [--preset P]
-[--project NAME]`) returns `{ok, problems, needs_commands, checked_for, basis}`. With the check-writer off for `preset`
+[--project NAME]`) returns `{ok, problems, needs_commands, checked_for, basis, warnings}`. With the check-writer off for `preset`
 (else `project`'s effective settings, else the spec's own `Preset:` line; `checked_for` is `{preset}`, `{project}` or
 `{spec_preset}`, `{}` when none decides) every task not "for you" needs a 'Done when' item that is only a backticked
 command; `basis` is the plain sentence, e.g. "Checked for the quick preset: the check-writer is off, so every task
-needs a command." `ops.runs.start` refuses a task-format spec the same way when the run's plan has no check-writer.
+needs a command." `warnings` (from `spec.chain_warnings`, at most 3) call out a long 'Depends on' chain
+(4+ tasks and over half the plan) or a task most others wait for (5+ tasks); they never make the spec invalid and
+the CLI prints them under "Worth a look:". `ops.runs.start` refuses a task-format spec the same way when the run's plan has no check-writer.
 
 ## Shapes
 

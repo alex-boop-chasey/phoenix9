@@ -594,6 +594,9 @@ task "Line N: task K has no 'Done when' item Phoenix can run. ...". `ops.runs.st
 resolved plan has no `check-writer`), the Spec check step (`check_writer_on`, from `plan.json`) and the Planner's
 output check use it; `phoenix spec check <file> [--preset P] [--project NAME]` decides from the preset, else the
 project's settings, else the spec's own `Preset:` line, and says which.
+`chain_warnings(spec) -> list[str]` (never problems, at most 3): the longest 'Depends on' chain when it covers 4+
+tasks and over half of them, and any task more than half the others wait for (plans of 5+ tasks). `phoenix spec
+check` prints them under "Worth a look:" and the Planner's plan gate adds them to its `why` text.
 `Preset:` is used as the run's preset override (`ops.runs.start` writes it into `overrides.json`) unless a
 preset is given for the run (`phoenix run start --preset`, or the wizard's own choice).
 

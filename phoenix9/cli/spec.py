@@ -31,5 +31,7 @@ def run_check(args) -> int:
     common.record_command(args.who, "spec check")
     errors = found["problems"]
     lines = ([found["basis"]] if found["basis"] else []) + (errors or ["Spec is valid."])
+    if found["warnings"]:
+        lines += ["", "Worth a look:"] + [f"- {w}" for w in found["warnings"]]
     show(args, {"file": args.file, **found}, "\n".join(lines))
     return 1 if errors else 0

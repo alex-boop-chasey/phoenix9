@@ -140,6 +140,7 @@ def _preset_check_writer_on(preset: str) -> bool:
 def check_spec(text: str, preset: str | None = None, project: str | None = None) -> dict:
     """Check spec text as a run would; with the check-writer off every task needs a runnable command.
 
+    `warnings` lists long 'Depends on' chains worth a look; they never make the spec invalid.
     Which settings decide: `preset` when given, else `project`'s effective settings, else the spec's `Preset:` line."""
     if preset:
         if preset not in settings.PRESETS:
@@ -156,13 +157,13 @@ def check_spec(text: str, preset: str | None = None, project: str | None = None)
         written = spec.parse(text).preset
         if written not in settings.PRESETS or written == "custom":
             return {"ok": not (problems := spec.check(text)), "problems": problems, "needs_commands": False,
-                    "checked_for": {}, "basis": ""}
+                    "checked_for": {}, "basis": "", "warnings": spec.chain_warnings(spec.parse(text))}
         on, what, checked_for = _preset_check_writer_on(written), f"the {written} preset", {"spec_preset": written}
     basis = (f"Checked for {what}: the check-writer is on." if on else
              f"Checked for {what}: the check-writer is off, so every task needs a command.")
     problems = spec.check(text, needs_commands=not on)
     return {"ok": not problems, "problems": problems, "needs_commands": not on, "checked_for": checked_for,
-            "basis": basis}
+            "basis": basis, "warnings": spec.chain_warnings(spec.parse(text))}
 
 
 def _refuse_chat_overrides(who, overrides: dict | None) -> None:

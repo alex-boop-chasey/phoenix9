@@ -243,6 +243,20 @@ def test_good_plan_opens_plan_gate(tmp_path, setup):
     assert launch["workspace_ro"] is True
 
 
+CHAIN_PLAN = "# Long line\nProject: proj\n\n## About\nSteps.\n" + "".join(
+    f"\n## Task {n}: Step {n}\nDo step {n}.\nDone when:\n- `true`\n" for n in range(1, 7))
+
+
+def test_plan_gate_why_carries_chain_warnings(tmp_path, setup):
+    runner = setup()
+    runner.adapters.claude.sessions += [planner(CHAIN_PLAN)]
+    run_dir = start(tmp_path)
+    assert runner.drive(run_dir) == "waiting"
+    gate = json.loads((run_dir / "gates" / f"{open_gate_id(run_dir)}.json").read_text())
+    assert gate["why"] == ("6 tasks, 0 for you. Worth a look: Tasks 1 -> 2 -> 3 -> 4 -> 5 -> 6 depend on each other "
+                           "in one line: if task 1 fails, 5 tasks are skipped. Check each 'Depends on' is really needed.")
+
+
 def test_planner_out_folder_is_handed_to_the_session_user(tmp_path, setup, monkeypatch):
     """Phoenix runs as root; the session runs as uid 1000, so /out must be chowned or the plan can't be written."""
     from phoenix9 import docker

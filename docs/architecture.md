@@ -424,6 +424,11 @@ settings and the project's non-secret key values. `status(project)` gives per ch
 made value with `keys.set_key` only when that key has no value yet and returns names, problems and what is
 still missing, never values (event `keys.made`, names only). The step proxy (`spec_from_service`,
 `stepproxy`) never contains a `[make]` rule.
+Makers today: `cloudflare` (token `phoenix-<project>`: Pages Write on the `account_id` setting, DNS Write on
+the project's non-secret `CLOUDFLARE_ZONE_ID` when set), `sentry` (project slug = project name under the
+`organisation`/`default_team` settings, 409 reuses it; first active key's public DSN), `resend` (sending-only
+key, limited to the from-address domain when Resend has verified it; from-address = project `RESEND_FROM`
+or the `send_from` setting).
 
 ### 4.7 Deployer folder: `deployers/<name>/deployer.toml` (+ `deploy.py`)
 

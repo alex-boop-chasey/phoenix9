@@ -74,3 +74,13 @@ path = "/projects/*/*/keys/"
 method = "GET"
 path = "/organizations/"
 expect = [200]
+
+[make]
+needs = "create projects (project:write)"
+key_page = "https://sentry.io/settings/account/api/auth-tokens/"
+[[make.allow]]
+method = "POST"
+path = "/teams/*/*/projects/"
+[[make.allow]]
+method = "GET"
+path = "/projects/*/*/keys/"

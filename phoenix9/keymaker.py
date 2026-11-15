@@ -15,7 +15,7 @@ from phoenix9.ops import common
 from phoenix9.proxy import TOKEN_HEADER
 
 # service name -> module name in phoenix9/keymakers/ (tests may put an object with make(call, ctx) here)
-PROVIDERS: dict = {}
+PROVIDERS: dict = {"cloudflare": "cloudflare", "sentry": "sentry", "resend": "resend"}
 TIMEOUT = 20
 LOG_NAME = "proxy-keymaker.jsonl"
 # Pages where a keys-only service's keys are copied by hand (the service.toml website is the fallback).

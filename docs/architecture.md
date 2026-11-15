@@ -1039,8 +1039,8 @@ listening on `127.0.0.1:8097`. Its folder `/var/lib/phoenix9/agentkit/` holds `c
 owned by the agent user, put there by Alex), `token` (the shared token, root:phoenix-agentkit, mode 640),
 `agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
 needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
-`POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /approvals/{id}`,
-`POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+`POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /threads/{id}/seen`,
+`POST /approvals/{id}`, `POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`, `POST /handoffs/outcome`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
 A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
 answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
@@ -1053,6 +1053,14 @@ whose message the service builds from those ids only: `[Phoenix · escalation] r
 <gate_id>, project <project>)`; answer 202 `{thread_id, run_id}`. One hand-off per question (kept in the `handoffs`
 table): a second POST for the same `gate_id` answers 200 with the first thread and starts nothing. With no API key,
 prices not set or the monthly allowance used up it answers 409 in plain words, so Phoenix pauses for Alex instead.
+The `handoffs` table also keeps the hand-off's project, run id and task. In that thread only, a `handoff-fix` or
+`handoff-give-up` call whose `project`, `run_id` and `task` equal the hand-off's is approved at once (Alex's standing
+hand-off rule; pause result `{"decision": "approve", "by": "hand-off rule"}`) and logged as a CUSTOM `note` "Done on its
+own (Alex's hand-off rule): ..."; every other call keeps its card. `POST /handoffs/outcome` takes exactly
+`{gate_id, outcome}` (`fixed`, `failed-again` or `gave-up`; 400 otherwise, 404 when no thread took that question) and
+adds one `note` line from Phoenix to the hand-off thread with no model run. `GET /threads` rows carry `unread`
+(changed since Alex last saw it): a hand-off thread starts unread, sending a message or watching a reply to its end
+marks a thread seen, and so does `POST /threads/{id}/seen`.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.
@@ -1426,7 +1434,8 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   as in pause mode, with the flag "handed to the Phoenix agent", and the runner posts ONE hand-off to the new
   agent's `POST /handoffs` (through the `agentnext` adapter, short timeout): exactly `{run_id, task, gate_id,
   project}`. Nothing else goes in it (no failure text, no file content); the agent opens its own chat for it,
-  looks at the build with its tools and suggests a build note or a repair, which wait for Alex's Approve.
+  looks at the build with its tools and acts through `handoff-fix` / `handoff-give-up` (no card in that chat:
+  Alex's hand-off rule); anything else it suggests waits for Alex's Approve.
   Alex gets no line at hand-off time (the bell shows it, see Hand-offs below); reminders follow as for any
   question. The agent (`agent`) may answer only
   `acknowledged` on a gate with the flag (`gates.may_answer`; `chat:home` keeps the same rule until the old

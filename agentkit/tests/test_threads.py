@@ -20,6 +20,9 @@ def build():
         Route("/threads", runs.list_route(r, no), methods=["GET"]),
         Route("/threads", runs.new_route(r, no), methods=["POST"]),
         Route("/threads/{id}", runs.read_route(r, no), methods=["GET"]),
+        Route("/threads/{id}/runs", runs.start_route(r, no), methods=["POST"]),
+        Route("/threads/{id}/seen", runs.seen_route(r, no), methods=["POST"]),
+        Route("/threads/{id}/stream", runs.stream_route(r, no), methods=["GET"]),
     ])
     return store, r, app
 
@@ -74,5 +77,30 @@ def test_unknown_thread_is_404_with_plain_message():
         async with client(app) as c:
             resp = await c.get("/threads/nope")
             assert resp.status_code == 404 and resp.json()["error"] == "no such thread"
+
+    asyncio.run(go())
+
+
+def test_unread_until_seen_and_alex_sending_marks_seen():
+    async def go():
+        store, r, app = build()
+        async with client(app) as c:
+            tid = (await c.post("/threads")).json()["id"]
+            assert (await c.get("/threads")).json()["threads"][0]["unread"] is False   # Alex's own new chat
+            time.sleep(0.01)
+            store.append_event(tid, {"type": "CUSTOM", "name": "note", "value": {"text": "Phoenix: hello."}})
+            (row,) = (await c.get("/threads")).json()["threads"]
+            assert row["unread"] is True
+            assert (await c.post(f"/threads/{tid}/seen")).json() == {"seen": True}
+            (row,) = (await c.get("/threads")).json()["threads"]
+            assert row["unread"] is False
+            assert (await c.post("/threads/nope/seen")).status_code == 404
+            other = (await c.post("/threads")).json()["id"]
+            store._db.execute("UPDATE threads SET seen=0 WHERE id=?", (other,))
+            assert (await c.post(f"/threads/{other}/runs", json={"message": "Hi"})).status_code == 202
+            assert store.get_thread(other)["seen"] > 0   # sending marks it seen
+            await r.active[other]
+            await c.get(f"/threads/{other}/stream")       # watching the reply to its end marks it seen
+            assert next(t for t in store.list_threads() if t["id"] == other)["unread"] is False
 
     asyncio.run(go())

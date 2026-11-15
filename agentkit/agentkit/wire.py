@@ -129,3 +129,8 @@ def run_stopped(dropped: int = 0) -> dict:
 def suggestions(actions: list[dict]) -> dict:
     """The CUSTOM event with the checked follow-up actions, sent at the end of the turn."""
     return _dump(CustomEvent(name="suggestions", value={"actions": actions}, timestamp=_now()))
+
+
+def note(text: str) -> dict:
+    """The CUSTOM event with one plain line for the chat that is neither Alex nor the model (shown as a quiet line)."""
+    return _dump(CustomEvent(name="note", value={"text": text}, timestamp=_now()))

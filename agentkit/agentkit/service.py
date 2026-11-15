@@ -276,9 +276,11 @@ def build_service_app(cfg: config.Config, token: str, model, phoenix: PhoenixCli
             Route("/threads/{id}/runs", runs.start_route(run, denied), methods=["POST"]),
             Route("/threads/{id}/stream", runs.stream_route(run, denied), methods=["GET"]),
             Route("/threads/{id}/stop", runs.stop_route(run, denied), methods=["POST"]),
+            Route("/threads/{id}/seen", runs.seen_route(run, denied), methods=["POST"]),
             Route("/approvals/{id}", runs.approval_route(run, denied), methods=["POST"]),
             Route("/browser-results/{id}", runs.browser_route(run, denied), methods=["POST"]),
             Route("/handoffs", handoffs.handoff_route(run, meter, key_present, denied), methods=["POST"]),
+            Route("/handoffs/outcome", handoffs.outcome_route(run, denied), methods=["POST"]),
         ],
         lifespan=lifespan,
     )

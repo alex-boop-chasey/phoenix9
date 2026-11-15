@@ -23,6 +23,9 @@ REPAIR_BUSY = ("Another repair for this run is already waiting for Alex's answer
                "ask for a second one. Wait until it is finished, then look at the run again.")
 BAD_INPUTS = "Refused: those inputs are not allowed (an unknown field, such as keys), so nothing was sent."
 FAILED = "The agent could not finish this reply."
+HANDOFF_TOOLS = ("handoff-fix", "handoff-give-up")
+HANDOFF_APPROVAL = {"decision": "approve", "by": "hand-off rule"}
+DONE_ALONE = "Done on its own (Alex's hand-off rule): "
 CONTEXT_KEYS = ("page", "project", "run")
 SAFE = re.compile(r"[A-Za-z0-9/_.-]{1,80}")
 
@@ -60,6 +63,16 @@ def context_line(context: dict) -> str:
     """The one line the model is told about what Alex has open, e.g. [Alex is looking at: project demo]."""
     parts = [f"{k} {context[k]}" for k in CONTEXT_KEYS if context.get(k)]
     return f"[Alex is looking at: {' · '.join(parts)}]" if parts else ""
+
+
+def handoff_words(tool: str, inputs: dict) -> str:
+    """Plain words for what a hand-off tool call does, e.g. "tried task 3 again"."""
+    task = inputs.get("task")
+    if tool == "handoff-give-up":
+        return f"handed task {task} back to Alex"
+    if inputs.get("action") == "rewrite-checks":
+        return f"rewrote the checks of task {task}"
+    return f"tried task {task} again" + (" with a note for the builder" if inputs.get("note") else "")
 
 
 class Runs:
@@ -197,6 +210,20 @@ class Runs:
             return False
         return any(self._repair_key(p["tool"], p["inputs"]) == key for p in self.store.open_approvals())
 
+    def _handoff_rule(self, thread_id: str, tool: str, inputs) -> bool:
+        """True only for handoff-fix / handoff-give-up in the thread Phoenix opened for that hand-off, with its ids.
+
+        Alex's standing rule: these two need no card there. Any other tool, thread or id gets the normal card.
+        """
+        if tool not in HANDOFF_TOOLS or not isinstance(inputs, dict):
+            return False
+        handoff = self.store.handoff_of_thread(thread_id)
+        if handoff is None or not handoff["project"] or not handoff["run_id"]:
+            return False
+        task = inputs.get("task")
+        return (inputs.get("project") == handoff["project"] and inputs.get("run_id") == handoff["run_id"]
+                and isinstance(task, int) and not isinstance(task, bool) and task == handoff["task"])
+
     def _check_browser_call(self, thread_id: str, call) -> None:
         """Check a browser call's inputs; pause for the browser if good, else answer the model with the error."""
         inputs = call.args_as_dict()
@@ -324,6 +351,11 @@ class Runs:
                             self.store.resolve_pause(pause_id, "denied", {"decision": "deny", "message": REPAIR_BUSY})
                             paused = True
                             continue
+                        if self._handoff_rule(thread_id, call.tool_name, inputs):  # approved now; _resume carries it on
+                            self.store.resolve_pause(pause_id, "approved", HANDOFF_APPROVAL)
+                            self._log(thread_id, wire.note(DONE_ALONE + handoff_words(call.tool_name, inputs)))
+                            paused = True
+                            continue
                         self._log(thread_id, wire.approval_request(
                             pause_id, call.tool_call_id, call.tool_name, inputs, self.confirm_text(call.tool_name, inputs),
                             self.descriptions.get(call.tool_name)))
@@ -388,6 +420,7 @@ def start_route(runs: Runs, denied):
             started = runs.start(thread_id, message, context=body.get("context"))
         except RunBusy as e:
             return JSONResponse({"error": str(e)}, status_code=409)
+        runs.store.mark_seen(thread_id)  # Alex wrote it, so he has seen the chat up to here
         return JSONResponse(started, status_code=202)
 
     return start_run
@@ -416,6 +449,7 @@ def stream_route(runs: Runs, denied, poll: float = 0.02):
                 quiet = 0.0
                 yield wire.to_sse(event, number)
                 if wire.is_final(event):
+                    runs.store.mark_seen(thread_id)  # someone watched the reply to its end
                     return
             if not fresh and not runs.running(thread_id):
                 # a run may have logged its last events just before it ended
@@ -450,15 +484,32 @@ def list_route(runs: Runs, denied):
     """Make the GET /threads handler: every thread, newest used first."""
 
     async def list_threads(request: Request):
-        """List threads with title, created and last used."""
+        """List threads with title, created, last used and whether Alex has not seen the latest of it."""
         if denied(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         rows = runs.store.list_threads()
         return JSONResponse({"threads": [
-            {"id": t["id"], "title": t["title"], "created": t["created"], "last_used": t["last_used"]}
+            {"id": t["id"], "title": t["title"], "created": t["created"], "last_used": t["last_used"],
+             "unread": t["unread"]}
             for t in rows]})
 
     return list_threads
+
+
+def seen_route(runs: Runs, denied):
+    """Make the POST /threads/{id}/seen handler: Alex opened the chat, so it is no longer unread."""
+
+    async def seen(request: Request):
+        """Mark one thread as seen; 404 when there is no such thread."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        thread_id = request.path_params["id"]
+        if runs.store.get_thread(thread_id) is None:
+            return JSONResponse({"error": "no such thread"}, status_code=404)
+        runs.store.mark_seen(thread_id)
+        return JSONResponse({"seen": True})
+
+    return seen
 
 
 def read_route(runs: Runs, denied):
@@ -484,7 +535,9 @@ def new_route(runs: Runs, denied):
         """Create an empty thread and return it."""
         if denied(request):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return JSONResponse(runs.store.create_thread(), status_code=201)
+        thread = runs.store.create_thread()
+        runs.store.mark_seen(thread["id"])  # Alex made it: nothing in it is news to him
+        return JSONResponse(runs.store.get_thread(thread["id"]), status_code=201)
 
     return new_thread
 

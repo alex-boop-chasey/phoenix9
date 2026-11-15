@@ -54,3 +54,21 @@ def test_instructions_explain_a_bell_item_by_its_id():
 def test_instructions_send_a_repeat_to_run_again():
     assert ("To repeat a failed or stopped build as it was, use run-again (not build-start); "
             "use repair-restart-preset only to change the preset as a repair.") in INSTRUCTIONS
+
+
+def test_handoff_paragraph_says_act_alone_through_the_two_tools():
+    for words in (
+        "a message starting [Phoenix · escalation] is a build task Phoenix handed to you",
+        "read (run-diagnose, task-tries, run-events, step-session); decide the cause",
+        "handoff-fix action retry (with a short note for the builder",
+        "handoff-fix action rewrite-checks with the evidence in why (once per task)",
+        "Phoenix tells you how it ends",
+        "Never skip, stop, change settings or budgets, merge, or touch other runs or tasks",
+        "call handoff-give-up with the reason",
+        "These two tools need no card in a hand-off conversation; everything else does.",
+        "Do not ask Alex questions in a hand-off conversation; he reads it later.",
+    ):
+        assert words in INSTRUCTIONS, words
+    for old in ("only after Alex approved", "only answer you may give is acknowledged",
+                "leave the question for Alex"):
+        assert old not in INSTRUCTIONS, old

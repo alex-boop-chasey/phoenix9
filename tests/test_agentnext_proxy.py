@@ -152,3 +152,12 @@ def test_handoffs_is_refused(api):
         assert status == 404 and body["message"] == "Not found.", path
     assert api("/api/agent-next/handoffs")[0] == 404
     assert fake.calls == []
+
+
+def test_handoff_outcome_is_refused(api):
+    fake = agent(api)
+    for path in ("/handoffs/outcome", "/Handoffs/outcome", "/%68andoffs/outcome", "/handoffs/outcome?x=1"):
+        status, body = api("/api/agent-next" + path, "POST", POST_HEADERS,
+                           {"gate_id": "20261110-100000-demo.1", "outcome": "fixed"})
+        assert status == 404 and body["message"] == "Not found.", path
+    assert fake.calls == []

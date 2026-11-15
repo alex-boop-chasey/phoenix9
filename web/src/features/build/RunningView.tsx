@@ -18,6 +18,7 @@ import { useBuilds, usePauseRun, useResumeRun, useRunEstimates, useStopRun } fro
 import type { RunDetail, RunEstimates } from "@/lib/types"
 
 import { DiscardControl } from "./DiscardControl"
+import { RunAgainControl } from "./RunAgainControl"
 import { badgeResult, edgeOf, ResultBadge } from "./parts"
 import { currentLine, buildLeft, stepProgress, toGo } from "./progress"
 import { liveClock, StepList, StepListLead } from "./StepList"
@@ -46,6 +47,14 @@ function sumLine(d: RunDetail, total: number, passed: number): string {
     case "stopped": return "The build was stopped"
     default: return "Starting: the first step runs in a moment"
   }
+}
+
+/** A stopped build's sentence saying where its unfinished changes were saved (from the run.finished reason). */
+export function stoppedWorkNote(d: RunDetail): string | null {
+  if (d.status !== "stopped") return null
+  const end = [...(d.recent_events ?? [])].reverse().find((e) => e.type === "run.finished")
+  const reason = typeof end?.data?.reason === "string" ? end.data.reason : ""
+  return reason.split("; ").find((part) => part.includes("stopped-work.patch")) ?? null
 }
 
 /** The ring's fill when no step is being timed: full when done, else the share of tasks passed. */
@@ -139,6 +148,7 @@ export function RunningView({ name, runId, mode }: Props) {
   const row = builds.data?.find((b) => b.run_id === runId)
   const cost = row?.cost || (d.usage.cost_usd != null ? `$${d.usage.cost_usd.toFixed(2)}` : "-")
   const started = row?.started || d.created
+  const stopped = stoppedWorkNote(d)
 
   return (
     <div className="stackg min-w-0" style={{ gap: 20 }}>
@@ -152,7 +162,12 @@ export function RunningView({ name, runId, mode }: Props) {
             {d.image?.id && <> · image <span className="mono" title={`${d.image.tag} ${d.image.id}`} data-testid="image-id">{d.image.id.replace(/^sha256:/, "").slice(0, 12)}</span></>}
           </p>
         </div>
-        {!s.active && <DiscardControl name={name} run={d} />}
+        {!s.active && (
+          <div className="row" style={{ gap: 8, alignItems: "flex-start" }}>
+            <RunAgainControl name={name} run={d} />
+            <DiscardControl name={name} run={d} />
+          </div>
+        )}
         {s.active && (
           <div className="row" style={{ gap: 8 }}>
             {d.status === "paused" ? (
@@ -209,6 +224,7 @@ export function RunningView({ name, runId, mode }: Props) {
         />
       </div>
       {s.finished && <p className="small" data-testid="result">Result: {s.result}</p>}
+      {stopped && <p className="small" data-testid="stopped-work">{stopped}</p>}
       {(d.unlocks_used ?? []).map((u, i) => (
         <p key={`${u.at}-${i}`} className="small" data-testid="unlock-used">{unlockUsedText(u)}</p>
       ))}
@@ -219,7 +235,7 @@ export function RunningView({ name, runId, mode }: Props) {
       />
       <ConfirmDialog
         open={confirming} onOpenChange={setConfirming} title="Stop this build?"
-        body="The build stops, and its unfinished work and branch are thrown away." confirmLabel="Stop build" destructive
+        body="The build stops and its branch is removed; its unfinished changes are saved as a patch." confirmLabel="Stop build" destructive
         onConfirm={() => stop.mutate(runId)}
       />
     </div>

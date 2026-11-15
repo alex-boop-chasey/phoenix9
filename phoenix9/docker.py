@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import ipaddress
 import os
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import heartbeat, paths, scrub, settings
+from phoenix9 import heartbeat, paths, proc, scrub, settings
 
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
@@ -28,6 +27,14 @@ LABEL = "phoenix9"
 FALLBACK_UID = 1000                                 # entry.sh refuses uid 0; the image's `node` user
 TIMEOUT_RC = 124
 BUILD_TIMEOUT_S = 3600                              # one image build
+DOCKER_CALL_TIMEOUT_S = 60                          # every short docker call (ps, rm, stop, volume, image inspect)
+CHOWN_TIMEOUT_S = 600                               # `chown -R` of a whole worktree
+STOP_GRACE_S = 20                                   # `docker stop -t`: time the container gets before it is killed
+NETWORK_TIMEOUT_S = 30                              # reading docker's network
+VOLUME_WHAT = "Creating the build's package store"
+CHOWN_WHAT = "Handing the folder to the build user"
+NETWORK_WHAT = "Reading docker's network"
+CHECK_RECORDED_RCS = (124, 125, 126, 127, 137)      # a check exit that means docker could not run it, not a failing test
 FORBIDDEN_ENV_FILES = ("github.env", "telegram.env")              # hard rule 2: never inside a step container
 FORBIDDEN_ENV_PATTERNS = ("service-*.env",)         # hard rule 2: account service keys
 BUILTIN_DOMAINS = ("api.anthropic.com",)            # init-firewall.sh also allows registry.npmjs.org itself
@@ -68,23 +75,33 @@ def _cpu_text(number: float) -> str:
 
 
 # ------------------------------------------------------------- the one place that runs docker
+class DockerError(RuntimeError):
+    """A docker (or chown) call that had to work did not; the message says what and why in plain words."""
+
+
+def _checked(argv: list[str], timeout: float | None, what: str) -> proc.Result:
+    """Run a command that must work: record a failure and raise DockerError with the plain reason."""
+    p = proc.run(argv, what=what, timeout=timeout)
+    if p.returncode != 0:
+        raise DockerError(proc.failure_text(what, p))
+    return p
+
+
 class DockerRunner:
-    """The real docker program: every subprocess call in this module lives here."""
+    """The real docker program: every docker call in this module lives here (all started through proc.py)."""
 
     def bridge_gateway(self) -> str:
         """The default bridge network's gateway address, e.g. 172.17.0.1."""
-        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
-                              "{{(index .IPAM.Config 0).Gateway}}"],
-                             capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        out = _checked([DOCKER, "network", "inspect", "bridge", "--format",
+                        "{{(index .IPAM.Config 0).Gateway}}"], NETWORK_TIMEOUT_S, NETWORK_WHAT).stdout.strip()
         ipaddress.IPv4Address(out)          # refuse anything that is not a plain IPv4 address
         return out
 
     def bridge_info(self) -> dict:
         """The default bridge's {gateway, subnet, interface}, e.g. 172.17.0.1, 172.17.0.0/16, docker0."""
-        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
-                              "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
-                              "{{index .Options \"com.docker.network.bridge.name\"}}"],
-                             capture_output=True, text=True, timeout=30, check=True).stdout.split()
+        out = _checked([DOCKER, "network", "inspect", "bridge", "--format",
+                        "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
+                        "{{index .Options \"com.docker.network.bridge.name\"}}"], NETWORK_TIMEOUT_S, NETWORK_WHAT).stdout.split()
         gateway, subnet = out[0], out[1]
         ipaddress.IPv4Address(gateway)
         ipaddress.IPv4Network(subnet, strict=False)
@@ -94,21 +111,21 @@ class DockerRunner:
             timeout_s: float, name: str, append_stdout: bool = False) -> int:
         """Run a container to the end and return its exit code (124 if it ran out of time)."""
         # ported from reference/v8/phoenix/docker.py:139
-        stdout = open(stdout_path, "ab" if append_stdout else "wb") if stdout_path else subprocess.DEVNULL
+        stdout = open(stdout_path, "ab" if append_stdout else "wb") if stdout_path else proc.DEVNULL
         if stderr_path and stderr_path == stdout_path:
-            stderr = subprocess.STDOUT
+            stderr = proc.STDOUT
         else:
-            stderr = open(stderr_path, "ab") if stderr_path else subprocess.DEVNULL
+            stderr = open(stderr_path, "ab") if stderr_path else proc.DEVNULL
         try:
-            p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+            p = proc.popen(argv, stdin=proc.DEVNULL, stdout=stdout, stderr=stderr)
             try:
                 with heartbeat.busy():          # a running container is progress (it has its own time limit)
                     return p.wait(timeout=timeout_s)
-            except subprocess.TimeoutExpired:
+            except proc.TimeoutExpired:
                 self.rm(name)
                 try:
                     p.wait(timeout=60)
-                except subprocess.TimeoutExpired:
+                except proc.TimeoutExpired:
                     p.kill()
                 return TIMEOUT_RC
             except BaseException:
@@ -125,15 +142,15 @@ class DockerRunner:
 
     def rm(self, name: str) -> None:
         """Force-remove a container by name or id (no error if it is not there)."""
-        subprocess.run([DOCKER, "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "rm", "-f", name], timeout=DOCKER_CALL_TIMEOUT_S)
 
     def stop(self, name: str) -> None:
         """Stop a running container by name or id and leave everything else alone (Pause now; no error if it is gone)."""
-        subprocess.run([DOCKER, "stop", "-t", "20", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "stop", "-t", str(STOP_GRACE_S), name], timeout=DOCKER_CALL_TIMEOUT_S)
 
     def ps_ids(self, label: str) -> list[str]:
         """Return the ids of all containers (running or not) carrying a label."""
-        p = subprocess.run([DOCKER, "ps", "-aq", "--filter", f"label={label}"], capture_output=True, text=True)
+        p = proc.run([DOCKER, "ps", "-aq", "--filter", f"label={label}"], timeout=DOCKER_CALL_TIMEOUT_S)
         return p.stdout.split()
 
     def volume_create(self, name: str, labels: list[str]) -> None:
@@ -141,30 +158,30 @@ class DockerRunner:
         argv = [DOCKER, "volume", "create"]
         for label in labels:
             argv += ["--label", label]
-        subprocess.run(argv + [name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        _checked(argv + [name], DOCKER_CALL_TIMEOUT_S, VOLUME_WHAT)
 
     def volume_rm(self, name: str) -> None:
         """Remove a named volume (no error if it is not there)."""
-        subprocess.run([DOCKER, "volume", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "volume", "rm", "-f", name], timeout=DOCKER_CALL_TIMEOUT_S)
 
     def chown(self, path: Path, uid: int, gid: int) -> None:
         """Hand a host folder to a uid/gid (only used when Phoenix runs as root)."""
-        subprocess.run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
+        _checked(["chown", "-R", f"{uid}:{gid}", str(path)], CHOWN_TIMEOUT_S, CHOWN_WHAT)
 
     def image_exists(self, tag: str) -> bool:
         """True when an image with this tag is on this machine."""
-        p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = proc.run([DOCKER, "image", "inspect", tag], timeout=DOCKER_CALL_TIMEOUT_S)
         return p.returncode == 0
 
     def image_id(self, tag: str) -> str:
         """The exact id (sha256:...) of the image with this tag ('' when it is not on this machine)."""
-        p = subprocess.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], capture_output=True, text=True)
+        p = proc.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], timeout=DOCKER_CALL_TIMEOUT_S)
         return p.stdout.strip() if p.returncode == 0 else ""
 
     def image_label(self, tag: str, label: str) -> str:
         """One label of an image ('' when the image or the label is missing)."""
-        p = subprocess.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
-                           capture_output=True, text=True)
+        p = proc.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
+                     timeout=DOCKER_CALL_TIMEOUT_S)
         out = p.stdout.strip()
         return "" if p.returncode != 0 or out == "<no value>" else out
 
@@ -176,7 +193,10 @@ class DockerRunner:
             argv += ["--label", f"{key}={value}"]
         argv.append(str(context))
         Path(log_path).parent.mkdir(parents=True, exist_ok=True)
-        return self.run(argv, Path(log_path), Path(log_path), timeout_s, f"phoenix9-build-{os.getpid()}")
+        rc = self.run(argv, Path(log_path), Path(log_path), timeout_s, f"phoenix9-build-{os.getpid()}")
+        if rc != 0:
+            proc.record_failure(f"Building the {tag} toolbox image", proc.program(argv), rc, _file_tail(log_path))
+        return rc
 
 
 # ------------------------------------------------------------- argv building
@@ -285,6 +305,8 @@ def git_dir_mounts(workspace: Path) -> list[Mount]:
 
 
 GIT_ENV = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}
+# Check containers: test runners print plain text (colour codes break checks that read their output).
+NO_COLOUR_ENV = {"NO_COLOR": "1", "FORCE_COLOR": "0"}
 
 
 def build_argv(r: Run, limits: dict | None = None) -> list[str]:
@@ -470,7 +492,20 @@ def run_claude_container(runner, project: str, run_id: str, task: int | str, att
         runner.rm(r.name)
     _scrub_file(out, r.env_files)
     _scrub_file(err, r.env_files, always=True)
+    if rc != 0:
+        proc.record_failure(f"AI session ({role})", proc.program(argv), rc, _file_tail(err))
     return rc, out
+
+
+def _file_tail(path: Path) -> str:
+    """The end of a log file as text ('' when it is missing); proc.record_failure scrubs and caps it."""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 64 * 1024))
+            return fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def _scrub_file(path: Path, env_files: list[Path], always: bool = False) -> None:
@@ -499,6 +534,7 @@ def check_run(project: str, run_id: str, task: int | str, attempt: int, role: st
     env["PHOENIX_CPUS"] = str(max(1, int(cpus)))        # a project's test command may use it (parallel workers)
     env.update(GIT_ENV)
     env.update(check_extra_env(extra_env))
+    env.update(NO_COLOUR_ENV)
     return Run(project, run_id, task, attempt, role, image, ["bash", "-c", command], mounts=mounts, env=env,
                env_files=[Path(env_file)] if env_file else [], firewall=firewall)
 
@@ -533,6 +569,8 @@ def run_check_container(runner, project: str, run_id: str, task: int | str, atte
         runner.rm(name)
         runner.volume_rm(store)
     _scrub_file(out, r.env_files)
+    if rc in CHECK_RECORDED_RCS:
+        proc.record_failure(f"Check container ({role})", proc.program(argv), rc, _file_tail(out))
     return rc, out
 
 

@@ -169,15 +169,17 @@ def publish(adapters, rec: dict, sha: str, changes, who: str = "cli") -> str:
         raise RuntimeError("The branch copy changed after the checks (a new commit). Run `phoenix edit finish` again.")
     if git.pending_paths(worktree):
         raise RuntimeError("The branch copy has changes that were not checked. Run `phoenix edit finish` again.")
-    rc, _, err = host.run(["git", *SAFE, "-C", str(worktree), "push", "origin", f"{sha}:refs/heads/{rec['branch']}"], 300)
+    rc, _, err = host.run(["git", *SAFE, "-C", str(worktree), "push", "origin", f"{sha}:refs/heads/{rec['branch']}"], 300,
+                          what="Pushing the quick edit's branch to GitHub")
     if rc != 0:
         raise RuntimeError(f"I could not push the branch: {scrub.scrub(err.strip())[-300:]}")
     argv = ["gh", "pr", "create", "--title", rec["title"], "--body", _body(rec, changes, who),
             "--base", base, "--head", rec["branch"]]
     labelled = _label(host, worktree)
-    rc, out, err = host.run(argv + (["--label", LABEL] if labelled else []), 120, cwd=worktree)
+    rc, out, err = host.run(argv + (["--label", LABEL] if labelled else []), 120, cwd=worktree,
+                            what="Opening the quick edit's merge request")
     if rc != 0 and labelled:                      # the label is a nice-to-have: never lose the merge request over it
-        rc, out, err = host.run(argv, 120, cwd=worktree)
+        rc, out, err = host.run(argv, 120, cwd=worktree, what="Opening the quick edit's merge request without the label")
     if rc != 0:
         raise RuntimeError(f"I could not open the merge request: {scrub.scrub(err.strip())[-300:]}")
     lines = [ln.strip() for ln in out.splitlines() if ln.strip()]

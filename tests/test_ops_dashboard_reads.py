@@ -12,7 +12,7 @@ from phoenix9.__main__ import main
 from phoenix9.ops.common import OpsError
 from phoenix9.ops import app, common, github, gates as gates_ops, keys as keys_ops, projects, runs as runs_ops
 
-SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n"
+SPEC = "# Spec: Add Login\n\n## Task 1: First\nGoal: do it.\nDone when:\n- the login page shows a form\n- `true`\n"
 ROW_KEYS = {"name", "description", "path", "repo", "repo_owner", "repo_name", "shared_repo", "profile", "services", "size",
             "vscode_url", "vscode", "last_used", "last_used_at", "harness", "has_phoenix_toml",
             "repo_url", "needs_you", "run", "last_build_failed", "questions", "activity", "status_line", "run_text", "worker", "chat", "edit", "plan"}
@@ -132,7 +132,7 @@ def test_keys_rows_records_no_command(env):
 def test_github_not_connected_when_gh_auth_fails(env):
     env["host"].script(["gh", "auth", "status"], rc=1, err="not logged in")
     assert github.status() == {"connected": False, "accounts": []}
-    assert github.repos() == {"connected": False, "repos": []}
+    assert github.repos() == {"connected": False, "repos": [], "problems": []}
 
 
 def test_github_repos_lists_each_account(env):

@@ -63,6 +63,7 @@ phoenix9/                      the Python package
   runs.py                      run folders, run ids, queue (section 7)
   state.py                     state.json read/update
   events.py                    events.jsonl append/read/tail (section 8)
+  proc.py                      the one place that starts outside programs; command.failed records (section 8)
   gates.py                     gate files and answers (section 8)
   status.py                    what a project is doing now, worked out once (section 8, "One truth")
   runend.py                    how a run ends: run lock, stop request, end_run (section 7)
@@ -349,6 +350,8 @@ name = "supabase"                 # = folder name
 title = "Supabase"
 description = "Postgres database, auth and file storage."
 support = "store-and-wire"        # "store-and-wire" | "keys-only"
+tag = "Other database"            # optional, at most 30 characters of plain words; a quiet label on the New
+                                  # project tile; tag "Default database" sorts first there
 docs = "https://supabase.com/docs"
 website = "https://supabase.com/dashboard/account/tokens"   # optional: where the key is made; shown as a "Website" link
 account_keys = ["SUPABASE_ACCESS_TOKEN"]   # names stored in HOME/secrets/<secrets_file>
@@ -585,6 +588,15 @@ Done when:
 ```
 `parse(text) -> dict` and `check(text) -> list[str]` (problems in plain English). Also accepts V8's
 `## Step N` headings as tasks. Max 60 tasks. Spec check writes `spec.json` into the run folder.
+`check(text, needs_commands=True)` is used whenever the check-writer is off (nothing would write checks): every
+task that is not "for you" then needs at least one bullet that is only a backticked command, else one problem per
+task "Line N: task K has no 'Done when' item Phoenix can run. ...". `ops.runs.start` (task-format specs, when the
+resolved plan has no `check-writer`), the Spec check step (`check_writer_on`, from `plan.json`) and the Planner's
+output check use it; `phoenix spec check <file> [--preset P] [--project NAME]` decides from the preset, else the
+project's settings, else the spec's own `Preset:` line, and says which.
+`chain_warnings(spec) -> list[str]` (never problems, at most 3): the longest 'Depends on' chain when it covers 4+
+tasks and over half of them, and any task more than half the others wait for (plans of 5+ tasks). `phoenix spec
+check` prints them under "Worth a look:" and the Planner's plan gate adds them to its `why` text.
 `Preset:` is used as the run's preset override (`ops.runs.start` writes it into `overrides.json`) unless a
 preset is given for the run (`phoenix run start --preset`, or the wizard's own choice).
 
@@ -597,7 +609,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   (mounted as the container user's `~/.claude/projects`, so a session can be continued), `session.jsonl`, `diff.patch`, `checks.txt`, `result.json`), `gates/<gate-id>.json` and
   `gates/<gate-id>.answer.json`, `run.lock` (held by the runner while it walks the run), `stop-request.json`
   `{who, at}` (only until the runner acts on it), `pause-request.json` `{who, at}` (same, for Pause now), `logs/<step>.log`, `summary.md` and `summary.html`; also `plan.md`
-  (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge).
+  (Planner), `progress.md` (Commit), `merge-request.txt` / `merge-note.md` (Merge), `stopped-work.patch` (0600,
+  written when a stopped or discarded run's worktree had changes since it branched, scrubbed; `runs.save_stopped_work`).
 - **Task file** (`phoenix9/taskfile.py`): `tasks/<n>/task.md` is the one readable file of a task. Above the fixed
   line `## Fix notes` Phoenix writes a view from the real state (goal, status, tries, each failed attempt's
   reasons and last 10 scrubbed check-output lines, log paths); it is regenerated (`taskfile.refresh`, at each
@@ -752,14 +765,15 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command`.
-  `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command command.failed`.
+  `command.failed {what, program, exit_code, stderr_tail}` comes from `phoenix9/proc.py` when an outside program run for a real action (one given a plain `what` label) fails; `program` is the program and its first word only (e.g. `git push`), never other arguments; `stderr_tail` is scrubbed; project/run/task/step come from the runner's `proc.context`.
+  `reference.snapshot {files, links, copied_from?}` is written when a run is made and the project has reference material, or when Run again copies the old run's frozen folder (`copied_from` = old run id) (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` comes from `phoenix update after-install` (nothing was written).
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
   `plan.queued|continued|abandoned {plan, who}` come from `phoenix plan`; `plan.started|waiting|done|failed {plan, ...}` from the runner service.
   `repair.applied {who, note, title, steps, check_before, check_after, forced, rolled_back, snapshot}` (project and run set)
   is written for every applied repair note and every undo (section 8.4).
-  `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`.
+  `run.note {who}` (project, run and task set; never the text) is written by `phoenix run note`; Run again writes `run.note {who, new_run, note: "Run again as <new id>"}` on the old run.
   `run.discarded {who, notes, forced}` (project and run set) is written by `phoenix run discard`.
   `run.tidied {who, removed, notes}` (project and run set) is written by `phoenix run tidy`.
   `run.paused {who}` is written by the runner when Pause now has stopped the step; `run.resumed {who, status}` by `phoenix run resume` (project and run set); `run.pause.dropped {who, reason}` when a Pause now request is thrown away because the run ended, waited for an answer or was queued (it never pauses a run later by surprise).
@@ -996,10 +1010,15 @@ It replaced the old Claude-Code agent (section 8.6). Two layers:
 - **`agentkit/packs/phoenix/`**: the Phoenix pack, kept thin: its tools, browser actions, cards and
   instructions. It reaches Phoenix only through Phoenix's HTTP API (`http://127.0.0.1:8095`).
 
-The chat screen is `#/agent-next` (`web/src/features/agentnext/`; assistant-ui behind `runtime.ts`). The top bar's
-Agent button, Ctrl+. and the `phoenix:open-agent` event (its `detail.message`, when given, is sent) open the same
-chat in a drawer (`AgentDrawer.tsx`); both show the conversation remembered under the browser key `agent-next-thread`.
-The drawer sends `context` {page, project, run} from the router with every message and says it on a chip above the
+The agent is one panel in two sizes (`AgentDrawer.tsx` in `web/src/features/agentnext/`; assistant-ui behind
+`runtime.ts`; styles in `web/src/styles/agent.css`): the side drawer, with a clock button for earlier conversations,
+and full screen under the top bar, with the history list on the left and the conversation in the middle (at most
+720px wide). Expand and Shrink in its header switch sizes without reloading the conversation; the size is remembered
+in the browser (`phoenix.agent.wide`); on phone width it is always the drawer, which fills the screen there. The top
+bar's Agent button opens it and, while it is open, only puts the cursor in the message box; Ctrl+. toggles it, Esc
+closes it. The `phoenix:open-agent` event opens it (its `detail.message`, when given, is sent; `detail.size: "full"`
+opens it full screen), and `#/agent-next` sends that event with `size: "full"` and moves to the projects page. Both
+sizes show the conversation remembered under the browser key `agent-next-thread`. The panel sends `context` {page, project, run} from the router with every message and says it on a chip above the
 message box; while a reply is being written its message box still sends, a queued message shows as "Queued" until
 its turn starts, then the drawer follows that run (it reopens the thread and replays from its last `RUN_STARTED`).
 When `/status` says the agent cannot answer, the drawer shows a card with the reason (no API key, not running, not
@@ -1008,8 +1027,7 @@ set up); when it is not running the card offers "Restart the agent" (asks first,
 `phoenix:open-agent` with "Tell me about bell item <id>" (only the id; bell words come from builds). While the drawer
 is closed, a finished reply or a new approval card in its open conversation puts a dot on the Agent button until it opens.
 
-**How Alex uses it.** The Agent button in the top bar opens the drawer (the only way in besides the full page
-`#/agent-next`); each message carries the page context (page, project, run) and the service tells the model one
+**How Alex uses it.** The Agent button in the top bar opens the panel (`#/agent-next` opens it full screen); each message carries the page context (page, project, run) and the service tells the model one
 line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
 per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
 `failmodes._hand_to_agent` to `POST /handoffs` (ids only; Alex gets one line), and the agent may only answer
@@ -1185,8 +1203,8 @@ and must still be filled in before the agent runs.
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
 | `proxy` | `Proxy.start(spec, key, *, log_path, step, bind)` starts the per-step key proxy (`proxy.serve`, section 14) and returns its handle | `FakeProxyFactory`: forwards nothing and listens nowhere; records `(service, rules, step, bind, key_len, key_seen)` (never the key), returns a handle with `url = http://proxy.fake/<service>`, a fixed token and a recorded `stop()`; `.started`, `.stopped`, `.running()`. Tests script `FakeHttp` at that url |
-`phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
-`subprocess` for these tools directly.
+`phoenix9/adapters.py` builds the real set; tests build the fake set. Every outside program is started through
+`phoenix9/proc.py` (`run`, `popen`), the only module that imports `subprocess` (`tests/test_command_guard.py`).
 
 ## 9.5 Deleting a project (`phoenix9/project_delete.py`, a safety file)
 

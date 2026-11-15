@@ -336,6 +336,8 @@ services/github/recipe.py
 services/github/service.toml
 services/mux/install.md
 services/mux/service.toml
+services/neon/install.md
+services/neon/service.toml
 services/openrouter/install.md
 services/openrouter/service.toml
 services/resend/install.md
@@ -772,7 +774,6 @@ web/src/components/ui/sonner.tsx
 web/src/components/ui/switch.tsx
 web/src/components/ui/textarea.tsx
 web/src/components/ui/tooltip.tsx
-web/src/features/agentnext/AgentNextPage.tsx
 web/src/features/agentnext/Allowance.tsx
 web/src/features/agentnext/History.tsx
 web/src/features/agentnext/ProjectCards.tsx

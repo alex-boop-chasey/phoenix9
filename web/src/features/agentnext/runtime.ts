@@ -280,7 +280,7 @@ export class AgentNextAgent extends AbstractAgent {
   private async drive(input: RunAgentInput, sub: Subscriber<BaseEvent>) {
     const last = [...input.messages].reverse().find((m) => m.role === "user")
     const text = typeof last?.content === "string" ? last.content : ""
-    this.setSide({ ...this.side, running: true, suggestions: undefined, refused: undefined })
+    this.setSide({ ...this.side, running: true, calls: [], suggestions: undefined, refused: undefined })
     try {
       const id = await this.ensureThread()
       await this.catchUpCount(id)
@@ -329,6 +329,8 @@ export class AgentNextAgent extends AbstractAgent {
       return false
     }
     sub.next(event as BaseEvent)
+    // Each run starts a fresh list of steps (the "Working…" line shows this turn's only).
+    if (event.type === "RUN_STARTED") this.setSide({ ...this.side, calls: [] })
     if (event.type === "TOOL_CALL_START") {
       ctx.names.set(event.toolCallId, event.toolCallName)
       this.setSide({ ...this.side, calls: [...(this.side.calls ?? []), { toolCallId: event.toolCallId, toolName: event.toolCallName, running: true }] })

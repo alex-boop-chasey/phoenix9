@@ -60,7 +60,8 @@ def presets() -> dict:
 def services() -> dict:
     """Every service in the services library with the project keys it needs."""
     from phoenix9 import services as core
-    rows = [{"name": s["name"], "title": s["title"], "project_keys": s["project_keys"]}
+    rows = [{"name": s["name"], "title": s["title"], "tag": s["tag"],
+             "project_keys": s["project_keys"]}
             for s in sorted(core.load_library().values(), key=lambda s: s["name"])]
     return {"services": rows, "problems": core.load_problems()}
 

@@ -70,3 +70,12 @@ test("the posted body holds only status and indexes, never labels", async () => 
   expect(body).not.toContain("Pages")
   expect(Object.keys(JSON.parse(body).result).sort()).toEqual(["picked", "status"])
 })
+
+test("an unanswered choice waits for Alex; once answered it is a plain card", async () => {
+  draw(data)
+  expect(screen.getByTestId("choice-card")).toHaveClass("ag-card", "needs-you")
+  expect(screen.getByText("Needs you")).toBeInTheDocument()
+  await userEvent.click(screen.getByRole("button", { name: /API/ }))
+  await waitFor(() => expect(screen.getByTestId("choice-card")).not.toHaveClass("needs-you"))
+  expect(screen.queryByText("Needs you")).toBeNull()
+})

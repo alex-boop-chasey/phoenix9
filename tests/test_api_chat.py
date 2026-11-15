@@ -89,6 +89,13 @@ def test_rows_have_chat(api, chats):
     assert projects.query()["rest"][0]["chat"] == STATE
 
 
+def test_single_project_has_chat(api, chats):
+    """GET /api/projects/<name> carries the same chat state as the list rows."""
+    status, body = api("/api/projects/demo")
+    assert status == 200 and body["data"]["chat"] == STATE
+    assert projects.show("demo")["chat"] == STATE
+
+
 def test_row_chat_null_when_state_fails(api, chats, monkeypatch):
     """One project's failure gives chat None while the others keep theirs."""
     make_project("other")

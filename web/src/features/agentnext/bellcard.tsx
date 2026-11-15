@@ -28,14 +28,18 @@ export function bellFrom(data: unknown): BellRow[] | null {
 export function BellCard({ rows }: { rows: BellRow[] }) {
   if (!rows.length) return <p data-testid="bell-card-empty">Nothing needs you.</p>
   return (
-    <section className="flex flex-col gap-2" aria-label="What needs you" data-testid="bell-card">
-      {rows.map((r, i) => (
-        <div key={i} className="card flex flex-col gap-1" data-testid="bell-row">
-          <strong>{r.title}</strong>
-          {r.detail ? <span className="block text-sm text-muted-foreground">{r.detail}</span> : null}
-          <button type="button" className="btn" onClick={() => { window.location.hash = r.link }}>Open</button>
-        </div>
-      ))}
+    <section className="ag-card" aria-label="What needs you" data-testid="bell-card">
+      <ul className="ag-list">
+        {rows.map((r, i) => (
+          <li key={i} className="ag-row-f" data-testid="bell-row">
+            <span className="flex flex-col gap-0.5 min-w-0">
+              <span className="ag-item-t">{r.title}</span>
+              {r.detail ? <span className="ag-item-s">{r.detail}</span> : null}
+            </span>
+            <button type="button" className="btn btn-sm" onClick={() => { window.location.hash = r.link }}>Open</button>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

@@ -1,4 +1,5 @@
 // Cards for the guided flows: the plan check, the specs and the creation job; plain text from typed data only.
+import { Mark } from "./cardparts"
 
 function isObject(v: unknown): v is Record<string, unknown> { return !!v && typeof v === "object" && !Array.isArray(v) }
 function isText(v: unknown): v is string { return typeof v === "string" }
@@ -49,16 +50,16 @@ export function jobFrom(data: unknown): JobData | null {
 /** The plan check: each group's steps and any errors, in plain words. */
 export function PlanCheckCard({ data }: { data: PlanCheckData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Plan check" data-testid="plan-check-card">
-      <strong>Plan check{data.project ? ` for ${data.project}` : ""}</strong>
-      <span className="text-sm">{data.ok ? "The plan is fine." : "The plan has problems."}</span>
+    <section className="ag-card" aria-label="Plan check" data-testid="plan-check-card">
+      <h3 className="ag-card-h">Plan check{data.project ? ` for ${data.project}` : ""}</h3>
+      <p className="ag-card-b ag-result"><Mark ok={data.ok} /><span>{data.ok ? "The plan is fine." : "The plan has problems."}</span></p>
       {data.groups.map((g) => (
-        <div key={g.name}>
-          <span className="block text-sm">{g.name}: {g.steps.length} {g.steps.length === 1 ? "step" : "steps"}</span>
-          <ul>{g.steps.map((s, i) => <li key={i}>{s}</li>)}</ul>
+        <div key={g.name} className="ag-card-b">
+          <p className="ag-quiet">{g.name}: {g.steps.length} {g.steps.length === 1 ? "step" : "steps"}</p>
+          <ul className="ag-list">{g.steps.map((s, i) => <li key={i}>{s}</li>)}</ul>
         </div>
       ))}
-      {data.errors.length ? <ul aria-label="Errors">{data.errors.map((e, i) => <li key={i}>Problem: {e}</li>)}</ul> : null}
+      {data.errors.length ? <ul className="ag-list" aria-label="Errors">{data.errors.map((e, i) => <li key={i}>Problem: {e}</li>)}</ul> : null}
     </section>
   )
 }
@@ -66,13 +67,13 @@ export function PlanCheckCard({ data }: { data: PlanCheckData }) {
 /** The specs of a project, and which can be built directly. */
 export function SpecsCard({ data }: { data: SpecsData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Specs" data-testid="specs-card">
-      <strong>Specs{data.project ? ` for ${data.project}` : ""}</strong>
+    <section className="ag-card" aria-label="Specs" data-testid="specs-card">
+      <h3 className="ag-card-h">Specs{data.project ? ` for ${data.project}` : ""}</h3>
       {data.specs.length ? (
-        <ul>{data.specs.map((s) => (
+        <ul className="ag-list">{data.specs.map((s) => (
           <li key={s.name}>{s.title ? `${s.name}: ${s.title}` : s.name} - {s.task_format ? "can be built directly" : "needs a plan first"}</li>
         ))}</ul>
-      ) : <span className="text-sm">No specs yet.</span>}
+      ) : <p className="ag-card-b ag-quiet">No specs yet.</p>}
     </section>
   )
 }
@@ -82,12 +83,12 @@ export function JobCard({ data }: { data: JobData }) {
   const failed = data.status === "failed" || data.status === "error"
   const done = data.status === "done" || data.status === "ok"
   return (
-    <section className="card flex flex-col gap-1" aria-label="Job" data-testid="job-card">
-      <strong>{data.kind || "Job"}{data.project ? ` for ${data.project}` : ""}</strong>
-      <ul>{data.steps.map((s, i) => <li key={i}>{s.label}: {s.status || "waiting"}</li>)}</ul>
-      {failed ? <span className="text-sm" data-testid="job-result">Failed: {data.message || "no reason given"}</span>
-        : done ? <span className="text-sm" data-testid="job-result">Done</span>
-        : <span className="text-sm" data-testid="job-result">Status: {data.status}</span>}
+    <section className="ag-card" aria-label="Job" data-testid="job-card">
+      <h3 className="ag-card-h">{data.kind || "Job"}{data.project ? ` for ${data.project}` : ""}</h3>
+      <ul className="ag-list">{data.steps.map((s, i) => <li key={i}>{s.label}: {s.status || "waiting"}</li>)}</ul>
+      {failed ? <p className="ag-card-b ag-result"><Mark ok={false} /><span data-testid="job-result">Failed: {data.message || "no reason given"}</span></p>
+        : done ? <p className="ag-card-b ag-result"><Mark ok /><span data-testid="job-result">Done</span></p>
+        : <p className="ag-card-b"><span data-testid="job-result">Status: {data.status}</span></p>}
     </section>
   )
 }

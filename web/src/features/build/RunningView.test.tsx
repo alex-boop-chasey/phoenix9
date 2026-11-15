@@ -36,6 +36,7 @@ afterEach(() => {
 })
 
 const RUN = "/api/runs/demo-site/r-wait"
+const T_END = "2026-11-15T10:00:00+00:00"
 const routes = (over: Record<string, unknown> = {}) => ({
   "GET /api/projects/demo-site/runs": BUILDS,
   [`GET ${RUN}`]: runDetail(),
@@ -296,6 +297,26 @@ test("a discarded build says work discarded and has no Discard button", async ()
   await screen.findByRole("heading", { name: "Pricing page" })
   expect(screen.getByTestId("discarded")).toHaveTextContent("Work discarded")
   expect(screen.queryByRole("button", { name: "Discard work" })).toBeNull()
+})
+
+test("a stopped build says where its unfinished changes were saved", async () => {
+  const saved = "The build's unfinished changes are saved in /runs/r-wait/stopped-work.patch " +
+    "(apply with: git apply /runs/r-wait/stopped-work.patch)."
+  const finished = { id: 9, ts: T_END, type: "run.finished", project: "demo-site", run: "r-wait", task: null, step: null,
+    data: { status: "stopped", reason: `stopped by you; ${saved}; The last try's changes: /runs/r-wait/diff.patch` } }
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "stopped", gates: [], recent_events: [finished] }) }))
+  show()
+  expect(await screen.findByTestId("stopped-work")).toHaveTextContent(saved)
+  expect(screen.getByTestId("stopped-work")).toHaveClass("small")
+})
+
+test("a stopped build with nothing saved shows no saved-changes line", async () => {
+  const finished = { id: 9, ts: T_END, type: "run.finished", project: "demo-site", run: "r-wait", task: null, step: null,
+    data: { status: "stopped", reason: "stopped by you" } }
+  mockApi(routes({ [`GET ${RUN}`]: runDetail({ status: "stopped", gates: [], recent_events: [finished] }) }))
+  show()
+  await screen.findByTestId("result")
+  expect(screen.queryByTestId("stopped-work")).toBeNull()
 })
 
 test("a running build has no Discard button", async () => {

@@ -1,9 +1,8 @@
-// The /agent-next layout: history list, opening a thread, new conversation, Stop and the allowance bar.
-import { render, screen, waitFor } from "@testing-library/react"
+// The full-screen agent: history list, opening a thread, new conversation, Stop and the allowance line.
+import { screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter } from "react-router"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 
 const frame = (n: number, e: Record<string, unknown>) => `id: ${n}\ndata: ${JSON.stringify(e)}\n\n`
 
@@ -41,7 +40,7 @@ function mockService(state: "plenty" | "low" | "used_up" = "plenty") {
 }
 
 function setup() {
-  render(<MemoryRouter initialEntries={["/agent-next"]}><AgentNextPage /></MemoryRouter>)
+  renderFullAgent()
 }
 
 afterEach(() => vi.unstubAllGlobals())
@@ -82,14 +81,27 @@ describe("agent-next layout", () => {
     await waitFor(() => expect(posts).toContain("threads/t9/stop"))
   })
 
+  it("shows no allowance words while there is plenty left", async () => {
+    mockService("plenty")
+    setup()
+    await screen.findByText("Settings question")
+    const asked = () => vi.mocked(fetch).mock.calls.some(([u]) => String(u).endsWith("/spend"))
+    await waitFor(() => expect(asked()).toBe(true))
+    expect(screen.queryByTestId("allowance")).not.toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/allowance|plenty/i)
+  })
+
   it.each([
-    ["plenty", "plenty left this month"],
-    ["low", "getting low"],
-    ["used_up", "used up this month"],
-  ] as const)("allowance %s says it in words with no dollar sign", async (state, words) => {
+    ["low", "The agent's allowance is getting low this month."],
+    ["used_up", "The agent's allowance is used up this month."],
+  ] as const)("allowance %s is one short line above the message box, no bar and no dollar sign", async (state, words) => {
     mockService(state)
     setup()
-    expect(await screen.findByText(words)).toBeInTheDocument()
+    expect(await screen.findByText(words)).toBe(screen.getByTestId("allowance"))
+    expect(screen.getByTestId("allowance")).toHaveAttribute("role", "status")
+    expect(screen.getByTestId("allowance").nextElementSibling).toContainElement(screen.getByLabelText("Message"))
+    expect(screen.getByTestId("allowance").classList.contains("used")).toBe(state === "used_up")
+    expect(document.querySelector('[role="presentation"]')).toBeNull()
     expect(document.body.textContent).not.toContain("$")
   })
 })

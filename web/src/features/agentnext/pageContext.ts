@@ -45,6 +45,19 @@ export function lookingAt(parts: PageParts): string {
   return `Looking at: ${bits.length ? bits.join(", ") : "Phoenix"}`
 }
 
+const CHIP_WORDS: Record<string, string> = {
+  projects: "Project list", new: "New project", import: "Importing a project", styles: "Style reference", settings: "Phoenix settings",
+}
+
+/** The chip's short words inside the message box, e.g. "Project list" or "demo-site · build 20261110-0900". */
+export function chipWords(parts: PageParts): string {
+  const bits: string[] = []
+  if (parts.project && SAFE.test(parts.project)) bits.push(parts.project)
+  else if (parts.page && CHIP_WORDS[parts.page]) bits.push(CHIP_WORDS[parts.page]!)
+  if (parts.run) bits.push(`build ${parts.run}`)
+  return bits.length ? bits.join(" · ") : "Phoenix"
+}
+
 /** The context to send with a message: only the safe parts, or nothing when none are known. */
 export function contextToSend(parts: PageParts): PageParts | undefined {
   const out: PageParts = {}

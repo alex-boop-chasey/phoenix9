@@ -364,6 +364,15 @@ export function useDiscardRun(project: string) {
   })
 }
 
+/** Start a failed or stopped build again as a new run (optionally on another preset). */
+export function useRunAgain(project: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ runId, preset }: { runId: string; preset?: string }) => api.runAgain(project, runId, preset),
+    onSuccess: () => invalidateProject(qc, project),
+  })
+}
+
 export const useGateReview = (id: string) =>
   useQuery({ queryKey: ["gate-review", id], queryFn: () => api.gateReview(id), staleTime: 30_000 })
 

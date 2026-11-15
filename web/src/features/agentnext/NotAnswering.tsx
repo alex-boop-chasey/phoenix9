@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { ConfirmDialog } from "@/components/ConfirmDialog"
 import { Icon } from "@/components/Icon"
 import { useRestartAgentService } from "@/lib/queries"
+import { Mark } from "./cardparts"
 import { agentAvailable, type NotAnswering } from "./runtime"
 
 /** How often to look whether the agent answers again after a restart. */
@@ -58,15 +59,14 @@ export function NotAnsweringCard({ reason, message, onBack }: { reason: NotAnswe
   }
 
   return (
-    <div className="empty ag-asleep" role="status" data-testid="agent-not-answering">
-      <div className="ec"><Icon name="moon" /></div>
-      <h3 className="h3">{HEADINGS[reason]}</h3>
-      <p className="ag-empty">{message}</p>
-      {state === "restarting" && <p role="status">Restarting the agent…</p>}
-      {state === "failed" && <p role="alert" className="ag-fail">{why}</p>}
+    <div className="ag-card ag-asleep" role="status" data-testid="agent-not-answering">
+      <h3 className="ag-card-h"><Icon name="moon" size="sm" className="ag-quiet" />{HEADINGS[reason]}</h3>
+      <p className="ag-card-b ag-quiet">{message}</p>
+      {state === "restarting" && <p role="status" className="ag-card-b">Restarting the agent…</p>}
+      {state === "failed" && <p role="alert" className="ag-card-b ag-result"><Mark ok={false} /><span>{why}</span></p>}
       {reason === "not-running" && (
         <>
-          <div className="ag-actions">
+          <div className="ag-card-f">
             <button className="btn btn-primary" disabled={state === "restarting"} onClick={() => setAsk(true)}>Restart the agent</button>
           </div>
           <ConfirmDialog

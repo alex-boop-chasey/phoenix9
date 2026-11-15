@@ -15,15 +15,15 @@ class GitHost:
     def __init__(self, fake):
         self.fake = fake
 
-    def run(self, argv, timeout=60):
+    def run(self, argv, timeout=60, what=None):
         if argv[0] == "git":
             self.fake.calls.append(list(argv))
             p = subprocess.run(argv, capture_output=True, text=True)
             return p.returncode, p.stdout, p.stderr
-        return self.fake.run(argv, timeout)
+        return self.fake.run(argv, timeout, what=what)
 
-    def gh(self, *args):
-        return self.run(["gh", *args])
+    def gh(self, *args, what=None):
+        return self.run(["gh", *args], what=what)
 
     def __getattr__(self, name):
         return getattr(self.fake, name)
@@ -94,10 +94,10 @@ def test_auto_merge_reports_a_failed_remote_delete(world):
     ctx, code, origin = world
     real = ctx.adapters.host.run
 
-    def run(argv, timeout=60):
+    def run(argv, timeout=60, **kw):
         if "--delete" in argv:
             return 1, "", "remote: denied\n"
-        return real(argv, timeout)
+        return real(argv, timeout, **kw)
     ctx.adapters.host.run = run
     result = load("merge").run(ctx)
     assert result.status == "pass" and "not deleted on GitHub: remote: denied" in result.reasons[0]
@@ -246,10 +246,10 @@ def test_push_without_a_github_login_says_run_doctor(world):
     ctx, _, _ = world
     real = ctx.adapters.host.run
 
-    def run(argv, timeout=60):
+    def run(argv, timeout=60, **kw):
         if "push" in argv:
             return 128, "", "fatal: could not read Username for 'https://github.com': No such device or address\n"
-        return real(argv, timeout)
+        return real(argv, timeout, **kw)
     ctx.adapters.host.run = run
     result = load("merge").run(ctx)
     assert result.status == "fail"
@@ -282,11 +282,11 @@ def test_auto_merge_removes_the_worktree(world):
 
 
 def test_worktree_removal_uses_the_safety_flags(world, monkeypatch):
-    from phoenix9 import git as gitmod
+    from phoenix9 import proc
     ctx, code, _ = world
     argvs = []
-    real = gitmod.subprocess.run
-    monkeypatch.setattr(gitmod.subprocess, "run", lambda argv, **kw: (argvs.append(argv), real(argv, **kw))[1])
+    real = proc.subprocess.run
+    monkeypatch.setattr(proc.subprocess, "run", lambda argv, **kw: (argvs.append(argv), real(argv, **kw))[1])
     load("merge").run(ctx)
     remove = next(a for a in argvs if "remove" in a)
     assert remove[:5] == ["git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]

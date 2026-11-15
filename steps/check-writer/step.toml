@@ -11,8 +11,8 @@ default = "off"
 [ai]
 model = "claude-sonnet-5-5"
 fallback_models = ["claude-opus-5-5"]
-tools = []
-tools_denied = []
+tools = ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]   # it writes check scripts and runs them
+tools_denied = ["WebFetch", "WebSearch"]
 mcp_servers = []
 claude_md = "library"
 skills = []

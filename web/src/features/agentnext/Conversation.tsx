@@ -1,16 +1,17 @@
-// One conversation with the agent: the chat, cards, approvals, Stop and the message box (page and drawer).
+// One conversation with the agent: the chat, cards, approvals, Stop and the message box that stays at the bottom.
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type SyntheticEvent } from "react"
 import { useNavigate } from "react-router"
 
-import { Button } from "@/components/ui/button"
+import { Icon } from "@/components/Icon"
 import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
-import { COMPONENTS, ToolCall } from "./components"
+import { COMPONENTS } from "./components"
 import { FlowLine, flowFrom } from "./flowcard"
 import type { PageParts } from "./pageContext"
 import {
   AssistantRuntimeProvider, ComposerPrimitive, ThreadPrimitive, olderFlowSteps, useAgentNextRuntime,
   type CardItem, type ChatLine, type Frame,
 } from "./runtime"
+import { WorkingLine } from "./WorkingLine"
 
 /** A message sent while the agent was still writing: it waits its turn on the service. */
 export interface QueuedMessage { runId: string; text: string; thread: string; queued: boolean }
@@ -36,8 +37,10 @@ export interface ConversationProps {
   heading?: boolean
   /** What Alex has open, sent with every message. */
   context?: PageParts
-  /** A line shown just above the message box. */
+  /** The small "Looking at" chip shown inside the message box, above the text. */
   chip?: ReactNode
+  /** A short line shown just above the message box (the allowance). */
+  notice?: ReactNode
   /** Where go_to moves the dashboard (default: the router). */
   goTo?: (path: string) => void
   /** Messages waiting their turn, shown as "Queued". */
@@ -57,7 +60,7 @@ export interface ConversationProps {
 
 /** One conversation: the chat, cards, approvals, Stop and the message box. */
 export function Conversation(props: ConversationProps) {
-  const { thread, earlier, earlierCards, follow, onRunEnd, heading = true, context, chip, goTo, queued = [], onQueued, onStopped, onThread, pending, onPendingSent, onApprovalWaiting } = props
+  const { thread, earlier, earlierCards, follow, onRunEnd, heading = true, context, chip, notice, goTo, queued = [], onQueued, onStopped, onThread, pending, onPendingSent, onApprovalWaiting } = props
   const navigate = useNavigate()
   const browserHandler = useMemo(() => makeGoTo(goTo ?? ((hash) => navigate(hash))), [goTo, navigate])
   const { runtime, agent, side } = useAgentNextRuntime(browserHandler, thread, follow)
@@ -65,6 +68,13 @@ export function Conversation(props: ConversationProps) {
 
   const allCards = useMemo(() => [...earlierCards, ...side.cards], [earlierCards, side.cards])
   const older = useMemo(() => olderFlowSteps(allCards), [allCards])
+  // While the newest flow card is active it has its own Cancel button, so cancel chips are left out.
+  const flowActive = useMemo(() => {
+    const newest = [...allCards].reverse().map((c) => (c.component === "FlowCard" ? flowFrom(c.data) : null)).find(Boolean)
+    return newest?.status === "active"
+  }, [allCards])
+  // Calls that drew a card show the card instead; the rest are this turn's steps.
+  const steps = useMemo(() => (side.calls ?? []).filter((c) => !c.component), [side.calls])
 
   const [wasRunning, setWasRunning] = useState(false)
   useEffect(() => {
@@ -118,7 +128,8 @@ export function Conversation(props: ConversationProps) {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <div className="flex flex-col gap-3">
+      <div className="ag-conv">
+      <div className="ag-scroll">
         {heading && <h1>Agent</h1>}
         {[...earlier, ...(side.caught ?? [])].map((l) => <p key={l.id} data-role={l.role}>{l.text}</p>)}
         <ThreadPrimitive.Root>
@@ -132,12 +143,12 @@ export function Conversation(props: ConversationProps) {
             </ThreadPrimitive.Messages>
           </ThreadPrimitive.Viewport>
         </ThreadPrimitive.Root>
-        {(side.calls ?? []).filter((c) => c.running || !c.component).map((c) => <ToolCall key={c.toolCallId} call={c} />)}
+        <WorkingLine calls={steps} running={side.running} />
         {allCards.map((c) => <Card key={c.toolCallId} card={c} older={older.has(c.toolCallId)} onSend={say} />)}
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
         ))}
-        <SuggestionChips actions={side.suggestions} onSend={say} />
+        <SuggestionChips actions={side.suggestions} onSend={say} flowActive={flowActive} />
         {queued.length > 0 && (
           <ul className="flex flex-col gap-1" aria-label="Waiting to be answered" data-testid="agent-queued">
             {queued.map((q) => (
@@ -148,16 +159,31 @@ export function Conversation(props: ConversationProps) {
           </ul>
         )}
         {side.refused && <p role="alert">{side.refused}</p>}
-        {chip}
+      </div>
+      <div className="ag-comp">
+        {notice}
         <div onKeyDownCapture={onKeyDownCapture} onSubmitCapture={takeForQueue}>
-          <ComposerPrimitive.Root className="flex gap-2">
-            <ComposerPrimitive.Input className="input" placeholder="Ask the agent" aria-label="Message" />
-            {queueing
-              ? <Button variant="primary" type="submit">Send</Button>
-              : <ComposerPrimitive.Send asChild><Button variant="primary">Send</Button></ComposerPrimitive.Send>}
-            {side.running && <Button variant="secondary" onClick={() => { onStopped?.(); void agent.stop() }}>Stop</Button>}
+          <ComposerPrimitive.Root className="ag-field">
+            {chip}
+            <div className="ag-row">
+              <ComposerPrimitive.Input
+                className="ag-input" placeholder="Ask the agent" aria-label="Message" minRows={1} maxRows={6}
+                autoComplete="off" autoCorrect="on" enterKeyHint="send"
+              />
+              {side.running && (
+                <button type="button" className="btn btn-ghost btn-icon" aria-label="Stop" title="Stop" onClick={() => { onStopped?.(); void agent.stop() }}>
+                  <Icon name="stop" />
+                </button>
+              )}
+              {queueing
+                ? <button type="submit" className="btn btn-primary btn-icon" aria-label="Send" title="Send"><Icon name="paper-plane" /></button>
+                : <ComposerPrimitive.Send asChild>
+                    <button type="submit" className="btn btn-primary btn-icon" aria-label="Send" title="Send"><Icon name="paper-plane" /></button>
+                  </ComposerPrimitive.Send>}
+            </div>
           </ComposerPrimitive.Root>
         </div>
+      </div>
       </div>
     </AssistantRuntimeProvider>
   )

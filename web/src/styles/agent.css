@@ -1,0 +1,150 @@
+/* The agent panel: one panel in two sizes (side drawer and full screen), its header, history and message text */
+@layer components {
+.drawer{position:fixed; z-index:41; top:60px; right:0; bottom:0; width:min(440px,100vw); background:var(--surface); border-left:1px solid var(--line-strong); box-shadow:var(--shadow-3); display:flex; flex-direction:column; transform:translateX(100%); visibility:hidden; transition:transform var(--dur-slow) cubic-bezier(.32,.72,0,1),visibility 0s var(--dur-slow)}
+.drawer.open{transform:none; visibility:visible; transition:transform var(--dur-slow) cubic-bezier(.32,.72,0,1)}
+.dr-h{display:flex; gap:12px; align-items:center; padding:16px 20px; border-bottom:1px solid var(--line)}
+.dr-h .h2{font-size:17px}
+.dr-b{flex:1; display:grid; place-items:center; padding:24px; text-align:center}
+}
+
+/* Header tools; the body holds the history list (full screen only) beside the conversation */
+.dr-h{flex-wrap:wrap}
+.dr-tools{margin-left:auto; display:flex; gap:2px}
+.ag-body{flex:1; min-height:0; display:flex}
+.ag-main{flex:1; min-width:0; display:flex; flex-direction:column}
+
+/* Full screen: under the top bar from edge to edge, history on the left, the conversation at most 720px wide */
+.drawer.full{left:0; width:auto; border-left:0; box-shadow:none}
+.drawer.full .ag-main{max-width:720px; margin:0 auto}
+.ag-side{width:260px; flex:none; overflow-y:auto; border-right:1px solid var(--line); padding:8px 0}
+.ag-side ul{display:flex; flex-direction:column}
+.ag-side li + li{border-top:1px solid var(--line)}
+.ag-thread{display:flex; flex-direction:column; gap:2px; width:100%; min-height:44px; text-align:left; background:none; border:0; padding:8px 16px; color:var(--text); cursor:pointer; font-size:14px}
+.ag-thread:hover{background:var(--surface-2)}
+.ag-thread:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+.ag-thread[aria-current="true"]{background:var(--surface-2); font-weight:600}
+.ag-thread .ag-when{font-size:12px; font-weight:400; color:var(--text-2)}
+
+/* Phone: the panel is a full-screen sheet above the keyboard and the page behind it is locked */
+@media (max-width:719px){
+  .drawer,.drawer.full{top:60px; left:0; right:0; bottom:auto; width:100%; height:calc(100vh - 60px); height:calc(100dvh - 60px); height:var(--ag-vh, calc(100dvh - 60px)); border-left:0; overscroll-behavior:contain}
+  .drawer .dr-b{min-height:0; overflow:hidden}
+  body.agent-open,body.agent-open .well{overflow:hidden; overscroll-behavior:none}
+}
+
+/* Message text */
+.ag-empty{color:var(--text-2); max-width:28ch}
+.ag-meta{display:flex; gap:6px; align-items:center; margin-bottom:4px; font-size:12px; color:var(--text-3)}
+.ag-md > * + *{margin-top:8px}
+.ag-md ul,.ag-md ol{padding-left:22px}
+.ag-md ul{list-style:disc}
+.ag-md ol{list-style:decimal}
+.ag-md a{color:var(--accent-text); text-decoration:underline}
+.ag-md code{font-family:var(--f-mono); font-size:.9em; background:var(--surface-2); padding:1px 4px; border-radius:4px}
+.ag-code{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:10px 12px; overflow-x:auto; white-space:pre}
+.ag-code code{background:none; padding:0}
+.ag-h{font-weight:700; font-size:15px}
+
+/* The conversation scrolls; the message box under it stays on the bottom edge (both sizes, above the phone keyboard) */
+.drawer .dr-b.ag-chat{display:flex; flex-direction:column; place-items:stretch; padding:0; text-align:left; min-height:0; overflow:hidden}
+.ag-conv{flex:1; min-height:0; display:flex; flex-direction:column}
+.ag-scroll{flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; display:flex; flex-direction:column; gap:12px; padding:24px}
+.ag-back{padding:16px 24px 0}
+.ag-comp{flex:none; padding:8px 16px max(12px, env(safe-area-inset-bottom,0px))}
+.ag-allow{padding:0 4px 8px; font-size:13px; color:var(--text-2)}
+.ag-allow.used{color:var(--attn-text)}
+.ag-field{display:flex; flex-direction:column; gap:8px; padding:8px; border:1px solid var(--line); border-radius:12px; background:var(--surface)}
+.ag-field:focus-within{outline:2px solid var(--focus); outline-offset:1px}
+.ag-row{display:flex; align-items:flex-end; gap:8px; min-width:0}
+.ag-input{flex:1; min-width:0; resize:none; border:0; outline:0; background:transparent; color:var(--text); font:400 15px/24px var(--f-body); padding:8px 4px; min-height:40px}
+.ag-input::placeholder{color:var(--text-2)}
+.ag-input:focus-visible{outline:0}
+.ag-row .btn-icon{flex:none}
+
+/* Context chip: a small pill inside the message box, above the text */
+.ag-ctx{align-self:flex-start; display:block; max-width:100%; height:24px; padding:0 10px; border-radius:999px; background:var(--surface-2); font-size:12px; line-height:24px; color:var(--text-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+
+/* Not-answering card and the history menu */
+.ag-asleep{max-width:400px}
+.ag-hist{position:relative}
+.ag-menu{position:absolute; right:0; top:100%; z-index:5; min-width:240px; max-height:60vh; overflow:auto; background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r-md); box-shadow:var(--shadow-3); padding:4px}
+.ag-menu-item{display:flex; justify-content:space-between; gap:12px; width:100%; text-align:left; background:none; border:0; padding:8px 10px; border-radius:var(--r-sm); color:var(--text); cursor:pointer; font-size:13px}
+.ag-menu-item:hover,.ag-menu-item:focus-visible{background:var(--surface-2)}
+.ag-menu-note{padding:8px 10px; color:var(--text-2); font-size:13px}
+
+/* The "Working…" line: one quiet line while the agent works, then a closed "N steps" list.
+   The only motion: a thin accent line under the header that shows (and gently pulses) while the agent works. */
+.ag-working{font-size:13px; color:var(--text-2)}
+.ag-working summary{display:inline-flex; align-items:center; min-height:32px; cursor:pointer; border-radius:999px}
+.ag-working summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.ag-steps{display:flex; flex-direction:column; gap:4px; padding:4px 0 0 16px}
+.ag-steps li{display:flex; align-items:center; gap:8px}
+.ag-steps .i{color:var(--ok)}
+.drawer .dr-h{position:relative}
+.drawer:has(.ag-working.ag-busy) .dr-h::after{content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px; background:var(--accent); animation:pulse 2s ease-in-out infinite}
+@media (max-width:719px){
+  .ag-working summary{min-height:44px}
+  .ag-scroll{padding:16px}
+  .ag-comp{padding-left:12px; padding-right:12px}
+  .ag-input{font-size:16px; min-height:44px; padding:10px 4px}
+  .ag-row .btn-icon{--h:44px}
+}
+@media (prefers-reduced-motion:reduce){.drawer .dr-h::after{animation:none !important}}
+
+/* Cards in the conversation: one quiet family. Header, body, button row; lists are hairline rows, never boxes in boxes.
+   The only coloured card is one waiting for Alex (needs-you): an orange left edge and a "Needs you" label. */
+.ag-card{display:flex; flex-direction:column; gap:8px; min-width:0; width:100%; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--surface); box-shadow:none; color:var(--text); text-align:left; font-size:13px; line-height:1.5}
+.ag-card.needs-you{border-left:3px solid var(--attn); padding-left:12px}
+.ag-card-h{display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; margin:0; font-size:14px; font-weight:600; line-height:1.4}
+.ag-card-s{margin-left:auto; font-size:12px; font-weight:400; color:var(--text-2)}
+.ag-need{margin-left:auto; font-size:12px; font-weight:600; color:var(--attn-text)}
+.ag-card-b{font-size:13px; line-height:1.5}
+.ag-card-b > * + *{margin-top:4px}
+.ag-quiet{color:var(--text-2)}
+.ag-card-f{display:flex; flex-wrap:wrap; align-items:center; gap:8px}
+.ag-card-f > .btn-primary,.ag-card-f > .btn-danger-fill{margin-left:auto}
+.ag-card a{color:var(--accent-text); text-decoration:underline}
+.ag-card a:focus-visible{outline:2px solid var(--focus); outline-offset:2px; border-radius:4px}
+.ag-pre{padding:8px 10px; border-radius:8px; background:var(--surface-2); font-size:13px}
+.ag-field-l{display:flex; flex-direction:column; gap:4px; font-size:13px}
+.ag-field-l input:not([type]),.ag-field-l input[type="text"]{height:40px; padding:0 10px; border:1px solid var(--line-strong); border-radius:8px; background:var(--surface); color:var(--text)}
+
+/* A whole card that opens a page when pressed */
+button.ag-card{cursor:pointer; font:inherit}
+button.ag-card:hover{background:var(--surface-2)}
+button.ag-card:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+
+/* Rows inside a card: hairline separated, 8px above and below */
+.ag-list{display:flex; flex-direction:column; margin:0; padding:0; list-style:none}
+.ag-list > *{padding:8px 0}
+.ag-list > * + *{border-top:1px solid var(--line)}
+.ag-list > :has(> .ag-item){padding:0}
+.ag-item{display:flex; flex-direction:column; gap:2px; width:100%; min-height:44px; padding:8px 0; border:0; background:none; color:var(--text); text-align:left; font:inherit; cursor:pointer}
+.ag-item:hover .ag-item-t{text-decoration:underline}
+.ag-item:focus-visible{outline:2px solid var(--focus); outline-offset:-2px; border-radius:4px}
+.ag-item-t{font-weight:600; font-size:14px}
+.ag-item-s{font-size:13px; color:var(--text-2)}
+.ag-kind{font-size:12px; color:var(--text-2)}
+.ag-row-f{display:flex; align-items:center; justify-content:space-between; gap:8px}
+
+/* Facts: a small two-column list, quiet label and normal value */
+.ag-facts{display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:0; font-size:13px}
+.ag-facts > div{display:contents}
+.ag-facts dt{color:var(--text-2)}
+.ag-facts dd{margin:0; min-width:0; overflow-wrap:anywhere}
+
+/* Success and failure: a small mark beside plain words, never a coloured background */
+.ag-result{display:flex; align-items:center; gap:6px}
+.ag-ok{color:var(--ok)}
+.ag-bad{color:var(--bad)}
+
+/* Suggestion chips and choice options: quiet pills */
+.ag-chips{display:flex; flex-wrap:wrap; gap:8px}
+.btn.ag-chip{--h:32px; height:auto; min-height:var(--h); padding:4px 12px; border-radius:999px; border:1px solid var(--line-strong); background:var(--surface); color:var(--text); font-weight:500; font-size:13px; line-height:1.3; white-space:normal; box-shadow:none; flex-direction:column}
+.btn.ag-chip:hover{background:var(--surface-2)}
+.btn.ag-chip[aria-pressed="true"]{border-color:var(--accent); background:var(--surface-2)}
+.btn.ag-chip:focus-visible{outline:2px solid var(--focus); outline-offset:2px}
+.ag-chip-hint{font-size:12px; font-weight:400; color:var(--text-2)}
+@media (max-width:719px){
+  .ag-card-f .btn,.btn.ag-chip{--h:44px}
+}

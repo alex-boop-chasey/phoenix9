@@ -78,6 +78,40 @@ def snapshot(project: str, run_dir: Path) -> int:
     return len(copied)
 
 
+def copy_from(old_run_dir: Path, run_dir: Path) -> int:
+    """Copy an earlier run's frozen reference folder (regular files and its INDEX.md) to <run>/reference; returns how many files.
+
+    Does nothing (and returns 0) when the earlier run has no reference folder: the new run gets what the old one had."""
+    src = mount_dir(old_run_dir)
+    if src is None:
+        return 0
+    dest = Path(run_dir) / SNAPSHOT_DIR
+    dest.mkdir(exist_ok=True)
+    copied = 0
+    for path in sorted(src.iterdir()):
+        if path.name == INDEX_NAME or path.is_symlink() or not path.is_file():
+            continue
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError:
+            continue
+        with os.fdopen(fd, "rb") as fh:
+            data = fh.read(reference.MAX_FILE + 1)
+        if not data or len(data) > reference.MAX_FILE:
+            continue
+        atomic.write_bytes(dest / path.name, data, 0o444)
+        copied += 1
+    index = (src / INDEX_NAME).read_text(encoding="utf-8", errors="replace")
+    atomic.write_text(dest / INDEX_NAME, index, mode=0o444)
+    links = index.split("## Links", 1)[-1] if "## Links" in index else ""
+    count = sum(1 for line in links.splitlines() if line.startswith("- "))
+    project = Path(run_dir).parent.name
+    events.emit("reference.snapshot", project=project, run=Path(run_dir).name, files=copied, links=count,
+                copied_from=Path(old_run_dir).name)
+    return copied
+
+
 def mount_dir(run_dir: Path) -> Path | None:
     """The run's frozen reference folder, or None when the run has none."""
     d = Path(run_dir) / SNAPSHOT_DIR

@@ -10,7 +10,7 @@ import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, services, settings, templates
+from phoenix9 import atomic, events, gates, git, keys, paths, project_services, runs, scrub, services, settings, templates
 from phoenix9.ops import common
 from phoenix9.ops.common import OpsError
 
@@ -31,17 +31,18 @@ def claude_json() -> str:
 
 
 def _first_error(rc: int, out: str, err: str) -> str:
-    """The first non-empty line of a failed command's output."""
+    """The first non-empty line of a failed command's output, with secrets removed."""
     for text in (err, out):
         for line in text.splitlines():
             if line.strip():
-                return line.strip()
+                return scrub.scrub(line.strip())
     return f"exit code {rc}"
 
 
 def _run(host, what: str, argv: list, timeout: float = 120, cwd=None) -> str:
     """Run a host command; OpsError with the first error line when it fails. Returns stdout."""
-    rc, out, err = host.run(argv, timeout=timeout, cwd=cwd) if cwd else host.run(argv, timeout=timeout)
+    rc, out, err = (host.run(argv, timeout=timeout, cwd=cwd, what=what) if cwd
+                    else host.run(argv, timeout=timeout, what=what))
     if rc != 0:
         raise OpsError(f"{what}: {_first_error(rc, out, err)}")
     return out
@@ -193,7 +194,7 @@ def _missing_version(rc: int, out: str, err: str) -> str | None:
 def _run_recipe(host, tpl: dict, code: Path) -> None:
     """Run a recipe template's pinned commands in code/; a missing pinned version is named in plain words."""
     for command in tpl["run"]:
-        rc, out, err = host.run(shlex.split(command), timeout=RECIPE_TIMEOUT, cwd=code)
+        rc, out, err = host.run(shlex.split(command), timeout=RECIPE_TIMEOUT, cwd=code, what=f"Template step {command}")
         if rc != 0:
             words = _missing_version(rc, out, err) or _first_error(rc, out, err)
             raise OpsError(f"Template step '{command}' failed: {words}")
@@ -263,7 +264,8 @@ def _from_github_template(opts, facts, code: Path, host, made: list, say) -> str
 
 def _auto_delete_branches(host, full: str, warn) -> None:
     """Switch on GitHub's "delete head branches after merge" for the repo; a failure is only a warning."""
-    rc, out, err = host.gh("repo", "edit", full, "--delete-branch-on-merge")
+    rc, out, err = host.gh("repo", "edit", full, "--delete-branch-on-merge",
+                           what="Switching on automatic branch clean-up on GitHub")
     if rc != 0:
         warn(f"Warning: could not switch on automatic branch clean-up on GitHub: {_first_error(rc, out, err)}")
 

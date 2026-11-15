@@ -21,6 +21,14 @@ test("post sends X-Phoenix header and JSON", async () => {
   expect(calls[0]!.body).toEqual({ action: "approve", note: "go" })
 })
 
+test("run again posts confirm, and the preset only when given", async () => {
+  const reply = { run_id: "r-2", project: "demo", status: "queued", from_run: "r-1", preset: null }
+  const { calls } = mockApi({ "POST /api/runs/demo/r-1/again": reply })
+  expect(await api.runAgain("demo", "r-1")).toEqual(reply)
+  await api.runAgain("demo", "r-1", "quick")
+  expect(calls.map((c) => c.body)).toEqual([{ confirm: true }, { confirm: true, preset: "quick" }])
+})
+
 test("ok false throws ApiError with server message", async () => {
   vi.stubGlobal(
     "fetch",

@@ -16,9 +16,10 @@ def next_tag(existing: list[str], prefix: str = "v9.") -> str:
     return f"{prefix}{max(numbers) + 1 if numbers else 0}"
 
 
-def _gh(adapters, *args) -> str:
-    """Run gh through the host adapter; ReleaseError with the first line of its complaint when it fails."""
-    rc, out, err = adapters.host.gh(*args)
+def _gh(adapters, *args, what: str) -> str:
+    """Run gh through the host adapter (`what` names the action); ReleaseError with the first line of its complaint
+    when it fails."""
+    rc, out, err = adapters.host.gh(*args, what=what)
     if rc != 0:
         first = next((ln.strip() for ln in (err or out or "").splitlines() if ln.strip()), "no details")
         raise ReleaseError(scrub.scrub(f"GitHub said: {first}"))
@@ -28,7 +29,8 @@ def _gh(adapters, *args) -> str:
 def remote_tags(adapters) -> dict:
     """{tag: commit sha} for every release-prefixed tag on the repo."""
     conf = settings.update_settings()
-    out = _gh(adapters, "api", f"repos/{conf['repo']}/git/matching-refs/tags/{conf['tag_prefix']}")
+    out = _gh(adapters, "api", f"repos/{conf['repo']}/git/matching-refs/tags/{conf['tag_prefix']}",
+              what="Reading Phoenix's release tags on GitHub")
     try:
         rows = json.loads(out or "[]")
         return {r["ref"].removeprefix("refs/tags/"): (r.get("object") or {}).get("sha", "") for r in rows}
@@ -39,7 +41,8 @@ def remote_tags(adapters) -> dict:
 def main_sha(adapters) -> str:
     """The commit at the tip of main on GitHub."""
     conf = settings.update_settings()
-    sha = _gh(adapters, "api", f"repos/{conf['repo']}/commits/main", "--jq", ".sha").strip()
+    sha = _gh(adapters, "api", f"repos/{conf['repo']}/commits/main", "--jq", ".sha",
+               what="Reading the newest commit of Phoenix on GitHub").strip()
     if not re.fullmatch(r"[0-9a-f]{40}", sha):
         raise ReleaseError("GitHub did not give a commit for main")
     return sha
@@ -49,7 +52,8 @@ def tag_release(adapters, sha: str, *, who: str) -> dict:
     """Create the next release tag on `sha` and tell Alex; returns {tag, sha}."""
     conf = settings.update_settings()
     tag = next_tag(list(remote_tags(adapters)), conf["tag_prefix"])
-    _gh(adapters, "api", "-X", "POST", f"repos/{conf['repo']}/git/refs", "-f", f"ref=refs/tags/{tag}", "-f", f"sha={sha}")
+    _gh(adapters, "api", "-X", "POST", f"repos/{conf['repo']}/git/refs", "-f", f"ref=refs/tags/{tag}", "-f", f"sha={sha}",
+        what="Creating the release tag on GitHub")
     events.emit("command", project=None, who=who, command=f"released {tag}")
     adapters.notify.send(f"Phoenix 9 {tag} is ready to install")
     return {"tag": tag, "sha": sha}

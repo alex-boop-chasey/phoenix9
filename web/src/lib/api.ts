@@ -5,7 +5,7 @@ import type {
   DeletePlan, DeleteResult, DeployStatus, Info, Job, UpdateStatus, KeyInput, KeyRow, LibraryStep, LogEntry, LogText, NameCheck, Overrides, PlanView, Preset,
   Profile, Project, ProjectQueryResult, ProjectRow, BellData, ChangelogLine, BuildRow, RunDetail, RunEstimates, LibraryTool, Service, ServicesView, KeysAudit, SettingsView,
   SpecFile, StartRunBody, Template, ImportCandidate, ImportResult, FolderListing, RemoveResult,
-  ChatChange, ChatInfo, ChatOpenResult, ReferenceView,
+  ChatChange, ChatInfo, ChatOpenResult, ReferenceView, RunAgainResult,
 } from "@/lib/types"
 
 /** An error from the server or the network, with a plain-English message. */
@@ -183,6 +183,8 @@ export const api = {
       `runs/${e(project)}/${e(runId)}/discard`,
       force ? { confirm: true, force: true } : { confirm: true },
     ),
+  runAgain: (project: string, runId: string, preset?: string) =>
+    post<RunAgainResult>(`runs/${e(project)}/${e(runId)}/again`, preset ? { confirm: true, preset } : { confirm: true }),
   answerGate: (id: string, action: GateAction, note = "") =>
     post<GateAnswer>(`gates/${e(id)}/answer`, { action, note }),
 }

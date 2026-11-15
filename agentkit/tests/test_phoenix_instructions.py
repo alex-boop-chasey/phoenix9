@@ -49,3 +49,8 @@ def test_instructions_send_how_questions_to_phoenix_help():
 
 def test_instructions_explain_a_bell_item_by_its_id():
     assert '"Tell me about bell item <id>", call bell (and suggest-list when that item\'s kind is suggestion)' in INSTRUCTIONS
+
+
+def test_instructions_send_a_repeat_to_run_again():
+    assert ("To repeat a failed or stopped build as it was, use run-again (not build-start); "
+            "use repair-restart-preset only to change the preset as a repair.") in INSTRUCTIONS

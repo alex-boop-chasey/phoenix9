@@ -1,8 +1,7 @@
-// The /agent-next panel catches up after a reload or a dropped line, and explains a missing agent in plain words.
-import { render, screen, waitFor } from "@testing-library/react"
-import { MemoryRouter } from "react-router"
+// The agent panel catches up after a reload or a dropped line, and explains a missing agent in plain words.
+import { screen, waitFor } from "@testing-library/react"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 
 type Ev = Record<string, unknown>
 const enc = new TextEncoder()
@@ -40,7 +39,7 @@ function mockService(o: Options) {
 }
 
 function setup() {
-  render(<MemoryRouter initialEntries={["/agent-next"]}><AgentNextPage /></MemoryRouter>)
+  renderFullAgent()
 }
 
 beforeEach(() => localStorage.setItem("agent-next-thread", "t1"))
@@ -91,7 +90,7 @@ describe("agent-next catching up", () => {
   it("says so in plain words when there is no API key", async () => {
     mockService({ running: false, stored: [], status: new Response(JSON.stringify({ running: true, key_present: false, message: "The new agent has no API key yet. See deploy/agentkit/README.md." }), { status: 200 }) })
     setup()
-    expect(await screen.findByText(/no API key yet/)).toBeInTheDocument()
+    expect(await screen.findByText(/The new agent has no API key yet/)).toBeInTheDocument()
     expect(screen.queryByLabelText("Message")).not.toBeInTheDocument()
   })
 })

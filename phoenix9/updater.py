@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from phoenix9 import adapters as adapters_mod
-from phoenix9 import atomic, events, hold, paths, scrub
+from phoenix9 import atomic, events, hold, paths, proc, scrub
 
 TAG_RE = r"^v9\.(0|[1-9][0-9]*)$"
 _TAG = re.compile(TAG_RE)
@@ -34,6 +34,13 @@ SERVICES = ("phoenix-runner", "phoenix-api")
 UNIT = "phoenix9-update.service"
 UNIT_FILES = ("phoenix-api.service", "phoenix-runner.service", UNIT)   # the ones install.sh copies
 DEFAULT_SYSTEMD_DIR = "/etc/systemd/system"
+RELOAD_WHAT = "Reloading the service files"
+RESTART_WHAT = "Restarting Phoenix"
+HEALTH_WHAT = "Checking Phoenix's health"
+MIGRATE_WHAT = "Updating Phoenix's settings"
+AFTER_INSTALL_WHAT = "Checking the safety list"
+IMAGES_WHAT = "Rebuilding the toolbox images"
+START_WHAT = "Starting the updater"
 CHAT_LAUNCHER = "chat-launch.sh"   # deploy/ script the chat unit (claude-rc-chat@.service) starts
 CRED = ("-c", "credential.helper=", "-c", "credential.helper=!gh auth git-credential")   # host gh login
 CHECKS_S, PNPM_S, IMAGES_S, DOCTOR_S = 30 * 60, 15 * 60, 60 * 60, 5 * 60
@@ -303,8 +310,8 @@ class _Update:
             launcher.chmod(0o755)        # the chat unit runs it directly; git keeps the bit, this is a safeguard
             self.log(f"made {launcher} executable")
         if changed:
-            rc, _, err = self.ad.host.systemctl("daemon-reload")
-            self.log(f"systemctl daemon-reload: exit {rc}{' ' + err.strip() if rc and err else ''}")
+            rc, out, err = self.ad.host.systemctl("daemon-reload", what=RELOAD_WHAT)
+            self.log(proc.failure_text(RELOAD_WHAT, (rc, out, err)) if rc else "systemctl daemon-reload: exit 0")
 
     def restart(self) -> None:
         """Bring the unit files in line with the installed copy, then restart the Phoenix services
@@ -313,8 +320,8 @@ class _Update:
             self.sync_units()
         except OSError as err:          # a unit problem must not stop the restart (health check decides)
             self.log(f"could not update the unit files: {err}")
-        rc, _, err = self.ad.host.systemctl("restart", *SERVICES)
-        self.log(f"restart {' '.join(SERVICES)}: exit {rc}{' ' + err.strip() if rc and err else ''}")
+        rc, out, err = self.ad.host.systemctl("restart", *SERVICES, what=RESTART_WHAT)
+        self.log(f"restart {' '.join(SERVICES)}: " + (proc.failure_text(RESTART_WHAT, (rc, out, err)) if rc else "exit 0"))
 
     def healthy(self) -> tuple[bool, str]:
         """Run the installed copy's `phoenix doctor --for-update` up to 3 times, 10 s apart."""
@@ -324,7 +331,7 @@ class _Update:
         for n in range(HEALTH_TRIES):
             if n:
                 self.ad.clock.sleep(HEALTH_GAP_S)
-            rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+            rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst), what=HEALTH_WHAT)
             if rc == 0:
                 self.log("health check passed")
                 return True, ""
@@ -337,7 +344,7 @@ class _Update:
         they do nothing once done, and a failure is only a log line (the install stays)."""
         inst = folders()["install"]
         argv = [str(inst / "bin" / "phoenix"), "settings", "global", "migrate", "--json"]
-        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst), what=MIGRATE_WHAT)
         self.log("post-install migration done" if rc == 0 else
                  f"post-install migration failed (exit {rc}): {_failing_lines(out, err)}")
 
@@ -346,7 +353,7 @@ class _Update:
         log line (the install stays)."""
         inst = folders()["install"]
         argv = [str(inst / "bin" / "phoenix"), "update", "after-install", "--json", "--who", "updater"]
-        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst))
+        rc, out, err = self.ad.host.run(argv, timeout=DOCTOR_S, cwd=str(inst), what=AFTER_INSTALL_WHAT)
         self.log("safety list checked" if rc == 0 else
                  f"safety list check failed (exit {rc}): {_failing_lines(out, err)}")
 
@@ -503,12 +510,12 @@ def _checks(u: _Update, nxt: Path, tag: str) -> bool:
     out_file = paths.logs() / f"update-{tag}-checks.txt"
     cmds = []
     if (nxt / "web" / "package.json").exists():
-        cmds += [(["pnpm", "-C", "web", "install", "--frozen-lockfile"], PNPM_S),
-                 (["pnpm", "-C", "web", "build"], PNPM_S)]
-    cmds.append((["./check.sh"], CHECKS_S))
+        cmds += [(["pnpm", "-C", "web", "install", "--frozen-lockfile"], PNPM_S, "Installing the dashboard's packages"),
+                 (["pnpm", "-C", "web", "build"], PNPM_S, "Building the dashboard")]
+    cmds.append((["./check.sh"], CHECKS_S, "Running Phoenix's checks"))
     text, ok = "", True
-    for argv, timeout in cmds:
-        rc, out, err = u.ad.host.run(argv, timeout=timeout, cwd=str(nxt))
+    for argv, timeout, what in cmds:
+        rc, out, err = u.ad.host.run(argv, timeout=timeout, cwd=str(nxt), what=what)
         text += f"$ {' '.join(argv)}\n{out}{err}\n[exit {rc}]\n\n"
         u.log(f"{' '.join(argv)}: exit {rc}")
         if rc != 0:
@@ -524,7 +531,7 @@ def _images(u: _Update, nxt: Path, frm: str, tag: str) -> bool:
     if not changed:
         return True
     rc, out, err = u.ad.host.run([str(nxt / "bin" / "phoenix"), "images", "build", "--changed", "--json"],
-                                 timeout=IMAGES_S, cwd=str(nxt))
+                                 timeout=IMAGES_S, cwd=str(nxt), what=IMAGES_WHAT)
     u.log(f"images build: exit {rc}")
     with open(paths.logs() / f"update-{tag}-checks.txt", "a", encoding="utf-8") as f:
         f.write(scrub.scrub(f"$ phoenix images build --changed --json\n{out}{err}\n[exit {rc}]\n"))
@@ -743,8 +750,8 @@ def _protected(u: _Update, action: str, tag, fn) -> dict:
 
 
 def _locked(u: _Update, action: str, tag, fn) -> dict:
-    """Run fn under the update lock (refused when another update holds it)."""
-    with _lock() as got:
+    """Run fn under the update lock (refused when another update holds it); its failed commands name step "update"."""
+    with proc.context(step="update"), _lock() as got:
         if not got:
             return u.result(False, "refused", tag=tag, reason="another update is running", action=action,
                             record=False)
@@ -789,7 +796,7 @@ def recover(adapters) -> dict | None:
     """Repair a half-done update (a crash mid-swap); None when there was nothing to repair."""
     _load_secrets()
     u = _Update(adapters, "updater")
-    with _lock() as got:
+    with proc.context(step="update"), _lock() as got:
         if not got:
             return u.result(False, "refused", reason="another update is running", action="recover", record=False)
         return _recover(u)
@@ -819,7 +826,7 @@ def request(action: str, tag: str | None, who: str, adapters) -> dict:
     if _lock_held():
         return {**base, "tag": tag, "reason": "another update is running"}
     atomic.write_json(_dir() / "request.json", {"action": action, "tag": tag, "who": who, "at": _now()})
-    rc, _, err = adapters.host.systemctl("start", "--no-block", UNIT)
+    rc, _, err = adapters.host.systemctl("start", "--no-block", UNIT, what=START_WHAT)
     if rc != 0:
         (_dir() / "request.json").unlink(missing_ok=True)
         return {**base, "tag": tag, "reason": scrub.scrub(f"could not start {UNIT}: {err.strip()}")}
@@ -955,7 +962,8 @@ def main(argv) -> int:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))   # SystemExit: recovery runs, then it stops
     args = list(argv)
     if args[:1] == ["run-request"]:
-        out = run_request(adapters_mod.real())
+        with proc.context(step="update"):
+            out = run_request(adapters_mod.real())
     elif args[:1] == ["status"]:
         out = status(adapters_mod.real(), refresh="--refresh" in args)
     else:

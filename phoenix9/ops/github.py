@@ -1,14 +1,27 @@
 """Ops for GitHub: whether the host's gh login works, and which repos it can see."""
+from phoenix9 import proc
 from phoenix9.ops import common
 
+USER_WHAT = "Reading the GitHub account"
+ORGS_WHAT = "Reading the GitHub account's organisations"
+REPOS_WHAT = "Listing the repos on GitHub"
+PRS_WHAT = "Listing the merge requests on GitHub"
 
-def _accounts(host) -> list:
-    """The signed-in user plus the organisations they belong to."""
-    rc, out, _ = host.gh("api", "user", "--jq", ".login")
+
+def _accounts(host, problems: list | None = None) -> list:
+    """The signed-in user plus the organisations they belong to; why a lookup failed is added to `problems`."""
+    problems = [] if problems is None else problems
+    result = host.gh("api", "user", "--jq", ".login", what=USER_WHAT)
+    rc, out, _ = result
     names = [out.strip()] if rc == 0 and out.strip() else []
-    rc, out, _ = host.gh("api", "user/orgs", "--jq", ".[].login")
+    if rc != 0:
+        problems.append(proc.failure_text(USER_WHAT, result))
+    result = host.gh("api", "user/orgs", "--jq", ".[].login", what=ORGS_WHAT)
+    rc, out, _ = result
     if rc == 0:
         names += [x.strip() for x in out.splitlines() if x.strip()]
+    else:
+        problems.append(proc.failure_text(ORGS_WHAT, result))
     return names
 
 
@@ -21,14 +34,20 @@ def status() -> dict:
 
 
 def repos() -> dict:
-    """{connected, repos: [{full_name, owner, private}]} for each account the login can see."""
+    """{connected, repos: [{full_name, owner, private}], problems} for each account the login can see; `problems`
+    says in plain words why a GitHub lookup failed (empty when none did)."""
     import json
     host = common.make_adapters().host
-    info = status()
+    problems: list = []
+    connected = host.gh("auth", "status")[0] == 0
+    accounts = _accounts(host, problems) if connected else []
     found = []
-    for account in info["accounts"]:
-        rc, out, _ = host.gh("repo", "list", account, "--json", "nameWithOwner,isPrivate", "--limit", "200")
+    for account in accounts:
+        result = host.gh("repo", "list", account, "--json", "nameWithOwner,isPrivate", "--limit", "200",
+                         what=REPOS_WHAT)
+        rc, out, _ = result
         if rc != 0:
+            problems.append(proc.failure_text(REPOS_WHAT, result))
             continue
         try:
             items = json.loads(out or "[]")
@@ -38,7 +57,7 @@ def repos() -> dict:
             full = item.get("nameWithOwner", "")
             if "/" in full:
                 found.append({"full_name": full, "owner": full.split("/")[0], "private": bool(item.get("isPrivate"))})
-    return {"connected": info["connected"], "repos": found}
+    return {"connected": connected, "repos": found, "problems": problems}
 
 
 PR_FIELDS = "number,title,state,isDraft,statusCheckRollup,url,updatedAt"
@@ -68,10 +87,11 @@ def _fetch_prs(host, repo: str, state: str):
     hit = _pr_cache.get((repo, state))
     if hit and now - hit[0] < PR_CACHE_S:
         return hit[1], hit[2]
-    rc, out, _ = host.gh("pr", "list", "--repo", repo, "--state", state, "--json", PR_FIELDS)
+    result = host.gh("pr", "list", "--repo", repo, "--state", state, "--json", PR_FIELDS, what=PRS_WHAT)
+    rc, out, _ = result
     rows, error = [], None
     if rc != 0:
-        error = "Could not list pull requests from GitHub."
+        error = proc.failure_text(PRS_WHAT, result)
     else:
         try:
             rows = json.loads(out or "[]")

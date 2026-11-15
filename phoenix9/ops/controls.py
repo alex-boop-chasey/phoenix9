@@ -323,6 +323,10 @@ CONTROLS = (
           text="Start the build again from the same spec on another preset (the old run stays as it is).",
           inputs=(P_PROJECT, P_RUN, _in("preset", required=True, description="The preset to restart on.")),
           card="repair_card"),
+    _post("run-again", "runs.run_again", rf"/api/runs/{RUN}/again", "change", "tool",
+          text="Start a failed or stopped build again with the same spec, reference documents and settings; only the preset may change.",
+          inputs=(P_PROJECT, P_RUN, _in("preset", description="A different preset to use (leave out to keep the same one).")),
+          fixed={"confirm": True}, card="repair_card"),
     _post("repair-unlock-request", "repair.request_unlock", rf"/api/runs/{RUN}/repair/request-unlock", "change", "tool",
           text="Ask Alex to allow once a repair the agent may not do alone; Alex answers in the dashboard.",
           inputs=(P_PROJECT, P_RUN,
@@ -490,6 +494,7 @@ HELPERS = {
     "repair.check": "Internal: part of the repair report.",
     "repair.resume": "CLI-only: resume after a repair (repair is build 3).",
     # runs
+    "runs.check_spec": "CLI-only: `phoenix spec check` (needs a command per task when the check-writer is off).",
     "runs.start": "CLI-only: start a run from a spec file (the dashboard starts from notes).",
     "runs.status": "CLI-only: `phoenix run status`.",
     "runs.list_": "CLI-only: `phoenix run list`.",

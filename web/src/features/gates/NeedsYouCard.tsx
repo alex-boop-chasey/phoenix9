@@ -210,7 +210,7 @@ export function NeedsYouCard({ gate, compact = false, reviewHref, readOnly = fal
         open={confirmStop}
         onOpenChange={setConfirmStop}
         title="Stop this run?"
-        body="Stop this run? Its unfinished work and branch are thrown away."
+        body="Stop this run? Its branch is removed; its unfinished changes are saved as a patch."
         confirmLabel="Stop run"
         destructive
         onConfirm={() => send("stop")}

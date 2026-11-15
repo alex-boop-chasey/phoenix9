@@ -144,3 +144,52 @@ def test_watch_fail_uses_the_same_end(tmp_path, runner, adapters):
     assert not any(x["status"] in ("waiting", "running") for x in st["steps"])
     assert gates.list_gates() == []
     assert paths.work("proj", run_dir.name).exists()      # a failed run keeps its worktree for repair
+
+
+# ---- stopped builds keep their work (O78) ----
+
+def test_stop_saves_the_unfinished_work_as_a_patch(tmp_path, runner):
+    run_dir = waiting_run(tmp_path, runner)
+    work = paths.work("proj", run_dir.name)
+    (work / "done.py").write_text("print('committed')\n")
+    git(work, "add", "done.py")
+    git(work, "commit", "-q", "-m", "builder's commit")
+    (work / "half.py").write_text("print('not committed yet')\n")
+    out = ops_runs.stop(run_dir.name, who="cli")
+    patch = run_dir / runs.STOPPED_PATCH
+    assert out["status"] == "stopped" and patch.is_file() and not work.exists()
+    assert (patch.stat().st_mode & 0o777) == 0o600
+    text = patch.read_text()
+    assert "done.py" in text and "half.py" in text
+    code = paths.projects() / "proj" / "code"
+    git(code, "apply", "--check", str(patch))                         # applies cleanly to the base
+    saved = f"The build's unfinished changes are saved in {patch} (apply with: git apply {patch})."
+    assert saved in out["notes"]
+    finished = [e for e in events.read(run_dir / "events.jsonl") if e["type"] == "run.finished"][-1]
+    assert saved in finished["data"]["reason"]
+    assert not git(code, "branch", "--list", "phoenix/*").strip()     # no extra branch kept
+
+
+def test_stop_with_a_clean_worktree_saves_nothing(tmp_path, runner):
+    run_dir = waiting_run(tmp_path, runner)
+    out = ops_runs.stop(run_dir.name, who="cli")
+    assert not (run_dir / runs.STOPPED_PATCH).exists()
+    assert not any("unfinished changes" in n or "last try" in n for n in out["notes"])
+
+
+def test_stop_names_the_last_tries_patch(tmp_path, runner):
+    run_dir = waiting_run(tmp_path, runner)
+    last = run_dir / "tasks" / "1" / "attempt-1" / "diff.patch"
+    last.parent.mkdir(parents=True, exist_ok=True)
+    last.write_text("diff --git a/x b/x\n")
+    out = ops_runs.stop(run_dir.name, who="cli")
+    assert f"The last try's changes: {last}" in out["notes"]
+
+
+def test_stop_masks_a_secret_in_the_saved_work(tmp_path, runner):
+    run_dir = waiting_run(tmp_path, runner)
+    key = "sk-" + "ant-" + "abcdefghijklmnopqrstuvwx"
+    (paths.work("proj", run_dir.name) / "config.py").write_text(f"KEY_NOTE = 'see {key}'\n")
+    out = ops_runs.stop(run_dir.name, who="cli")
+    assert key not in (run_dir / runs.STOPPED_PATCH).read_text()
+    assert any("looked like a secret" in n for n in out["notes"])

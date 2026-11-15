@@ -3,7 +3,7 @@ import json
 import secrets
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, resolve, runs as core, scrub, settings, spec, state
+from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, proc, resolve, runs as core, scrub, settings, spec, state
 from phoenix9 import edits as edits_core, tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
@@ -21,10 +21,16 @@ def _run_folder(run_id: str) -> Path:
     return folder
 
 
-def start(project: str, spec_path, overrides: dict | None = None, who: str = "cli") -> dict:
-    """Queue a new run of a spec in a project and return its id."""
+def start(project: str, spec_path, overrides: dict | None = None, who: str = "cli", carried: bool = False,
+          reference_from: Path | None = None) -> dict:
+    """Queue a new run of a spec in a project and return its id.
+
+    `carried` means the overrides are an earlier run's (Run again); run_again itself refuses a chat or the agent
+    when they hold a safety setting, so start skips that check here; `reference_from` is that run's folder, whose frozen
+    reference documents the new run gets."""
     folder = common.project_dir(project)
-    _refuse_chat_overrides(who, overrides)
+    if not carried:
+        _refuse_chat_overrides(who, overrides)
     try:
         text = Path(spec_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as err:
@@ -47,8 +53,13 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         overrides["preset"] = written
     if overrides.get("preset") and overrides["preset"] not in settings.PRESETS:
         raise OpsError(f"'{overrides['preset']}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
-    if description and "planner" not in plan(project, overrides)["groups"].get("run-start", []):
+    groups = plan(project, overrides)["groups"]
+    if description and "planner" not in groups.get("run-start", []):
         raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in strict + [spec.NEEDS_PLANNER]))
+    if not description and not any("check-writer" in steps for steps in groups.values()):
+        problems = spec.check(text, needs_commands=True)   # nothing writes checks: each task needs a command
+        if problems:
+            raise OpsError("The spec has problems:\n" + "\n".join(f"- {p}" for p in problems))
     try:
         profile = settings.effective(folder, common.library(), overrides or None).get("profile")
     except settings.SettingsError as err:
@@ -64,7 +75,7 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
         raise OpsError(f"{project} is being changed right now (it may be being deleted). Try again in a minute.") from None
     try:
         common.project_dir(project)        # a delete may have finished while this waited
-        run_dir = core.create_run(project, Path(spec_path), overrides)
+        run_dir = core.create_run(project, Path(spec_path), overrides, reference_from=reference_from)
     except (ValueError, OSError) as err:
         if isinstance(err, OpsError):
             raise
@@ -78,16 +89,120 @@ def start(project: str, spec_path, overrides: dict | None = None, who: str = "cl
     return {"run_id": run_id, "project": project, "status": "queued", "folder": str(run_dir)}
 
 
+def run_again(project: str, run_id: str, preset: str | None = None, who: str = "cli") -> dict:
+    """Start a failed or stopped build again with the same spec, reference documents and settings; only the preset may change."""
+    old = _run_folder(run_id)
+    if old.parent.name != project:
+        raise common.NotFound(f"There is no run called '{run_id}' in {project}.")
+    if not _may_stop(project, who):
+        raise common.Conflict(f"'{who}' may not repair runs in {project}.")
+    status = (state.load(old) or {}).get("status")
+    if status not in ("failed", "stopped"):
+        raise common.Conflict(f"The run is {status}; only a failed or stopped build can be run again.")
+    _refuse_second_run_again(project, run_id, old)
+    kept = atomic.read_json(old / "overrides.json") or {}
+    from phoenix9.ops import settings as ops_settings
+    hit = _safety_hits(kept) if ops_settings._is_chat(who) else []
+    if hit:   # carried settings skip the start check, so a chat or the agent cannot re-run them either
+        raise OpsError(f"'{who}' may not run this build again: it was started with its own {', '.join(hit)}. "
+                       "This is a safety setting: Alex can run it again from the dashboard.")
+    overrides = dict(kept)
+    if preset is not None:
+        if preset not in settings.PRESETS:
+            raise OpsError(f"'{preset}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+        if preset == "custom" and not _has_based_on(project, kept):
+            raise OpsError("The custom preset needs a preset it is based on, and this build has none. "
+                           "Pick simple, quick or full instead.")
+        if preset != kept.get("preset"):
+            _refuse_chat_overrides(who, {"preset": preset})   # only the changed preset is new
+        overrides["preset"] = preset
+    started = start(project, old / "spec.md", overrides, who=who, carried=True, reference_from=old)
+    events_core.emit("run.note", project=project, run=run_id, who=who, new_run=started["run_id"],
+                     note=f"Run again as {started['run_id']}")
+    common.record_command(who, f"run again {run_id}", project, f"ran {run_id} again as {started['run_id']}")
+    return {"run_id": started["run_id"], "project": project, "status": started["status"], "from_run": run_id,
+            "preset": overrides.get("preset")}
+
+
+def _refuse_second_run_again(project: str, run_id: str, old: Path) -> None:
+    """Refuse while an earlier "Run again" of this run has not ended yet (queued, running, waiting or paused)."""
+    for event in events_core.read(old / "events.jsonl"):
+        new_id = (event.get("data") or {}).get("new_run")
+        if event.get("type") != "run.note" or not new_id:
+            continue
+        new_folder = paths.runs(project) / new_id
+        status = (state.load(new_folder) or {}).get("status") if new_folder.is_dir() else None
+        if status and status not in FINISHED:
+            raise common.Conflict(f"{run_id} was already run again as {new_id}, which is still {status}. "
+                                  "Wait for it to end, or stop it, before running this build again.")
+
+
+def _has_based_on(project: str, kept: dict) -> bool:
+    """True when the kept overrides or the project's settings say which preset "custom" is based on."""
+    if kept.get("based_on"):
+        return True
+    try:
+        return bool(settings.load_project(common.project_dir(project)).get("based_on"))
+    except (settings.SettingsError, OpsError):
+        return False
+
+
+def _preset_check_writer_on(preset: str) -> bool:
+    """True when this preset's file (or the library default it leaves alone) turns the check-writer on."""
+    lib = common.library()
+    data = settings.load_preset(lib.root, settings.preset_name({"preset": preset}))
+    known = settings.all_specs(lib).get("steps.check-writer.on")     # a library without the step: it never runs
+    default = known.default if known else False
+    return bool(settings._nested(data, ["steps", "check-writer", "on"], default))
+
+
+def check_spec(text: str, preset: str | None = None, project: str | None = None) -> dict:
+    """Check spec text as a run would; with the check-writer off every task needs a runnable command.
+
+    `warnings` lists long 'Depends on' chains worth a look; they never make the spec invalid.
+    Which settings decide: `preset` when given, else `project`'s effective settings, else the spec's `Preset:` line."""
+    if preset:
+        if preset not in settings.PRESETS:
+            raise OpsError(f"'{preset}' is not a preset. Use one of: {', '.join(settings.PRESETS)}.")
+        on, what, checked_for = _preset_check_writer_on(preset), f"the {preset} preset", {"preset": preset}
+    elif project:
+        try:
+            eff = settings.effective(common.project_dir(project), common.library())
+        except settings.SettingsError as err:
+            raise OpsError(f"The project's settings have problems: {err}") from None
+        on = bool(settings._nested(eff.values, ["steps", "check-writer", "on"], False))
+        what, checked_for = f"{project}'s settings", {"project": project}
+    else:
+        written = spec.parse(text).preset
+        if written not in settings.PRESETS or written == "custom":
+            return {"ok": not (problems := spec.check(text)), "problems": problems, "needs_commands": False,
+                    "checked_for": {}, "basis": "", "warnings": spec.chain_warnings(spec.parse(text))}
+        on, what, checked_for = _preset_check_writer_on(written), f"the {written} preset", {"spec_preset": written}
+    basis = (f"Checked for {what}: the check-writer is on." if on else
+             f"Checked for {what}: the check-writer is off, so every task needs a command.")
+    problems = spec.check(text, needs_commands=not on)
+    return {"ok": not problems, "problems": problems, "needs_commands": not on, "checked_for": checked_for,
+            "basis": basis, "warnings": spec.chain_warnings(spec.parse(text))}
+
+
 def _refuse_chat_overrides(who, overrides: dict | None) -> None:
     """A chat or the agent may not start a build with its own safety settings (like the spending cap or what
     happens on failure); the dashboard and the command line may."""
     from phoenix9.ops import settings as ops_settings
     if not overrides or not ops_settings._is_chat(who):
         return
-    hit = sorted(k for k in settings._flatten(overrides) if ops_settings.is_safety_key(k, common.library()))
+    hit = _safety_hits(overrides)
     if hit:
         raise OpsError(f"'{who}' may not start a build with its own {', '.join(hit)}. "
                        "This is a safety setting: Alex changes it in Settings or starts the build from the dashboard.")
+
+
+def _safety_hits(overrides: dict | None) -> list[str]:
+    """The dotted safety keys in these overrides (what a chat or the agent may not start a build with)."""
+    from phoenix9.ops import settings as ops_settings
+    if not overrides:
+        return []
+    return sorted(k for k in settings._flatten(overrides) if ops_settings.is_safety_key(k, common.library()))
 
 
 def plan(project: str, overrides: dict | None = None) -> dict:
@@ -472,21 +587,26 @@ class WouldLoseWork(common.Conflict):
         self.lost = lost
 
 
-def _open_merge_request(adapters, folder: Path) -> str | None:
-    """The run's merge request URL while it may still be open (an unknown state counts as open), else None."""
+MR_STATE_WHAT = "Reading the build's merge request on GitHub"
+
+
+def _open_merge_request(adapters, folder: Path) -> tuple[str | None, str]:
+    """The run's merge request URL while it may still be open (an unknown state counts as open), else None;
+    plus why GitHub did not answer ("" when it did)."""
     mr = folder / "merge-request.txt"
     if not mr.is_file():
-        return None
+        return None, ""
     url = mr.read_text(encoding="utf-8", errors="replace").strip()
     if not url:
-        return None
+        return None, ""
     try:
-        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state")
+        result = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state", what=MR_STATE_WHAT)
     except Exception:   # noqa: BLE001 - no answer means we cannot prove it is closed
-        rc, out = 1, ""
+        return url, ""
+    rc, out, _ = result
     if rc == 0 and out.strip().upper() in ("MERGED", "CLOSED"):
-        return None
-    return url
+        return None, ""
+    return url, (proc.failure_text(MR_STATE_WHAT, result) if rc != 0 else "")
 
 
 def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
@@ -510,9 +630,10 @@ def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
 def would_lose(adapters, folder: Path, project: str, run_id: str) -> list[str]:
     """What discarding this run would throw away, in plain words (empty when nothing unmerged would be lost)."""
     lost = []
-    url = _open_merge_request(adapters, folder)
+    url, why = _open_merge_request(adapters, folder)
     if url:
-        lost.append(f"its merge request {url} is still open (deleting the branch closes it)")
+        lost.append(f"its merge request {url} is still open (deleting the branch closes it)"
+                    + (f"; GitHub did not answer: {why}" if why else ""))
     count = _commits_not_on_main(adapters, project, run_id)
     if count:
         lost.append(f"its branch has {count} commit{'s' if count != 1 else ''} that main doesn't have")
@@ -557,15 +678,19 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
 
-def _merged_head(adapters, url: str) -> tuple[str, str]:
-    """GitHub's state of a merge request and the branch commit it merged ("", "" when GitHub does not answer)."""
+def _merged_head(adapters, url: str) -> tuple[str, str, str]:
+    """GitHub's state of a merge request, the branch commit it merged ("", "" when GitHub does not answer) and why
+    GitHub did not answer ("" when it did)."""
     try:
-        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state,headRefOid",
-                                      "--jq", '.state + " " + .headRefOid')
+        result = adapters.host.gh("pr", "view", url, "--json", "state,headRefOid",
+                                  "--jq", '.state + " " + .headRefOid', what=MR_STATE_WHAT)
     except Exception:   # noqa: BLE001 - no answer means we cannot prove it is merged
-        return "", ""
-    words = out.split() if rc == 0 else []
-    return (words[0].upper() if words else ""), (words[1] if len(words) > 1 else "")
+        return "", "", ""
+    rc, out, _ = result
+    if rc != 0:
+        return "", "", proc.failure_text(MR_STATE_WHAT, result)
+    words = out.split()
+    return (words[0].upper() if words else ""), (words[1] if len(words) > 1 else ""), ""
 
 
 def _branch_beyond(project: str, run_id: str, head: str) -> bool:
@@ -600,13 +725,13 @@ def _tidy_refusal(adapters, folder: Path, st: dict, who: str) -> tuple[str, str]
     url = mr.read_text(encoding="utf-8", errors="replace").strip() if mr.is_file() else ""
     if not url:
         return "it has no merge request", ""
-    found, head = _merged_head(adapters, url)
+    found, head, why = _merged_head(adapters, url)
     if found == "OPEN":
         return f"its merge request {url} is still open", ""
     if found == "CLOSED":
         return f"its merge request {url} was closed without merging", ""
     if found != "MERGED":
-        return f"GitHub did not say whether its merge request {url} was merged", ""
+        return (f"GitHub did not say whether its merge request {url} was merged" + (f" ({why})" if why else "")), ""
     if not head:
         return f"GitHub did not say which commit its merge request {url} merged", ""
     if _branch_beyond(project, run_id, head):

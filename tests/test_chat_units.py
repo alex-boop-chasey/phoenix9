@@ -88,7 +88,7 @@ def test_start_unit_reports_a_refusing_systemd_plainly(projects):
     from phoenix9.projectchat import NotReady
 
     class Host:
-        def systemctl(self, *args):
+        def systemctl(self, *args, what=None):
             return 1, "", "Failed to enable unit: Unit file claude-rc-chat@test.service does not exist.\n"
 
     with pytest.raises(NotReady) as e:

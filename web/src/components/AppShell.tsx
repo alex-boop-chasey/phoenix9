@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 import { Link, matchPath, useLocation } from "react-router"
 
 import { Bell } from "@/components/Bell"
@@ -8,8 +8,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Icon } from "@/components/Icon"
 import { ProjectList, ProjectSwitcher } from "@/components/ProjectSwitcher"
 import { ThemeToggle } from "@/components/ThemeToggle"
-import { AgentDrawer, type DrawerAsk } from "@/features/agentnext/AgentDrawer"
-import { readOpen, usePhoneWidth, writeOpen } from "@/lib/panelState"
+import { AgentDrawer, type AgentSize, type DrawerAsk } from "@/features/agentnext/AgentDrawer"
+import { readExpanded, readOpen, usePhoneWidth, writeExpanded, writeOpen } from "@/lib/panelState"
 import { useLiveEvents } from "@/lib/live"
 import { PAGE_SCROLLER_ID, scrollPageTop } from "@/lib/focus"
 import { useInfo, useProjects } from "@/lib/queries"
@@ -21,6 +21,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { data: projects } = useProjects()
   const { pathname } = useLocation()
   const [drawer, setDrawer] = useState(readOpen)
+  const [size, setSize] = useState<AgentSize>(() => (readExpanded() ? "full" : "drawer"))
   const phone = usePhoneWidth()
   const [sheet, setSheet] = useState(false)
   const [wire, setWire] = useState(false)
@@ -40,17 +41,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => clearTimeout(t)
   }, [pathname])
 
-  useEffect(() => {
+  // A layout effect, so the listener is there before a route's own effect sends the event (the old #/agent-next page does).
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setDrawer(false)
         setSheet(false)
       } else if (e.key === "." && e.ctrlKey) setDrawer((d) => !d)
     }
-    // The event may carry a message to send (detail.message); the drawer sends it once it has loaded.
+    // The event may carry a message to send (detail.message), which the panel sends once it has loaded,
+    // and detail.size "full" to open it full screen.
     const onOpen = (e: Event) => {
       setDrawer(true)
-      const text = (e as CustomEvent<{ message?: unknown } | null>).detail?.message
+      const detail = (e as CustomEvent<{ message?: unknown; size?: unknown } | null>).detail
+      if (detail?.size === "full") setSize("full")
+      const text = detail?.message
       if (typeof text === "string" && text.trim()) setAsk((a) => ({ key: (a?.key ?? 0) + 1, text: text.trim() }))
     }
     document.addEventListener("keydown", onKey)
@@ -62,10 +67,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => writeOpen(drawer), [drawer])
+  useEffect(() => writeExpanded(size === "full"), [size])
   useEffect(() => { if (drawer) setUnread(false) }, [drawer])
   const onNews = useCallback(() => setUnread(true), [])
 
   const closeDrawer = () => setDrawer(false)
+  // The Agent button opens the panel; while it is open (either size) it only puts the cursor in the message box.
+  const onAgentButton = () => {
+    if (!drawer) setDrawer(true)
+    else document.querySelector<HTMLElement>("[data-testid=agent-panel] [aria-label=Message]")?.focus()
+  }
 
   return (
     <div className="app overflow-x-hidden">
@@ -91,7 +102,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Icon name="squares-four" />
           </button>
           <Bell />
-          <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={() => setDrawer(true)}>
+          <button ref={agentBtn} className="hbtn" aria-label="Phoenix agent" title="Phoenix agent (Ctrl .)" onClick={onAgentButton}>
             <Icon name="flame" />
             <span className="wtxt">Agent</span>
             {unread && <span className="cnt" data-testid="agent-unread" aria-label="New from the agent" role="img"
@@ -119,7 +130,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <div className={(drawer && phone) || sheet ? "scrim open" : "scrim"} data-testid="scrim" onClick={() => { closeDrawer(); setSheet(false) }} />
-      <AgentDrawer open={drawer} onClose={closeDrawer} opener={agentBtn} ask={ask} onNews={onNews} />
+      <AgentDrawer open={drawer} onClose={closeDrawer} opener={agentBtn} ask={ask} onNews={onNews} size={size} onSize={setSize} />
       <div className={sheet ? "sheet open" : "sheet"} role="dialog" aria-label="Choose a project" aria-hidden={!sheet}>
         <div className="grab" />
         <div className="sw-head">

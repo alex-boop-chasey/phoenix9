@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { apiBase, api } from "@/lib/api"
+import { Mark, NeedsYou, cardClass } from "./cardparts"
 
 /** What the agent asked for: which project and key, and why. */
 export interface KeyAsk { project: string; name: string; why: string }
@@ -52,24 +53,27 @@ export function KeyInputCard({ ask, callId, onDone }: { ask: KeyAsk; callId: str
   }
   const cancel = () => { setValue(""); void finish("cancelled") }
 
+  const waiting = state === "open" || state === "saving"
   return (
-    <section className="card" aria-label="Key needed" data-testid="key-card">
-      <h3>The agent needs a key</h3>
-      <p>Project: <strong>{ask.project}</strong></p>
-      <p>Key: <strong>{ask.name}</strong></p>
-      {ask.why && <p>Why: {ask.why}</p>}
-      {state === "saved" && <p>Saved.</p>}
-      {state === "cancelled" && <p>Cancelled.</p>}
+    <section className={cardClass(waiting)} aria-label="Key needed" data-testid="key-card">
+      <h3 className="ag-card-h">The agent needs a key{waiting ? <NeedsYou /> : null}</h3>
+      <div className="ag-card-b">
+        <p>Project: <strong>{ask.project}</strong></p>
+        <p>Key: <strong>{ask.name}</strong></p>
+        {ask.why && <p>Why: {ask.why}</p>}
+        {state === "saved" && <p className="ag-result"><Mark ok /><span>Saved.</span></p>}
+        {state === "cancelled" && <p className="ag-quiet">Cancelled.</p>}
+      </div>
       {(state === "open" || state === "saving") && (
         <>
           <Input
             type="password" autoComplete="off" spellCheck={false} aria-label={`Value for ${ask.name}`}
             value={value} onChange={(e) => setValue(e.target.value)} disabled={state === "saving"}
           />
-          {error && <p role="alert">{error}</p>}
-          <div className="flex gap-2">
-            <Button variant="primary" onClick={save} disabled={state === "saving" || !value}>Save</Button>
+          {error && <p role="alert" className="ag-result"><Mark ok={false} /><span>{error}</span></p>}
+          <div className="ag-card-f">
             <Button variant="secondary" onClick={cancel} disabled={state === "saving"}>Cancel</Button>
+            <Button variant="primary" onClick={save} disabled={state === "saving" || !value}>Save</Button>
           </div>
         </>
       )}

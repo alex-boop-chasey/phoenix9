@@ -25,6 +25,7 @@ class FakeHost:
         self.sizes: dict[str, int] = {}
         self.files: dict[str, str] = {}      # host files (read_text / write_text), by path
         self.cwds: list = []                 # the cwd of each run() call, in step with .calls
+        self.whats: list = []                # the `what` label of each run() call, in step with .calls
         self.dirs: dict[str, list[str]] = {}  # folder listings, by path
         self.pids: set[int] = set()          # process ids that are alive
         self.stats: dict[str, dict] = {}     # {mode, uid} by path
@@ -49,13 +50,24 @@ class FakeHost:
         """Answer commands starting with prefix with these (rc, out, err) in turn; the last one repeats."""
         self.responses.append((list(prefix), [tuple(a) for a in answers]))
 
-    def run(self, argv, timeout=60, cwd=None):
-        """Record the call and return the scripted answer (default: success, no output); refuses Claude like Host."""
+    def run(self, argv, timeout=60, cwd=None, what=None):
+        """Record the call and return the scripted answer (default: success, no output); refuses Claude like Host.
+
+        Like Host, a failing answer to a call with `what` records one `command.failed` event (proc.py)."""
         argv = list(argv)
         from phoenix9.adapters import refuse_claude
         refuse_claude(argv)
         self.calls.append(argv)
         self.cwds.append(str(cwd) if cwd else None)
+        self.whats.append(what)
+        answer = self._answer(argv)
+        if what and answer[0] != 0:
+            from phoenix9 import proc
+            proc.record_failure(what, proc.program(argv), answer[0], answer[2] or answer[1])
+        return answer
+
+    def _answer(self, argv):
+        """The scripted (rc, out, err) for a command (default: success, no output)."""
         for prefix, answer in reversed(self.responses):
             if argv[:len(prefix)] == prefix:
                 if isinstance(answer, list):      # a sequence from script_seq
@@ -63,18 +75,18 @@ class FakeHost:
                 return answer
         return 0, "", ""
 
-    def systemctl(self, *args):
+    def systemctl(self, *args, what=None):
         """Same as run(['systemctl', ...])."""
-        return self.run(["systemctl", *args])
+        return self.run(["systemctl", *args], **({"what": what} if what else {}))   # tests may swap run for a narrower one
 
     def script_prs(self, items: list | None = None, rc: int = 0) -> None:
         """Answer `gh pr list` with these pull requests (gh's JSON shape), or fail with rc."""
         import json
         self.script(["gh", "pr", "list"], rc, json.dumps(items if items is not None else CANNED_PRS))
 
-    def gh(self, *args):
+    def gh(self, *args, what=None):
         """Same as run(['gh', ...])."""
-        return self.run(["gh", *args])
+        return self.run(["gh", *args], **({"what": what} if what else {}))   # tests may swap run for a narrower one
 
     def read_text(self, path):
         """Return a text file set in .files (FileNotFoundError when absent)."""

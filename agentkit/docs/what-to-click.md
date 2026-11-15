@@ -1,6 +1,6 @@
 # What to click
 
-Open the dashboard at `#/agent-next` and try this list.
+Open the dashboard at `#/agent-next` (the agent panel opens full screen) and try this list.
 
 1. Type "show me my projects". Cards appear for the projects it finds. Click one card and the dashboard opens that project.
 2. Ask it to turn build notifications on for a test project. An approval card shows the exact change. Click **Approve** and check that the switch is now on.
@@ -51,8 +51,10 @@ Open the dashboard at `#/agent-next`.
 The old Claude-Code agent (its panel, its `/api/agent/*` routes, the `phoenix agent` commands and its doctor lines)
 is gone. What you will see:
 
-1. **One Agent button.** The top bar has one Agent button. It opens the new agent in the drawer; "Open full page"
-   in the drawer goes to `#/agent-next`.
+1. **One Agent button, one panel in two sizes.** The top bar has one Agent button. It opens the agent as a side
+   panel; Expand in its header makes the same conversation fill the screen with the history list on the left, and
+   Shrink brings it back. Pressing Agent while it is open only puts the cursor in the message box. `#/agent-next`
+   opens it full screen.
 2. **No Claude app link in the agent.** The drawer has no "Open in Claude app" link any more: the agent lives only
    in the dashboard.
 3. **Project chats are unchanged.** Each project's Chat button still opens that project's chat in the Claude app.

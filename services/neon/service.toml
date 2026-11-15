@@ -1,0 +1,67 @@
+name = "neon"
+title = "Neon"
+description = "Serverless Postgres database with branches."
+support = "store-and-wire"
+tag = "Default database"
+website = "https://console.neon.tech/app/settings/api-keys"
+docs = "https://neon.com/docs"
+account_keys = ["NEON_API_KEY"]
+hosts = ["neon.tech"]
+
+[[project_keys]]
+name = "DATABASE_URL"
+secret = true
+public = false
+required = true
+help = "Neon console > your project > Connect: the pooled connection string (host has -pooler)."
+
+[[project_keys]]
+name = "DATABASE_URL_UNPOOLED"
+secret = true
+public = false
+required = false
+help = "The direct (not pooled) connection string. Only for migrations."
+
+[[project_keys]]
+name = "NEON_PROJECT_ID"
+secret = false
+public = false
+required = false
+help = "Settings > General: the project ID. Only for the Neon CLI and API."
+
+
+[[account_settings]]
+name = "organisation"
+label = "Organisation"
+help = "Only for an organisation API key: the org ID from Organization settings."
+
+[[account_settings]]
+name = "default_region"
+label = "Default region"
+placeholder = "aws-ap-southeast-2"
+help = "Where new Neon projects are hosted (aws-ap-southeast-2 is Sydney)."
+
+[proxy]
+upstream = "https://console.neon.tech"
+auth_header = "Authorization"
+auth_format = "Bearer {key}"
+key = "NEON_API_KEY"
+extra_headers = {}
+
+# Starting list from the service's public API docs; checked on first real use.
+[[proxy.allow]]
+method = "GET"
+path = "/api/v2/projects"
+[[proxy.allow]]
+method = "GET"
+path = "/api/v2/projects/*"
+[[proxy.allow]]
+method = "GET"
+path = "/api/v2/projects/*/branches"
+# No connection_uri rule: it returns database passwords for any project on the account.
+# Builds get their own database through the DATABASE_URL project key instead.
+
+[check]
+method = "GET"
+path = "/api/v2/projects"
+expect = [200]

@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import atomic, events, git as git_mod, paths, refsnapshot, spec as spec_mod, state
+from . import atomic, events, git as git_mod, paths, proc, refsnapshot, scrub, spec as spec_mod, state
 
 
 def slugify(text: str, limit: int = 30) -> str:
@@ -32,8 +32,11 @@ def _tasks_from_spec(parsed) -> dict:
     return {str(t.number): state.new_task(t.title, t.depends_on) for t in parsed.tasks}
 
 
-def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> Path:
-    """Make a queued run: read-only spec copy, state.json, run.queued event; returns the run folder."""
+def create_run(project: str, spec_path: Path, overrides: dict | None = None, reference_from: Path | None = None) -> Path:
+    """Make a queued run: read-only spec copy, state.json, run.queued event; returns the run folder.
+
+    With `reference_from` (an earlier run's folder) the run gets a copy of that run's frozen reference folder
+    instead of a fresh snapshot of the project's."""
     text = Path(spec_path).read_text(encoding="utf-8")
     parsed = spec_mod.parse(text)
     title = parsed.title or Path(spec_path).stem
@@ -49,7 +52,10 @@ def create_run(project: str, spec_path: Path, overrides: dict | None = None) -> 
         atomic.write_json(folder / "overrides.json", overrides)
     atomic.write_json(folder / "state.json", state.new_state(run_id, project, _tasks_from_spec(parsed)))
     events.emit("run.queued", project=project, run=run_id, title=title)
-    refsnapshot.snapshot(project, folder)
+    if reference_from is not None:
+        refsnapshot.copy_from(Path(reference_from), folder)
+    else:
+        refsnapshot.snapshot(project, folder)
     return folder
 
 
@@ -104,6 +110,35 @@ def adopt_plan(run_dir, plan_path) -> int:
     return len(tasks)
 
 
+STOPPED_PATCH = "stopped-work.patch"
+
+
+def _newest_try_patch(run_dir: Path) -> Path | None:
+    """The newest try's saved changes (tasks/*/attempt-*/diff.patch), or None."""
+    found = [p for p in run_dir.glob("tasks/*/attempt-*/diff.patch") if p.is_file() and p.stat().st_size]
+    return max(found, key=lambda p: p.stat().st_mtime) if found else None
+
+
+def save_stopped_work(git, code: Path, work: Path, run_dir: Path) -> list[str]:
+    """Save the worktree's changes since it branched (committed or not) as stopped-work.patch; returns notes."""
+    notes = []
+    base = git.git(work, "merge-base", git.default_branch(code), "HEAD").strip()
+    text = git.diff_text(work, base, binary=True)
+    if text.strip():
+        clean = scrub.scrub(text)
+        path = run_dir / STOPPED_PATCH
+        atomic.write_text(path, clean, mode=0o600)
+        notes.append(f"The build's unfinished changes are saved in {path} (apply with: git apply {path}).")
+        masked = sum(a != b for a, b in zip(text.splitlines(), clean.splitlines()))
+        if masked:
+            notes.append(f"{masked} line{'s' if masked != 1 else ''} that looked like a secret "
+                         f"{'were' if masked != 1 else 'was'} masked in it.")
+    last = _newest_try_patch(run_dir)
+    if last is not None:
+        notes.append(f"The last try's changes: {last}")
+    return notes
+
+
 def discard_branch(adapters, project: str, run_id: str) -> list[str]:
     """Delete a stopped run's worktree and branch (and its GitHub branch when pushed); returns notes, never raises."""
     code, notes = paths.projects() / project / "code", []
@@ -114,12 +149,18 @@ def discard_branch(adapters, project: str, run_id: str) -> list[str]:
         branch = git.branch_name(run_id)
         work = paths.work(project, run_id)
         if work.exists():
+            try:
+                notes += save_stopped_work(git, code, work, paths.runs(project) / run_id)
+            except Exception as err:
+                notes.append(f"the build's unfinished changes could not be saved: {err}")
             git.remove_worktree(code, work)
         git.git(code, "branch", "-D", branch, check=False)
         if git.remote_url(code) and git.git(code, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", check=False).strip():
-            rc, out, err = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch], timeout=120)
-            if rc != 0:
-                notes.append(f"the branch {branch} was not deleted on GitHub")
+            what = "Deleting the build's branch on GitHub"
+            result = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
+                                       timeout=120, what=what)
+            if result[0] != 0:
+                notes.append(f"the branch {branch} was not deleted on GitHub ({proc.failure_text(what, result)})")
     except Exception as err:
         notes.append(f"the run's branch was not cleaned up: {err}")
     return notes
@@ -143,20 +184,25 @@ def tidy_branch(adapters, project: str, run_id: str, merged_head: str) -> tuple[
             git.git(code, "branch", "-D", branch, check=False)
             removed.append("local branch")
         if git.remote_url(code):
-            rc, out, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "ls-remote", "--heads", "origin",
-                                            f"refs/heads/{branch}"], timeout=120)
+            what = "Asking GitHub whether the build's branch is still there"
+            result = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "ls-remote", "--heads", "origin",
+                                        f"refs/heads/{branch}"], timeout=120, what=what)
+            rc, out, _ = result
             tip = out.split()[0] if rc == 0 and out.strip() else ""
             if rc != 0:
-                notes.append(f"GitHub did not say whether the branch {branch} is still there, so it was left alone")
+                notes.append(f"GitHub did not say whether the branch {branch} is still there, so it was left alone "
+                             f"({proc.failure_text(what, result)})")
             elif tip and tip != merged_head:
                 notes.append(f"the branch {branch} on GitHub has commits added after the merge, so it was kept")
             elif tip:
-                rc, _, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
-                                             timeout=120)
+                what = "Deleting the build's branch on GitHub"
+                deleted = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
+                                            timeout=120, what=what)
+                rc = deleted[0]
                 if rc == 0:
                     removed.append("GitHub branch")
                 else:
-                    notes.append(f"the branch {branch} was not deleted on GitHub")
+                    notes.append(f"the branch {branch} was not deleted on GitHub ({proc.failure_text(what, deleted)})")
             if rc == 0 and not tip:
                 git.git(code, "branch", "-D", "-r", f"origin/{branch}", check=False)
     except Exception as err:

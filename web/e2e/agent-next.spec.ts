@@ -102,9 +102,9 @@ test("a reload in the middle of a reply catches up and finishes it", async ({ pa
   await expect(page.getByRole("button", { name: "Stop" })).toBeHidden()
 })
 
-test("the allowance is shown in words, and no dollar sign is on the page", async ({ page }) => {
+test("no allowance line while there is plenty left, and no dollar sign is on the page", async ({ page }) => {
   await ask(page, "show my projects")
-  await expect(page.getByTestId("allowance")).toContainText("plenty left this month")
+  await expect(page.getByTestId("allowance")).toHaveCount(0)
   await expect(page.getByTestId("project-cards")).toBeVisible()
   expect(await page.locator("body").innerText()).not.toContain("$")
 })

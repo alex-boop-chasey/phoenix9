@@ -3,11 +3,11 @@ import pytest
 
 from phoenix9 import keys, proxy, services, settings
 
-STORE = ["cloudflare", "github", "openrouter", "resend", "sentry", "supabase"]
+STORE = ["cloudflare", "github", "neon", "openrouter", "resend", "sentry", "supabase"]
 KEYS_ONLY = ["clerk", "mux", "sanity", "stripe"]
 
 
-def test_all_ten_services_load_without_errors():
+def test_all_eleven_services_load_without_errors():
     assert sorted(services.load_library()) == sorted(STORE + KEYS_ONLY)
     assert services.load_problems() == []
 
@@ -77,6 +77,10 @@ BAD = {
     "name differs from folder": (GOOD.replace('name = "demo"', 'name = "other"'), "folder name"),
     "fallback not allowed": (GOOD + 'fallback_path = "/nope"\n', "fallback"),
     "fallback unknown setting": (GOOD + 'fallback_path = "/things/{nothing}"\n', "not an account setting"),
+    "tag too long": (GOOD.replace('support = "store-and-wire"', 'support = "store-and-wire"\ntag = "' + "x" * 31 + '"'),
+                     "at most 30"),
+    "tag not plain words": (GOOD.replace('support = "store-and-wire"', 'support = "store-and-wire"\ntag = "<b>Best</b>"'),
+                            "plain words"),
     "check not allowed": (GOOD.replace('[check]\nmethod = "GET"\npath = "/things"', '[check]\nmethod = "GET"\npath = "/nope"'),
                           "allowed calls"),
 }
@@ -100,6 +104,43 @@ def test_bad_service_folders_reported_not_crashing(tmp_path, monkeypatch, case):
     assert services.load_library() == {}
     problems = services.load_problems()
     assert problems and any(word in p for p in problems)
+
+
+def test_tag_is_optional_and_kept(tmp_path, monkeypatch):
+    put(tmp_path, monkeypatch, GOOD.replace('support = "store-and-wire"', 'support = "store-and-wire"\ntag = "' + "x" * 30 + '"'))
+    assert services.load_problems() == [] and services.get("demo")["tag"] == "x" * 30
+
+
+def test_database_tags():
+    assert services.get("neon")["tag"] == "Default database"
+    assert services.get("supabase")["tag"] == "Other database"
+    assert services.get("stripe")["tag"] == ""
+
+
+def test_neon_keys_settings_and_hosts():
+    neon = services.get("neon")
+    rows = {k["name"]: k for k in neon["project_keys"]}
+    assert rows["DATABASE_URL"]["secret"] and rows["DATABASE_URL"]["required"]
+    assert rows["DATABASE_URL_UNPOOLED"]["secret"] and not rows["DATABASE_URL_UNPOOLED"]["required"]
+    assert not rows["NEON_PROJECT_ID"]["secret"] and not rows["NEON_PROJECT_ID"]["public"]
+    assert not rows["NEON_PROJECT_ID"]["required"]
+    assert neon["account_keys"] == ["NEON_API_KEY"] and neon["hosts"] == ["neon.tech"]
+    assert [s["name"] for s in neon["account_settings"]] == ["organisation", "default_region"]
+    assert neon["website"] == "https://console.neon.tech/app/settings/api-keys"
+
+
+def test_neon_proxy_allows_only_reads():
+    neon = services.get("neon")
+    assert neon["proxy"]["upstream"] == "https://console.neon.tech" and neon["proxy"]["key"] == "NEON_API_KEY"
+    assert {r["method"] for r in neon["proxy"]["allow"]} == {"GET"}
+    assert [r["path"] for r in neon["proxy"]["allow"]] == [
+        "/api/v2/projects", "/api/v2/projects/*", "/api/v2/projects/*/branches"]
+    spec = proxy.spec_from_service(neon)
+    assert proxy.find_rule(spec.rules, "GET", "/api/v2/projects")
+    assert proxy.find_rule(spec.rules, "GET", "/api/v2/projects/abc/connection_uri") is None   # other projects' passwords
+    assert proxy.find_rule(spec.rules, "DELETE", "/api/v2/projects/abc") is None
+    assert proxy.find_rule(spec.rules, "POST", "/api/v2/projects") is None
+    assert neon["check"]["method"] == "GET" and neon["check"]["path"] == "/api/v2/projects"
 
 
 def test_project_new_prefills_from_loader(phoenix_env):

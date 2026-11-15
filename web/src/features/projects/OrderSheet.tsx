@@ -10,7 +10,7 @@ import {
 } from "@/features/projects/formModel"
 import { KeysForm, type RowsSummary, type WantedKey } from "@/features/keys/KeysForm"
 import { useGithubRepos, useInfo, useLibraryProfiles, useLibraryServices, useLibraryTemplates, useServices } from "@/lib/queries"
-import type { KeyInput, ServiceKey } from "@/lib/types"
+import type { KeyInput, Service, ServiceKey } from "@/lib/types"
 
 
 const SOURCES: { value: SourceKind; label: string; hint: string; icon: IconName }[] = [
@@ -30,7 +30,7 @@ export const PROFILE_LOOK: Record<string, { title: string; hint: string; icon: I
 }
 
 export const SERVICE_ICON: Record<string, IconName> = {
-  github: "github-logo", supabase: "hard-drives", sentry: "warning-octagon", cloudflare: "cloud",
+  github: "github-logo", neon: "hard-drives", supabase: "hard-drives", sentry: "warning-octagon", cloudflare: "cloud",
 }
 
 /** One open tile: a hidden radio or checkbox inside a label; the name is the input's accessible name. */
@@ -256,6 +256,14 @@ function TypeFramework({ value, set }: Pick<Props, "value" | "set">) {
   )
 }
 
+const DEFAULT_TAG = "Default database"
+
+/** The services in library order, with those tagged "Default database" first. */
+function servicesInOrder(list: Service[] | undefined): Service[] {
+  const all = list ?? []
+  return [...all.filter((s) => s.tag === DEFAULT_TAG), ...all.filter((s) => s.tag !== DEFAULT_TAG)]
+}
+
 /** Slide 2: type, framework, then services as multi-select tiles; a service that needs Phoenix-wide keys says so. */
 function ServicesStep({ value, set }: Props) {
   const library = useLibraryServices()
@@ -276,11 +284,11 @@ function ServicesStep({ value, set }: Props) {
       <TypeFramework value={value} set={set} />
       <span className="lbl" id="svcL">Services</span>
       <div className="tiles" role="group" aria-labelledby="svcL">
-        {library.data?.services.map((s) => {
+        {servicesInOrder(library.data?.services).map((s) => {
           const setup = needsSetup(s.name)
           return (
             <Tile
-              key={s.name} type="checkbox" name={`sv-${s.name}`} title={s.title} multi icon={SERVICE_ICON[s.name] ?? "plugs-connected"}
+              key={s.name} type="checkbox" name={`sv-${s.name}`} title={s.title} hint={s.tag || undefined} multi icon={SERVICE_ICON[s.name] ?? "plugs-connected"}
               checked={value.services.includes(s.name)} onChange={(c) => toggle(s.name, c)}
             >
               {setup && (

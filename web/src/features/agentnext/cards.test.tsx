@@ -28,17 +28,17 @@ test("a click with no handler moves to the project's link", async () => {
   expect(window.location.hash).toBe("#/p/alpha")
 })
 
-test("a running tool shows a running state, a finished one its card", () => {
-  const { rerender } = render(<ToolCall call={{ toolCallId: "c1", toolName: "list_projects", running: true }} />)
-  expect(screen.getByTestId("tool-running")).toHaveTextContent("list_projects")
+test("a running tool shows no line of its own, a finished one its card", () => {
+  const { container, rerender } = render(<ToolCall call={{ toolCallId: "c1", toolName: "list_projects", running: true }} />)
+  expect(container).toBeEmptyDOMElement()
   rerender(<ToolCall call={{ toolCallId: "c1", toolName: "list_projects", running: false, component: "project_cards", data: { projects: [alpha] } }} />)
-  expect(screen.queryByTestId("tool-running")).toBeNull()
   expect(screen.getByText("alpha")).toBeInTheDocument()
 })
 
-test("a tool with no component shows a plain Used line", () => {
-  render(<ToolCall call={{ toolCallId: "c2", toolName: "suggest_next_actions", running: false }} />)
-  expect(screen.getByText("Used suggest_next_actions")).toBeInTheDocument()
+test("a tool with no component draws nothing and never shows its id", () => {
+  const { container } = render(<ToolCall call={{ toolCallId: "c2", toolName: "suggest_next_actions", running: false }} />)
+  expect(container).toBeEmptyDOMElement()
+  expect(screen.queryByText(/suggest_next_actions/)).toBeNull()
 })
 
 test("data that does not fit shows a plain fallback", () => {
@@ -132,4 +132,19 @@ test("settings, key and update data that does not fit shows the fallback", () =>
     expect(screen.getByTestId("card-fallback")).toBeInTheDocument()
     unmount()
   }
+})
+
+test("cards that do not wait for Alex are plain: no orange edge, no Needs you", () => {
+  render(<>
+    <ProjectCards projects={[alpha]} />
+    <BuildCard build={build} />
+    <RunCard run={run} />
+    <TaskListCard tasks={tasks} />
+  </>)
+  for (const id of ["project-cards", "build-card", "run-card"]) {
+    expect(screen.getByTestId(id)).toHaveClass("ag-card")
+    expect(screen.getByTestId(id)).not.toHaveClass("needs-you")
+  }
+  expect(document.querySelector(".needs-you, .card")).toBeNull()
+  expect(screen.queryByText("Needs you")).toBeNull()
 })

@@ -4,6 +4,7 @@ import time
 
 import pytest
 
+from helpers.fake_secret import fake_secret
 from phoenix9 import allowance, atomic, bell, gates, routes, statusreport as sr
 from test_status_report import NOW, _iso, make_project, make_run
 
@@ -84,9 +85,10 @@ def test_unknown_allowance_is_not_an_item(quiet):
 
 def test_no_money_and_no_secret(quiet):
     make_project()
-    make_run("r2", "failed", ago_s=3600, flagged="spent $12.50 and 3 USD on token sk-ant-api03-abcdefghijklmnopqrstuvwxyz")
+    key = fake_secret("anthropic")
+    make_run("r2", "failed", ago_s=3600, flagged=f"spent $12.50 and 3 USD on token {key}")
     text = json.dumps(bell.items(quiet, NOW))
-    assert "$" not in text and "USD" not in text and "abcdefghijkl" not in text
+    assert "$" not in text and "USD" not in text and key[-12:] not in text
     assert bell.strip_money("cost $1,200.5 or 7 dollars") == "cost an amount or an amount"
 
 

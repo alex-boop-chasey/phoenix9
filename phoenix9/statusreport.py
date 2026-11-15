@@ -12,7 +12,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, edits, gates, git, keys, paths, project, project_services, runs, settings, status
+from phoenix9 import atomic, edits, gates, git, keys, paths, proc, project, project_services, runs, settings, status
 from phoenix9 import doctor, updater
 
 FAILED_DAYS = 7
@@ -173,14 +173,29 @@ def builds(now: float) -> list[str]:
     return out
 
 
-def _open_prs(adapters) -> list[dict]:
-    """[{project, number, title, created}] for every open pull request of every project with a repo."""
+class PrRows(list):
+    """Open pull request rows, plus `problems`: [(project, plain reason)] for each repo GitHub did not list."""
+
+    def __init__(self, rows=(), problems=None):
+        super().__init__(rows)
+        self.problems = list(problems or [])
+
+
+PRS_WHAT = "Listing the open merge requests on GitHub"
+
+
+def _open_prs(adapters) -> PrRows:
+    """[{project, number, title, created}] for every open pull request of every project with a repo; a repo that
+    could not be listed is named in `.problems` with the reason."""
     import json
     from phoenix9.ops import github
-    out = []
+    out = PrRows()
     for name, repo in github._repo_projects(None):
-        rc, text, _ = adapters.host.gh("pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,createdAt")
+        result = adapters.host.gh("pr", "list", "--repo", repo, "--state", "open", "--json", "number,title,createdAt",
+                                  what=PRS_WHAT)
+        rc, text, _ = result
         if rc != 0:
+            out.problems.append((name, proc.failure_text(PRS_WHAT, result)))
             continue
         out += [{"project": name, "number": i.get("number"), "title": i.get("title", ""),
                  "created": i.get("createdAt", "")} for i in json.loads(text or "[]")]
@@ -190,7 +205,11 @@ def _open_prs(adapters) -> list[dict]:
 def merge_requests(adapters, now: float) -> list[str]:
     """Merge requests open longer than 3 days."""
     out = []
-    for pr in _safe(_open_prs, adapters) or []:
+    rows = _safe(_open_prs, adapters)
+    rows = [] if rows is None else rows             # (an empty list may still name repos it could not list)
+    for name, why in getattr(rows, "problems", []):
+        out.append(f"- {name}: GitHub did not list its open merge requests ({quote(why)}).")
+    for pr in rows:
         age = _age(pr["created"], now)
         if age is not None and age > MR_OLD_DAYS * DAY:
             out.append(tag(f"- {pr['project']}: merge request #{pr['number']} {quote(pr['title'])} has been open {age_words(age)}. "

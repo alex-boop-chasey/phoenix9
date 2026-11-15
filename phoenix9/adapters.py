@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import signal
-import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -12,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from phoenix9 import proc
 from phoenix9.docker import DockerRunner
 
 NOTIFY_MAX = 600
@@ -63,27 +63,21 @@ def refuse_claude(argv) -> None:
 class Host:
     """The real host: systemctl, gh, du and plain commands."""
 
-    def run(self, argv: list[str], timeout: float = 60, cwd=None) -> tuple[int, str, str]:
+    def run(self, argv: list[str], timeout: float = 60, cwd=None, what: str | None = None) -> tuple[int, str, str]:
         """Run a command (in cwd if given) and return (exit code, stdout, stderr); 124 on timeout, 127 if not found.
 
+        With `what` (a plain label of the action) a failure is recorded as a `command.failed` event (proc.py).
         Refuses to start Claude: Claude only ever runs inside a step container (architecture 11, rule 1)."""
         refuse_claude(argv)
-        try:
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL,
-                               cwd=cwd)
-        except subprocess.TimeoutExpired:
-            return 124, "", f"timed out after {timeout}s"
-        except FileNotFoundError:
-            return 127, "", f"not found: {argv[0]}"
-        return p.returncode, p.stdout, p.stderr
+        return proc.run(argv, what=what, timeout=timeout, cwd=cwd)
 
-    def systemctl(self, *args: str) -> tuple[int, str, str]:
+    def systemctl(self, *args: str, what: str | None = None) -> tuple[int, str, str]:
         """Run systemctl with the given arguments."""
-        return self.run(["systemctl", *args])
+        return self.run(["systemctl", *args], what=what)
 
-    def gh(self, *args: str) -> tuple[int, str, str]:
+    def gh(self, *args: str, what: str | None = None) -> tuple[int, str, str]:
         """Run the GitHub command line tool with the given arguments."""
-        return self.run(["gh", *args], timeout=120)
+        return self.run(["gh", *args], timeout=120, what=what)
 
     def read_text(self, path) -> str:
         """Read a text file on the host (FileNotFoundError when it is not there)."""

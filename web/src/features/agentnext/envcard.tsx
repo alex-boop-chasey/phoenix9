@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react"
 
 import { api } from "@/lib/api"
+import { Mark, NeedsYou, cardClass } from "./cardparts"
 import { answerBrowser } from "./choicecard"
 import { parseEnv, type EnvRow } from "./envfile"
 
@@ -64,18 +65,21 @@ export function EnvUploadCard({ ask, callId }: { ask: EnvAsk; callId: string }) 
     try { await answerBrowser(callId, { status: "cancelled" }) } catch { /* the run times out on its own */ }
   }
 
+  const waiting = phase === "open" || phase === "saving"
   return (
-    <section className="card flex flex-col gap-2" aria-label="Upload a .env file" data-testid="env-card">
-      <strong>The agent asks for a .env file</strong>
-      <p>Project: <strong>{ask.project}</strong></p>
-      {ask.why && <p>Why: {ask.why}</p>}
-      {phase === "saved" && <p>Added {counts.added}, replaced {counts.replaced}, kept {counts.kept}.</p>}
-      {phase === "cancelled" && <p>Cancelled.</p>}
+    <section className={cardClass(waiting)} aria-label="Upload a .env file" data-testid="env-card">
+      <h3 className="ag-card-h">The agent asks for a .env file{waiting ? <NeedsYou /> : null}</h3>
+      <div className="ag-card-b">
+        <p>Project: <strong>{ask.project}</strong></p>
+        {ask.why && <p>Why: {ask.why}</p>}
+        {phase === "saved" && <p className="ag-result"><Mark ok /><span>Added {counts.added}, replaced {counts.replaced}, kept {counts.kept}.</span></p>}
+        {phase === "cancelled" && <p className="ag-quiet">Cancelled.</p>}
+      </div>
       {(phase === "open" || phase === "saving") && (
         <>
           <input type="file" aria-label="Choose a .env file" disabled={phase === "saving"} onChange={(e) => void choose(e.target.files?.[0])} />
           {rows.length > 0 && (
-            <ul aria-label="Names found">
+            <ul className="ag-list" aria-label="Names found">
               {rows.map((r) => (
                 <li key={r.name}>
                   {r.name}: {r.secret ? "Secret" : "Public"}
@@ -90,10 +94,10 @@ export function EnvUploadCard({ ask, callId }: { ask: EnvAsk; callId: string }) 
               ))}
             </ul>
           )}
-          {error && <p role="alert">{error}</p>}
-          <div className="flex gap-2">
-            <button type="button" className="btn" disabled={phase === "saving" || !rows.length} onClick={() => void add()}>Add keys</button>
-            <button type="button" className="btn" disabled={phase === "saving"} onClick={() => void cancel()}>Cancel</button>
+          {error && <p role="alert" className="ag-result"><Mark ok={false} /><span>{error}</span></p>}
+          <div className="ag-card-f">
+            <button type="button" className="btn btn-ghost" disabled={phase === "saving"} onClick={() => void cancel()}>Cancel</button>
+            <button type="button" className="btn btn-primary" disabled={phase === "saving" || !rows.length} onClick={() => void add()}>Add keys</button>
           </div>
         </>
       )}

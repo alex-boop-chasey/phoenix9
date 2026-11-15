@@ -866,7 +866,7 @@
   },
   {
     "name": "github-repos",
-    "description": "{connected, repos: [{full_name, owner, private}]} for each account the login can see.",
+    "description": "{connected, repos: [{full_name, owner, private}], problems} for each account the login can see; `problems`",
     "inputs": [],
     "risk": "read",
     "agent": "later",
@@ -1869,7 +1869,7 @@
   },
   {
     "name": "project-show",
-    "description": "All info of one project, plus recent changelog lines, open gates and whether Phoenix made its repo.",
+    "description": "All info of one project, plus recent changelog lines, open gates, whether Phoenix made its repo and its chat.",
     "inputs": [
       {
         "name": "name",
@@ -2590,6 +2590,51 @@
     "fixed": {},
     "fixed_query": {},
     "card": "routes_card",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
+    "name": "run-again",
+    "description": "Start a failed or stopped build again with the same spec, reference documents and settings; only the preset may change.",
+    "inputs": [
+      {
+        "name": "project",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "run_id",
+        "type": "string",
+        "required": true,
+        "description": "The run's id.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "preset",
+        "type": "string",
+        "required": false,
+        "description": "A different preset to use (leave out to keep the same one).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/runs/(?P<project>[^/]+)/(?P<run_id>[^/]+)/again",
+    "fixed": {
+      "confirm": true
+    },
+    "fixed_query": {},
+    "card": "repair_card",
     "confirm_with": "",
     "timeout_s": 0
   },

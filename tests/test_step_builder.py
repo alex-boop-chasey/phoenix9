@@ -273,3 +273,9 @@ def test_task_prompts_forbid_browser_tests(step):
     if step == "builder":
         assert "under 'Try by hand' in the summary" in text
         assert "Playwright files a project already has stay as they are" in text
+
+
+def test_checkwriter_prompt_judges_other_runners_by_exit_code_or_json():
+    writer = (REPO / "steps" / "check-writer" / "prompt.md").read_text()
+    assert "Never assert on a test runner's human-readable output" in writer
+    assert "judge it by its exit code or its JSON report" in writer

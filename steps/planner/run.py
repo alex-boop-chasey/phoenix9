@@ -80,15 +80,21 @@ def after(ctx, session) -> StepResult:
     if not path.is_file():
         return StepResult("fail", ["The planner wrote no /out/spec.md."])
     text = path.read_text(encoding="utf-8")
-    problems = spec.check(text)
+    plan = atomic.read_json(ctx.run.folder / "plan.json") or {}
+    writer_on = any("check-writer" in steps for steps in (plan.get("groups") or {}).values())
+    problems = spec.check(text, needs_commands=not writer_on)
     if problems:
         return StepResult("fail", [f"The planned spec has problems: {p}" for p in problems])
     parsed = spec.parse(text)
     plan = ctx.run.folder / "plan.md"
     atomic.write_text(plan, text)
     mine = sum(1 for t in parsed.tasks if t.for_you)
+    why = f"{len(parsed.tasks)} tasks, {mine} for you"
+    warnings = spec.chain_warnings(parsed)
+    if warnings:
+        why += ". Worth a look: " + " ".join(warnings)
     gate = {"kind": "plan", "title": f"Approve the plan for {parsed.title}",
-            "why": f"{len(parsed.tasks)} tasks, {mine} for you",
+            "why": why,
             "links": [{"label": "Plan", "doc": f"run:{ctx.run.id}/plan.md"}],
             "actions": ["approve", "back", "skip", "stop"]}
     return StepResult("gate", produces={"plan": str(plan)}, gate=gate)

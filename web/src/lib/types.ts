@@ -569,6 +569,15 @@ export interface Profile {
   image: string
 }
 
+/** The answer to "Run again": the new run, and the preset it uses (null = the project's default). */
+export interface RunAgainResult {
+  run_id: string
+  project: string
+  status: string
+  from_run: string
+  preset: string | null
+}
+
 export interface Preset {
   name: string
   title: string
@@ -604,6 +613,8 @@ export interface LibraryTool {
 export interface Service {
   name: string
   title: string
+  /** A short quiet label from the service folder, such as "Default database" ("" or missing when none). */
+  tag?: string
   project_keys: ServiceKey[]
 }
 

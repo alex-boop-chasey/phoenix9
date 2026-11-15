@@ -1,9 +1,8 @@
 // Proof: the assistant-ui chat shows streamed text, a project card, a go_to move and an approval, from a mocked stream.
-import { render, screen, waitFor } from "@testing-library/react"
+import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { MemoryRouter, Route, Routes, useLocation } from "react-router"
 
-import AgentNextPage from "./AgentNextPage"
+import { renderFullAgent } from "@/test/agentPanel"
 
 type Ev = Record<string, unknown>
 const frame = (n: number, e: Ev) => `id: ${n}\ndata: ${JSON.stringify(e)}\n\n`
@@ -41,20 +40,9 @@ function mockService(streams: Ev[][]) {
   return posts
 }
 
-function Where() {
-  return <p data-testid="where">{useLocation().pathname}</p>
-}
-
+/** The full-screen panel; it moves the dashboard through the address hash (the app's router) and stays open. */
 function setup() {
-  render(
-    <MemoryRouter initialEntries={["/agent-next"]}>
-      <Where />
-      <Routes>
-        {/* The page stays mounted wherever the agent goes, as the panel will when it sits beside every page. */}
-        <Route path="*" element={<AgentNextPage />} />
-      </Routes>
-    </MemoryRouter>,
-  )
+  renderFullAgent()
 }
 
 async function say(message: string) {
@@ -62,9 +50,33 @@ async function say(message: string) {
   await userEvent.click(screen.getByRole("button", { name: "Send" }))
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); window.location.hash = "" })
 
 describe("agent-next proof", () => {
+  const chips: Ev = { type: "CUSTOM", name: "suggestions", value: { actions: [{ label: "Cancel", message: "cancel" }, { label: "Pick a name", message: "name" }] } }
+  const flowCard: Ev = { type: "CUSTOM", name: "component", value: { toolCallId: "f1", component: "FlowCard",
+    data: { flow: "new", status: "active", step: 1, steps: 5, label: "Name the project", values: { goal: "Android app" } } } }
+
+  it("hides a Cancel chip while a flow is active: the flow card has the only Cancel", async () => {
+    mockService([[started, flowCard, chips, ...text("m1", "What should it be called?"), finished]])
+    setup()
+    await say("I want a new Android app")
+    expect(await screen.findByText("What should it be called?")).toBeInTheDocument()
+    const strip = await screen.findByTestId("suggestion-chips")
+    expect(within(strip).getByRole("button", { name: "Pick a name" })).toBeInTheDocument()
+    expect(within(strip).queryByRole("button", { name: "Cancel" })).toBeNull()
+    expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1)
+    expect(within(screen.getByTestId("flow-card")).getByTestId("flow-fact")).toHaveTextContent("Goal: Android app")
+  })
+
+  it("shows a Cancel chip when no flow is active", async () => {
+    mockService([[started, chips, ...text("m1", "Anything else?"), finished]])
+    setup()
+    await say("hello")
+    expect(await screen.findByText("Anything else?")).toBeInTheDocument()
+    expect(within(await screen.findByTestId("suggestion-chips")).getByRole("button", { name: "Cancel" })).toBeInTheDocument()
+  })
+
   it("streams text and draws the project card", async () => {
     mockService([[started, ...call("c1", "list_projects", "{}"),
       { type: "CUSTOM", name: "component", value: { toolCallId: "c1", component: "project_cards", data: { projects: [{ name: "alpha", state: "idle" }] } } },
@@ -75,6 +87,22 @@ describe("agent-next proof", () => {
     expect(await screen.findByTestId("project-cards")).toHaveTextContent("alpha")
   })
 
+  it("shows what it did as a closed list of plain steps, never the tool ids", async () => {
+    const done = (id: string): Ev => ({ type: "TOOL_CALL_RESULT", messageId: `r-${id}`, toolCallId: id, content: "{}" })
+    mockService([[started, ...call("s1", "library-profiles", "{}"), done("s1"), ...call("s2", "projects-list", "{}"), done("s2"),
+      ...call("s3", "suggest_next_actions", "{}"), done("s3"), ...text("m1", "Here is what I found."), finished]])
+    setup()
+    await say("I want a new Android app")
+    expect(await screen.findByText("Here is what I found.")).toBeInTheDocument()
+    const steps = await screen.findByTestId("agent-steps")
+    expect(steps).not.toHaveAttribute("open")
+    expect(within(steps).getByText("3 steps")).toBeInTheDocument()
+    await userEvent.click(within(steps).getByText("3 steps"))
+    expect(within(steps).getAllByRole("listitem").map((li) => li.textContent))
+      .toEqual(["Checked project types", "Looked at your projects", "Suggested next steps"])
+    expect(screen.queryByText(/library-profiles|projects-list|suggest_next_actions/)).toBeNull()
+  })
+
   it("go_to checks the page, navigates and posts the browser result", async () => {
     const posts = mockService([
       [started, ...call("g1", "go_to", '{"page":"settings"}')],
@@ -83,7 +111,8 @@ describe("agent-next proof", () => {
     setup()
     await say("open settings")
     expect(await screen.findByText("Opened it.")).toBeInTheDocument()
-    expect(screen.getByTestId("where")).toHaveTextContent("/settings")
+    expect(window.location.hash).toBe("#/settings")
+    expect(screen.getByLabelText("Phoenix agent panel")).toHaveClass("open")
     const result = posts.find((p) => p.path === "browser-results/g1")
     expect(result?.body.result).toMatchObject({ ok: true })
   })
@@ -96,7 +125,7 @@ describe("agent-next proof", () => {
     setup()
     await say("open nowhere")
     expect(await screen.findByText("I could not.")).toBeInTheDocument()
-    expect(screen.getByTestId("where")).toHaveTextContent("/agent-next")
+    expect(window.location.hash).toBe("")
     expect(posts.find((p) => p.path === "browser-results/g2")?.body.result).toMatchObject({ ok: false })
   })
 
@@ -108,7 +137,8 @@ describe("agent-next proof", () => {
     setup()
     await say("turn on notify")
     const card = await screen.findByTestId("approval-card")
-    expect(card).toHaveTextContent("set_notify")
+    expect(card).toHaveTextContent("A change")
+    expect(card).not.toHaveTextContent("set_notify")
     await userEvent.click(screen.getByRole("button", { name: label }))
     await waitFor(() => expect(posts.find((p) => p.path === "approvals/a1")?.body).toEqual({ decision }))
     expect(await screen.findByText("Done.")).toBeInTheDocument()

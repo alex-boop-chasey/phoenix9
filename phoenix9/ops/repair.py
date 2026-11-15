@@ -256,7 +256,7 @@ def raise_max_tries(run_id: str, tries: int, who: str = "agent") -> dict:
 
 
 def restart_on_preset(project: str, run_id: str, preset: str, who: str = "agent") -> dict:
-    """Start a new run from a stopped or failed run's spec on another preset, and record it on the old run."""
+    """Start a stopped or failed build again (same spec, reference documents and settings) on another preset, and record it on the old run."""
     folder = _run_folder(run_id, project)
     _may_repair(folder, who)
     if preset not in settings.PRESETS:
@@ -266,10 +266,9 @@ def restart_on_preset(project: str, run_id: str, preset: str, who: str = "agent"
         raise common.Conflict(f"The run is {status}; only a stopped or failed run can be restarted on another preset.")
     current = runs_ops.detail(project, run_id).get("preset")
     if preset == current:
-        raise common.Conflict(f"The run already uses the {preset} preset; pick a different one.")
-    kept = atomic.read_json(folder / "overrides.json") or {}
+        raise common.Conflict("It already uses that preset; use Run again to start it with the same settings.")
     with _one_at_a_time(folder):
-        started = runs_ops.start(project, folder / "spec.md", {**kept, "preset": preset}, who=who)
+        started = runs_ops.run_again(project, run_id, preset=preset, who=who)
     title = f"Restart the build on the {preset} preset"
     events.emit("repair.applied", project=project, run=run_id, who=who, note="restart-on-preset", title=title,
                 steps=[f"restart on preset {preset}"], new_run=started["run_id"], preset=preset,

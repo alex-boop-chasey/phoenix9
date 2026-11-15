@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
-import { ApprovalCard, SuggestionChips, makeGoTo } from "./approval"
+import { ApprovalCard, SuggestionChips, makeGoTo, withoutCancelChips } from "./approval"
 
 const item = { approvalId: "a1", toolName: "notifications-set", input: { name: "alpha", on: true }, decision: "pending" as const }
 
@@ -29,9 +29,16 @@ test("after a decision the buttons are gone and the decision shows", () => {
 
 test("other tools list each input as label and value", () => {
   render(<ApprovalCard item={{ ...item, toolName: "rename_thing", input: { new_name: "beta" } }} onDecide={() => {}} />)
-  expect(screen.getByText("rename_thing")).toBeInTheDocument()
+  expect(screen.getByText("A change")).toBeInTheDocument()
+  expect(screen.queryByText("rename_thing")).toBeNull()
   expect(screen.getByText("new name:")).toBeInTheDocument()
   expect(screen.getByText("beta")).toBeInTheDocument()
+})
+
+test("a known tool's title is its plain words, not its id", () => {
+  render(<ApprovalCard item={{ ...item, toolName: "run-again", input: { project: "alpha" } }} onDecide={() => {}} />)
+  expect(screen.getByText("Running a build again")).toBeInTheDocument()
+  expect(screen.queryByText("run-again")).toBeNull()
 })
 
 test("the card shows the tool's plain description", () => {
@@ -110,4 +117,35 @@ test.each(["repair-skip-task", "repair-rewrite-checks"])("%s shows the why input
   render(<ApprovalCard item={{ ...item, toolName, input: { task: 3, why: "It needs a key we lack." } }} onDecide={() => {}} />)
   expect(screen.getByText("Reason: It needs a key we lack.")).toBeInTheDocument()
   expect(screen.queryByText("why:")).toBeNull()
+})
+
+test("a pending approval waits for Alex: orange edge and a Needs you label; a decided one is plain", () => {
+  const { unmount } = render(<ApprovalCard item={item} onDecide={() => {}} />)
+  expect(screen.getByTestId("approval-card")).toHaveClass("ag-card", "needs-you")
+  expect(screen.getByText("Needs you")).toBeInTheDocument()
+  unmount()
+  render(<ApprovalCard item={{ ...item, decision: "approve" }} onDecide={() => {}} />)
+  expect(screen.getByTestId("approval-card")).toHaveClass("ag-card")
+  expect(screen.getByTestId("approval-card")).not.toHaveClass("needs-you")
+  expect(screen.queryByText("Needs you")).toBeNull()
+})
+
+test("Approve sits after Deny, so the primary button is on the right", () => {
+  render(<ApprovalCard item={item} onDecide={() => {}} />)
+  expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Deny", "Approve"])
+})
+
+test("cancel-only chips are left out, whatever their case or spaces", () => {
+  const list = ["Cancel", " cancel this ", "STOP", "Never mind", "Cancel the build", "Pick a name"].map((label) => ({ label, message: "x" }))
+  expect(withoutCancelChips(list).map((c) => c.label)).toEqual(["Cancel the build", "Pick a name"])
+})
+
+test("a Cancel chip is hidden while a flow is active and shown when none is", () => {
+  const actions = [{ label: "Cancel", message: "cancel" }, { label: "Pick a name", message: "name" }]
+  const { unmount } = render(<SuggestionChips actions={actions} onSend={() => {}} flowActive />)
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull()
+  expect(screen.getByRole("button", { name: "Pick a name" })).toHaveClass("ag-chip")
+  unmount()
+  render(<SuggestionChips actions={actions} onSend={() => {}} />)
+  expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument()
 })

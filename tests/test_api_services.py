@@ -12,11 +12,19 @@ CHECK_URL = "http://proxy.fake/supabase/v1/projects"
 def test_get_services(api):
     status, body = api("/api/services")
     rows = {r["name"]: r for r in body["data"]["services"]}
-    assert status == 200 and body["data"]["supported"] is True and len(rows) == 10
+    assert status == 200 and body["data"]["supported"] is True and len(rows) == 11
     assert rows["supabase"]["endpoints"] == {"connect": "services/supabase/connect",
                                              "disconnect": "services/supabase/disconnect"}
     assert rows["supabase"]["connected"] is False and rows["stripe"]["connected"] is True
     assert api("/api/keys/audit")[1]["data"]["problems"] == []
+
+
+def test_library_services_pass_the_tag_through(api):
+    status, body = api("/api/library/services")
+    rows = {r["name"]: r for r in body["data"]["services"]}
+    assert status == 200 and len(rows) == 11
+    assert rows["neon"]["tag"] == "Default database" and rows["supabase"]["tag"] == "Other database"
+    assert rows["stripe"]["tag"] == ""
 
 
 def test_connect_needs_write_guard(api):

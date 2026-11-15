@@ -17,6 +17,9 @@ MAX_DESCRIPTION_BYTES = 200_000                         # any spec when the Plan
 NEEDS_PLANNER = ("This spec isn't in Phoenix's task format. Turn the Planner on so it can turn it into tasks, "
                  "or write it as '## Task <n>: <title>' sections.")
 MIN_BULLET = 15
+CHAIN_WARN_TASKS = 4                                    # a 'Depends on' line this long (and over half the plan) is worth a look
+HUB_WARN_TASKS = 5                                      # plans this big get the 'blocks other tasks' warning
+MAX_WARNINGS = 3
 VAGUE_ENDINGS = ("professional", "nice", "good", "clean", "modern", "works well")
 
 TITLE_LINE = re.compile(r"^#(?!#)\s*(?:Plan:\s*)?(.*?)\s*$")
@@ -320,8 +323,18 @@ def _find_cycle(spec: Spec) -> list[int]:
     return []
 
 
-def check(text: str) -> list[str]:
-    """Return every problem with the spec as a readable note. Empty list = the spec is valid."""
+def _check_commands(task: Task) -> list[str]:
+    """With the check-writer off: a task Phoenix builds needs at least one 'Done when' item that is a command."""
+    if task.for_you or any(c.command for c in task.done_when):
+        return []
+    return [f"Line {task.line}: task {task.number} has no 'Done when' item Phoenix can run. With the check-writer off, "
+            "add at least one item that is only a command in backticks, e.g. - `pytest -q tests/test_x.py`."]
+
+
+def check(text: str, needs_commands: bool = False) -> list[str]:
+    """Return every problem with the spec as a readable note. Empty list = the spec is valid.
+
+    `needs_commands` (the check-writer is off): every task not "for you" needs a runnable 'Done when' command."""
     spec = parse(text)
     errors = list(spec.problems)
     if spec.preset and spec.preset not in PRESETS:
@@ -332,6 +345,8 @@ def check(text: str) -> list[str]:
     numbers = {t.number for t in spec.tasks}
     for t in spec.tasks:
         errors += _check_task(t, numbers)
+        if needs_commands:
+            errors += _check_commands(t)
     cycle = _find_cycle(spec)
     if cycle:
         errors.append("The tasks depend on each other in a cycle: "
@@ -386,6 +401,49 @@ def dependents_of(spec: Spec, n: int) -> list[Task]:
                 found.add(t.number)
                 todo.append(t.number)
     return sorted((t for t in spec.tasks if t.number in found), key=lambda t: t.number)
+
+
+def _longest_chain(spec: Spec) -> list[int]:
+    """The longest line of tasks where each depends on the one before (lowest numbers win a tie)."""
+    known = {t.number for t in spec.tasks}
+    after: dict[int, list[int]] = {n: [] for n in sorted(known)}
+    for t in spec.tasks:
+        for d in set(t.depends_on):
+            if d in known and d != t.number:
+                after[d].append(t.number)
+    best: dict[int, list[int]] = {}
+    for n in reversed([t.number for t in order(spec)]):    # dependents first, so each is ready when needed
+        longest: list[int] = []
+        for m in sorted(after[n]):
+            if len(best.get(m, [])) > len(longest):
+                longest = best[m]
+        best[n] = [n] + longest
+    chain: list[int] = []
+    for n in sorted(best):
+        if len(best[n]) > len(chain):
+            chain = best[n]
+    return chain
+
+
+def chain_warnings(spec: Spec) -> list[str]:
+    """Plain warnings (never problems) about long 'Depends on' chains and tasks most others wait for; at most 3."""
+    total = len(spec.tasks)
+    if total < 4 or _find_cycle(spec):
+        return []
+    warnings: list[str] = []
+    chain = _longest_chain(spec)
+    if len(chain) >= CHAIN_WARN_TASKS and len(chain) * 2 > total:
+        skipped = len(dependents_of(spec, chain[0]))
+        warnings.append(f"Tasks {' -> '.join(map(str, chain))} depend on each other in one line: if task {chain[0]} "
+                        f"fails, {skipped} tasks are skipped. Check each 'Depends on' is really needed.")
+    else:
+        chain = []
+    if total >= HUB_WARN_TASKS:
+        hubs = [(len(dependents_of(spec, t.number)), t.number) for t in spec.tasks if t.number not in chain]
+        for blocked, n in sorted(hubs, key=lambda h: (-h[0], h[1])):
+            if blocked * 2 > total - 1:
+                warnings.append(f"Task {n} blocks {blocked} other tasks.")
+    return warnings[:MAX_WARNINGS]
 
 
 def to_json(spec: Spec) -> dict:

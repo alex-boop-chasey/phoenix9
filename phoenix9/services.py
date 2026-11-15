@@ -16,7 +16,9 @@ FIELDS = [Field("name", str, required=True), Field("title", str, required=True),
           Field("secrets_file", str, default=""),
           Field("project_keys", list, default=[], list_of=dict), Field("hosts", list, default=[], list_of=str),
           Field("proxy", dict, default=None), Field("check", dict, default=None),
-          Field("account_settings", list, default=[], list_of=dict)]
+          Field("account_settings", list, default=[], list_of=dict), Field("tag", str, default="")]
+TAG_MAX = 30
+TAG_WORDS = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ,'-]*$")
 SETTING_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 SETTING_FIELDS = [Field("name", str, required=True), Field("label", str, required=True),
                   Field("kind", str, default="text", choices=("text", "select")),
@@ -65,6 +67,18 @@ def _check_settings(values: dict, where: str, problems: list) -> list[dict]:
             problems.append(f"{where}: account setting '{row['name']}' is a select but lists no options")
         rows.append(row)
     return rows
+
+
+def _check_tag(values: dict, where: str) -> list[str]:
+    """Problems with the optional tag (a short plain-words label such as "Default database")."""
+    tag = values["tag"]
+    if not tag:
+        return []
+    if len(tag) > TAG_MAX:
+        return [f"{where}: tag must be at most {TAG_MAX} characters"]
+    if not TAG_WORDS.match(tag):
+        return [f"{where}: tag must be plain words (letters, digits and spaces)"]
+    return []
 
 
 def _check_proxy(values: dict, where: str) -> list[str]:
@@ -117,7 +131,7 @@ def _parse(data: dict, folder, where: str):
             if not bad:
                 problems += _check_key(key, where)
             keys.append(key)
-        problems += _check_names(values, where) + _check_proxy(values, where)
+        problems += _check_names(values, where) + _check_tag(values, where) + _check_proxy(values, where)
         values["account_settings"] = _check_settings(values, where, problems)
     values["project_keys"] = keys
     values["secrets_file"] = values["secrets_file"] or f"service-{values['name']}.env"

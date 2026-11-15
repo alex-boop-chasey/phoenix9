@@ -28,14 +28,18 @@ export function searchFrom(data: unknown): SearchRow[] | null {
 export function SearchResultsCard({ rows }: { rows: SearchRow[] }) {
   if (!rows.length) return <p data-testid="search-empty">No results.</p>
   return (
-    <section className="flex flex-col gap-2" aria-label="Search results" data-testid="search-results-card">
-      {rows.map((r, i) => (
-        <button key={i} type="button" className="card w-full text-left" data-testid="search-row" onClick={() => { window.location.hash = r.link }}>
-          <span className="badge text-xs uppercase">{r.kind}</span>
-          <strong className="block">{r.title}</strong>
-          {r.snippet ? <span className="block text-sm text-muted-foreground">{r.snippet}</span> : null}
-        </button>
-      ))}
+    <section className="ag-card" aria-label="Search results" data-testid="search-results-card">
+      <ul className="ag-list">
+        {rows.map((r, i) => (
+          <li key={i}>
+            <button type="button" className="ag-item" data-testid="search-row" onClick={() => { window.location.hash = r.link }}>
+              <span className="ag-kind">{r.kind}</span>
+              <span className="ag-item-t">{r.title}</span>
+              {r.snippet ? <span className="ag-item-s">{r.snippet}</span> : null}
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

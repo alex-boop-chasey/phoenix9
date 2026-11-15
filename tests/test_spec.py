@@ -219,3 +219,108 @@ def test_description_check_refuses_empty_and_too_big():
     assert "empty" in spec.check_description("  \n\n")[0]
     big = "# Big\n" + "x" * (spec.MAX_DESCRIPTION_BYTES + 1)
     assert "200 KB" in spec.check_description(big)[0]
+
+
+# ---- needs_commands: with the check-writer off every task needs a runnable item (O78) ----
+
+PROSE_TASK2 = """
+## Task 2: Add the pricing page
+Write the pricing page.
+Done when:
+- the pricing page lists all three plans
+"""
+
+FOR_YOU_TASK2 = """
+## Task 2: Buy the domain
+Buy a domain for the site.
+For you: yes
+Done when:
+- the domain is bought and points at the site
+"""
+
+COMMAND_TASK1 = TASK1.replace("- pnpm build finishes cleanly with no errors",
+                              "- pnpm build finishes cleanly with no errors\n- `pnpm build`")
+
+
+def test_needs_commands_refuses_a_prose_only_task_with_its_heading_line():
+    text = HEADER + TASK1
+    assert spec.check(text) == []                                   # default unchanged
+    (error,) = spec.check(text, needs_commands=True)
+    line = text.splitlines().index("## Task 1: Set up the project") + 1
+    assert error == (f"Line {line}: task 1 has no 'Done when' item Phoenix can run. With the check-writer off, "
+                     "add at least one item that is only a command in backticks, e.g. - `pytest -q tests/test_x.py`.")
+
+
+def test_needs_commands_one_command_bullet_is_enough():
+    assert spec.check(HEADER + COMMAND_TASK1, needs_commands=True) == []
+
+
+def test_needs_commands_one_problem_per_prose_task():
+    errors = spec.check(HEADER + TASK1 + PROSE_TASK2, needs_commands=True)
+    assert len(errors) == 2
+    assert "task 1 has no" in errors[0] and "task 2 has no" in errors[1]
+    errors = spec.check(HEADER + COMMAND_TASK1 + PROSE_TASK2, needs_commands=True)
+    assert len(errors) == 1 and "task 2 has no" in errors[0]
+
+
+def test_needs_commands_skips_for_you_tasks():
+    assert spec.check(HEADER + COMMAND_TASK1 + FOR_YOU_TASK2, needs_commands=True) == []
+
+
+def test_a_command_inside_prose_is_not_runnable():
+    text = HEADER + TASK1.replace("- pnpm build finishes cleanly with no errors", "- running `pnpm build` works with no errors")
+    assert spec.check(text) == []
+    assert "task 1 has no" in spec.check(text, needs_commands=True)[0]
+
+
+def plan(*deps):
+    """A plan with one task per entry; each entry is that task's 'Depends on' value."""
+    return spec.parse(HEADER + "".join(task(n, d) for n, d in enumerate(deps, 1)))
+
+
+def test_straight_chain_of_six_warns_once_with_the_numbers():
+    warnings = spec.chain_warnings(plan(None, None, None, None, None, None))
+    assert warnings == ["Tasks 1 -> 2 -> 3 -> 4 -> 5 -> 6 depend on each other in one line: if task 1 fails, "
+                        "5 tasks are skipped. Check each 'Depends on' is really needed."]
+
+
+def test_chain_counts_every_task_its_first_task_blocks():
+    s = plan("none", "none", "2", "2", "3", "5")      # 2 -> 3 -> 5 -> 6, and 4 also waits for 2
+    assert spec.chain_warnings(s)[0] == ("Tasks 2 -> 3 -> 5 -> 6 depend on each other in one line: if task 2 fails, "
+                                         "4 tasks are skipped. Check each 'Depends on' is really needed.")
+
+
+def test_independent_tasks_give_no_warning():
+    assert spec.chain_warnings(plan(*["none"] * 6)) == []
+
+
+def test_short_chain_in_a_big_plan_gives_no_warning():
+    assert spec.chain_warnings(plan("none", "1", "2", *["none"] * 7)) == []
+
+
+def test_chain_of_four_needs_more_than_half_the_tasks():
+    assert spec.chain_warnings(plan("none", "1", "2", "3", *["none"] * 4)) == []          # 4 of 8
+    assert len(spec.chain_warnings(plan("none", "1", "2", "3", *["none"] * 3))) == 1      # 4 of 7
+
+
+def test_hub_task_warns():
+    assert spec.chain_warnings(plan("none", "1", "1", "1", "1", "1")) == ["Task 1 blocks 5 other tasks."]
+
+
+def test_hub_needs_five_tasks_and_over_half_the_others():
+    assert spec.chain_warnings(plan("none", "1", "1", "1")) == []
+    assert spec.chain_warnings(plan("none", "1", "1", "none", "none", "none")) == []       # 2 of 5 others
+
+
+def test_at_most_three_warnings():
+    hubs = spec.chain_warnings(plan("none", "none", "none", "none", *["1, 2, 3, 4"] * 5))   # four hubs
+    assert hubs == ["Task 1 blocks 5 other tasks.", "Task 2 blocks 5 other tasks.", "Task 3 blocks 5 other tasks."]
+
+
+def test_cycle_gives_no_warning():
+    assert spec.chain_warnings(plan("4", "1", "2", "3", "none")) == []
+
+
+def test_check_is_unchanged_by_warnings():
+    text = HEADER + "".join(task(n) for n in range(1, 7))
+    assert spec.chain_warnings(spec.parse(text)) and spec.check(text) == []

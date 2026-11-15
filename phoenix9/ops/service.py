@@ -11,6 +11,8 @@ from phoenix9.ops.common import OpsError
 
 UNITS = {"api": "phoenix-api", "runner": "phoenix-runner", "agent": doctor.AGENTKIT_UNIT}
 NAMES = "api, runner or agent"
+RESTART_WHAT = {"api": "Restarting Phoenix's dashboard service", "runner": "Restarting Phoenix's build runner",
+                "agent": "Restarting the agent service"}
 AGENT_NOT_SET_UP = "The new agent is not set up yet, so there is nothing to restart."
 WAIT_MIN = 30          # how long a runner restart waits for running builds to reach a task boundary
 POLL_S = 5
@@ -26,7 +28,7 @@ def _unit(name: str) -> str:
 def restart_unit(adapters, name: str, no_block: bool = False) -> tuple[bool, str]:
     """Run `systemctl restart` for one Phoenix service through the host adapter; (ok, error text)."""
     args = ["restart", "--no-block", _unit(name)] if no_block else ["restart", _unit(name)]
-    rc, _, err = adapters.host.systemctl(*args)
+    rc, _, err = adapters.host.systemctl(*args, what=RESTART_WHAT[name])
     return rc == 0, scrub.scrub(err.strip())
 
 

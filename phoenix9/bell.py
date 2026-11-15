@@ -1,4 +1,4 @@
-"""The bell: one plain list of what needs Alex (questions, failed builds, held merge requests, services, allowance, the newest daily report
+"""The bell: one plain list of what needs Alex (questions, tasks handed to the agent, failed builds, held merge requests, services, allowance, the newest daily report
 and every current suggestion from the status report).
 
 Plain rules over Phoenix's own data, no AI. Every text is scrubbed and has no money figure; a source that fails is skipped.
@@ -11,7 +11,7 @@ import re
 import time
 from datetime import datetime, timezone
 
-from phoenix9 import allowance, atomic, doctor, gates, paths, routes, runs, scrub, statusreport as sr, suggest
+from phoenix9 import allowance, atomic, doctor, gates, handoff, paths, routes, runs, scrub, statusreport as sr, suggest
 from phoenix9.ops.common import OpsError
 
 MONEY = re.compile(r"(?:US|AU|A)?\$\s?\d[\d,]*(?:\.\d+)?|\b\d[\d,]*(?:\.\d+)?\s?(?:USD|AUD|dollars?)\b|\b(?:USD|AUD)\s?\d[\d,]*(?:\.\d+)?", re.I)
@@ -122,12 +122,68 @@ def _first_seen(prefix: str, wrong: list[str], now: float, stamp: str = "") -> d
     return kept
 
 
-def _questions() -> list[dict]:
-    """One item per open question."""
+HANDOFF_QUIET = 30 * 60     # seconds the agent may work on a handed question before it shows as Alex's again
+RUN_ENDED = ("done", "failed", "stopped")
+
+
+def _agent_working(now: float) -> set[str]:
+    """Gate ids the agent has been working on for less than HANDOFF_QUIET (their question waits quietly)."""
+    try:
+        found = handoff.all_items()
+    except OSError:
+        return set()
+    return {i["gate"] for i in found if i.get("state") == "working"
+            and (sr._age(i.get("started", ""), now) or 0.0) < HANDOFF_QUIET}
+
+
+def _questions(now: float) -> list[dict]:
+    """One item per open question (not one the agent has been fixing for less than 30 minutes)."""
+    quiet = _agent_working(now)
     return [_item("question", g["project"], g["id"], f"{g['project']} needs an answer: {g['title']}",
                   g.get("why") or "Answer it on the Needs you page.",
                   _page(f"p/{g['project']}/overview", gate=g["id"]), g.get("created", ""))
-            for g in gates.list_gates()]
+            for g in gates.list_gates() if g["id"] not in quiet]
+
+
+def _run_ended(project: str, run_id: str) -> bool:
+    """True when the run is over (a hand-off still `working` in it is no longer news)."""
+    st = atomic.read_json(runs.run_dir(project, run_id) / "state.json") or {}
+    return st.get("status") in RUN_ENDED
+
+
+def _handoff_words(i: dict, now: float) -> tuple[str, str, str] | None:
+    """(state key, title, detail) for one hand-off item, or None when it is not shown."""
+    where = f"{i['project']} task {i['task']}"
+    if i.get("state") == "working":
+        if _run_ended(i["project"], i["run"]):
+            return None
+        if (sr._age(i.get("started", ""), now) or 0.0) < HANDOFF_QUIET:
+            return "working", f"The agent is fixing {where}", "Open the agent to watch it."
+        return "working-late", f"The agent hasn't finished {where}", "It needs you: answer the question or open the agent."
+    if i.get("state") == "fixed":
+        return "fixed", f"The agent fixed {where}", "The build goes on."
+    if i.get("state") == "gave-up":
+        why = i.get("why") or "it could not fix it"
+        return "gave-up", f"The agent gave up on {where}: {why}", "It needs you: answer the question."
+    return None                                    # failed-again: the next hand-off (or question) shows instead
+
+
+def _handoffs(now: float) -> list[dict]:
+    """One item per hand-off to the agent in the last 7 days: fixing, not finished, fixed or gave up."""
+    out = []
+    for i in handoff.all_items():
+        since = i.get("ended") or i.get("started") or ""
+        age = sr._age(since, now)
+        if age is None or age > sr.FAILED_DAYS * sr.DAY:
+            continue
+        words = _handoff_words(i, now)
+        if words is None:
+            continue
+        key, title, detail = words
+        item = _item("agent", i["project"], f"{i['run']}.{i['task']}.{i['index']}.{key}", title, detail,
+                     _page(f"p/{i['project']}/build", run=i["run"]), since)
+        out.append({**item, "thread": str(i.get("thread") or "")})
+    return out
 
 
 def _builds(now: float) -> list[dict]:
@@ -255,10 +311,12 @@ def _suggestions(others: list[dict], now: float) -> list[dict]:
     seen = _first_seen("suggestion:", [f"suggestion:{k}" for k in current], now, written)
     suggest.forget_gone(current)
     listed = {i["id"] for i in others} | {i["kind"] for i in others}
+    quiet = _agent_working(now)
     out = []
     for row in suggest.pick(text, now=now, limit=None):
         key = row["key"]
-        if _same_as(key) in listed:
+        same = _same_as(key)
+        if same in listed or (same.startswith("question:") and same.rsplit(":", 1)[-1] in quiet):
             continue
         project = _suggestion_project(key)
         title = SUGGESTION_TITLES.get(_suggestion_kind(key), "{p}: a suggestion" if project else "A suggestion").format(p=project or "A project")
@@ -284,7 +342,7 @@ def items(adapters, now: float | None = None) -> list[dict]:
     """Everything that needs Alex and is not dismissed, newest first, from the real state; a source that fails is skipped."""
     now = time.time() if now is None else now
     found, broken = [], False
-    for source in (_questions, lambda: _builds(now), lambda: _merges(adapters, now), lambda: _services(adapters, now),
+    for source in (lambda: _questions(now), lambda: _handoffs(now), lambda: _builds(now), lambda: _merges(adapters, now), lambda: _services(adapters, now),
                    lambda: _allowance(adapters, now), _reports):
         got = sr._safe(source)
         broken = broken or got is None

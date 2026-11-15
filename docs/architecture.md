@@ -1030,7 +1030,7 @@ is closed, a finished reply or a new approval card in its open conversation puts
 **How Alex uses it.** The Agent button in the top bar opens the panel (`#/agent-next` opens it full screen); each message carries the page context (page, project, run) and the service tells the model one
 line about it only when it changed, as a fact and not an order. Messages sent while the agent writes wait in the
 per-thread queue. A build task that runs out of tries under `on_failure = "delegate"` is handed over by
-`failmodes._hand_to_agent` to `POST /handoffs` (ids only; Alex gets one line), and the agent may only answer
+`failmodes._hand_to_agent` to `POST /handoffs` (ids only; recorded in `tasks/<n>/handoff.json`, no line to Alex until it ends), and the agent may only answer
 `acknowledged` on that question. The runner loop's watchdog (`phoenix9/agentkitwatch.py`) restarts
 `phoenix-agentkit` after two bad checks in a row, at most every 10 minutes, and leaves a service stopped on purpose alone.
 
@@ -1427,14 +1427,26 @@ Sidebar groups (`web/src/lib/switcher.ts`): 1 active quick edit or planning sess
   agent's `POST /handoffs` (through the `agentnext` adapter, short timeout): exactly `{run_id, task, gate_id,
   project}`. Nothing else goes in it (no failure text, no file content); the agent opens its own chat for it,
   looks at the build with its tools and suggests a build note or a repair, which wait for Alex's Approve.
-  Alex gets one short line: "task N of <project> ran out of tries; the agent is looking at it. Open the agent
-  to see what it suggests." Reminders follow as for any question. The agent (`agent`) may answer only
+  Alex gets no line at hand-off time (the bell shows it, see Hand-offs below); reminders follow as for any
+  question. The agent (`agent`) may answer only
   `acknowledged` on a gate with the flag (`gates.may_answer`; `chat:home` keeps the same rule until the old
   agent is retired). If the agent is not set up, not answering, has no key or refuses (any answer but
   200/202 with a `thread_id`), the flag is replaced by a note on the gate saying why and Alex is told,
   exactly as in pause mode. The dashboard's agent proxy refuses `/handoffs`, so only the runner can hand
   over. At most `failmodes.MAX_ESCALATIONS` (2) hand-offs per task; after that the task fails as in pause
   mode. Old state files may still carry a task `delegate` field; it is read and ignored.
+- **Hand-offs** (`phoenix9/handoff.py`): Phoenix keeps the record of every hand-off in the run folder,
+  `tasks/<n>/handoff.json` = `{count, items: [{gate, thread, state, why, action, rewrote_checks, started,
+  ended}]}`; the agent's word never changes it. States: `working` (the agent has it; `thread` is the
+  conversation id from the `/handoffs` reply), `fixed` (the task passed after it), `gave-up` (the agent
+  handed it back to Alex with a reason) and `failed-again` (the task escalated again: the next hand-off
+  follows). At most `handoff.LIMIT` (2) hand-offs per task per run; a later escalation gets the note "the
+  agent already tried twice; waiting for you" and Alex is told as in pause mode. Each end is posted to the
+  conversation (`failmodes.post_outcome` -> agent `POST /handoffs/outcome`, best effort). The bell shows
+  "The agent is fixing <project> task <n>" (the handed question itself stays out of the bell for 30
+  minutes), then "hasn't finished" after 30 minutes, "fixed" or "gave up: <why>", each with the
+  conversation id (`thread`). Telegram gets exactly one line when it ends: "the agent fixed <project> task
+  <n> (...); the build goes on." (or, from the give-up path, that the agent couldn't fix it).
 
 - **A step cut off mid-run by a crash reruns on an un-reset worktree.** The step line is still
   `running` with no result.json for the attempt, so the restart calls that step again as it is; the

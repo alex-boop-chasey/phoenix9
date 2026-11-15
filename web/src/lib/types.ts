@@ -780,6 +780,8 @@ export interface BellItem {
   /** When it started (ISO time); empty when not known. */
   since: string
   page: { to: string; params?: Record<string, unknown>; hash?: string; label?: string }
+  /** A task handed to the agent: the id of its conversation with the agent. */
+  thread?: string
 }
 /** The bell: how many things need Alex and the list. */
 export interface BellData { count: number; items: BellItem[] }

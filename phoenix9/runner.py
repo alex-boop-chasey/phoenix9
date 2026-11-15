@@ -449,7 +449,7 @@ class Runner:
             return "rerun"
         state.update(run_dir, lambda s: s["current"].__setitem__("gate", None))
         if move == "passed":
-            failmodes._finish_task(run_dir, n, "passed", note=f"done by {who}")
+            failmodes._finish_task(run_dir, n, "passed", adapters=self.adapters, note=f"done by {who}")
         elif move == "skipped":
             failmodes.skip_task(run_dir, n, f"skipped by {who}")
         return move
@@ -465,7 +465,7 @@ class Runner:
             last = failmodes.attempt_result(run_dir, n, k) if k else None
             if last is not None and last["status"] == "passed":
                 done = failmodes.already_done_marker(run_dir, n, k).is_file()
-                failmodes._finish_task(run_dir, n, "passed", **({"note": failmodes.ALREADY_DONE} if done else {}))
+                failmodes._finish_task(run_dir, n, "passed", adapters=self.adapters, **({"note": failmodes.ALREADY_DONE} if done else {}))
                 return "passed"
             if last is not None and not t.get("rerun") and not failmodes.should_retry(run_dir, n, max_tries):
                 if last.get("kept"):

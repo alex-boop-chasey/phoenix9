@@ -65,7 +65,7 @@ def only_gate(run_dir) -> dict:
 HANDED = "the agent is looking at it"
 
 
-def test_one_handoff_with_only_the_ids_and_one_notify_line(tmp_path, runner, adapters, sent):
+def test_one_handoff_with_only_the_ids_and_no_notify_line(tmp_path, runner, adapters, sent):
     on("builder", 1, 1, fail("secret-looking failure text"))
     run_dir = start(tmp_path)
     assert runner.drive(run_dir) == "waiting"
@@ -77,9 +77,8 @@ def test_one_handoff_with_only_the_ids_and_one_notify_line(tmp_path, runner, ada
     assert call["timeout"] == failmodes.HANDOFF_TIMEOUT
     assert json.loads(call["body"]) == {"run_id": run_dir.name, "task": 1, "gate_id": g["id"], "project": "proj"}
     assert b"secret-looking" not in call["body"]
-    assert adapters.notify.messages == [
-        "Phoenix: task 1 of proj ran out of tries; the agent is looking at it. Open the agent to see what it suggests."]
-    assert runner.drive(run_dir) == "waiting" and len(sent) == 1 and len(adapters.notify.messages) == 1
+    assert adapters.notify.messages == []      # the bell shows the hand-off; Telegram hears only how it ends
+    assert runner.drive(run_dir) == "waiting" and len(sent) == 1 and adapters.notify.messages == []
 
 
 def test_a_repeat_answer_with_a_thread_counts_as_handed_over(tmp_path, runner, adapters, sent):
@@ -160,7 +159,8 @@ def test_at_most_two_hand_offs_then_pause(tmp_path, runner, adapters, sent):
         assert runner.drive(run_dir) == "waiting"
         gates.answer(only_gate(run_dir)["id"], "acknowledged", who="agent")
     runner.drive(run_dir)
-    assert len(sent) == failmodes.MAX_ESCALATIONS
+    handed = [c for c in sent if c["url"].endswith("/handoffs")]     # the rest are outcome lines (failed again)
+    assert len(handed) == failmodes.MAX_ESCALATIONS
     assert state.load(run_dir)["tasks"]["1"]["status"] == "failed"
 
 

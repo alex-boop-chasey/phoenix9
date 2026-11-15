@@ -1,6 +1,13 @@
 """Checks that the Phoenix pack's instructions cover the full tool set and no delete tool exists."""
-from agentkit.packs.phoenix import INSTRUCTIONS, build_pack
+import asyncio
+
+from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+from agentkit import llm, runs
+from agentkit.packs.phoenix import FLOW_INSTRUCTIONS, INSTRUCTIONS, build_pack
+from agentkit.store import Store
 from fake_phoenix import FakePhoenix
+from test_browser_tools import customs
 
 
 def test_instructions_cover_the_points():
@@ -72,3 +79,44 @@ def test_handoff_paragraph_says_act_alone_through_the_two_tools():
     for old in ("only after Alex approved", "only answer you may give is acknowledged",
                 "leave the question for Alex"):
         assert old not in INSTRUCTIONS, old
+
+
+CANT = "I can't do that yet; it isn't one of my tools. You can look for travel in your browser instead."
+
+
+def test_instructions_say_plainly_when_no_tool_fits():
+    for words in ("say so in one plain line", "and stop", "never repeat the same options again",
+                  "never pretend", "never ask him to type commands", "offer go_to"):
+        assert words in INSTRUCTIONS.lower(), words
+    assert "the flow card's own Cancel still applies" in INSTRUCTIONS
+
+
+def test_flow_keys_line_says_keys_make_or_cannot_yet():
+    keys = next(line for line in FLOW_INSTRUCTIONS.splitlines() if line.startswith("Keys:"))
+    assert "get or make the keys for him, use keys-make when it is there" in keys
+    assert "say plainly in one line that you can't do that yet" in keys
+
+
+def test_unknown_request_gets_one_plain_line_and_no_card():
+    async def go():
+        seen = []
+
+        async def reply(messages, info: AgentInfo):
+            seen.append(messages)
+            yield CANT
+
+        store = Store(":memory:")
+        pack = build_pack(FakePhoenix().client())
+        r = runs.Runs(store, llm.build_pack_agent(FunctionModel(stream_function=reply), pack), pack)
+        tid = store.create_thread()["id"]
+        r.start(tid, "book me a flight")
+        await r.active[tid]
+        events = [e for _, e in store.events_after(tid)]
+        kinds = [e["type"] for e in events]
+        assert kinds.count("TEXT_MESSAGE_START") == 1 and kinds[-1] == "RUN_FINISHED"
+        assert "".join(e["delta"] for e in events if e["type"] == "TEXT_MESSAGE_CONTENT") == CANT
+        assert not any(k.startswith("TOOL_CALL") for k in kinds)
+        assert customs(store, tid, "browser_tool") == []
+        assert len(seen) == 1
+
+    asyncio.run(go())

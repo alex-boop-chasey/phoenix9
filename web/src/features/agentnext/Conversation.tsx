@@ -68,6 +68,11 @@ export function Conversation(props: ConversationProps) {
 
   const allCards = useMemo(() => [...earlierCards, ...side.cards], [earlierCards, side.cards])
   const older = useMemo(() => olderFlowSteps(allCards), [allCards])
+  // While the newest flow card is active it has its own Cancel button, so cancel chips are left out.
+  const flowActive = useMemo(() => {
+    const newest = [...allCards].reverse().map((c) => (c.component === "FlowCard" ? flowFrom(c.data) : null)).find(Boolean)
+    return newest?.status === "active"
+  }, [allCards])
   // Calls that drew a card show the card instead; the rest are this turn's steps.
   const steps = useMemo(() => (side.calls ?? []).filter((c) => !c.component), [side.calls])
 
@@ -143,7 +148,7 @@ export function Conversation(props: ConversationProps) {
         {side.approvals.map((a) => (
           <ApprovalCard key={a.approvalId} item={a} onDecide={(d, confirm) => agent.decide(a.approvalId, d, confirm)} />
         ))}
-        <SuggestionChips actions={side.suggestions} onSend={say} />
+        <SuggestionChips actions={side.suggestions} onSend={say} flowActive={flowActive} />
         {queued.length > 0 && (
           <ul className="flex flex-col gap-1" aria-label="Waiting to be answered" data-testid="agent-queued">
             {queued.map((q) => (

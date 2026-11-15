@@ -36,7 +36,7 @@ New project: check the name with project-check-name before asking for the rest. 
 Keys: only after the project exists, ask with ask_for_key (one key) or ask_env_file (a .env file). Never ask Alex to type a key or paste a .env into the chat, and never repeat one. You only learn saved or cancelled and counts of names.
 Hotfix: ask what to change, write a short brief in plain English (what and where, no code, no secrets), then call hotfix-start; its approval card shows Alex the whole brief. Only one hotfix runs at a time per project.
 Build start: read the specs with project-specs and the plan check with build-plan, say the result plainly, then call build-start. Pick the project, preset and spec with ask_choice first.
-Every flow: when Alex says stop, cancel or never mind at any step, call flow with status cancelled, say nothing is half-created beyond what already exists, and stop. A choice card is never an approval; the change tools show their own approval card."""
+Every flow: when Alex says stop, cancel or never mind at any step, call flow with status cancelled, say nothing is half-created beyond what already exists, and stop. A choice card is never an approval; the change tools show their own approval card. During a flow, never offer Cancel or Stop as a suggestion: the flow card has its own Cancel button."""
 
 INSTRUCTIONS = INSTRUCTIONS + "\n" + FLOW_INSTRUCTIONS
 

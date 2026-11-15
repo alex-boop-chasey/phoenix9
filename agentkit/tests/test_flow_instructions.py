@@ -28,3 +28,8 @@ def test_flow_instructions_have_no_money():
     assert "$" not in INSTRUCTIONS
     for word in ("dollar", "money", "price", "cost", "usd", "cents", "pay"):
         assert word not in text, word
+
+
+def test_flow_instructions_leave_cancel_to_the_flow_card():
+    assert ("During a flow, never offer Cancel or Stop as a suggestion: the flow card has its own Cancel button."
+            in FLOW_INSTRUCTIONS)

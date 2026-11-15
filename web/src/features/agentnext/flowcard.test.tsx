@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 
 import { renderFullAgent } from "@/test/agentPanel"
 import { COMPONENTS } from "./components"
+import { plainLabel } from "./flowcard"
 
 const data = (status: string, step: number, extra: Record<string, unknown> = {}) =>
   ({ flow: "f1", status, step, steps: 4, label: `label${step}`, values: { name: "shop", type: "web" }, ...extra })
@@ -14,8 +15,8 @@ describe("FlowCard", () => {
     const sent: string[] = []
     draw(data("active", 2), (m) => sent.push(m))
     expect(screen.getByText("Step 2 of 4: label2")).toBeInTheDocument()
-    expect(screen.getByText("name: shop")).toBeInTheDocument()
-    await userEvent.click(screen.getByRole("button", { name: "Cancel this" }))
+    expect(screen.getAllByTestId("flow-fact")[0]).toHaveTextContent("Name: shop")
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }))
     expect(sent).toEqual(["Cancel this and stop."])
   })
   it("shows done and cancelled flows without the button", () => {
@@ -29,8 +30,21 @@ describe("FlowCard", () => {
   })
   it("leaves out facts named like a secret", () => {
     draw(data("active", 1, { values: { api_key: "x", name: "shop" } }))
-    expect(screen.queryByText(/api_key/)).toBeNull()
-    expect(screen.getByText("name: shop")).toBeInTheDocument()
+    expect(screen.queryByText(/api_key|Api key/)).toBeNull()
+    expect(screen.getByTestId("flow-fact")).toHaveTextContent("Name: shop")
+  })
+  it("shows facts with plain labels in a small list", () => {
+    draw(data("active", 1, { values: { goal: "Android app", github_owner: "alex" } }))
+    const facts = screen.getAllByTestId("flow-fact")
+    expect(facts[0]).toHaveTextContent("Goal: Android app")
+    expect(facts[1]).toHaveTextContent("Github owner: alex")
+    expect(screen.queryByText(/goal:/)).toBeNull()
+    expect(screen.getByText("Goal").tagName).toBe("DT")
+  })
+  it("turns fact names into plain labels", () => {
+    expect(plainLabel("goal")).toBe("Goal")
+    expect(plainLabel("github_owner")).toBe("Github owner")
+    expect(plainLabel("github-owner")).toBe("Github owner")
   })
   it("shows nothing for malformed data", () => {
     for (const bad of [null, "x", { flow: "f", status: "weird", step: 1, steps: 2, label: "a" }, data("active", 9), data("active", 1, { values: { a: { b: 1 } } })]) {
@@ -59,7 +73,7 @@ describe("replaying a flow", () => {
     await waitFor(() => expect(screen.getAllByTestId("flow-card")).toHaveLength(1))
     expect(screen.getByText("Step 3 of 4: label3")).toBeInTheDocument()
     expect(screen.getAllByTestId("flow-line")).toHaveLength(2)
-    expect(screen.getAllByRole("button", { name: "Cancel this" })).toHaveLength(1)
+    expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1)
     vi.unstubAllGlobals()
     localStorage.clear()
   })

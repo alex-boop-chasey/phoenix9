@@ -44,19 +44,29 @@ function headline(c: FlowCardData): string {
   return `Step ${c.step} of ${c.steps}: ${c.label}`
 }
 
+/** A fact's name in plain words: first letter capital, "_" and "-" as spaces ("github_owner" -> "Github owner"). */
+export function plainLabel(name: string): string {
+  const words = name.replace(/[_-]+/g, " ").trim()
+  return words ? words[0]!.toUpperCase() + words.slice(1) : name
+}
+
 /** An older step of a flow, shown as one line. */
 export function FlowLine({ card }: { card: FlowCardData }) {
-  return <p className="text-xs text-muted-foreground" data-testid="flow-line">{headline(card)}{card.status === "active" ? "" : `: ${card.label}`}</p>
+  return <p className="ag-kind" data-testid="flow-line">{headline(card)}{card.status === "active" ? "" : `: ${card.label}`}</p>
 }
 
 /** The current step of a guided flow, with the facts so far; an active flow can be cancelled. */
 export function FlowCard({ card, onSend }: { card: FlowCardData; onSend?: (message: string) => void }) {
   return (
-    <section className="card flex flex-col gap-1" data-testid="flow-card" aria-label="Guided flow">
-      <strong>{headline(card)}</strong>
-      {card.status !== "active" && card.label ? <span className="text-sm">{card.label}</span> : null}
-      {card.facts.map((f) => <span key={f.name} className="text-sm">{f.name}: {f.value}</span>)}
-      {card.status === "active" ? <Button variant="secondary" onClick={() => onSend?.(CANCEL_MESSAGE)}>Cancel this</Button> : null}
+    <section className="ag-card" data-testid="flow-card" aria-label="Guided flow">
+      <h3 className="ag-card-h">{headline(card)}</h3>
+      {card.status !== "active" && card.label ? <p className="ag-card-b">{card.label}</p> : null}
+      {card.facts.length ? (
+        <dl className="ag-facts">
+          {card.facts.map((f) => <div key={f.name} data-testid="flow-fact"><dt>{plainLabel(f.name)}<span className="sr-only">: </span></dt><dd>{f.value}</dd></div>)}
+        </dl>
+      ) : null}
+      {card.status === "active" ? <div className="ag-card-f"><Button variant="secondary" onClick={() => onSend?.(CANCEL_MESSAGE)}>Cancel</Button></div> : null}
     </section>
   )
 }

@@ -53,6 +53,30 @@ async function say(message: string) {
 afterEach(() => { vi.unstubAllGlobals(); window.location.hash = "" })
 
 describe("agent-next proof", () => {
+  const chips: Ev = { type: "CUSTOM", name: "suggestions", value: { actions: [{ label: "Cancel", message: "cancel" }, { label: "Pick a name", message: "name" }] } }
+  const flowCard: Ev = { type: "CUSTOM", name: "component", value: { toolCallId: "f1", component: "FlowCard",
+    data: { flow: "new", status: "active", step: 1, steps: 5, label: "Name the project", values: { goal: "Android app" } } } }
+
+  it("hides a Cancel chip while a flow is active: the flow card has the only Cancel", async () => {
+    mockService([[started, flowCard, chips, ...text("m1", "What should it be called?"), finished]])
+    setup()
+    await say("I want a new Android app")
+    expect(await screen.findByText("What should it be called?")).toBeInTheDocument()
+    const strip = await screen.findByTestId("suggestion-chips")
+    expect(within(strip).getByRole("button", { name: "Pick a name" })).toBeInTheDocument()
+    expect(within(strip).queryByRole("button", { name: "Cancel" })).toBeNull()
+    expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1)
+    expect(within(screen.getByTestId("flow-card")).getByTestId("flow-fact")).toHaveTextContent("Goal: Android app")
+  })
+
+  it("shows a Cancel chip when no flow is active", async () => {
+    mockService([[started, chips, ...text("m1", "Anything else?"), finished]])
+    setup()
+    await say("hello")
+    expect(await screen.findByText("Anything else?")).toBeInTheDocument()
+    expect(within(await screen.findByTestId("suggestion-chips")).getByRole("button", { name: "Cancel" })).toBeInTheDocument()
+  })
+
   it("streams text and draws the project card", async () => {
     mockService([[started, ...call("c1", "list_projects", "{}"),
       { type: "CUSTOM", name: "component", value: { toolCallId: "c1", component: "project_cards", data: { projects: [{ name: "alpha", state: "idle" }] } } },

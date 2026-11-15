@@ -3,6 +3,7 @@ import { useState, type ReactNode } from "react"
 
 import { Button } from "@/components/ui/button"
 import { findRoute, routeHash } from "@/lib/routes"
+import { NeedsYou, cardClass } from "./cardparts"
 import type { ApprovalItem } from "./runtime"
 
 /** One follow-up the agent offered: a message to send or a link to open. */
@@ -58,14 +59,14 @@ function summaryFor(item: ApprovalItem): ReactNode {
   if (item.toolName === "project-create") {
     const lines = createLines(item.input)
     if (!lines) return null
-    return <ul data-testid="approval-summary">{lines.map((l) => <li key={l.label}>{l.label}: {l.value}</li>)}</ul>
+    return <ul className="ag-list" data-testid="approval-summary">{lines.map((l) => <li key={l.label}>{l.label}: {l.value}</li>)}</ul>
   }
   const input = item.input
   if (item.toolName === "hotfix-start" && isObj(input) && typeof input.brief === "string") {
     return (
-      <div data-testid="approval-summary">
+      <div className="ag-card-b" data-testid="approval-summary">
         {typeof input.name === "string" ? <p>Project: {input.name}</p> : null}
-        <pre data-testid="approval-brief" className="whitespace-pre-wrap break-words max-h-60 overflow-y-auto border rounded p-2 text-sm">{input.brief}</pre>
+        <pre data-testid="approval-brief" className="ag-pre whitespace-pre-wrap break-words max-h-60 overflow-y-auto">{input.brief}</pre>
         <p>Starts a short build on its own branch</p>
       </div>
     )
@@ -83,39 +84,40 @@ export function ApprovalCard({ item, onDecide }: {
   const summary = summaryFor(item)
   const needsText = typeof item.confirmText === "string" && item.confirmText !== ""
   const allowed = !needsText || typed === item.confirmText
+  const pending = item.decision === "pending"
   return (
-    <section className="card" aria-label="Approval needed" data-testid="approval-card">
-      <h3>The agent wants to make a change</h3>
-      <p><strong>{plainName(item.toolName)}</strong></p>
-      {item.description ? <p data-testid="approval-description">{item.description}</p> : null}
-      {summary ? summary : notify ? (
-        <p data-testid="approval-change">Build notifications for {String(input.name)}: {input.on ? "off → on" : "on → off"}</p>
-      ) : (
-        <dl data-testid="approval-change">
-          {changeLines(item).map((l) => (
-            <div key={l.label} className="flex gap-2"><dt>{l.label}:</dt><dd>{l.value}</dd></div>
-          ))}
-        </dl>
-      )}
-      {reasonOf(item) ? <p data-testid="approval-reason">Reason: {reasonOf(item)}</p> : null}
-      {item.decision === "pending" ? (
+    <section className={cardClass(pending)} aria-label="Approval needed" data-testid="approval-card">
+      <h3 className="ag-card-h">The agent wants to make a change{pending ? <NeedsYou /> : null}</h3>
+      <div className="ag-card-b">
+        <p><strong>{plainName(item.toolName)}</strong></p>
+        {item.description ? <p data-testid="approval-description">{item.description}</p> : null}
+        {summary ? summary : notify ? (
+          <p data-testid="approval-change">Build notifications for {String(input.name)}: {input.on ? "off → on" : "on → off"}</p>
+        ) : (
+          <dl className="ag-facts" data-testid="approval-change">
+            {changeLines(item).map((l) => (
+              <div key={l.label}><dt>{l.label}:</dt><dd>{l.value}</dd></div>
+            ))}
+          </dl>
+        )}
+        {reasonOf(item) ? <p data-testid="approval-reason">Reason: {reasonOf(item)}</p> : null}
+        {pending ? null : <p className="ag-quiet">{item.decision === "approve" ? "Approved." : "Denied."}</p>}
+      </div>
+      {pending ? (
         <>
           {needsText ? (
-            <label className="block">
+            <label className="ag-field-l">
               Type {item.confirmText} to confirm
-              <input className="block border rounded px-2 py-1" value={typed} autoComplete="off"
-                onChange={(e) => setTyped(e.target.value)} />
+              <input value={typed} autoComplete="off" onChange={(e) => setTyped(e.target.value)} />
             </label>
           ) : null}
-          <div className="flex gap-2">
-            <Button variant="primary" disabled={!allowed}
-              onClick={() => onDecide("approve", needsText ? typed : undefined)}>Approve</Button>
+          <div className="ag-card-f">
             <Button variant="secondary" onClick={() => onDecide("deny")}>Deny</Button>
+            <Button variant={needsText ? "destructive" : "primary"} disabled={!allowed}
+              onClick={() => onDecide("approve", needsText ? typed : undefined)}>Approve</Button>
           </div>
         </>
-      ) : (
-        <p>{item.decision === "approve" ? "Approved." : "Denied."}</p>
-      )}
+      ) : null}
     </section>
   )
 }
@@ -165,20 +167,28 @@ export function safeSuggestions(list: unknown): Suggestion[] {
   return out
 }
 
-/** Follow-up chips: a message chip sends its message; a link chip opens its link. */
-export function SuggestionChips({ actions, onSend, onHash }: {
-  actions: unknown; onSend: (message: string) => void; onHash?: (hash: string) => void
+const CANCEL_WORDS = ["cancel", "cancel this", "stop", "never mind"]
+
+/** Leave out the chips that only cancel or stop: while a flow is active its card has its own Cancel button. */
+export function withoutCancelChips(chips: Suggestion[]): Suggestion[] {
+  return chips.filter((c) => !CANCEL_WORDS.includes(c.label.trim().toLowerCase()))
+}
+
+/** Follow-up chips: a message chip sends its message; a link chip opens its link. `flowActive` hides cancel chips. */
+export function SuggestionChips({ actions, onSend, onHash, flowActive = false }: {
+  actions: unknown; onSend: (message: string) => void; onHash?: (hash: string) => void; flowActive?: boolean
 }) {
-  const chips = safeSuggestions(actions)
+  const safe = safeSuggestions(actions)
+  const chips = flowActive ? withoutCancelChips(safe) : safe
   if (!chips.length) return null
   const open = (link: string) => {
     if (link.startsWith("#")) return onHash ? onHash(link.slice(1)) : void (window.location.hash = link)
     window.open(link, "_blank", "noopener,noreferrer")
   }
   return (
-    <div className="flex flex-wrap gap-2" data-testid="suggestion-chips">
+    <div className="ag-chips" data-testid="suggestion-chips">
       {chips.map((c) => (
-        <Button key={c.label} variant="secondary" onClick={() => (c.message !== undefined ? onSend(c.message) : open(c.link!))}>
+        <Button key={c.label} variant="secondary" size="sm" className="ag-chip" onClick={() => (c.message !== undefined ? onSend(c.message) : open(c.link!))}>
           {c.label}
         </Button>
       ))}

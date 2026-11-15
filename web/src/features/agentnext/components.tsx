@@ -2,6 +2,7 @@
 import type { ReactNode } from "react"
 
 import { BellCard, bellFrom } from "./bellcard"
+import { Mark } from "./cardparts"
 import { ReportCard, reportFrom } from "./reportcard"
 import { ChoiceCard, choiceAskFrom } from "./choicecard"
 import { EnvUploadCard, envAskFrom } from "./envcard"
@@ -40,10 +41,10 @@ function openHash(link: string) {
 export function MiniProjectCard({ project, onOpen }: { project: ProjectCardData; onOpen?: (p: ProjectCardData) => void }) {
   const open = () => (onOpen ? onOpen(project) : openHash(project.link || `#/p/${project.name}`))
   return (
-    <button type="button" className="card w-full text-left" data-testid="mini-project-card" onClick={open}>
-      <strong>{project.name}</strong>
-      <span className="block text-sm">{project.status || "unknown"}</span>
-      <span className="block text-xs text-muted-foreground">Last used: {project.last_used || "not yet"}</span>
+    <button type="button" className="ag-item" data-testid="mini-project-card" onClick={open}>
+      <span className="ag-item-t">{project.name}</span>
+      <span className="ag-item-s">{project.status || "unknown"}</span>
+      <span className="ag-item-s">Last used: {project.last_used || "not yet"}</span>
     </button>
   )
 }
@@ -51,8 +52,9 @@ export function MiniProjectCard({ project, onOpen }: { project: ProjectCardData;
 /** A list of project cards. */
 export function ProjectCards({ projects, onOpen }: { projects: ProjectCardData[]; onOpen?: (p: ProjectCardData) => void }) {
   return (
-    <section className="flex flex-col gap-2" aria-label="Projects" data-testid="project-cards">
-      {projects.map((p) => <MiniProjectCard key={p.name} project={p} onOpen={onOpen} />)}
+    <section className="ag-card" aria-label="Projects" data-testid="project-cards">
+      <h3 className="ag-card-h">Projects</h3>
+      <ul className="ag-list">{projects.map((p) => <li key={p.name}><MiniProjectCard project={p} onOpen={onOpen} /></li>)}</ul>
     </section>
   )
 }
@@ -96,22 +98,22 @@ export function tasksFrom(data: unknown): TaskRow[] | null {
 /** A build that was started or changed: project, run, status, started; a click opens it. */
 export function BuildCard({ build }: { build: BuildCardData }) {
   return (
-    <button type="button" className="card w-full text-left" data-testid="build-card" onClick={() => openHash(build.link || `#/p/${build.project}/build`)}>
-      <strong>{build.project}</strong>
-      <span className="block text-sm">Build {build.run_id}: {build.status || "unknown"}</span>
-      <span className="block text-xs text-muted-foreground">Started: {build.started || "not yet"}</span>
+    <button type="button" className="ag-card" data-testid="build-card" onClick={() => openHash(build.link || `#/p/${build.project}/build`)}>
+      <span className="ag-card-h">{build.project}</span>
+      <span className="ag-card-b">Build {build.run_id}: {build.status || "unknown"}</span>
+      <span className="ag-card-b ag-quiet">Started: {build.started || "not yet"}</span>
     </button>
   )
 }
 
-/** One run: title, status, current step, tasks done of total; a click opens it. */
-export function RunCard({ run }: { run: RunCardData }) {
+/** One run: title, status, current step, tasks done of total; a click opens it. `row` draws it as a row inside a list card. */
+export function RunCard({ run, row = false }: { run: RunCardData; row?: boolean }) {
   return (
-    <button type="button" className="card w-full text-left" data-testid="run-card" onClick={() => run.link && openHash(run.link)}>
-      <strong>{run.title || run.run_id}</strong>
-      <span className="block text-sm">{run.status || "unknown"}</span>
-      {run.current_step ? <span className="block text-xs">Now: {run.current_step}</span> : null}
-      <span className="block text-xs text-muted-foreground">{run.tasks_done} of {run.tasks_total} tasks done</span>
+    <button type="button" className={row ? "ag-item" : "ag-card"} data-testid="run-card" onClick={() => run.link && openHash(run.link)}>
+      <span className={row ? "ag-item-t" : "ag-card-h"}>{run.title || run.run_id}</span>
+      <span className="ag-item-s">{run.status || "unknown"}</span>
+      {run.current_step ? <span className="ag-item-s">Now: {run.current_step}</span> : null}
+      <span className="ag-item-s">{run.tasks_done} of {run.tasks_total} tasks done</span>
     </button>
   )
 }
@@ -119,9 +121,11 @@ export function RunCard({ run }: { run: RunCardData }) {
 /** A run's tasks: number, title and status each. */
 export function TaskListCard({ tasks }: { tasks: TaskRow[] }) {
   return (
-    <ol className="flex flex-col gap-1" aria-label="Tasks" data-testid="task-list-card">
-      {tasks.map((t) => <li key={t.number}>Task {t.number}: {t.title} - {t.status || "unknown"}</li>)}
-    </ol>
+    <div className="ag-card">
+      <ol className="ag-list" aria-label="Tasks" data-testid="task-list-card">
+        {tasks.map((t) => <li key={t.number}>Task {t.number}: {t.title} - {t.status || "unknown"}</li>)}
+      </ol>
+    </div>
   )
 }
 
@@ -164,13 +168,13 @@ export function updateFrom(data: unknown): UpdateCardData | null {
 /** A project's settings: each name and value, the plain explanation and a link to the settings page. */
 export function SettingsCard({ settings }: { settings: SettingsCardData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Settings" data-testid="settings-card">
-      <strong>Settings for {settings.project}</strong>
-      {settings.note ? <span className="block text-sm">{settings.note}</span> : null}
-      {settings.problems.map((p, i) => <span key={i} className="block text-sm">{p}</span>)}
-      <ul>{settings.rows.map((r) => <li key={r.name}>{r.name}: {r.value}</li>)}</ul>
-      {settings.explanation ? <p className="text-sm">{settings.explanation}</p> : null}
-      <a className="text-xs underline" href={settings.link || `#/p/${settings.project}/settings`}>Open the settings page</a>
+    <section className="ag-card" aria-label="Settings" data-testid="settings-card">
+      <h3 className="ag-card-h">Settings for {settings.project}</h3>
+      {settings.note ? <p className="ag-card-b">{settings.note}</p> : null}
+      {settings.problems.map((p, i) => <p key={i} className="ag-card-b ag-result"><Mark ok={false} /><span>{p}</span></p>)}
+      <ul className="ag-list">{settings.rows.map((r) => <li key={r.name}>{r.name}: {r.value}</li>)}</ul>
+      {settings.explanation ? <p className="ag-card-b ag-quiet">{settings.explanation}</p> : null}
+      <a className="ag-card-b" href={settings.link || `#/p/${settings.project}/settings`}>Open the settings page</a>
     </section>
   )
 }
@@ -178,9 +182,9 @@ export function SettingsCard({ settings }: { settings: SettingsCardData }) {
 /** A project's key names and whether each is set or missing; never a value. */
 export function KeyNamesCard({ keys }: { keys: KeyNamesCardData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Keys" data-testid="key-names-card">
-      <strong>Keys for {keys.project}</strong>
-      {keys.keys.length ? <ul>{keys.keys.map((k) => <li key={k.name}>{k.name}: {k.status}</li>)}</ul> : <span className="text-sm">No keys yet.</span>}
+    <section className="ag-card" aria-label="Keys" data-testid="key-names-card">
+      <h3 className="ag-card-h">Keys for {keys.project}</h3>
+      {keys.keys.length ? <ul className="ag-list">{keys.keys.map((k) => <li key={k.name}>{k.name}: {k.status}</li>)}</ul> : <p className="ag-card-b ag-quiet">No keys yet.</p>}
     </section>
   )
 }
@@ -188,11 +192,13 @@ export function KeyNamesCard({ keys }: { keys: KeyNamesCardData }) {
 /** The updater: installed version, newest version and whether an install is queued. */
 export function UpdateCard({ update }: { update: UpdateCardData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Update" data-testid="update-card">
-      <span className="block text-sm">Installed: {update.installed || "unknown"}</span>
-      <span className="block text-sm">Newest: {update.newest || "unknown"}</span>
-      <span className="block text-xs">{update.queued ? "An install is queued." : "No install is queued."}</span>
-      <a className="text-xs underline" href={update.link || "#/settings?section=updates"}>Open the updates page</a>
+    <section className="ag-card" aria-label="Update" data-testid="update-card">
+      <div className="ag-card-b">
+        <p>Installed: {update.installed || "unknown"}</p>
+        <p>Newest: {update.newest || "unknown"}</p>
+        <p className="ag-quiet">{update.queued ? "An install is queued." : "No install is queued."}</p>
+      </div>
+      <a className="ag-card-b" href={update.link || "#/settings?section=updates"}>Open the updates page</a>
     </section>
   )
 }
@@ -222,12 +228,12 @@ export function optionMessage(o: RepairOption): string {
 /** What happened to a run: the cause, what was tried, the suggestion and one button per option. */
 export function WhatHappenedCard({ data, onSend }: { data: WhatHappenedData; onSend?: (message: string) => void }) {
   return (
-    <section className="card flex flex-col gap-2" aria-label="What happened" data-testid="what-happened-card">
-      <strong>What happened{data.run_id ? ` to ${data.run_id}` : ""}</strong>
-      <p className="text-sm">{data.cause}</p>
-      {data.tried.length ? <ul aria-label="What was tried">{data.tried.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
-      {data.suggestion ? <p className="text-sm">Suggestion: {data.suggestion}</p> : null}
-      <div className="flex flex-wrap gap-2">
+    <section className="ag-card" aria-label="What happened" data-testid="what-happened-card">
+      <h3 className="ag-card-h">What happened{data.run_id ? ` to ${data.run_id}` : ""}</h3>
+      <p className="ag-card-b">{data.cause}</p>
+      {data.tried.length ? <ul className="ag-list" aria-label="What was tried">{data.tried.map((t, i) => <li key={i}>{t}</li>)}</ul> : null}
+      {data.suggestion ? <p className="ag-card-b">Suggestion: {data.suggestion}</p> : null}
+      <div className="ag-card-f">
         {data.options.map((o, i) => <button key={i} type="button" className="btn" onClick={() => onSend?.(optionMessage(o))}>{o.label}</button>)}
       </div>
     </section>
@@ -257,10 +263,10 @@ export function sessionFrom(data: unknown): SessionCardData | null {
 /** A task's tries, one line per try. */
 export function TriesCard({ data }: { data: TriesCardData }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Tries" data-testid="tries-card">
-      <strong>{data.task || "Tries"}{data.status ? ` - ${data.status}` : ""}</strong>
-      {data.max_tries !== null ? <span className="text-xs">Up to {data.max_tries} tries</span> : null}
-      {data.tries.length ? <ul>{data.tries.map((t, i) => <li key={i}>{t}</li>)}</ul> : <span className="text-sm">No tries yet.</span>}
+    <section className="ag-card" aria-label="Tries" data-testid="tries-card">
+      <h3 className="ag-card-h">{data.task || "Tries"}{data.status ? ` - ${data.status}` : ""}</h3>
+      {data.max_tries !== null ? <p className="ag-card-b ag-quiet">Up to {data.max_tries} tries</p> : null}
+      {data.tries.length ? <ul className="ag-list">{data.tries.map((t, i) => <li key={i}>{t}</li>)}</ul> : <p className="ag-card-b ag-quiet">No tries yet.</p>}
     </section>
   )
 }
@@ -268,9 +274,9 @@ export function TriesCard({ data }: { data: TriesCardData }) {
 /** A step's AI session excerpt, shown as quoted text. */
 export function SessionCard({ data }: { data: SessionCardData }) {
   return (
-    <figure className="card flex flex-col gap-1" aria-label="Session excerpt" data-testid="session-card">
-      {data.source ? <figcaption className="text-xs">From {data.source}</figcaption> : null}
-      <blockquote className="whitespace-pre-wrap text-sm">{data.text}</blockquote>
+    <figure className="ag-card" aria-label="Session excerpt" data-testid="session-card">
+      {data.source ? <figcaption className="ag-kind">From {data.source}</figcaption> : null}
+      <blockquote className="ag-card-b ag-pre whitespace-pre-wrap">{data.text}</blockquote>
     </figure>
   )
 }
@@ -300,7 +306,7 @@ export const COMPONENTS: Record<string, (props: { data: unknown; tool: string; c
     const list = isObject(data) ? data.runs : null
     const runs = Array.isArray(list) ? list.map(runFrom) : null
     if (!runs || runs.some((r) => !r)) return <Fallback tool={tool} />
-    return <section className="flex flex-col gap-2" aria-label="Builds" data-testid="run-cards">{runs.map((r) => <RunCard key={r!.run_id} run={r!} />)}</section>
+    return <section className="ag-card" aria-label="Builds" data-testid="run-cards"><ul className="ag-list">{runs.map((r) => <li key={r!.run_id}><RunCard run={r!} row /></li>)}</ul></section>
   },
   TaskListCard: ({ data, tool }) => {
     const tasks = tasksFrom(data)

@@ -23,9 +23,9 @@ export function reportFrom(data: unknown): Report | null {
 /** The report text, kept as plain text with its line breaks. */
 export function ReportCard({ report }: { report: Report }) {
   return (
-    <section className="card flex flex-col gap-1" aria-label="Daily report" data-testid="report-card">
-      {report.date ? <strong>{report.date}</strong> : null}
-      <p className="whitespace-pre-wrap text-sm">{report.text}</p>
+    <section className="ag-card" aria-label="Daily report" data-testid="report-card">
+      {report.date ? <h3 className="ag-card-h">{report.date}</h3> : null}
+      <p className="ag-card-b whitespace-pre-wrap">{report.text}</p>
     </section>
   )
 }

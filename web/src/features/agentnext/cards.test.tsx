@@ -133,3 +133,18 @@ test("settings, key and update data that does not fit shows the fallback", () =>
     unmount()
   }
 })
+
+test("cards that do not wait for Alex are plain: no orange edge, no Needs you", () => {
+  render(<>
+    <ProjectCards projects={[alpha]} />
+    <BuildCard build={build} />
+    <RunCard run={run} />
+    <TaskListCard tasks={tasks} />
+  </>)
+  for (const id of ["project-cards", "build-card", "run-card"]) {
+    expect(screen.getByTestId(id)).toHaveClass("ag-card")
+    expect(screen.getByTestId(id)).not.toHaveClass("needs-you")
+  }
+  expect(document.querySelector(".needs-you, .card")).toBeNull()
+  expect(screen.queryByText("Needs you")).toBeNull()
+})

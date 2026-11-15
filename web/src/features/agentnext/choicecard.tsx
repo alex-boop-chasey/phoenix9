@@ -2,6 +2,7 @@
 import { useState } from "react"
 
 import { apiBase } from "@/lib/api"
+import { NeedsYou, cardClass } from "./cardparts"
 
 /** One option as drawn: plain label and hint. */
 export interface ChoiceItem { label: string; hint: string }
@@ -50,26 +51,26 @@ export function ChoiceCard({ ask, callId }: { ask: ChoiceAsk; callId: string }) 
   }
 
   return (
-    <section className="card flex flex-col gap-2" aria-label="Choice" data-testid="choice-card">
-      <strong>{ask.question}</strong>
+    <section className={cardClass(done === "open")} aria-label="Choice" data-testid="choice-card">
+      <h3 className="ag-card-h">{ask.question}{done === "open" ? <NeedsYou /> : null}</h3>
       {done === "open" ? (
         <>
-          <div className="flex flex-wrap gap-2">
+          <div className="ag-chips">
             {ask.options.map((o, i) => (
-              <button key={i} type="button" className="btn" aria-pressed={ask.multiple ? picked.includes(i) : undefined} title={o.hint || undefined} onClick={() => click(i)}>
-                {o.label}{o.hint ? <span className="block text-xs">{o.hint}</span> : null}
+              <button key={i} type="button" className="btn ag-chip" aria-pressed={ask.multiple ? picked.includes(i) : undefined} title={o.hint || undefined} onClick={() => click(i)}>
+                {o.label}{o.hint ? <span className="ag-chip-hint">{o.hint}</span> : null}
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
-            {ask.multiple && <button type="button" className="btn" disabled={!picked.length} onClick={() => void finish("picked", picked)}>Done</button>}
-            <button type="button" className="btn" onClick={() => void finish("cancelled", [])}>Cancel</button>
+          <div className="ag-card-f">
+            <button type="button" className="btn btn-ghost" onClick={() => void finish("cancelled", [])}>Cancel</button>
+            {ask.multiple && <button type="button" className="btn btn-primary" disabled={!picked.length} onClick={() => void finish("picked", picked)}>Done</button>}
           </div>
         </>
       ) : done === "picked" ? (
-        <p>You picked: {picked.map((i) => ask.options[i]?.label).join(", ")}</p>
+        <p className="ag-card-b">You picked: {picked.map((i) => ask.options[i]?.label).join(", ")}</p>
       ) : (
-        <p>Cancelled.</p>
+        <p className="ag-card-b ag-quiet">Cancelled.</p>
       )}
     </section>
   )

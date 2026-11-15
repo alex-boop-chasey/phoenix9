@@ -3,8 +3,10 @@
 Each service with a maker module (phoenix9/keymakers/) and a [make] block in its service.toml can make
 project keys. The module gets `call(method, path, body=None) -> (status, json)`, which goes through a key
 proxy that holds ONLY the [make] key and allows ONLY the [make] rules (build containers never get these),
-and a plain `ctx` (project name, account settings, the project's non-secret key values). A made value goes
-straight into keys.set_key and nowhere else: never into results, events, logs or errors.
+and a plain `ctx` (project name, account settings, the project's non-secret key values, and `have`: the names
+of the project's keys that already have a value). A maker never makes a secret whose name is in `have` (it may
+still fill in the missing plain values), and may list the key names its status follows in MAKES. A made value
+goes straight into keys.set_key and nowhere else: never into results, events, logs or errors.
 """
 import importlib
 import json
@@ -21,6 +23,17 @@ TIMEOUT = 20
 LOG_NAME = "proxy-keymaker.jsonl"
 # Pages where a keys-only service's keys are copied by hand (the service.toml website is the fallback).
 MANUAL_LINKS = {"clerk": "https://dashboard.clerk.com/last-active?path=api-keys"}
+MAY_MAKE = ("dashboard", "cli", "runner", "agent")      # who may have keys made (never a project chat)
+
+
+def may_make(who: str) -> bool:
+    """True for the callers allowed to have keys made: Alex's dashboard and commands, the runner and the agent."""
+    return who in MAY_MAKE
+
+
+def refusal(who: str) -> str:
+    """The one plain line for a caller that may not have keys made."""
+    return f"'{who}' may not make keys; only Alex (dashboard or command), the runner and the Phoenix agent can."
 
 
 class Refused(Exception):
@@ -40,9 +53,24 @@ def _and(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
+def _makes(svc: dict) -> set | None:
+    """The key names the service's maker says it makes (its MAKES); None when it has no maker or does not say."""
+    provider = _provider(svc["name"]) if svc.get("make") else None
+    names = getattr(provider, "MAKES", None)
+    return None if names is None else set(names)
+
+
 def _missing(svc: dict, have: dict) -> list[str]:
-    """The service's required project keys that have no value yet."""
-    return [k["name"] for k in svc["project_keys"] if k["required"] and not have.get(k["name"])]
+    """The service's project keys with no value yet that are required or that its maker makes."""
+    makes = _makes(svc) or ()
+    return [k["name"] for k in svc["project_keys"]
+            if (k["required"] or k["name"] in makes) and not have.get(k["name"])]
+
+
+def _makeable(svc: dict, missing: list[str]) -> list[str]:
+    """The missing keys the maker makes (all of them when the maker does not say which it makes)."""
+    makes = _makes(svc)
+    return list(missing) if makes is None else [n for n in missing if n in makes]
 
 
 def _maker_key(svc: dict) -> str:
@@ -59,11 +87,12 @@ def _row(svc: dict, have: dict) -> dict:
     row = {"service": svc["name"], "title": title, "missing": missing, "link": ""}
     if not missing:
         return {**row, "state": "done", "words": f"All the {title} keys are saved."}
-    if svc.get("make") and _provider(svc["name"]) is not None:
+    can = _makeable(svc, missing)
+    if svc.get("make") and _provider(svc["name"]) is not None and can:
         extra = svc["make"]["key"] not in svc["account_keys"]    # an optional maker key, e.g. a management key
         if _maker_key(svc):
             which = f"{title} key for making project keys" if extra else f"{title} key"
-            return {**row, "state": "ready", "words": f"Phoenix can make {_and(missing)} with your saved {which}."}
+            return {**row, "state": "ready", "words": f"Phoenix can make {_and(can)} with your saved {which}."}
         needs = svc["make"]["needs"] or "make keys"
         where = f'"Key for making project keys" in Settings > Services > {title}' if extra \
             else f"Settings > Services > {title}"
@@ -89,12 +118,14 @@ def status(project: str) -> list[dict]:
 
 
 def _ctx(project: str, svc: dict) -> dict:
-    """What a maker may know: the project, the account settings and the project's non-secret key values."""
+    """What a maker may know: the project, the account settings, the project's non-secret key values and the
+    names of its keys that already have a value (`have`: a maker never makes a secret named there)."""
     saved = service_lib.read_registry().get(svc["name"], {}).get("settings") or {}
     settings_now = {s["name"]: saved.get(s["name"], s["default"]) for s in svc["account_settings"]}
-    plain = {k["name"]: k["value_if_not_secret"] for k in keys.list_keys(project)
-             if not k["secret"] and k["has_value"]}
-    return {"project": project, "settings": settings_now, "keys": plain}
+    listed = keys.list_keys(project)
+    plain = {k["name"]: k["value_if_not_secret"] for k in listed if not k["secret"] and k["has_value"]}
+    return {"project": project, "settings": settings_now, "keys": plain,
+            "have": sorted(k["name"] for k in listed if k["has_value"])}
 
 
 def _caller(svc: dict, handle, adapters):
@@ -137,10 +168,12 @@ def _problem(svc: dict, err: Exception) -> str:
 
 
 def _save(project: str, svc: dict, made: dict) -> list[str]:
-    """Save each made value that the service lists and the project has no value for; the names saved."""
+    """Save each made value that the service lists and the project has no value for; the names saved.
+
+    Only secret values are masked from now on (a key the service does not list counts as secret)."""
     values = {k: v for k, v in made.items() if isinstance(v, str) and v}
-    scrub.add_secrets(values.values())
     rows = {k["name"]: k for k in svc["project_keys"]}
+    scrub.add_secrets([v for k, v in values.items() if k not in rows or rows[k]["secret"]])
     have, saved = _have(project), []
     for name, value in values.items():
         if name not in rows or have.get(name):

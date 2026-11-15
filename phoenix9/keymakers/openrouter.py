@@ -1,9 +1,13 @@
 """OpenRouter: make an API key for one project with the saved management key."""
 from phoenix9.keymaker import Refused
 
+MAKES = ("OPENROUTER_API_KEY",)
+
 
 def make(call, ctx) -> dict:
     """Returns OPENROUTER_API_KEY (key phoenix-<project>)."""
+    if "OPENROUTER_API_KEY" in ctx["have"]:
+        return {}
     name = f"phoenix-{ctx['project']}"
     status, body = call("POST", "/keys", {"name": name})
     if status in (401, 403):

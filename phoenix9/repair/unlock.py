@@ -210,24 +210,30 @@ def _record_expired(run_dir: Path, gone: list[dict]) -> None:
                 gate=g.get("gate"), steps=g.get("steps"))
 
 
-def _matching(data: dict, run_id: str, who: str, needed: list[str], at: datetime) -> dict | None:
-    """The first live grant for this run and asker that covers every needed unlock."""
+def _matching(data: dict, run_id: str, who: str, needed: list[str], at: datetime, tasks=None) -> dict | None:
+    """The first live grant for this run and asker that covers every needed unlock.
+
+    A hand-off grant (it has `handoff_task`) only matches a repair whose check rewrites are all for that one task."""
     for g in data["grants"]:
+        if "handoff_task" in g and set(tasks or ()) != {g["handoff_task"]}:
+            continue
         if g.get("run") == run_id and g.get("asked_by") == who and set(needed) <= set(g.get("steps") or []) \
                 and _live(g, at):
             return g
     return None
 
 
-def find(run_dir, who: str, needed) -> dict | None:
-    """The grant that would let these unlocks through now, without using it (a dry run)."""
+def find(run_dir, who: str, needed, tasks=None) -> dict | None:
+    """The grant that would let these unlocks through now, without using it (a dry run).
+
+    `tasks` are the task numbers whose checks the repair rewrites (what a hand-off grant is tied to)."""
     run_dir = Path(run_dir)
     if not needed:
         return None
-    return _matching(_load(run_dir), run_dir.name, who, list(needed), _now())
+    return _matching(_load(run_dir), run_dir.name, who, list(needed), _now(), tasks)
 
 
-def use(run_dir, who: str, needed) -> dict | None:
+def use(run_dir, who: str, needed, tasks=None) -> dict | None:
     """Use a matching grant once: mark it used, record it on the run and return it; None when there is none."""
     run_dir = Path(run_dir)
     needed = list(needed)
@@ -237,14 +243,15 @@ def use(run_dir, who: str, needed) -> dict | None:
     with _lock(run_dir):
         data = _load(run_dir)
         gone = _expire(run_dir, data, at)
-        grant = _matching(data, run_dir.name, who, needed, at)
+        grant = _matching(data, run_dir.name, who, needed, at, tasks)
         if grant is not None:
             grant.update(used_at=_stamp(at), used_by=who, used_for=needed)
         if gone or grant is not None:
             atomic.write_json(grants_path(run_dir), data)
     _record_expired(run_dir, gone)
     if grant is not None:
-        _record(run_dir, "used", f"Repaired by the agent with Alex's approval at {_clock(at)}: {plain_list(needed)}.",
+        how = "under the hand-off rule" if "handoff_task" in grant else "with Alex's approval"
+        _record(run_dir, "used", f"Repaired by the agent {how} at {_clock(at)}: {plain_list(needed)}.",
                 gate=grant["gate"], steps=needed, who=who)
     return grant
 

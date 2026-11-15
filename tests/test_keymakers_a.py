@@ -125,6 +125,11 @@ def unseen(result: dict, *values: str):
         assert v not in seen
 
 
+def status_of(name: str, service: str) -> dict:
+    """The key maker's status row of one service."""
+    return {r["service"]: r for r in keymaker.status(name)}[service]
+
+
 # ---------- Cloudflare ----------
 
 GROUPS = {"result": [{"id": "g-pages", "name": "Pages Write"}, {"id": "g-dns", "name": "DNS Write"},
@@ -196,6 +201,47 @@ def test_cloudflare_without_account_id_refuses(phoenix_env, real, upstream):
     connect("cloudflare", {})
     result = keymaker.make(name, ["cloudflare"], who="tester")
     assert "Account ID" in result["problems"]["cloudflare"] and upstream.requests == []
+
+
+def test_cloudflare_saved_token_is_kept_and_only_the_account_id_filled(phoenix_env, real, upstream):
+    name = project(phoenix_env, "cloudflare")
+    connect("cloudflare", {"account_id": ACCOUNT})
+    mine = _value("pasted")
+    keys.set_key(name, "CLOUDFLARE_API_TOKEN", mine)
+    cloudflare(upstream, _value("cf"))
+    assert status_of(name, "cloudflare")["state"] == "ready"
+    result = keymaker.make(name, who="tester")
+    assert upstream.requests == []                                   # no second token is made at Cloudflare
+    assert result["saved"] == {"cloudflare": ["CLOUDFLARE_ACCOUNT_ID"]}
+    assert keys.get_value(name, "CLOUDFLARE_API_TOKEN") == mine
+    assert keys.get_value(name, "CLOUDFLARE_ACCOUNT_ID") == ACCOUNT
+    assert status_of(name, "cloudflare")["state"] == "done"
+
+
+def test_cloudflare_account_id_saved_but_no_token_is_ready_and_makes_the_token(phoenix_env, real, upstream):
+    name = project(phoenix_env, "cloudflare")
+    connect("cloudflare", {"account_id": ACCOUNT})
+    keys.set_key(name, "CLOUDFLARE_ACCOUNT_ID", ACCOUNT, secret=False)
+    row = status_of(name, "cloudflare")
+    assert row["state"] == "ready" and row["missing"] == ["CLOUDFLARE_API_TOKEN"]
+    assert row["words"] == "Phoenix can make CLOUDFLARE_API_TOKEN with your saved Cloudflare key."
+    token = _value("cf")
+    cloudflare(upstream, token)
+    result = keymaker.make(name, who="tester")
+    assert result["saved"] == {"cloudflare": ["CLOUDFLARE_API_TOKEN"]}
+    assert keys.get_value(name, "CLOUDFLARE_API_TOKEN") == token
+    assert status_of(name, "cloudflare")["state"] == "done"
+    unseen(result, token)
+
+
+def test_non_secret_made_values_are_not_masked(phoenix_env, real, upstream):
+    from phoenix9 import scrub
+    name = project(phoenix_env, "cloudflare")
+    connect("cloudflare", {"account_id": ACCOUNT})
+    token = _value("cf")
+    cloudflare(upstream, token)
+    keymaker.make(name, who="tester")
+    assert scrub.scrub(f"account {ACCOUNT} token {token}") == f"account {ACCOUNT} token [secret]"
 
 
 # ---------- Sentry ----------
@@ -286,6 +332,31 @@ def test_resend_not_verified_domain(phoenix_env, real, upstream):
     assert result["notes"]["resend"] == ("The key can send from any of your Resend domains: "
                                          "verify mine.example in Resend to limit it.")
     unseen(result, token)
+
+
+def test_resend_saved_key_is_kept_and_only_the_from_address_filled(phoenix_env, real, upstream):
+    name = project(phoenix_env, "resend")
+    connect("resend", {"send_from": "hello@mine.example"})
+    mine = _value("pasted")
+    keys.set_key(name, "RESEND_API_KEY", mine)
+    resend(upstream, "verified", _value("re"))
+    assert status_of(name, "resend")["state"] == "ready"
+    result = keymaker.make(name, who="tester")
+    assert upstream.requests == []                                   # no thrown-away sending key
+    assert result["saved"] == {"resend": ["RESEND_FROM"]}
+    assert keys.get_value(name, "RESEND_API_KEY") == mine
+    assert keys.get_value(name, "RESEND_FROM") == "hello@mine.example"
+
+
+def test_resend_saved_key_and_no_from_address_known_says_what_to_do(phoenix_env, real, upstream):
+    name = project(phoenix_env, "resend")
+    connect("resend", {})
+    keys.set_key(name, "RESEND_API_KEY", _value("pasted"))
+    resend(upstream, "verified", _value("re"))
+    result = keymaker.make(name, who="tester")
+    assert upstream.requests == [] and result["saved"] == {}
+    assert result["problems"]["resend"] == ("Resend: save a Send from address in Settings > Services > Resend, "
+                                            "or paste RESEND_FROM into Project > Settings > Keys.")
 
 
 # ---------- the step proxy is unchanged ----------

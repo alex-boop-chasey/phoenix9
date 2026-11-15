@@ -110,3 +110,12 @@ def test_secret_values_scrubbed_in_run_log(tmp_path, phoenix_env, adapters):
         for f in root.rglob("*"):
             if f.is_file() and paths.keys() not in f.parents and ".git" not in f.parts:
                 assert SECRET.encode() not in f.read_bytes(), f
+
+
+def test_only_secret_values_join_the_scrubber():
+    keys.set_key("demo", "SITE_NAME", "my-plain-project-name", secret=False)
+    keys.set_key("demo", "API_KEY", SECRET, True)
+    keys.set_key("demo", "NO_FLAG_GIVEN", "another-VERY-secret-value-67890")
+    assert "my-plain-project-name" not in scrub.known_secrets()
+    assert scrub.scrub("building my-plain-project-name") == "building my-plain-project-name"
+    assert SECRET in scrub.known_secrets() and "another-VERY-secret-value-67890" in scrub.known_secrets()

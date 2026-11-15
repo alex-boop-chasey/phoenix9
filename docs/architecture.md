@@ -229,7 +229,7 @@ model = "claude-sonnet-5-5"
   (`runs.adopt_plan`), skip keeps the brief as written (a brief with no tasks then fails the run).
 - Service setup is a run-start step at `order = 50`, after Branch (40) and Planner (45), `proxy =
   ["@project"]`, on by default. Per chosen service (phoenix.toml `services`): unknown service fails;
-  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`, with `fetch` first when a missing service is `ready` in `keymaker.status`; `fetch` = "Get the keys for me": `keymaker.make` for the ready missing services (who `runner`; the log gets saved names and problems only), then carry on as for `done`, or ask again listing only what is still missing with the problems; the gate's `why` also carries each missing service's key maker status line; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
+  project keys without a value open a `human-task` gate (actions `done`, `defer`, `skip`, `stop`, with `fetch` first when a missing service is `ready` in `keymaker.status`; `fetch` = "Get the keys for me": `keymaker.make` for the ready missing services (who `runner`; the log gets saved names and problems only; only when the answer came from `dashboard`, `cli`, `runner` or `agent` (`keymaker.may_make`): a project chat's `fetch` makes nothing and the question is asked again with one line saying so), then carry on as for `done`, or ask again listing only what is still missing with the problems; the gate's `why` also carries each missing service's key maker status line; `defer` = "Build without it for now": the service is not wired, `services.md` tells the Builder to read the values from the environment and keep the site working without them, `<run>/deferred-services.json` and project.json `services_deferred` record it, and the summary and Overview show "Waiting for keys: X" until the keys are saved, a later run wires it fully; `done` calls
   the step again and it re-checks, still missing = fail; `skip` continues without them); hosts missing
   from the project's `[domains] allow` are added (and to this run's frozen settings); the service's
   `recipe.py` `wire(ctx, service, proxy)` runs once (recorded in `.phoenix/project.json`
@@ -419,10 +419,15 @@ list no `hosts` for that API: account calls go only through the proxy (github, s
 `phoenix9/keymakers/` with `make(call, ctx) -> {KEY_NAME: value, "note"?: words}`. `call(method, path, body)`
 goes through a key proxy started with ONLY the `[make]` rules and the `[make].key` value (log
 `HOME/logs/proxy-keymaker.jsonl`, timeout 20 s, errors scrubbed); `ctx` = project name, the service's account
-settings and the project's non-secret key values. `status(project)` gives per chosen service `ready`,
-`needs-account-key`, `manual` or `done` with plain words and a link; `make(project, services, who)` saves each
-made value with `keys.set_key` only when that key has no value yet and returns names, problems and what is
-still missing, never values (event `keys.made`, names only). The step proxy (`spec_from_service`,
+settings, the project's non-secret key values and `have` (the names of its keys that already have a value: a
+maker never makes a secret named there, it only fills in missing plain values such as the account id or the
+from-address). A maker's `MAKES` names the keys its status follows (without it: the required keys).
+`status(project)` gives per chosen service `ready`, `needs-account-key`, `manual` or `done` with plain words
+and a link, from the keys that are required or in `MAKES` and have no value; `make(project, services, who)`
+saves each made value with `keys.set_key` only when that key has no value yet and returns names, problems and
+what is still missing, never values (event `keys.made`, names only). Only values whose key row is `secret =
+true` (or that have no row) join the scrubber. Callers: `dashboard`, `cli`, `runner`, `agent` only
+(`keymaker.may_make`, checked in `ops.keys.make`). The step proxy (`spec_from_service`,
 `stepproxy`) never contains a `[make]` rule.
 Makers today: `cloudflare` (token `phoenix-<project>`: Pages Write on the `account_id` setting, DNS Write on
 the project's non-secret `CLOUDFLARE_ZONE_ID` when set), `sentry` (project slug = project name under the

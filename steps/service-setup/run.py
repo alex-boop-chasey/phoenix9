@@ -144,6 +144,10 @@ def run(ctx) -> StepResult:
     _allow_hosts(ctx, chosen, lib)
     missing = {n: m for n in chosen if (m := _missing_keys(ctx, lib[n]))}
     if missing and (ctx.answer or {}).get("action") == "fetch":
+        asker = str((ctx.answer or {}).get("who") or "")
+        if not keymaker.may_make(asker):          # a project chat may not have keys made: ask again, nothing made
+            ctx.log(f"keys not made: {keymaker.refusal(asker)}")
+            return _keys_gate(missing, lib, ctx.project.name, {next(iter(missing)): keymaker.refusal(asker)})
         problems = _fetch(ctx, missing)
         missing = {n: m for n in chosen if (m := _missing_keys(ctx, lib[n]))}
         if missing:

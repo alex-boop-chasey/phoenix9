@@ -61,24 +61,34 @@ def _retry(folder, gate: dict, task: int, note: str) -> dict:
 
 
 def _rewrite_checks(folder, gate: dict, task: int, why: str) -> dict:
-    """Rewrite the task's checks once under a hand-off grant, then close the question so the run goes on."""
+    """Rewrite the task's checks once under a hand-off grant, then close the question so the run goes on.
+
+    "Rewrote once" is recorded before the rewrite (a crash part-way cannot allow a second one; a plain refusal
+    takes it back), and the grant is taken back whatever happens unless the rewrite used it."""
     if handoff.rewrite_used(folder, task):
         raise common.Conflict("The agent already rewrote this task's checks once; it needs Alex now.")
+    handoff.mark(folder, task, rewrote_checks=True)
     grant = unlock.grant_for_handoff(folder, task, why, gate=gate["id"])
     text = repair_ops._note_text(folder.name, why, [f"rewrite the checks of task {task} because {why}"])
+    keep, taken_back = False, "the rewrite stopped before it finished"
     try:
-        done = repair_ops.apply_text(folder.name, text, who="agent", approve_unlock=True)
-    except common.OpsError as err:
-        unlock.withdraw(folder, grant, str(err))
-        raise common.Conflict(f"Phoenix did not rewrite the checks: {err}") from None
-    if not done.get("ok") or done.get("refused"):
-        why_not = " ".join(str(done.get("refused") or "the run did not pass its check afterwards").split())
-        unlock.withdraw(folder, grant, why_not)
-        raise common.Conflict(f"Phoenix did not rewrite the checks: {scrub.scrub(why_not)}")
-    if not any(g.get("used_at") and g.get("approved_at") == grant["approved_at"] for g in unlock.records(folder)):
-        unlock.withdraw(folder, grant, "not needed: the task's checks were not locked")
+        try:
+            done = repair_ops.apply_text(folder.name, text, who="agent", approve_unlock=True)
+        except common.OpsError as err:
+            taken_back = str(err)
+            handoff.mark(folder, task, rewrote_checks=False)
+            raise common.Conflict(f"Phoenix did not rewrite the checks: {err}") from None
+        if not done.get("ok") or done.get("refused"):
+            taken_back = " ".join(str(done.get("refused") or "the run did not pass its check afterwards").split())
+            handoff.mark(folder, task, rewrote_checks=False)
+            raise common.Conflict(f"Phoenix did not rewrite the checks: {scrub.scrub(taken_back)}")
+        keep = any(g.get("used_at") and g.get("approved_at") == grant["approved_at"] for g in unlock.records(folder))
+        taken_back = "not needed: the task's checks were not locked"
+    finally:
+        if not keep:
+            unlock.withdraw(folder, grant, taken_back)
     core.close_questions(folder, "the agent rewrote the task's checks", who="agent", only=gate["id"])
-    handoff.mark(folder, task, action="rewrite-checks", rewrote_checks=True)
+    handoff.mark(folder, task, action="rewrite-checks")
     return {"done": f"The checks of task {task} were removed; the check writer writes them again and the task "
                     "starts over.", "snapshot": done.get("snapshot")}
 

@@ -112,6 +112,8 @@ def make(project: str, services_wanted: list | None, who: str) -> dict:
     if services_wanted is not None and (not isinstance(services_wanted, list)
                                         or not all(isinstance(s, str) for s in services_wanted)):
         raise common.OpsError("The services should be a list of service names.")
+    if not keymaker.may_make(who):
+        raise common.OpsError(keymaker.refusal(who))
     try:
         return keymaker.make(project, services_wanted or None, who=who)
     except keys.KeyError_ as err:

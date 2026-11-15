@@ -3,6 +3,7 @@ import re
 
 from phoenix9.keymaker import Refused
 
+MAKES = ("PUBLIC_SENTRY_DSN",)       # the status follows the DSN; the org and project slugs are filled alongside
 SLUG = re.compile(r"^[a-z0-9][a-z0-9_-]{0,49}$", re.IGNORECASE)
 
 

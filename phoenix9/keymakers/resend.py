@@ -1,6 +1,8 @@
 """Resend: make a sending-only key for one project, limited to its domain when Resend has verified it."""
 from phoenix9.keymaker import Refused
 
+MAKES = ("RESEND_API_KEY", "RESEND_FROM")
+
 
 def _domain_id(call, domain: str) -> str:
     """The id of the verified Resend domain with this name ('' when none)."""
@@ -17,9 +19,18 @@ def _domain_id(call, domain: str) -> str:
 
 
 def make(call, ctx) -> dict:
-    """Returns RESEND_API_KEY, and RESEND_FROM when the project has none and a from-address is known."""
+    """Returns RESEND_API_KEY, and RESEND_FROM when the project has none and a from-address is known.
+
+    When the project already has a key saved, no key is made: only the from-address is given."""
     own = (ctx["keys"].get("RESEND_FROM") or "").strip()
     sender = own or (ctx["settings"].get("send_from") or "").strip()
+    if "RESEND_API_KEY" in ctx["have"]:
+        if own or "RESEND_FROM" in ctx["have"]:
+            return {}
+        if not sender:
+            raise Refused("Resend: save a Send from address in Settings > Services > Resend, "
+                          "or paste RESEND_FROM into Project > Settings > Keys.")
+        return {"RESEND_FROM": sender, "note": "Kept the saved Resend key; no new key was made."}
     domain = sender.rpartition("@")[2].strip().lower() if "@" in sender else ""
     body = {"name": f"phoenix-{ctx['project']}", "permission": "sending_access"}
     found = _domain_id(call, domain) if domain else ""

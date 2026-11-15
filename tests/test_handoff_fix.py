@@ -76,7 +76,8 @@ def test_rewrite_checks_removes_them_records_the_grant_and_the_run_goes_on(tmp_p
     record = unlock.record_path(run_dir).read_text()
     assert ("Allowed for the agent on a hand-off of task 1 (Alex's standing rule of 2026-11-15): "
             "the check reads coloured output") in record
-    assert "Repaired by the agent with Alex's approval" in record
+    assert "Repaired by the agent under the hand-off rule at " in record
+    assert "with Alex's approval" not in record
     assert live_grants(run_dir) == []
     (acted,) = kinds(run_dir, "handoff.acted")
     assert acted["data"]["action"] == "rewrite-checks" and acted["data"]["why"] == "the check reads coloured output"
@@ -114,6 +115,40 @@ def test_rewrite_without_evidence_is_refused_and_leaves_no_live_grant(tmp_path, 
     assert kinds(run_dir, "handoff.acted") == []
     with pytest.raises(common.Conflict, match="needs Alex's approval"):    # nothing left for a plain repair to use
         repair_ops.rewrite_checks(run_dir.name, 1, "the checks are wrong", who="agent")
+
+
+def test_a_hand_off_grant_only_covers_its_own_task(tmp_path, runner, sent, same):
+    run_dir, g = handed_run(tmp_path, runner, reason=EVIDENCE)
+    grant = unlock.grant_for_handoff(run_dir, 1, "the check reads coloured output", gate=g["id"])
+    assert unlock.find(run_dir, "agent", ["unlock-checks"]) is None            # no task named
+    assert unlock.find(run_dir, "agent", ["unlock-checks"], tasks=[2]) is None
+    assert unlock.find(run_dir, "agent", ["unlock-checks"], tasks=[1, 2]) is None
+    assert unlock.use(run_dir, "agent", ["unlock-checks"], tasks=[2]) is None
+    atomic.write_json(run_dir / "tasks" / "2" / "checks.lock.json", {"dir": "tests", "files": {"tests/test_two.py": "x"}})
+    with pytest.raises(common.Conflict, match="needs Alex's approval"):       # a repair of another task
+        repair_ops.rewrite_checks(run_dir.name, 2, "tests/test_two.py is wrong", who="agent")
+    assert (run_dir / "tasks" / "2" / "checks.lock.json").exists()
+    assert unlock.find(run_dir, "agent", ["unlock-checks"], tasks=[1])["gate"] == grant["gate"]
+    assert unlock.use(run_dir, "agent", ["unlock-checks"], tasks=[1])["handoff_task"] == 1
+
+
+def test_a_crash_in_the_rewrite_takes_the_grant_back_and_allows_no_second_rewrite(tmp_path, runner, sent, same, monkeypatch):
+    run_dir, _g = handed_run(tmp_path, runner, reason=EVIDENCE)
+
+    def crash(*a, **k):
+        assert handoff.rewrite_used(run_dir, 1)            # "rewrote once" is on record before the rewrite starts
+        raise RuntimeError("the power went out")
+
+    real_apply = repair_ops.apply_text
+    monkeypatch.setattr(repair_ops, "apply_text", crash)
+    with pytest.raises(RuntimeError):
+        ops.fix("proj", run_dir.name, 1, "rewrite-checks", why="the check reads coloured output")
+    assert live_grants(run_dir) == [] and unlock.find(run_dir, "agent", ["unlock-checks"], tasks=[1]) is None
+    assert "The hand-off allowance was taken back" in unlock.record_path(run_dir).read_text()
+    monkeypatch.setattr(repair_ops, "apply_text", real_apply)
+    with pytest.raises(common.Conflict, match="already rewrote this task's checks once"):
+        ops.fix("proj", run_dir.name, 1, "rewrite-checks", why="the check reads coloured output")
+    assert (run_dir / "tasks" / "1" / "checks.lock.json").exists()
 
 
 def test_rewrite_needs_a_reason(tmp_path, runner, sent, same):

@@ -65,6 +65,11 @@ def needed_unlocks(folder: Path, note: notes.Note, approve_unlock: bool = False)
     return list(dict.fromkeys(needed))
 
 
+def rewrite_tasks(note: notes.Note) -> list[int]:
+    """The task numbers whose checks this note rewrites (a hand-off grant covers one task only)."""
+    return [s.args["n"] for s in note.steps if s.kind == "rewrite-checks"]
+
+
 def refusal(folder: Path, note: notes.Note, who: str, approve_unlock: bool = False,
             use: bool = True) -> str | None:
     """The plain refusal for a repair that loosens a safety check when the agent or chat asks, else None.
@@ -78,5 +83,6 @@ def refusal(folder: Path, note: notes.Note, who: str, approve_unlock: bool = Fal
         return None
     if needed is None:
         return NEVER_REFUSAL
-    grant = unlock.use(folder, who, needed) if use else unlock.find(folder, who, needed)
+    tasks = rewrite_tasks(note)
+    grant = unlock.use(folder, who, needed, tasks) if use else unlock.find(folder, who, needed, tasks)
     return None if grant is not None else REFUSAL

@@ -236,6 +236,69 @@ def test_existing_values_are_kept(demo, real, makers, upstream):
     assert upstream.made not in json.dumps(result) + everything_written()
 
 
+class ListedMaker:
+    """Says which keys it makes (MAKES) and never makes a secret whose name already has a value."""
+
+    MAKES = ("ACME_API_KEY", "ACME_SITE")
+    seen: list = []
+
+    @staticmethod
+    def make(call, ctx):
+        ListedMaker.seen.append(ctx)
+        out = {"ACME_SITE": "https://demo.example"}
+        if "ACME_API_KEY" not in ctx["have"]:
+            out["ACME_API_KEY"] = call("POST", "/keys", {"name": "k"})[1]["key"]
+        return out
+
+
+def test_status_follows_the_keys_the_maker_makes(demo, real, upstream, monkeypatch):
+    ListedMaker.seen = []
+    monkeypatch.setitem(keymaker.PROVIDERS, "acme", ListedMaker)
+    connect("acme", {"ACME_ACCOUNT_KEY": _value("account")})
+    keys.set_key("demo", "ACME_ORG", "org", secret=False)            # the only other required key
+    mine = _value("mine")
+    keys.set_key("demo", "ACME_API_KEY", mine)
+    row = {r["service"]: r for r in keymaker.status("demo")}["acme"]
+    assert row["state"] == "ready" and row["missing"] == ["ACME_SITE"]   # optional, but the maker makes it
+    assert row["words"] == "Phoenix can make ACME_SITE with your saved Acme key."
+    result = keymaker.make("demo", who="tester")
+    assert result["saved"] == {"acme": ["ACME_SITE"]} and upstream.requests == []
+    assert "ACME_API_KEY" in ListedMaker.seen[0]["have"] and "ACME_SITE" not in ListedMaker.seen[0]["have"]
+    assert keys.get_value("demo", "ACME_API_KEY") == mine
+    assert {r["service"]: r for r in keymaker.status("demo")}["acme"]["state"] == "done"
+
+
+def test_a_required_key_the_maker_does_not_make_is_pasted_by_hand(demo, monkeypatch):
+    monkeypatch.setitem(keymaker.PROVIDERS, "acme", ListedMaker)
+    connect("acme", {"ACME_ACCOUNT_KEY": _value("account")})
+    keys.set_key("demo", "ACME_API_KEY", _value("mine"))
+    keys.set_key("demo", "ACME_SITE", "https://demo.example", secret=False)
+    row = {r["service"]: r for r in keymaker.status("demo")}["acme"]
+    assert row["state"] == "manual" and row["missing"] == ["ACME_ORG"]
+    assert row["words"].startswith("Paste ACME_ORG from https://acme.example/keys into Project > Settings > Keys.")
+
+
+def test_only_secret_made_values_are_masked(demo, real, makers, upstream):
+    from phoenix9 import scrub
+    connect("acme", {"ACME_ACCOUNT_KEY": _value("account")}, {"organisation": "acme-org-name"})
+    keymaker.make("demo", who="tester")
+    assert keys.get_value("demo", "ACME_ORG") == "acme-org-name"
+    assert scrub.scrub(f"org acme-org-name key {upstream.made}") == "org acme-org-name key [secret]"
+
+
+def test_project_chats_may_not_make_keys(capsys, demo, real, makers, upstream):
+    connect("acme", {"ACME_ACCOUNT_KEY": _value("account")})
+    for who in ("chat:demo", "chat:home", "someone"):
+        with pytest.raises(common.OpsError, match="may not make keys"):
+            ops_keys.make("demo", None, who)
+    assert main(["project", "keys", "demo", "make", "--yes", "--who", "chat:demo"]) == 1
+    assert "'chat:demo' may not make keys" in capsys.readouterr().err
+    assert upstream.requests == [] and keys.get_value("demo", "ACME_API_KEY") in (None, "")
+    for who in ("dashboard", "cli", "runner", "agent"):
+        assert keymaker.may_make(who)
+    assert ops_keys.make("demo", None, "agent")["saved"] == {"acme": ["ACME_API_KEY", "ACME_ORG"]}
+
+
 def test_status_words(demo, makers):
     rows = {r["service"]: r for r in keymaker.status("demo")}
     acme = rows["acme"]
@@ -328,7 +391,7 @@ def test_connect_takes_the_optional_maker_key(demo, monkeypatch):
 
 def test_ops_make_checks_the_services_list(demo):
     with pytest.raises(common.OpsError):
-        ops_keys.make("demo", "acme", "tester")
+        ops_keys.make("demo", "acme", "cli")
     assert ops_keys.make_status("demo")[0]["service"] == "acme"
 
 

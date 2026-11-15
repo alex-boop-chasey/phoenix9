@@ -3,6 +3,7 @@ from urllib.parse import quote
 
 from phoenix9.keymaker import Refused
 
+MAKES = ("DATABASE_URL",)       # the status follows the pooled string; the direct string and id come with it
 REGION = "aws-ap-southeast-2"
 
 
@@ -43,7 +44,13 @@ def _pooled(params) -> str:
 
 
 def make(call, ctx) -> dict:
-    """Returns DATABASE_URL (pooled), DATABASE_URL_UNPOOLED (direct) and NEON_PROJECT_ID."""
+    """Returns DATABASE_URL (pooled), DATABASE_URL_UNPOOLED (direct) and NEON_PROJECT_ID.
+
+    When the project already has either connection string saved, no second Neon project is made."""
+    saved = [n for n in ("DATABASE_URL", "DATABASE_URL_UNPOOLED") if n in ctx["have"]]
+    if saved:
+        raise Refused(f"Neon: {saved[0]} is already saved, so Phoenix won't make a second database. "
+                      "Paste the other connection string of the same database into Project > Settings > Keys.")
     project = {"name": ctx["project"], "region_id": (ctx["settings"].get("default_region") or "").strip() or REGION}
     org = (ctx["settings"].get("organisation") or "").strip()
     if org:

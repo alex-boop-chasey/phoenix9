@@ -393,6 +393,24 @@ def test_fetch_saves_and_carries_on(tmp_path, adapters, makers):
     assert MADE not in everything and SENTINEL not in everything
 
 
+def test_fetch_from_a_project_chat_makes_nothing_and_asks_again(tmp_path, adapters, makers):
+    make_project(services='["cloudflare"]')
+    run_dir = new_run(tmp_path)
+    runner = Runner(adapters, make_lib(tmp_path / "lib"))
+    assert runner.drive(run_dir) == "waiting"
+    first = open_gate(run_dir)
+    gates.answer(first["id"], "fetch", who="chat:proj")
+    assert runner.drive(run_dir) == "waiting"
+    again = open_gate(run_dir)
+    assert again["id"] != first["id"] and again["actions"][0] == "fetch"
+    assert "'chat:proj' may not make keys" in again["why"]
+    have = {k["name"]: k["has_value"] for k in keys.list_keys("proj")}
+    assert not have.get("CLOUDFLARE_API_TOKEN") and not have.get("CLOUDFLARE_ACCOUNT_ID")
+    assert adapters.proxy.started == []
+    gates.answer(again["id"], "fetch", who="agent")
+    assert runner.drive(run_dir) == "done"
+
+
 def test_fetch_partial_reasks_with_only_the_rest(tmp_path, adapters, makers):
     make_project(services='["cloudflare", "sentry"]')
     run_dir = new_run(tmp_path)

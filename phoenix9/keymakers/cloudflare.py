@@ -3,6 +3,7 @@ import re
 
 from phoenix9.keymaker import Refused
 
+MAKES = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID")
 NEEDS = "make API tokens (Account API Tokens: Edit)"
 ID = re.compile(r"^[A-Za-z0-9]{1,64}$")
 
@@ -27,12 +28,16 @@ def _groups(call, account: str, names: list[str]) -> dict:
 
 
 def make(call, ctx) -> dict:
-    """Make token phoenix-<project>; returns CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID."""
+    """Make token phoenix-<project>; returns CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+
+    When the project already has a token saved, no token is made: only the account id is given."""
     account = (ctx["settings"].get("account_id") or "").strip()
     if not account:
         raise Refused("Cloudflare: save your Account ID in Settings > Services > Cloudflare first.")
     if not ID.match(account):
         raise Refused("Cloudflare: the saved Account ID doesn't look right (letters and digits only).")
+    if "CLOUDFLARE_API_TOKEN" in ctx["have"]:
+        return {"CLOUDFLARE_ACCOUNT_ID": account, "note": "Kept the saved Cloudflare token; no new token was made."}
     zone = (ctx["keys"].get("CLOUDFLARE_ZONE_ID") or "").strip()
     if zone and not ID.match(zone):
         raise Refused("Cloudflare: the project's CLOUDFLARE_ZONE_ID doesn't look right (letters and digits only).")

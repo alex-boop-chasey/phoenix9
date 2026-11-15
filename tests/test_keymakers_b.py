@@ -73,6 +73,18 @@ def test_neon_project_limit_words(phoenix_env, real, upstream):
     assert result["saved"] == {}
 
 
+def test_neon_makes_no_second_database_when_a_connection_string_is_saved(phoenix_env, real, upstream):
+    name = project(phoenix_env, "neon")
+    connect("neon", {})
+    mine = "postgresql://u:" + secrets.token_hex(8) + "@direct.example/db"
+    keys.set_key(name, "DATABASE_URL_UNPOOLED", mine)
+    neon(upstream, secrets.token_hex(16), pooler=None)
+    result = keymaker.make(name, ["neon"], who="tester")
+    assert upstream.requests == [] and result["saved"] == {}
+    assert result["problems"]["neon"].startswith("Neon: DATABASE_URL_UNPOOLED is already saved")
+    assert keys.get_value(name, "DATABASE_URL_UNPOOLED") == mine and keys.get_value(name, "DATABASE_URL") in (None, "")
+
+
 def test_neon_proxy_unchanged_and_refuses_making():
     data = tomllib.loads((REPO / "services" / "neon" / "service.toml").read_text())
     assert [(r["method"], r["path"]) for r in data["proxy"]["allow"]] == [

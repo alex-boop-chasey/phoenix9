@@ -65,3 +65,11 @@ path = "/api/v2/projects/*/branches"
 method = "GET"
 path = "/api/v2/projects"
 expect = [200]
+
+# Make: creating a project returns only that new project's connection string; reading other projects' connection strings stays refused.
+[make]
+needs = "create projects"
+key_page = "https://console.neon.tech/app/settings/api-keys"
+[[make.allow]]
+method = "POST"
+path = "/api/v2/projects"

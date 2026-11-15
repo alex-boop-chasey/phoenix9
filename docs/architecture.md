@@ -428,7 +428,11 @@ Makers today: `cloudflare` (token `phoenix-<project>`: Pages Write on the `accou
 the project's non-secret `CLOUDFLARE_ZONE_ID` when set), `sentry` (project slug = project name under the
 `organisation`/`default_team` settings, 409 reuses it; first active key's public DSN), `resend` (sending-only
 key, limited to the from-address domain when Resend has verified it; from-address = project `RESEND_FROM`
-or the `send_from` setting).
+or the `send_from` setting), `neon` (POST `/api/v2/projects` with the `default_region` setting, default
+`aws-ap-southeast-2`, and `org_id` = the `organisation` setting when set; `DATABASE_URL` = pooled URL built from
+`connection_parameters` with `pooler_host`, or the endpoint host plus `-pooler`; `DATABASE_URL_UNPOOLED` = the
+direct `connection_uri`; `NEON_PROJECT_ID`), `openrouter` (key `phoenix-<project>` made with the optional
+`OPENROUTER_MANAGEMENT_KEY`, the `[make].key` that is not an account key; status `ready` needs that key saved).
 
 ### 4.7 Deployer folder: `deployers/<name>/deployer.toml` (+ `deploy.py`)
 

@@ -15,7 +15,8 @@ from phoenix9.ops import common
 from phoenix9.proxy import TOKEN_HEADER
 
 # service name -> module name in phoenix9/keymakers/ (tests may put an object with make(call, ctx) here)
-PROVIDERS: dict = {"cloudflare": "cloudflare", "sentry": "sentry", "resend": "resend"}
+PROVIDERS: dict = {"cloudflare": "cloudflare", "sentry": "sentry", "resend": "resend", "neon": "neon",
+                   "openrouter": "openrouter"}
 TIMEOUT = 20
 LOG_NAME = "proxy-keymaker.jsonl"
 # Pages where a keys-only service's keys are copied by hand (the service.toml website is the fallback).
@@ -59,11 +60,15 @@ def _row(svc: dict, have: dict) -> dict:
     if not missing:
         return {**row, "state": "done", "words": f"All the {title} keys are saved."}
     if svc.get("make") and _provider(svc["name"]) is not None:
+        extra = svc["make"]["key"] not in svc["account_keys"]    # an optional maker key, e.g. a management key
         if _maker_key(svc):
-            return {**row, "state": "ready", "words": f"Phoenix can make {_and(missing)} with your saved {title} key."}
+            which = f"{title} key for making project keys" if extra else f"{title} key"
+            return {**row, "state": "ready", "words": f"Phoenix can make {_and(missing)} with your saved {which}."}
         needs = svc["make"]["needs"] or "make keys"
+        where = f'"Key for making project keys" in Settings > Services > {title}' if extra \
+            else f"Settings > Services > {title}"
         return {**row, "state": "needs-account-key", "link": svc["make"]["key_page"],
-                "words": f"Save a {title} account key that can {needs} in Settings > Services > {title}."}
+                "words": f"Save a {title} {'key' if extra else 'account key'} that can {needs} in {where}."}
     link = MANUAL_LINKS.get(svc["name"]) or svc.get("website", "")
     where = f" from {link}" if link else ""
     words = f"Paste {_and(missing)}{where} into Project > Settings > Keys."

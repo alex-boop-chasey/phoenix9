@@ -14,7 +14,7 @@ retry = "repair"       # repair | restart: after a failed try, keep the work and
 [ai]
 model = "claude-fable-5-1"
 fallback_models = ["claude-opus-5-5"]
-tools = []
+tools = ["Read", "Edit", "Write", "Glob", "Grep", "Bash", "WebFetch", "WebSearch"]   # all of them, listed: it edits code, runs the checks, may read allowed docs sites
 tools_denied = []
 mcp_servers = []
 claude_md = "library"

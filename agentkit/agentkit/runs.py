@@ -1,13 +1,15 @@
 """Server-side runs: a reply is an asyncio task that keeps going with no browser attached."""
 import asyncio
+import base64
+import binascii
 import re
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from pydantic import ValidationError
 
-from . import llm, quote, tools, wire
+from . import attachments as files, llm, quote, tools, wire
 from .spend import SpendRefused
 from .store import Store
 
@@ -32,6 +34,10 @@ SAFE = re.compile(r"[A-Za-z0-9/_.-]{1,80}")
 
 class RunBusy(Exception):
     """Raised when a thread already has a run going."""
+
+
+class BadAttachments(Exception):
+    """Raised when a message names files that are not this thread's, were already sent, or are too many."""
 
 
 class Unknown(Exception):
@@ -92,7 +98,7 @@ class Runs:
         self.ready: set[str] = set()
         self.active: dict[str, asyncio.Task] = {}
         self.history: dict[str, list] = {}
-        self.queue: dict[str, list[tuple[str, str, object]]] = {}
+        self.queue: dict[str, list[tuple[str, str, object, tuple[str, ...]]]] = {}
 
     def _history(self, thread_id: str) -> list:
         """The thread's model history: from memory, else from the store."""
@@ -106,7 +112,22 @@ class Runs:
         context = clean_context(context)
         return context if context and context != self.store.load_context(thread_id) else None
 
-    def start(self, thread_id: str, message: str, context=None) -> dict:
+    def _check_attachments(self, thread_id: str, ids) -> tuple[str, ...]:
+        """The attachment ids, checked: at most five, each a file of this thread that no message has taken yet."""
+        if not ids:
+            return ()
+        if not isinstance(ids, (list, tuple)) or not all(isinstance(i, str) for i in ids):
+            raise BadAttachments(files.NOT_HERE)
+        if len(ids) > files.MAX_PER_MESSAGE:
+            raise BadAttachments(files.TOO_MANY)
+        ids = tuple(dict.fromkeys(ids))
+        for aid in ids:
+            row = self.store.attachment(aid)
+            if row is None or row["thread_id"] != thread_id or row["used"]:
+                raise BadAttachments(files.NOT_HERE)
+        return ids
+
+    def start(self, thread_id: str, message: str, context=None, attachments=None) -> dict:
         """Start a run in the background, or queue the message while a reply is being written; answer at once.
 
         Returns {"run_id", "queued"}. A queued message (at most QUEUE_LIMIT per thread) starts by itself when the
@@ -115,42 +136,50 @@ class Runs:
         Alex's answer to a change refuses new messages.
         `context` is what Alex has open ({page, project, run}); the model alone sees it, as one line before the
         message, and only when it differs from the last one sent in this thread. The chat log keeps his own words.
+        `attachments` are ids of files uploaded to this thread (at most five, none sent before); they are taken
+        at once, so a queued message keeps them and no other message can send them again.
         """
         if self.store.pending_pauses(thread_id):
             raise RunBusy(WAITING)  # only POST /approvals can answer a pause, never a chat message
+        ids = self._check_attachments(thread_id, attachments)
         message = quote.scrub_text(message)
         run_id = wire.new_id()
         if thread_id in self.active or self.queue.get(thread_id):
             waiting = self.queue.setdefault(thread_id, [])
             if len(waiting) >= QUEUE_LIMIT:
                 raise RunBusy(QUEUE_FULL)
-            waiting.append((run_id, message, context))
+            waiting.append((run_id, message, context, ids))
+            self.store.mark_used(ids)
             return {"run_id": run_id, "queued": True}
-        self._begin(thread_id, run_id, message, context)
+        self.store.mark_used(ids)
+        self._begin(thread_id, run_id, message, context, ids)
         return {"run_id": run_id, "queued": False}
 
-    def _begin(self, thread_id: str, run_id: str, message: str, context) -> None:
+    def _begin(self, thread_id: str, run_id: str, message: str, context, attachments: tuple[str, ...] = ()) -> None:
         """Start a reply to one message now: name a new chat after it and work out the context line at this moment."""
         if (thread := self.store.get_thread(thread_id)) and thread["title"] == DEFAULT_TITLE:
-            self.store.set_title(thread_id, message.strip()[:TITLE_LENGTH])
-        self._launch(thread_id, run_id, message, context=self._new_context(thread_id, context))
+            first = self.store.attachment(attachments[0]) if attachments else None
+            title = message.strip() or (first["name"] if first else "")
+            self.store.set_title(thread_id, title[:TITLE_LENGTH] or DEFAULT_TITLE)
+        self._launch(thread_id, run_id, message, context=self._new_context(thread_id, context), attachments=attachments)
 
     def _next_queued(self, thread_id: str) -> None:
         """Start the oldest queued message when the thread is free (no run going, nothing waiting on Alex)."""
         if thread_id in self.active or self.store.pending_pauses(thread_id) or not self.queue.get(thread_id):
             return
-        run_id, message, context = self.queue[thread_id].pop(0)
+        run_id, message, context, ids = self.queue[thread_id].pop(0)
         if not self.queue[thread_id]:
             del self.queue[thread_id]
-        self._begin(thread_id, run_id, message, context)
+        self._begin(thread_id, run_id, message, context, ids)
 
     def queued(self, thread_id: str) -> int:
         """How many messages are waiting for their turn in the thread."""
         return len(self.queue.get(thread_id, []))
 
-    def _launch(self, thread_id: str, run_id: str, message: str | None, results=None, context: dict | None = None) -> None:
+    def _launch(self, thread_id: str, run_id: str, message: str | None, results=None, context: dict | None = None,
+                attachments: tuple[str, ...] = ()) -> None:
         """Run a turn as a background task, tracked as the thread's active run."""
-        task = asyncio.create_task(self._drive(thread_id, run_id, message, results, context))
+        task = asyncio.create_task(self._drive(thread_id, run_id, message, results, context, attachments))
         self.active[thread_id] = task
         task.add_done_callback(lambda _t: self._finished(thread_id))
 
@@ -304,20 +333,34 @@ class Runs:
         for event in events:
             self.store.append_event(thread_id, event)
 
+    def _model_input(self, prompt: str, attached: list[dict]):
+        """The model's input for a message with files: the text, then each picture or PDF as bytes, each text file quoted."""
+        parts: list = [prompt]
+        for f in attached:
+            if f["mime"] in files.TEXTS:
+                parts.append(files.text_block(f["name"], f["data"]))
+            else:
+                parts.append(llm.file_part(f["data"], f["mime"], f["id"]))
+        return parts
+
     async def _drive(self, thread_id: str, run_id: str, message: str | None, results=None,
-                     context: dict | None = None) -> None:
+                     context: dict | None = None, attachments: tuple[str, ...] = ()) -> None:
         """Run one turn and log its events; always ends with RUN_FINISHED or RUN_ERROR (unless paused).
 
         The chat log shows `message` as Alex wrote it; the model gets the context line before it when one is given,
-        and the context counts as told once the turn's history is saved.
+        and the context counts as told once the turn's history is saved. Attached files go to the model in this
+        turn only: the saved history keeps a short placeholder where each one was, never the file.
         """
-        prompt = f"{context_line(context)}\n{message}" if context and message is not None else message
+        attached = [f for f in (self.store.attachment(a) for a in attachments) if f]
+        said = message if message is None or message.strip() or not attached else files.SEE_FILES
+        prompt = f"{context_line(context)}\n{said}" if context and said is not None else said
+        model_input = self._model_input(prompt, attached) if attached else prompt
         msg_id, text_open, paused, offered = wire.new_id(), False, False, None
         self._log(thread_id, wire.run_started(thread_id, run_id))
         if message is not None:
-            self._log(thread_id, wire.user_message(wire.new_id(), message))
+            self._log(thread_id, wire.user_message(wire.new_id(), message, attached))
         try:
-            async for item in llm.run_turn(self.agent, prompt, self._history(thread_id), results):
+            async for item in llm.run_turn(self.agent, model_input, self._history(thread_id), results):
                 if item[0] == "text":
                     if not text_open:
                         self._log(thread_id, wire.text_start(msg_id))
@@ -331,8 +374,9 @@ class Runs:
                     elif card:
                         self._log(thread_id, wire.component(call_id, card["component"], card["data"]))
                 elif item[0] == "done":
-                    self.history[thread_id] = item[1]
-                    self.store.save_history(thread_id, llm.dump_messages(item[1]))
+                    messages = llm.forget_files(item[1], attached, model_input) if attached else item[1]
+                    self.history[thread_id] = messages
+                    self.store.save_history(thread_id, llm.dump_messages(messages))
                     if context:
                         self.store.save_context(thread_id, context)
                     for call in item[3]:
@@ -414,12 +458,17 @@ def start_route(runs: Runs, denied):
         except ValueError:
             body = None
         message = body.get("message") if isinstance(body, dict) else None
-        if not isinstance(message, str) or not message.strip():
+        attached = body.get("attachments") if isinstance(body, dict) else None
+        if attached and message is None:
+            message = ""
+        if not isinstance(message, str) or not (message.strip() or attached):
             return JSONResponse({"error": "message is required"}, status_code=400)
         try:
-            started = runs.start(thread_id, message, context=body.get("context"))
+            started = runs.start(thread_id, message, context=body.get("context"), attachments=attached)
         except RunBusy as e:
             return JSONResponse({"error": str(e)}, status_code=409)
+        except BadAttachments as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
         runs.store.mark_seen(thread_id)  # Alex wrote it, so he has seen the chat up to here
         return JSONResponse(started, status_code=202)
 
@@ -616,3 +665,60 @@ def browser_route(runs: Runs, denied):
         return JSONResponse({"accepted": True}, status_code=202)
 
     return answer
+
+
+def upload_route(runs: Runs, denied):
+    """Make the POST /threads/{id}/attachments handler: keep one file ({name, mime, data_base64}) for a later message."""
+
+    async def upload(request: Request):
+        """Check and keep one file; answer {id, name, mime, size}, or 400 with the plain refusal."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        thread_id = request.path_params["id"]
+        if runs.store.get_thread(thread_id) is None:
+            return JSONResponse({"error": "no such thread"}, status_code=404)
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        raw = body.get("data_base64") if isinstance(body, dict) else None
+        if not isinstance(raw, str) or not isinstance(body.get("name"), str):
+            return JSONResponse({"error": "name and data_base64 are required"}, status_code=400)
+        if len(raw) > (files.MAX_FILE // 3 + 1) * 4 + 4:
+            return JSONResponse({"error": files.TOO_BIG}, status_code=400)
+        try:
+            data = base64.b64decode(raw, validate=True)
+        except (binascii.Error, ValueError):
+            return JSONResponse({"error": "The file could not be read. Attach it again."}, status_code=400)
+        name = files.clean_name(body["name"])
+        mime = body.get("mime") if isinstance(body.get("mime"), str) else ""
+        refusal = files.check(name, mime, data)
+        if refusal is None and runs.store.thread_attachments_size(thread_id) + len(data) > files.MAX_PER_THREAD:
+            refusal = files.THREAD_FULL
+        if refusal is not None:
+            return JSONResponse({"error": refusal}, status_code=400)
+        kept = runs.store.add_attachment(thread_id, name, files.real_type(name, mime, data), data)
+        return JSONResponse(kept, status_code=201)
+
+    return upload
+
+
+def attachment_route(runs: Runs, denied):
+    """Make the GET /threads/{id}/attachments/{aid} handler: the file's bytes with its type, for this thread only."""
+
+    async def read(request: Request):
+        """Send one attached file: pictures shown inline, everything else as a download, never sniffed."""
+        if denied(request):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        row = runs.store.attachment(request.path_params["aid"])
+        if row is None or row["thread_id"] != request.path_params["id"]:
+            return JSONResponse({"error": "no such file"}, status_code=404)
+        how = "inline" if row["mime"] in files.IMAGES else "attachment"
+        headers = {
+            "X-Content-Type-Options": "nosniff",
+            "Content-Disposition": f'{how}; filename="{row["name"]}"',
+            "Cache-Control": "private, max-age=3600",
+        }
+        return Response(row["data"], media_type=row["mime"], headers=headers)
+
+    return read

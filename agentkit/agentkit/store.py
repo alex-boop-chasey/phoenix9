@@ -1,4 +1,4 @@
-"""Conversation store: threads, event logs, pending pauses, hand-offs and usage records in SQLite."""
+"""Conversation store: threads, event logs, pending pauses, hand-offs, attached files and usage records in SQLite."""
 from __future__ import annotations
 
 import json
@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, model TEXT NOT NULL,
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
     cache_read_tokens INTEGER NOT NULL, cache_write_tokens INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY, thread_id TEXT REFERENCES threads(id), name TEXT, mime TEXT, size INTEGER,
+    data BLOB, created REAL, used INTEGER DEFAULT 0);
 """
 
 
@@ -218,6 +221,33 @@ class Store:
         rows = self._read("SELECT gate_id, project, run_id, task FROM handoffs WHERE thread_id=? "
                           "ORDER BY created, rowid LIMIT 1", (thread_id,))
         return dict(rows[0]) if rows else None
+
+    # attached files (the bytes are kept raw here and never go into events or histories)
+    def add_attachment(self, thread_id: str, name: str, mime: str, data: bytes) -> dict:
+        """Keep one file Alex attached in a thread and return its {id, name, mime, size} (never the bytes)."""
+        aid, name = uuid.uuid4().hex, quote.scrub_text(name)
+        self._write(lambda db: db.execute(
+            "INSERT INTO attachments (id, thread_id, name, mime, size, data, created, used) VALUES (?,?,?,?,?,?,?,0)",
+            (aid, thread_id, name, mime, len(data), sqlite3.Binary(data), time.time())))
+        return {"id": aid, "name": name, "mime": mime, "size": len(data)}
+
+    def attachment(self, attachment_id: str) -> dict | None:
+        """Return one attached file with its bytes ({id, thread_id, name, mime, size, data, created, used}), or None."""
+        rows = self._read("SELECT * FROM attachments WHERE id=?", (attachment_id,))
+        if not rows:
+            return None
+        out = dict(rows[0])
+        out["data"], out["used"] = bytes(out["data"]), bool(out["used"])
+        return out
+
+    def thread_attachments_size(self, thread_id: str) -> int:
+        """How many bytes of files a thread holds."""
+        rows = self._read("SELECT COALESCE(SUM(size),0) AS total FROM attachments WHERE thread_id=?", (thread_id,))
+        return int(rows[0]["total"])
+
+    def mark_used(self, ids) -> None:
+        """Remember that these files went with a message, so they can't be sent again."""
+        self._write(lambda db: db.executemany("UPDATE attachments SET used=1 WHERE id=?", [(i,) for i in ids]))
 
     @staticmethod
     def _pause(row: sqlite3.Row) -> dict:

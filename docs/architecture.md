@@ -1072,7 +1072,7 @@ owned by the agent user, put there by Alex), `token` (the shared token, root:pho
 `agentkit.db` (SQLite) and `venv/`. The code runs from the installed copy `/opt/phoenix9/agentkit`. Every request
 needs `Authorization: Bearer <token>`, else 401. Routes: `GET /status`, `GET|POST /threads`, `GET /threads/{id}`,
 `POST /threads/{id}/runs`, `GET /threads/{id}/stream?after=N`, `POST /threads/{id}/stop`, `POST /threads/{id}/seen`,
-`POST /approvals/{id}`, `POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`, `POST /handoffs/outcome`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
+`POST /threads/{id}/attachments`, `GET /threads/{id}/attachments/{aid}`, `POST /approvals/{id}`, `POST /browser-results/{id}`, `GET /spend`, `POST /handoffs`, `POST /handoffs/outcome`. Its tools are exactly the pack's list plus `suggest_next_actions`; it
 has no shell, no file tools and no way to run a `phoenix` command.
 A message sent while a reply is being written waits in a per-thread queue (at most five; `POST /threads/{id}/runs`
 answers 202 `{run_id, queued: true}`, a sixth is refused with 409) and starts when the reply ends, in order; it is
@@ -1093,6 +1093,16 @@ own (Alex's hand-off rule): ..."; every other call keeps its card. `POST /handof
 adds one `note` line from Phoenix to the hand-off thread with no model run. `GET /threads` rows carry `unread`
 (changed since Alex last saw it): a hand-off thread starts unread, sending a message or watching a reply to its end
 marks a thread seen, and so does `POST /threads/{id}/seen`.
+Attachments (`agentkit/agentkit/attachments.py`): `POST /threads/{id}/attachments` takes `{name, mime, data_base64}`
+and answers 201 `{id, name, mime, size}` or 400 with a plain refusal. Pictures (PNG, JPEG, WebP, GIF) and PDF are typed
+by the bytes' signature (a PNG named .pdf is kept as a PNG); text is text/plain, markdown, csv, json and .yaml .yml .toml
+.log by name, must be UTF-8 and is refused when it holds a key-shaped string. At most 10 MB a file, 5 per message, 50 MB
+per thread. The bytes live only in the `attachments` table (raw, not scrubbed); `GET .../attachments/{aid}` returns them
+with `nosniff`, inline for pictures and as a download otherwise. `POST /threads/{id}/runs` takes `attachments: [ids]`
+(this thread's, not sent before; taken at once, also when queued) and then allows an empty message. The model gets the
+text, each picture or PDF as binary content and each text file as a quoted block (scrubbed, cut at 50,000 characters);
+the `user_message` event carries only `{id, name, mime, size}`, and the saved history keeps
+`[attached earlier: <name>]` in place of each file, so the model sees a file only in its own turn.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.

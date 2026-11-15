@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from pydantic_ai import (
     Agent,
     AgentRunResultEvent,
+    BinaryContent,
     DeferredToolRequests,
     DeferredToolResults,
     FunctionToolResultEvent,
@@ -18,12 +19,13 @@ from pydantic_ai import (
     ToolDenied,
     ToolReturn,
 )
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import ExternalToolset, FunctionToolset
 
 from pydantic_ai.models.wrapper import WrapperModel
 
-from . import suggest, tools
+from . import attachments, suggest, tools
 from .pack import Pack
 from .spend import Meter
 
@@ -80,6 +82,36 @@ def load_messages(text: str) -> list:
     from pydantic_ai.messages import ModelMessagesTypeAdapter
 
     return ModelMessagesTypeAdapter.validate_json(text)
+
+
+def file_part(data: bytes, mime: str, file_id: str) -> BinaryContent:
+    """A picture or PDF for the model, tagged with its attachment id so it can be taken out of the history later."""
+    return BinaryContent(data=data, media_type=mime, identifier=file_id)
+
+
+def forget_files(messages: list, attached: list[dict], sent: list) -> list:
+    """The history with every attached file swapped for "[attached earlier: <name>]" (bytes and quoted text alike).
+
+    `sent` is the input the model got: the prompt text, then one piece per file of `attached`, in order.
+    """
+    names = {f["id"]: f["name"] for f in attached}
+    blocks = {piece: f["name"] for piece, f in zip(sent[1:], attached) if isinstance(piece, str)}
+    for message in messages:
+        if not isinstance(message, ModelRequest):
+            continue
+        for part in message.parts:
+            if isinstance(part, UserPromptPart) and isinstance(part.content, list):
+                part.content = [_placeholder(item, names, blocks) for item in part.content]
+    return messages
+
+
+def _placeholder(item, names: dict, blocks: dict):
+    """One piece of a prompt: a file becomes its placeholder text, anything else stays as it is."""
+    if isinstance(item, BinaryContent):
+        return attachments.placeholder(names.get(item.identifier, "a file"))
+    if isinstance(item, str) and item in blocks:
+        return attachments.placeholder(blocks[item])
+    return item
 
 
 def refusal(message: str) -> ToolDenied:

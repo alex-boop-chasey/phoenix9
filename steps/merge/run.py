@@ -42,14 +42,14 @@ def _code_state(ctx):
     return on_main, clean
 
 
-def _host_git(ctx, *args):
+def _host_git(ctx, *args, what=None):
     """Run a git command that talks to the network, through the host adapter (safe flags kept)."""
-    return ctx.adapters.host.run(["git", *gitmod.SAFE, "-C", str(ctx.project.code_dir), *args])
+    return ctx.adapters.host.run(["git", *gitmod.SAFE, "-C", str(ctx.project.code_dir), *args], what=what)
 
 
 def _push(ctx, *refs):
     """Push refs to origin once; raise MergeError with a plain reason when it fails."""
-    rc, out, err = _host_git(ctx, "push", "origin", *refs)
+    rc, out, err = _host_git(ctx, "push", "origin", *refs, what="Pushing the build's branch to GitHub")
     if rc != 0:
         if "could not read Username" in f"{err}\n{out}":
             raise MergeError(NO_LOGIN)
@@ -191,7 +191,7 @@ def _tidy(ctx, branch, pushed) -> list:
     except Exception as err:
         notes.append(f"merged, but the branch {branch} was not deleted here: {_first_line(str(err))}")
     if pushed:
-        rc, out, err = _host_git(ctx, "push", "origin", "--delete", branch)
+        rc, out, err = _host_git(ctx, "push", "origin", "--delete", branch, what="Deleting the build's branch on GitHub")
         if rc != 0:
             notes.append(f"merged, but the branch {branch} was not deleted on GitHub: {_first_line(err or out)}")
     return notes
@@ -218,7 +218,7 @@ def _open_request(ctx, branch) -> str:
             "--head", branch, "--title", _title(ctx)]
     if summary.is_file():
         argv += ["--body-file", str(summary)]
-    rc, out, err = ctx.adapters.host.gh(*argv)
+    rc, out, err = ctx.adapters.host.gh(*argv, what="Opening the build's merge request")
     url = _url_in(out)
     if rc != 0 or not url:
         raise MergeError(f"GitHub refused the merge request: {_first_line(err or out)}")
@@ -252,7 +252,8 @@ def _sent_back(ctx) -> StepResult:
     (ctx.run.folder / NOTE_FILE).write_text(f"# Merge sent back\n\n{note}\n")
     mr = ctx.run.folder / MR_FILE
     if mr.is_file():
-        rc, out, err = ctx.adapters.host.gh("pr", "comment", mr.read_text().strip(), "--body", f"Sent back: {note}")
+        rc, out, err = ctx.adapters.host.gh("pr", "comment", mr.read_text().strip(), "--body", f"Sent back: {note}",
+                                            what="Commenting on the build's merge request")
         if rc != 0:
             return StepResult("fail", [f"GitHub refused the comment: {_first_line(err or out)}"])
     return StepResult("pass", [f"sent back: {note}"])
@@ -354,7 +355,7 @@ def _approved(ctx) -> dict:
         sha = _local_merge(ctx, branch)
         notes = _tidy(ctx, branch, False)
         return _remember_merged(ctx, {"merged": sha, **({"note": "; ".join(notes)} if notes else {})})
-    rc, out, err = ctx.adapters.host.gh("pr", "merge", mr.read_text().strip(), "--merge")
+    rc, out, err = ctx.adapters.host.gh("pr", "merge", mr.read_text().strip(), "--merge", what="Merging the build's merge request")
     if rc != 0:
         raise MergeError(f"GitHub refused the merge: {_first_line(err or out)}")
     extra = {}
@@ -372,7 +373,8 @@ def _approved(ctx) -> dict:
 
 def _release_after_ask(ctx, url, extra) -> dict:
     """Tag the merge commit GitHub reports for the merged request; a failure only adds a note."""
-    rc, out, err = ctx.adapters.host.gh("pr", "view", url, "--json", "mergeCommit", "--jq", ".mergeCommit.oid")
+    rc, out, err = ctx.adapters.host.gh("pr", "view", url, "--json", "mergeCommit", "--jq", ".mergeCommit.oid",
+                                        what="Reading the merge commit on GitHub")
     sha = out.strip()
     if rc != 0 or not re.fullmatch(r"[0-9a-f]{40}", sha):
         ctx.adapters.notify.send("Phoenix 9 was merged but not tagged: run `phoenix update release`")

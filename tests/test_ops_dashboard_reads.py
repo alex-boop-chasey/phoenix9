@@ -132,7 +132,7 @@ def test_keys_rows_records_no_command(env):
 def test_github_not_connected_when_gh_auth_fails(env):
     env["host"].script(["gh", "auth", "status"], rc=1, err="not logged in")
     assert github.status() == {"connected": False, "accounts": []}
-    assert github.repos() == {"connected": False, "repos": []}
+    assert github.repos() == {"connected": False, "repos": [], "problems": []}
 
 
 def test_github_repos_lists_each_account(env):

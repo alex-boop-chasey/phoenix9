@@ -3,7 +3,7 @@ import json
 import secrets
 from pathlib import Path
 
-from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, resolve, runs as core, scrub, settings, spec, state
+from phoenix9 import atomic, docker, events as events_core, gates as gates_core, paths, proc, resolve, runs as core, scrub, settings, spec, state
 from phoenix9 import edits as edits_core, tries as tries_core
 from phoenix9 import pause as pause_core, runend, spec as spec_core, status as status_core
 from phoenix9.ops import common
@@ -517,21 +517,26 @@ class WouldLoseWork(common.Conflict):
         self.lost = lost
 
 
-def _open_merge_request(adapters, folder: Path) -> str | None:
-    """The run's merge request URL while it may still be open (an unknown state counts as open), else None."""
+MR_STATE_WHAT = "Reading the build's merge request on GitHub"
+
+
+def _open_merge_request(adapters, folder: Path) -> tuple[str | None, str]:
+    """The run's merge request URL while it may still be open (an unknown state counts as open), else None;
+    plus why GitHub did not answer ("" when it did)."""
     mr = folder / "merge-request.txt"
     if not mr.is_file():
-        return None
+        return None, ""
     url = mr.read_text(encoding="utf-8", errors="replace").strip()
     if not url:
-        return None
+        return None, ""
     try:
-        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state")
+        result = adapters.host.gh("pr", "view", url, "--json", "state", "--jq", ".state", what=MR_STATE_WHAT)
     except Exception:   # noqa: BLE001 - no answer means we cannot prove it is closed
-        rc, out = 1, ""
+        return url, ""
+    rc, out, _ = result
     if rc == 0 and out.strip().upper() in ("MERGED", "CLOSED"):
-        return None
-    return url
+        return None, ""
+    return url, (proc.failure_text(MR_STATE_WHAT, result) if rc != 0 else "")
 
 
 def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
@@ -555,9 +560,10 @@ def _commits_not_on_main(adapters, project: str, run_id: str) -> int:
 def would_lose(adapters, folder: Path, project: str, run_id: str) -> list[str]:
     """What discarding this run would throw away, in plain words (empty when nothing unmerged would be lost)."""
     lost = []
-    url = _open_merge_request(adapters, folder)
+    url, why = _open_merge_request(adapters, folder)
     if url:
-        lost.append(f"its merge request {url} is still open (deleting the branch closes it)")
+        lost.append(f"its merge request {url} is still open (deleting the branch closes it)"
+                    + (f"; GitHub did not answer: {why}" if why else ""))
     count = _commits_not_on_main(adapters, project, run_id)
     if count:
         lost.append(f"its branch has {count} commit{'s' if count != 1 else ''} that main doesn't have")
@@ -602,15 +608,19 @@ def discard(run_id: str, who: str = "cli", project: str | None = None, force: bo
     return {"run_id": run_id, "status": st["status"], "discarded": True, "notes": notes}
 
 
-def _merged_head(adapters, url: str) -> tuple[str, str]:
-    """GitHub's state of a merge request and the branch commit it merged ("", "" when GitHub does not answer)."""
+def _merged_head(adapters, url: str) -> tuple[str, str, str]:
+    """GitHub's state of a merge request, the branch commit it merged ("", "" when GitHub does not answer) and why
+    GitHub did not answer ("" when it did)."""
     try:
-        rc, out, _ = adapters.host.gh("pr", "view", url, "--json", "state,headRefOid",
-                                      "--jq", '.state + " " + .headRefOid')
+        result = adapters.host.gh("pr", "view", url, "--json", "state,headRefOid",
+                                  "--jq", '.state + " " + .headRefOid', what=MR_STATE_WHAT)
     except Exception:   # noqa: BLE001 - no answer means we cannot prove it is merged
-        return "", ""
-    words = out.split() if rc == 0 else []
-    return (words[0].upper() if words else ""), (words[1] if len(words) > 1 else "")
+        return "", "", ""
+    rc, out, _ = result
+    if rc != 0:
+        return "", "", proc.failure_text(MR_STATE_WHAT, result)
+    words = out.split()
+    return (words[0].upper() if words else ""), (words[1] if len(words) > 1 else ""), ""
 
 
 def _branch_beyond(project: str, run_id: str, head: str) -> bool:
@@ -645,13 +655,13 @@ def _tidy_refusal(adapters, folder: Path, st: dict, who: str) -> tuple[str, str]
     url = mr.read_text(encoding="utf-8", errors="replace").strip() if mr.is_file() else ""
     if not url:
         return "it has no merge request", ""
-    found, head = _merged_head(adapters, url)
+    found, head, why = _merged_head(adapters, url)
     if found == "OPEN":
         return f"its merge request {url} is still open", ""
     if found == "CLOSED":
         return f"its merge request {url} was closed without merging", ""
     if found != "MERGED":
-        return f"GitHub did not say whether its merge request {url} was merged", ""
+        return (f"GitHub did not say whether its merge request {url} was merged" + (f" ({why})" if why else "")), ""
     if not head:
         return f"GitHub did not say which commit its merge request {url} merged", ""
     if _branch_beyond(project, run_id, head):

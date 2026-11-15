@@ -3,7 +3,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import atomic, events, git as git_mod, paths, refsnapshot, spec as spec_mod, state
+from . import atomic, events, git as git_mod, paths, proc, refsnapshot, spec as spec_mod, state
 
 
 def slugify(text: str, limit: int = 30) -> str:
@@ -123,9 +123,11 @@ def discard_branch(adapters, project: str, run_id: str) -> list[str]:
             git.remove_worktree(code, work)
         git.git(code, "branch", "-D", branch, check=False)
         if git.remote_url(code) and git.git(code, "rev-parse", "-q", "--verify", f"refs/remotes/origin/{branch}", check=False).strip():
-            rc, out, err = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch], timeout=120)
-            if rc != 0:
-                notes.append(f"the branch {branch} was not deleted on GitHub")
+            what = "Deleting the build's branch on GitHub"
+            result = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
+                                       timeout=120, what=what)
+            if result[0] != 0:
+                notes.append(f"the branch {branch} was not deleted on GitHub ({proc.failure_text(what, result)})")
     except Exception as err:
         notes.append(f"the run's branch was not cleaned up: {err}")
     return notes
@@ -149,20 +151,25 @@ def tidy_branch(adapters, project: str, run_id: str, merged_head: str) -> tuple[
             git.git(code, "branch", "-D", branch, check=False)
             removed.append("local branch")
         if git.remote_url(code):
-            rc, out, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "ls-remote", "--heads", "origin",
-                                            f"refs/heads/{branch}"], timeout=120)
+            what = "Asking GitHub whether the build's branch is still there"
+            result = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "ls-remote", "--heads", "origin",
+                                        f"refs/heads/{branch}"], timeout=120, what=what)
+            rc, out, _ = result
             tip = out.split()[0] if rc == 0 and out.strip() else ""
             if rc != 0:
-                notes.append(f"GitHub did not say whether the branch {branch} is still there, so it was left alone")
+                notes.append(f"GitHub did not say whether the branch {branch} is still there, so it was left alone "
+                             f"({proc.failure_text(what, result)})")
             elif tip and tip != merged_head:
                 notes.append(f"the branch {branch} on GitHub has commits added after the merge, so it was kept")
             elif tip:
-                rc, _, _ = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
-                                             timeout=120)
+                what = "Deleting the build's branch on GitHub"
+                deleted = adapters.host.run(["git", *git_mod.SAFE, "-C", str(code), "push", "origin", "--delete", branch],
+                                            timeout=120, what=what)
+                rc = deleted[0]
                 if rc == 0:
                     removed.append("GitHub branch")
                 else:
-                    notes.append(f"the branch {branch} was not deleted on GitHub")
+                    notes.append(f"the branch {branch} was not deleted on GitHub ({proc.failure_text(what, deleted)})")
             if rc == 0 and not tip:
                 git.git(code, "branch", "-D", "-r", f"origin/{branch}", check=False)
     except Exception as err:

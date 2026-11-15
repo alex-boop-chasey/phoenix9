@@ -94,7 +94,8 @@ def _pr_diff(folder) -> str:
     mr = folder / "merge-request.txt"
     if not mr.is_file():
         return ""
-    rc, out, _ = common.make_adapters().host.gh("pr", "diff", mr.read_text().strip())
+    rc, out, _ = common.make_adapters().host.gh("pr", "diff", mr.read_text().strip(),
+                                                  what="Reading the merge request's changes on GitHub")
     return out if rc == 0 else ""
 
 

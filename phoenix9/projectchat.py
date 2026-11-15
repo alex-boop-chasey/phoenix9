@@ -222,6 +222,11 @@ def _answer(current: dict, message: str, woke: bool, fresh: bool) -> dict:
             "bridge_session_id": current["bridge_session_id"], "message": message, "woke": woke, "fresh": fresh}
 
 
+def _with(message: str, problem: str | None) -> str:
+    """The message, followed by the plain reason a systemd step failed (when one did)."""
+    return f"{message} ({problem})" if problem else message
+
+
 def _saved_id(project: str) -> str | None:
     """The conversation id the chat document holds, or None."""
     fields, _ = read_chat_doc(project)
@@ -234,13 +239,14 @@ def open_(project: str, adapters, who: str = "cli") -> dict:
     if current["state"] in LIVE:
         return _answer(current, AWAKE_WORDS, woke=False, fresh=False)
     before, saved = current["state"], _saved_id(project)
+    problem = None
     if chat.unit_state(adapters.host, project) not in ("active", "activating"):
-        chat.start_unit(adapters.host, project)
+        problem = chat.start_unit(adapters.host, project)
     current = _wait_ready(project, adapters, settings.chat_settings()["start_wait_seconds"])
     # Only a brand-new conversation gets the notes message; a woken one already knows where things stand.
     fresh = before == "none" or current["bridge_session_id"] != saved
     note = _prime(project, adapters, who) if fresh else None
-    return _answer(current, note or AWAKE_WORDS, woke=True, fresh=fresh)
+    return _answer(current, _with(note or AWAKE_WORDS, problem), woke=True, fresh=fresh)
 
 
 WRAP_UP_TEXT = "Wrap up: write a short summary of this conversation into notes/NOW.md and notes/sessions/"
@@ -283,17 +289,17 @@ def sleep(project: str, adapters, who: str = "cli", wrap_up: bool = True) -> dic
             _wait_not_busy(project, adapters, settings.chat_settings()["wrap_up_minutes"] * 60)
         except chatlink.SendError:
             pass
-    chat.stop_unit(host, project)
+    problem = chat.stop_unit(host, project)
     _touch_doc(project, time.time())
-    return {"state": "asleep", "changed": True, "message": ASLEEP_WORDS}
+    return {"state": "asleep", "changed": True, "message": _with(ASLEEP_WORDS, problem)}
 
 
 def forget(project: str, adapters, who: str = "cli") -> dict:
     """Stop the chat unit and set the saved chat aside (chat.md becomes chat.old.md); {state, changed, message}."""
-    chat.stop_unit(adapters.host, project)
+    problem = chat.stop_unit(adapters.host, project)
     path = doc_path(project)
     if path.exists():
         os.replace(path, path.with_name("chat.old.md"))
     return {"state": "none", "changed": True,
-            "message": "The saved chat is forgotten. Press Chat to start a fresh one."}
+            "message": _with("The saved chat is forgotten. Press Chat to start a fresh one.", problem)}
 

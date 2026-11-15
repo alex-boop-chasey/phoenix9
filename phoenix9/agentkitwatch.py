@@ -102,7 +102,7 @@ def check_once(adapters) -> str:
                 adapters.notify.send(scrub.scrub(GIVE_UP))
                 did = "gave up restarting the agent service"
             else:
-                rc, _, err = adapters.host.systemctl("restart", UNIT)
+                rc, _, err = adapters.host.systemctl("restart", UNIT, what="Restarting the agent service")
                 mem["last_restart"], mem["bad"] = now, 0
                 mem["restarts"] += 1
                 if rc == 0:

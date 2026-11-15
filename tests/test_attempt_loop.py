@@ -489,7 +489,7 @@ def test_discard_deletes_a_pushed_branch_on_the_remote(tmp_path, runner, adapter
     branch = f"phoenix/{run_dir.name}"
     git(code, "branch", branch)
     git(code, "push", "-q", "origin", branch)
-    adapters.host = type("H", (), {"run": lambda self, argv, timeout=60: (lambda p: (p.returncode, p.stdout, p.stderr))(
+    adapters.host = type("H", (), {"run": lambda self, argv, timeout=60, **kw: (lambda p: (p.returncode, p.stdout, p.stderr))(
         subprocess.run(argv, capture_output=True, text=True))})()
     assert runs.discard_branch(adapters, "proj", run_dir.name) == []
     assert git(origin, "branch", "--list", branch).strip() == ""

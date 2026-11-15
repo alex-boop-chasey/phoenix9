@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import re
 
+from phoenix9 import proc, scrub
+
 
 def chat_unit(project: str) -> str:
     """The systemd unit that holds a project's chat connection; refuses any name that is not a listed project."""
@@ -34,18 +36,24 @@ def unit_main_pid(host, project: str) -> int | None:
     return pid or None
 
 
-def start_unit(host, project: str) -> None:
+DISABLE_WHAT = "Switching off the chat's start with the server"
+
+
+def start_unit(host, project: str) -> str | None:
     """Start (never enable) the project's chat unit, so a server reboot wakes no chat; a leftover enable is
-    removed first. A plain NotReady-style error when systemd refuses."""
-    unit = chat_unit(project)
+    removed first. A plain NotReady-style error when systemd refuses; returns the plain reason when only
+    removing the leftover enable failed, else None."""
+    unit, note = chat_unit(project), None
     _, enabled, _ = host.systemctl("is-enabled", unit)
     if enabled.strip() == "enabled":
-        host.systemctl("disable", unit)
-    rc, _out, err = host.systemctl("start", unit)
+        result = host.systemctl("disable", unit, what=DISABLE_WHAT)
+        note = proc.failure_text(DISABLE_WHAT, result) if result[0] != 0 else None
+    rc, _out, err = host.systemctl("start", unit, what="Starting the project's chat")
     if rc != 0:
         from phoenix9.projectchat import NotReady
-        first = (err or "").strip().splitlines()[0] if (err or "").strip() else "systemctl exit %d" % rc
+        first = scrub.scrub((err or "").strip().splitlines()[0]) if (err or "").strip() else "systemctl exit %d" % rc
         raise NotReady("Phoenix couldn't start the chat service %s: %s" % (unit, first))
+    return note
 
 
 UNIT_PREFIX = "claude-rc-chat@"
@@ -82,15 +90,17 @@ def stop_stray(host, name: str) -> None:
     if name in project_mod.project_names():
         raise ValueError(f"{name} is a listed project; use `phoenix chat sleep {name}` instead")
     unit = UNIT_PREFIX + name
-    for args in (("stop", unit), ("disable", unit)):
-        rc, out, err = host.systemctl(*args)
+    for args, what in ((("stop", unit), "Stopping a leftover chat"), (("disable", unit), "Switching off a leftover chat")):
+        rc, out, err = host.systemctl(*args, what=what)
         if rc != 0:
             raise RuntimeError(f"systemctl {args[0]} {unit} failed: {(err or out).strip()[:200]}")
 
 
-def stop_unit(host, project: str) -> None:
-    """Disable and stop the project's chat unit."""
-    host.systemctl("disable", "--now", chat_unit(project))
+def stop_unit(host, project: str) -> str | None:
+    """Disable and stop the project's chat unit; returns the plain reason when systemd refused, else None."""
+    what = "Stopping the project's chat"
+    result = host.systemctl("disable", "--now", chat_unit(project), what=what)
+    return proc.failure_text(what, result) if result[0] != 0 else None
 
 
 def stop_conversation(host, project: str, pid: int) -> None:

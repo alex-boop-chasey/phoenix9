@@ -63,6 +63,7 @@ phoenix9/                      the Python package
   runs.py                      run folders, run ids, queue (section 7)
   state.py                     state.json read/update
   events.py                    events.jsonl append/read/tail (section 8)
+  proc.py                      the one place that starts outside programs; command.failed records (section 8)
   gates.py                     gate files and answers (section 8)
   status.py                    what a project is doing now, worked out once (section 8, "One truth")
   runend.py                    how a run ends: run lock, stop request, end_run (section 7)
@@ -752,7 +753,8 @@ preset is given for the run (`phoenix run start --preset`, or the wizard's own c
   "step": name|null, "data": {...}}`. Written to the run's `events.jsonl` and to HOME/events.jsonl.
   Types: `run.queued run.started run.finished run.step.started run.step.finished task.started
   task.finished gate.opened gate.answered project.created project.changed settings.changed
-  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command`.
+  update.started update.installed update.safety_files_added update.safety_files_skipped update.failed update.rolledback deploy.finished run.held run.discarded run.tidied repair.applied repair.unlock run.note run.paused run.resumed run.pause.dropped edit.started edit.finished edit.abandoned edit.stalled reference.snapshot command command.failed`.
+  `command.failed {what, program, exit_code, stderr_tail}` comes from `phoenix9/proc.py` when an outside program run for a real action (one given a plain `what` label) fails; `program` is the program and its first word only (e.g. `git push`), never other arguments; `stderr_tail` is scrubbed; project/run/task/step come from the runner's `proc.context`.
   `reference.snapshot {files, links}` is written when a run is made and the project has reference material (frozen copy in the run's `reference/`, mounted read-only at `/phoenix/reference` for the planner, builder and reviewer only).
   `update.safety_files_skipped {path, why}` comes from `phoenix update after-install` (nothing was written).
   `edit.started|finished|abandoned|stalled {edit, branch, who?, title?, pr?}` (project set, run null) come from `phoenix edit`.
@@ -1185,8 +1187,8 @@ and must still be filled in before the agent runs.
 | `clock` | time.time / sleep | manual clock |
 | `notify` | Telegram: write `/srv/phoenix-inbox/jobs/notify.msg` (phoenix-notify.path sends it) | list of messages |
 | `proxy` | `Proxy.start(spec, key, *, log_path, step, bind)` starts the per-step key proxy (`proxy.serve`, section 14) and returns its handle | `FakeProxyFactory`: forwards nothing and listens nowhere; records `(service, rules, step, bind, key_len, key_seen)` (never the key), returns a handle with `url = http://proxy.fake/<service>`, a fixed token and a recorded `stop()`; `.started`, `.stopped`, `.running()`. Tests script `FakeHttp` at that url |
-`phoenix9/adapters.py` builds the real set; tests build the fake set. Nothing else in the code calls
-`subprocess` for these tools directly.
+`phoenix9/adapters.py` builds the real set; tests build the fake set. Every outside program is started through
+`phoenix9/proc.py` (`run`, `popen`), the only module that imports `subprocess` (`tests/test_command_guard.py`).
 
 ## 9.5 Deleting a project (`phoenix9/project_delete.py`, a safety file)
 

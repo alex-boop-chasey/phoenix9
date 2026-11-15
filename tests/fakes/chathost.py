@@ -18,7 +18,7 @@ class ChatHost(FakeHost):
         self.mode, self.folder, self.unit, self.bridge = mode, folder, "inactive", BRIDGE
         self.files[str(claude_json)] = json.dumps({"projects": {}})
 
-    def systemctl(self, *args):
+    def systemctl(self, *args, what=None):
         self.calls.append(["systemctl", *args])
         if args[0] == "is-active":
             return (0 if self.unit == "active" else 3), self.unit + "\n", ""

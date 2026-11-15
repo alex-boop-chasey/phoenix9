@@ -12,11 +12,13 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
+
+from phoenix9 import proc
+from phoenix9.scrub import scrub
 
 # ported from reference/v8/phoenix/git.py:35
 SAFE = ("-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null")   # hard rule 5
@@ -86,16 +88,19 @@ def git_argv(*args: str) -> list[str]:
 
 
 def run_git(cwd: Path, *args: str, check: bool = True, input: bytes | None = None,
-            timeout: int = 600) -> subprocess.CompletedProcess:
-    """Run one git command in `cwd` with the safety flags. Raise GitError on failure when `check`."""
-    try:
-        trust = ("-c", f"safe.directory={Path(cwd).resolve()}")  # worktrees are handed to the agent uid
-        p = subprocess.run(["git", *SAFE, *trust, *args], cwd=str(cwd), capture_output=True, env=git_env(),
-                           input=input, timeout=timeout)
-    except subprocess.TimeoutExpired as e:
-        raise GitError(f"git {' '.join(args)} in {cwd}: timed out after {timeout}s") from e
+            timeout: int = 600) -> proc.Result:
+    """Run one git command in `cwd` with the safety flags. Raise GitError on failure when `check`.
+
+    A failure with `check` is recorded as a `command.failed` event; `check=False` callers are probing."""
+    trust = ("-c", f"safe.directory={Path(cwd).resolve()}")  # worktrees are handed to the agent uid
+    p = proc.run(["git", *SAFE, *trust, *args], cwd=str(cwd), env=git_env(), input=input, timeout=timeout,
+                 text=False)
+    if p.timed_out:
+        raise GitError(f"git {' '.join(args)} in {cwd}: timed out after {timeout}s")
     if check and p.returncode != 0:
-        raise GitError(f"git {' '.join(args)} in {cwd}: {p.stderr.decode(errors='replace').strip()}")
+        what = f"git {args[0]}" if args else "git"
+        proc.record_failure(what, proc.program(["git", *args]), p.returncode, p.stderr)
+        raise GitError(scrub(f"git {' '.join(args)} in {cwd}: {proc.tail(p.stderr)}"))
     return p
 
 
@@ -510,8 +515,7 @@ def scan_added_lines(diff_text: str, forms: dict[str, str]) -> list[tuple[str, i
 def remote_url(code_dir: Path) -> str:
     """The URL of the `origin` remote of a repo, or '' when there is none."""
     try:
-        done = subprocess.run(["git", *SAFE, "-C", str(code_dir), "remote", "get-url", "origin"],
-                              capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
+        done = proc.run(["git", *SAFE, "-C", str(code_dir), "remote", "get-url", "origin"], timeout=10)
+    except OSError:
         return ""
     return done.stdout.strip() if done.returncode == 0 else ""

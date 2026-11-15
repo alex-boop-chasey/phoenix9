@@ -31,7 +31,7 @@ from pathlib import Path
 
 from phoenix9 import atomic, checklock, refsnapshot, events, failmodes, gatenotify, gates, hold, paths, pause, scrub, settings, spec as spec_mod, state
 from phoenix9 import claude as claude_mod
-from phoenix9 import heartbeat, reports, runend, runs as runs_mod, summary
+from phoenix9 import heartbeat, proc, reports, runend, runs as runs_mod, summary
 from phoenix9 import keys as keys_mod
 from phoenix9 import taskfile
 from phoenix9.aistep import checks_text, project_domains, render_prompt, session_reason, task_text
@@ -589,33 +589,34 @@ class Runner:
         st = state.load(run_dir)
         project, run_id = st["project"], st["run_id"]
         number = task["number"] if task else None
-        index = self._line_index(st, group, number, name, attempt)
-        line = st["steps"][index] if index is not None else None
-        if line and line["status"] in ("passed", "skipped"):
-            return Outcome(line["status"])
-        if line and line["status"] == "waiting":
-            out = self._handle_gate(run_dir, setup, things, index, line, number)
-            if out is not None:
-                return out
-            line = state.load(run_dir)["steps"][index]
-        resume = {"session_id": line.get("session_id") or ""} if line and line["status"] == "paused" else None
-        if index is None:
-            index = state.add_step_line(run_dir, group, number, name, "running", attempt=attempt)
-        else:
-            state.set_step_line(run_dir, index, status="running", finished=None, note="", resume_note="")
-        state.update(run_dir, lambda s: s.__setitem__(
-            "current", {"group": group, "task": number, "step": name, "attempt": attempt or 1, "gate": None}))
-        events.emit("run.step.started", project=project, run=run_id, task=number, step=name, group=group)
-        step = self.lib.step(name)
-        ctx = self._context(run_dir, setup, things, step, task, attempt or 1, _ctx_answer(line))
-        ctx.resume = resume                         # a paused step starts again in a fresh container (not a new try)
-        result = self._call_with_proxies(ctx, step)
-        if result.status == "gate":
-            return self._open_step_gate(run_dir, index, step, number, result, setup)
-        heartbeat.mark_progress()                   # ...and so is it ending
-        status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
-        self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
-        return Outcome(status, list(result.reasons))
+        with proc.context(project=project, run=run_id, task=number, step=name):   # names failed commands
+            index = self._line_index(st, group, number, name, attempt)
+            line = st["steps"][index] if index is not None else None
+            if line and line["status"] in ("passed", "skipped"):
+                return Outcome(line["status"])
+            if line and line["status"] == "waiting":
+                out = self._handle_gate(run_dir, setup, things, index, line, number)
+                if out is not None:
+                    return out
+                line = state.load(run_dir)["steps"][index]
+            resume = {"session_id": line.get("session_id") or ""} if line and line["status"] == "paused" else None
+            if index is None:
+                index = state.add_step_line(run_dir, group, number, name, "running", attempt=attempt)
+            else:
+                state.set_step_line(run_dir, index, status="running", finished=None, note="", resume_note="")
+            state.update(run_dir, lambda s: s.__setitem__(
+                "current", {"group": group, "task": number, "step": name, "attempt": attempt or 1, "gate": None}))
+            events.emit("run.step.started", project=project, run=run_id, task=number, step=name, group=group)
+            step = self.lib.step(name)
+            ctx = self._context(run_dir, setup, things, step, task, attempt or 1, _ctx_answer(line))
+            ctx.resume = resume                         # a paused step starts again in a fresh container (not a new try)
+            result = self._call_with_proxies(ctx, step)
+            if result.status == "gate":
+                return self._open_step_gate(run_dir, index, step, number, result, setup)
+            heartbeat.mark_progress()                   # ...and so is it ending
+            status = {"pass": "passed", "fail": "failed", "skip": "skipped"}[result.status]
+            self._record(run_dir, things, index, number, name, status, result.reasons, result.produces)
+            return Outcome(status, list(result.reasons))
 
     def _spending_cap(self, run_dir: Path, setup: dict) -> Outcome | None:
         """The spending cap, checked at every step boundary (the end of the step before). Returns None to go on;

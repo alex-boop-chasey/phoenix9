@@ -74,7 +74,7 @@ def test_build_uses_long_timeout(project, adapters):
     healthy(adapters, 8080, 9080)
     seen = []
     orig = adapters.host.run
-    adapters.host.run = lambda argv, timeout=60, cwd=None: (seen.append((argv[1], timeout)), orig(argv, timeout, cwd))[1]
+    adapters.host.run = lambda argv, timeout=60, cwd=None, **kw: (seen.append((argv[1], timeout)), orig(argv, timeout, cwd, **kw))[1]
     run(adapters)
     assert ("build", 1800) in seen and all(t <= 1800 for _, t in seen)
 

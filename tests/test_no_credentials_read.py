@@ -48,7 +48,7 @@ def claude_home(tmp_path, monkeypatch):
     monkeypatch.setattr(chatlink.settings, "agent_settings",
                         lambda: {"folder": str(folder), "unit": "x"})
     monkeypatch.setattr(Host, "exists", lambda self, p: True if p == sock else os.path.exists(p))
-    monkeypatch.setattr(Host, "systemctl", lambda self, *a: (0, "0\n", ""))
+    monkeypatch.setattr(Host, "systemctl", lambda self, *a, **kw: (0, "0\n", ""))
     return home
 
 

@@ -15,7 +15,6 @@ import os
 import queue
 import re
 import signal
-import subprocess
 import tempfile
 import threading
 import time
@@ -26,6 +25,7 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 from phoenix9 import atomic, paths, pause, prices, state
+from phoenix9.proc import Popen, TimeoutExpired
 from phoenix9.docker import Mount, stderr_path
 from phoenix9.scrub import Scrubber, scrub
 
@@ -451,7 +451,7 @@ def stop(proc, grace_s: float = KILL_GRACE_S) -> None:
     try:
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=grace_s)
-    except subprocess.TimeoutExpired:
+    except TimeoutExpired:
         proc.kill()
         proc.wait()
     except ProcessLookupError:
@@ -494,7 +494,7 @@ def _save_stderr(stream, path: Path, scrubber: Scrubber) -> None:
 
 def run(cmd: list[str], cwd: Path, env_files: list[Path], log_path: Path,
         timeout_min: float, no_output_timeout_min: float,
-        start: Callable[[list[str], Path, list[Path]], subprocess.Popen] = None,
+        start: Callable[[list[str], Path, list[Path]], Popen] = None,
         grace_s: float = KILL_GRACE_S, tz: str = "UTC", secrets: list[str] | None = None) -> Result:
     """Run one Claude session and return its Result.
 

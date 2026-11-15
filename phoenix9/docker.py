@@ -10,11 +10,10 @@ from __future__ import annotations
 
 import ipaddress
 import os
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from phoenix9 import heartbeat, paths, scrub, settings
+from phoenix9 import heartbeat, paths, proc, scrub, settings
 
 DOCKER = "docker"
 ENTRY = "/opt/hands/entry.sh"                       # baked into the image (image/Dockerfile)
@@ -68,23 +67,33 @@ def _cpu_text(number: float) -> str:
 
 
 # ------------------------------------------------------------- the one place that runs docker
+def _checked(argv: list[str], timeout: float | None) -> proc.Result:
+    """Run a command that must work: raise CalledProcessError on a non-zero exit (TimeoutExpired on timeout)."""
+    p = proc.run(argv, timeout=timeout)
+    if p.timed_out:
+        raise proc.TimeoutExpired(argv, timeout)
+    if p.not_found:
+        raise FileNotFoundError(2, "No such file or directory", argv[0])
+    if p.returncode != 0:
+        raise proc.CalledProcessError(p.returncode, argv, p.stdout, p.stderr)
+    return p
+
+
 class DockerRunner:
-    """The real docker program: every subprocess call in this module lives here."""
+    """The real docker program: every docker call in this module lives here (all started through proc.py)."""
 
     def bridge_gateway(self) -> str:
         """The default bridge network's gateway address, e.g. 172.17.0.1."""
-        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
-                              "{{(index .IPAM.Config 0).Gateway}}"],
-                             capture_output=True, text=True, timeout=30, check=True).stdout.strip()
+        out = _checked([DOCKER, "network", "inspect", "bridge", "--format",
+                        "{{(index .IPAM.Config 0).Gateway}}"], timeout=30).stdout.strip()
         ipaddress.IPv4Address(out)          # refuse anything that is not a plain IPv4 address
         return out
 
     def bridge_info(self) -> dict:
         """The default bridge's {gateway, subnet, interface}, e.g. 172.17.0.1, 172.17.0.0/16, docker0."""
-        out = subprocess.run([DOCKER, "network", "inspect", "bridge", "--format",
-                              "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
-                              "{{index .Options \"com.docker.network.bridge.name\"}}"],
-                             capture_output=True, text=True, timeout=30, check=True).stdout.split()
+        out = _checked([DOCKER, "network", "inspect", "bridge", "--format",
+                        "{{(index .IPAM.Config 0).Gateway}} {{(index .IPAM.Config 0).Subnet}} "
+                        "{{index .Options \"com.docker.network.bridge.name\"}}"], timeout=30).stdout.split()
         gateway, subnet = out[0], out[1]
         ipaddress.IPv4Address(gateway)
         ipaddress.IPv4Network(subnet, strict=False)
@@ -94,21 +103,21 @@ class DockerRunner:
             timeout_s: float, name: str, append_stdout: bool = False) -> int:
         """Run a container to the end and return its exit code (124 if it ran out of time)."""
         # ported from reference/v8/phoenix/docker.py:139
-        stdout = open(stdout_path, "ab" if append_stdout else "wb") if stdout_path else subprocess.DEVNULL
+        stdout = open(stdout_path, "ab" if append_stdout else "wb") if stdout_path else proc.DEVNULL
         if stderr_path and stderr_path == stdout_path:
-            stderr = subprocess.STDOUT
+            stderr = proc.STDOUT
         else:
-            stderr = open(stderr_path, "ab") if stderr_path else subprocess.DEVNULL
+            stderr = open(stderr_path, "ab") if stderr_path else proc.DEVNULL
         try:
-            p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr)
+            p = proc.popen(argv, stdin=proc.DEVNULL, stdout=stdout, stderr=stderr)
             try:
                 with heartbeat.busy():          # a running container is progress (it has its own time limit)
                     return p.wait(timeout=timeout_s)
-            except subprocess.TimeoutExpired:
+            except proc.TimeoutExpired:
                 self.rm(name)
                 try:
                     p.wait(timeout=60)
-                except subprocess.TimeoutExpired:
+                except proc.TimeoutExpired:
                     p.kill()
                 return TIMEOUT_RC
             except BaseException:
@@ -125,15 +134,15 @@ class DockerRunner:
 
     def rm(self, name: str) -> None:
         """Force-remove a container by name or id (no error if it is not there)."""
-        subprocess.run([DOCKER, "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "rm", "-f", name], timeout=None)
 
     def stop(self, name: str) -> None:
         """Stop a running container by name or id and leave everything else alone (Pause now; no error if it is gone)."""
-        subprocess.run([DOCKER, "stop", "-t", "20", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "stop", "-t", "20", name], timeout=None)
 
     def ps_ids(self, label: str) -> list[str]:
         """Return the ids of all containers (running or not) carrying a label."""
-        p = subprocess.run([DOCKER, "ps", "-aq", "--filter", f"label={label}"], capture_output=True, text=True)
+        p = proc.run([DOCKER, "ps", "-aq", "--filter", f"label={label}"], timeout=None)
         return p.stdout.split()
 
     def volume_create(self, name: str, labels: list[str]) -> None:
@@ -141,30 +150,30 @@ class DockerRunner:
         argv = [DOCKER, "volume", "create"]
         for label in labels:
             argv += ["--label", label]
-        subprocess.run(argv + [name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        _checked(argv + [name], timeout=None)
 
     def volume_rm(self, name: str) -> None:
         """Remove a named volume (no error if it is not there)."""
-        subprocess.run([DOCKER, "volume", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.run([DOCKER, "volume", "rm", "-f", name], timeout=None)
 
     def chown(self, path: Path, uid: int, gid: int) -> None:
         """Hand a host folder to a uid/gid (only used when Phoenix runs as root)."""
-        subprocess.run(["chown", "-R", f"{uid}:{gid}", str(path)], check=True)
+        _checked(["chown", "-R", f"{uid}:{gid}", str(path)], timeout=None)
 
     def image_exists(self, tag: str) -> bool:
         """True when an image with this tag is on this machine."""
-        p = subprocess.run([DOCKER, "image", "inspect", tag], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p = proc.run([DOCKER, "image", "inspect", tag], timeout=None)
         return p.returncode == 0
 
     def image_id(self, tag: str) -> str:
         """The exact id (sha256:...) of the image with this tag ('' when it is not on this machine)."""
-        p = subprocess.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], capture_output=True, text=True)
+        p = proc.run([DOCKER, "image", "inspect", "--format", "{{.Id}}", tag], timeout=None)
         return p.stdout.strip() if p.returncode == 0 else ""
 
     def image_label(self, tag: str, label: str) -> str:
         """One label of an image ('' when the image or the label is missing)."""
-        p = subprocess.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
-                           capture_output=True, text=True)
+        p = proc.run([DOCKER, "image", "inspect", "--format", f'{{{{index .Config.Labels "{label}"}}}}', tag],
+                     timeout=None)
         out = p.stdout.strip()
         return "" if p.returncode != 0 or out == "<no value>" else out
 

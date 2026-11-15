@@ -422,7 +422,7 @@ def test_updater_log_scrubbed(layout, adapters):
 # 22
 def test_updater_imports_only_allowed_modules():
     tree = ast.parse((REPO / "phoenix9" / "updater.py").read_text())
-    allowed = {"paths", "atomic", "adapters", "events", "scrub", "hold"}
+    allowed = {"paths", "atomic", "adapters", "events", "scrub", "hold", "proc"}   # proc: names the step "update"
     for node in ast.walk(tree):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             inner = [n for n in ast.walk(node) if isinstance(n, (ast.Import, ast.ImportFrom))]
@@ -590,10 +590,10 @@ def test_sigterm_mid_update_recovers_then_stops(layout, adapters, monkeypatch):
     monkeypatch.setattr(updater.adapters_mod, "real", lambda: adapters)
     real_run = adapters.host.run
 
-    def run(argv, timeout=60, cwd=None):
+    def run(argv, timeout=60, cwd=None, **kw):
         if argv[1:2] == ["doctor"]:
             os.kill(os.getpid(), signal.SIGTERM)
-        return real_run(argv, timeout=timeout, cwd=cwd)
+        return real_run(argv, timeout=timeout, cwd=cwd, **kw)
     adapters.host.run = run
     updater.request("install", "v9.1", "cli", adapters)
     before = signal.getsignal(signal.SIGTERM)
@@ -615,10 +615,10 @@ def test_keyboard_interrupt_before_swap_is_cleaned_up_and_passed_on(layout, adap
     adapters.host.script(["./check.sh"], rc=0)
     real_run = adapters.host.run
 
-    def run(argv, timeout=60, cwd=None):
+    def run(argv, timeout=60, cwd=None, **kw):
         if argv == ["./check.sh"]:
             raise KeyboardInterrupt
-        return real_run(argv, timeout=timeout, cwd=cwd)
+        return real_run(argv, timeout=timeout, cwd=cwd, **kw)
     adapters.host.run = run
     with pytest.raises(KeyboardInterrupt):
         updater.install("v9.1", adapters, who="alex")
@@ -684,10 +684,10 @@ def test_images_rebuilt_after_the_harness_is_idle(layout, adapters):
     seen = []
     real_run = adapters.host.run
 
-    def run(argv, timeout=60, cwd=None):
+    def run(argv, timeout=60, cwd=None, **kw):
         if argv[1:3] == ["images", "build"]:
             seen.append((hold.hold_requested(), updater._read_status()["job"]["phase"]))
-        return real_run(argv, timeout=timeout, cwd=cwd)
+        return real_run(argv, timeout=timeout, cwd=cwd, **kw)
     adapters.host.run = run
     adapters.host.script([str(layout["next"] / "bin" / "phoenix"), "images"], rc=1, err="no")
     out = updater.install("v9.2", adapters, who="alex")

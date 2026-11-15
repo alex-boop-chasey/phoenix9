@@ -31,7 +31,7 @@ def git_repo(code, remote=None, origin_url=None, commit=True):
 
 def host_git(host, folder):
     """Make the fake host really run git commands."""
-    def run(argv, timeout=60, cwd=None):
+    def run(argv, timeout=60, cwd=None, what=None):
         host.calls.append(list(argv))
         if "fetch" in argv:                     # never reach the network from a test
             return 1, "", "fetch is off in tests"
@@ -45,7 +45,8 @@ def host_git(host, folder):
             host.remote_refs = refs
         return p.returncode, p.stdout, p.stderr
     real = host.run
-    host.run = lambda argv, timeout=60, cwd=None: run(argv, timeout, cwd) if argv[0] == "git" else real(argv, timeout, cwd)
+    host.run = lambda argv, timeout=60, cwd=None, what=None: (run(argv, timeout, cwd) if argv[0] == "git"
+                                                              else real(argv, timeout, cwd, what=what))
 
 
 def make_run(name, run_id, status):
@@ -480,7 +481,8 @@ def test_delete_refuses_working_chat(env, unitdir, monkeypatch):
 def test_delete_backup_failure_leaves_everything(env, unitdir):
     folder = _stuff(env)
     real = env["host"].run
-    env["host"].run = lambda argv, timeout=60, cwd=None: (1, "", "bad") if "verify" in argv else real(argv, timeout, cwd)
+    env["host"].run = lambda argv, timeout=60, cwd=None, **kw: ((1, "", "bad") if "verify" in argv
+                                                                else real(argv, timeout, cwd, **kw))
     with pytest.raises(OpsError, match="bundle"):
         project_delete.delete("alpha", "alpha", "cli", env["fakes"])
     _all_there(folder)
@@ -1486,10 +1488,10 @@ def test_own_chat_process_does_not_refuse_and_unit_stops_first(env, unitdir):
     assert project_delete.plan("alpha", "cli", env["fakes"])["refusals"] == []
     real_run = env["host"].run
 
-    def run(argv, timeout=60, cwd=None):            # stopping the unit ends its processes
+    def run(argv, timeout=60, cwd=None, **kw):      # stopping the unit ends its processes
         if argv[:2] == ["systemctl", "stop"]:
             env["host"].proc_cwds = []
-        return real_run(argv, timeout, cwd)
+        return real_run(argv, timeout, cwd, **kw)
     env["host"].run = run
     project_delete.delete("alpha", "alpha", "cli", env["fakes"])
     sysc = [c[1] for c in env["host"].calls if c[0] == "systemctl"]

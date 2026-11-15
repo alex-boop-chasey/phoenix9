@@ -52,7 +52,7 @@ def test_remove_stops_the_chat_unit_and_drops_its_drop_ins_first(env):
     (dropin / "x.conf").write_text("x")
     listed_at_stop = []
     real = env["host"].systemctl
-    env["host"].systemctl = lambda *a: (listed_at_stop.append("alpha" in project.project_names()), real(*a))[1]
+    env["host"].systemctl = lambda *a, **kw: (listed_at_stop.append("alpha" in project.project_names()), real(*a, **kw))[1]
     projects.remove("alpha", "tester")
     assert not dropin.exists() and listed_at_stop and all(listed_at_stop)
     assert ["remove_tree", str(dropin)] in env["host"].calls

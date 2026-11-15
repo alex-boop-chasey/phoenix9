@@ -26,7 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from phoenix9 import adapters as adapters_mod
-from phoenix9 import atomic, events, hold, paths, scrub
+from phoenix9 import atomic, events, hold, paths, proc, scrub
 
 TAG_RE = r"^v9\.(0|[1-9][0-9]*)$"
 _TAG = re.compile(TAG_RE)
@@ -743,8 +743,8 @@ def _protected(u: _Update, action: str, tag, fn) -> dict:
 
 
 def _locked(u: _Update, action: str, tag, fn) -> dict:
-    """Run fn under the update lock (refused when another update holds it)."""
-    with _lock() as got:
+    """Run fn under the update lock (refused when another update holds it); its failed commands name step "update"."""
+    with proc.context(step="update"), _lock() as got:
         if not got:
             return u.result(False, "refused", tag=tag, reason="another update is running", action=action,
                             record=False)
@@ -789,7 +789,7 @@ def recover(adapters) -> dict | None:
     """Repair a half-done update (a crash mid-swap); None when there was nothing to repair."""
     _load_secrets()
     u = _Update(adapters, "updater")
-    with _lock() as got:
+    with proc.context(step="update"), _lock() as got:
         if not got:
             return u.result(False, "refused", reason="another update is running", action="recover", record=False)
         return _recover(u)
@@ -955,7 +955,8 @@ def main(argv) -> int:
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))   # SystemExit: recovery runs, then it stops
     args = list(argv)
     if args[:1] == ["run-request"]:
-        out = run_request(adapters_mod.real())
+        with proc.context(step="update"):
+            out = run_request(adapters_mod.real())
     elif args[:1] == ["status"]:
         out = status(adapters_mod.real(), refresh="--refresh" in args)
     else:

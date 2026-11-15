@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from phoenix9 import git as g
+from phoenix9 import git as g, proc
 from phoenix9.git import Change, GitError
 
 
@@ -77,7 +77,7 @@ def test_safe_flags_on_every_call(monkeypatch, tmp_path):
         seen.append((argv, kw["env"]))
         return subprocess.CompletedProcess(argv, 0, b"", b"")
     monkeypatch.setenv("GIT_SSH_COMMAND", "evil")
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(proc.subprocess, "run", fake_run)
     g.run_git(tmp_path, "status")
     g.git(tmp_path, "log")
     for argv, env in seen:

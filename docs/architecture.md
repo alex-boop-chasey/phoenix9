@@ -1102,7 +1102,16 @@ with `nosniff`, inline for pictures and as a download otherwise. `POST /threads/
 (this thread's, not sent before; taken at once, also when queued) and then allows an empty message. The model gets the
 text, each picture or PDF as binary content and each text file as a quoted block (scrubbed, cut at 50,000 characters);
 the `user_message` event carries only `{id, name, mime, size}`, and the saved history keeps
-`[attached earlier: <name>]` in place of each file, so the model sees a file only in its own turn.
+`[attached earlier: <name>]` in place of each file, so the model sees a file only in its own turn. A line after Alex's
+words, "Attached with this message: <name> (file id <id>)", stays in the history so tools can name a file later.
+Browser tool `offer_save_attachment` {attachment_id (a file of this thread, checked through the input model's
+validation context), project} shows `SaveAttachmentCard` (`web/src/features/agentnext/savecard.tsx`): the file, its
+size and "Save into <project>'s reference documents?". Alex's Save reads the bytes from the GET route and posts them to
+`POST /api/projects/<name>/reference/files` as Alex (name cleaned as `reference.clean_name`; over 5 MB or a type
+reference files don't take: Save disabled, result refused; a name already there: Replace sends `replace: true`). The
+agent learns only `status` saved/cancelled/refused and `reason` too-big/wrong-type/exists/other. A browser tool with a
+card in the pack's components logs a `component` event keyed by its pause id (the id the card answers to); the card
+data adds what the input model put under `card` (here the file's name, type, size and thread), never sent to the model.
 
 **Guided flows (build 4).** Browser tools `ask_choice` (choice chips) and `ask_env_file` (.env upload) join the masked
 key card; values go from the browser straight to `POST /api/projects/<name>/keys/save` and never reach the model.

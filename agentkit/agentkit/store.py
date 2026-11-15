@@ -240,6 +240,15 @@ class Store:
         out["data"], out["used"] = bytes(out["data"]), bool(out["used"])
         return out
 
+    def attachment_info(self, attachment_id: str) -> dict | None:
+        """Return one attached file without its bytes ({id, thread_id, name, mime, size, used}), or None."""
+        rows = self._read("SELECT id, thread_id, name, mime, size, used FROM attachments WHERE id=?", (attachment_id,))
+        if not rows:
+            return None
+        out = dict(rows[0])
+        out["used"] = bool(out["used"])
+        return out
+
     def thread_attachments_size(self, thread_id: str) -> int:
         """How many bytes of files a thread holds."""
         rows = self._read("SELECT COALESCE(SUM(size),0) AS total FROM attachments WHERE thread_id=?", (thread_id,))

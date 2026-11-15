@@ -3,7 +3,7 @@ import re
 from typing import Any
 from urllib.parse import quote
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, model_validator
 
 from agentkit.packs.phoenix.client import PhoenixClient, PhoenixError
 
@@ -161,6 +161,34 @@ def ask_env_file_inputs() -> type[BaseModel]:
         why: str = Field(max_length=200, description="One short sentence saying why the file is needed.")
 
     return AskEnvFile
+
+
+PROJECT_NAME = r"^[a-z0-9][a-z0-9-]{0,40}$"  # Phoenix's project name rule (phoenix9/project.py NAME_RE)
+
+
+def offer_save_attachment_inputs() -> type[BaseModel]:
+    """The offer_save_attachment input model: a file of this conversation and a project name; no bytes, no file name."""
+
+    class OfferSaveAttachment(BaseModel):
+        """Which attached file to offer, and into which project's reference documents."""
+
+        model_config = ConfigDict(extra="forbid")
+        attachment_id: str = Field(max_length=64, description="The id of a file Alex attached in this conversation.")
+        project: str = Field(pattern=PROJECT_NAME, description="The project's name.")
+
+        @model_validator(mode="after")
+        def attached_here(self, info: ValidationInfo):
+            ctx = info.context if isinstance(info.context, dict) else {}
+            look_up = ctx.get("attachment")
+            row = look_up(self.attachment_id) if callable(look_up) else None
+            if row is None or row["thread_id"] != ctx.get("thread_id"):
+                raise ValueError("there is no attached file with that id in this conversation")
+            if isinstance(ctx.get("card"), dict):  # shown on Alex's card only; the model never gets it back
+                ctx["card"]["file"] = {"name": row["name"], "mime": row["mime"], "size": row["size"],
+                                       "thread_id": row["thread_id"]}
+            return self
+
+    return OfferSaveAttachment
 
 
 def _flat(values: Any, prefix: str = "") -> list[tuple[str, Any]]:

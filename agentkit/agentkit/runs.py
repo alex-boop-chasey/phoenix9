@@ -90,6 +90,8 @@ class Runs:
         self.agent = agent
         self.browser_fields = {t.name: t.result_fields for t in pack.browser_tools} if pack else {}
         self.browser_inputs = {t.name: t.inputs for t in pack.browser_tools} if pack else {}
+        self.browser_cards = {t.name: pack.components[t.name] for t in pack.browser_tools
+                              if t.name in pack.components} if pack else {}
         self.confirm_fields = {t.name: t.confirm_field for t in pack.server_tools if t.confirm_field} if pack else {}
         self.descriptions = {t.name: t.description for t in pack.server_tools} if pack else {}
         self.destructive = {t.name for t in pack.server_tools if t.risk == "destructive"} if pack else set()
@@ -254,13 +256,19 @@ class Runs:
                 and isinstance(task, int) and not isinstance(task, bool) and task == handoff["task"])
 
     def _check_browser_call(self, thread_id: str, call) -> None:
-        """Check a browser call's inputs; pause for the browser if good, else answer the model with the error."""
+        """Check a browser call's inputs; pause for the browser if good, else answer the model with the error.
+
+        The input model gets this thread (and a way to look up its files, without their bytes) as its validation
+        context; what it adds under "card" is shown on the card only, never sent back to the model. A tool with a
+        card in the pack also logs a component event keyed by the pause id, which the card answers to.
+        """
         inputs = call.args_as_dict()
         model = self.browser_inputs.get(call.tool_name)
-        problem = None
+        problem, card = None, {}
         if model is not None:
             try:
-                model(**inputs)
+                model.model_validate(inputs, context={"thread_id": thread_id, "attachment": self.store.attachment_info,
+                                                      "card": card})
             except ValidationError as err:
                 problem = "; ".join(
                     f"{'.'.join(str(x) for x in e['loc']) or 'input'}: {e['msg']}" for e in err.errors())
@@ -270,6 +278,8 @@ class Runs:
         pause_id = self.store.create_pause(thread_id, "browser", call.tool_name, inputs, call.tool_call_id)
         if problem is None:
             self._log(thread_id, wire.browser_tool(pause_id, call.tool_call_id, call.tool_name, inputs))
+            if (component := self.browser_cards.get(call.tool_name)) is not None:
+                self._log(thread_id, wire.component(pause_id, component, {**inputs, **card}))
             return
         error = tools.quoted("browser tool check", {"error": f"The inputs for {call.tool_name} were not valid: {problem}"})
         self.store.resolve_pause(pause_id, "answered", error)
@@ -349,12 +359,13 @@ class Runs:
 
         The chat log shows `message` as Alex wrote it; the model gets the context line before it when one is given,
         and the context counts as told once the turn's history is saved. Attached files go to the model in this
-        turn only: the saved history keeps a short placeholder where each one was, never the file.
+        turn only: the saved history keeps a short placeholder where each one was, never the file, plus the line
+        naming each file's id.
         """
         attached = [f for f in (self.store.attachment(a) for a in attachments) if f]
         said = message if message is None or message.strip() or not attached else files.SEE_FILES
         prompt = f"{context_line(context)}\n{said}" if context and said is not None else said
-        model_input = self._model_input(prompt, attached) if attached else prompt
+        model_input = self._model_input(f"{prompt}\n{files.ids_line(attached)}", attached) if attached else prompt
         msg_id, text_open, paused, offered = wire.new_id(), False, False, None
         self._log(thread_id, wire.run_started(thread_id, run_id))
         if message is not None:

@@ -100,6 +100,7 @@ export const TOOL_WORDS: Record<string, ToolWords> = {
   "ask_choice": { doing: "Asking you to choose", done: "Asked you to choose" },
   "ask_env_file": { doing: "Asking you for a settings file", done: "Asked you for a settings file" },
   "open_bell": { doing: "Opening the bell", done: "Opened the bell" },
+  "offer_save_attachment": { doing: "Offering to save your file", done: "Offered to save your file" },
   "phoenix_help": { doing: "Reading how Phoenix works", done: "Read how Phoenix works" },
   "next_steps": { doing: "Working out next steps", done: "Worked out next steps" },
   "what_happened": { doing: "Finding out what happened", done: "Found out what happened" },

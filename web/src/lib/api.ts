@@ -140,8 +140,9 @@ export const api = {
   forgetChat: (project: string) => post<ChatChange>(`chat/${e(project)}/forget`, { confirm: true }),
 
   reference: (name: string) => get<ReferenceView>(`projects/${e(name)}/reference`),
-  addReferenceFile: (name: string, filename: string, dataBase64: string) =>
-    post<unknown>(`projects/${e(name)}/reference/files`, { filename, data_base64: dataBase64 }),
+  addReferenceFile: (name: string, filename: string, dataBase64: string, replace = false) =>
+    post<unknown>(`projects/${e(name)}/reference/files`,
+      replace ? { filename, data_base64: dataBase64, replace: true } : { filename, data_base64: dataBase64 }),
   saveVision: (name: string, text: string) => put<unknown>(`projects/${e(name)}/reference/vision`, { text }),
   removeReferenceFile: (name: string, filename: string) => post<unknown>(`projects/${e(name)}/reference/files/remove`, { filename }),
   addReferenceLinks: (name: string, text: string) => post<unknown>(`projects/${e(name)}/reference/links`, { text }),

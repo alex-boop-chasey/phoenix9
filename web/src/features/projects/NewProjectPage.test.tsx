@@ -148,6 +148,28 @@ test("service tiles have no Connected dot; one that needs account keys says to s
   expect(screen.getByText("1 selected · adds 2 key rows on the Keys step")).toBeInTheDocument()
 })
 
+test("Neon is listed first with its tag, Supabase shows its own tag, and neither is ticked", async () => {
+  const tagged = {
+    services: [
+      { name: "github", title: "GitHub", tag: "", project_keys: [] },
+      { name: "neon", title: "Neon", tag: "Default database", project_keys: [{ name: "DATABASE_URL", secret: true, public: false, required: true, help: "Pooled." }] },
+      { name: "supabase", title: "Supabase", tag: "Other database", project_keys: [] },
+    ],
+    problems: [],
+  }
+  mockApi(routes({ "GET /api/library/services": tagged }))
+  renderPage()
+  await toServices()
+  const neon = await screen.findByRole("checkbox", { name: "Neon" })
+  const group = screen.getByRole("group", { name: "Services" })
+  expect(within(group).getAllByRole("checkbox").map((b) => b.getAttribute("aria-label"))).toEqual(["Neon", "GitHub", "Supabase"])
+  expect(neon.closest("label")).toHaveTextContent("Default database")
+  expect(screen.getByRole("checkbox", { name: "Supabase" }).closest("label")).toHaveTextContent("Other database")
+  expect(neon).not.toBeChecked()
+  expect(screen.getByRole("checkbox", { name: "Supabase" })).not.toBeChecked()
+  expect(screen.getByText("None selected")).toBeInTheDocument()
+})
+
 const nameBoxes = () => screen.queryAllByLabelText("Name", { selector: "input[placeholder=NAME]" }) as HTMLInputElement[]
 const valueBoxes = () => screen.getAllByLabelText("Value") as HTMLInputElement[]
 

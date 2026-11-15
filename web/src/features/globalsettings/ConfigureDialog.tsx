@@ -113,6 +113,9 @@ function ConfigureForm({ service, onClose }: { service: ServiceStatus; onClose: 
         {service.name === "supabase" && (
           <div className="blk-info"><Icon name="info" /><span>Each project's own Supabase address and anon key go in that project's Settings.</span></div>
         )}
+        {service.name === "neon" && (
+          <div className="blk-info"><Icon name="info" /><span>Each project's own Neon connection strings go in that project's Settings.</span></div>
+        )}
       </div>
       {error && <p className="cfgerr" role="alert"><Icon name="warning-circle" size="sm" />{error}</p>}
       {test.state !== "idle" && test.state !== "busy" && (

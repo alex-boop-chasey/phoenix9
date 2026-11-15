@@ -31,6 +31,8 @@ Write exactly one check file per Done-when bullet, all in `{{checks_dir}}/`, not
   or mark a test as expected-to-fail. A check must be able to fail.
 - Check the result, not the method: what a program prints, what a function returns, what a file
   holds. Be exact where the bullet is exact and do not invent requirements the bullet does not state.
+- Never assert on a test runner's human-readable output (its summary lines; colour codes break regexes
+  on them). When a check runs another test runner, judge it by its exit code or its JSON report.
 - Secrets and test keys come from environment variables. Never write a key, password or token into a
   check. If a check needs a key-shaped value, build it at run time from harmless pieces (for example by
   joining two short strings) or use the test keys already in the environment.

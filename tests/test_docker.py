@@ -302,6 +302,13 @@ def test_check_and_session_containers_get_git_working(tmp_path):
     assert s.env["GIT_CONFIG_VALUE_0"] == "*"
 
 
+def test_every_check_container_turns_colour_off(files):
+    for role in ("acceptance", "verify", "red-check", "full-suite", "baseline"):
+        r = docker.check_run("p", "r1", 1, 1, role, "img", files["ws"], "true", None, None, "store")
+        assert r.env["NO_COLOR"] == "1" and r.env["FORCE_COLOR"] == "0", role
+    assert "NO_COLOR=1" in pairs(check_argv(files), "-e") and "FORCE_COLOR=0" in pairs(check_argv(files), "-e")
+
+
 # ------------------------------------------------------------- check containers and CPU cores
 def run_check(files, adapters, cores, setting=None):
     """Run a fake check container on a host with `cores` cores; return the docker argv."""

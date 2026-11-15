@@ -33,3 +33,7 @@ def test_flow_instructions_have_no_money():
 def test_flow_instructions_leave_cancel_to_the_flow_card():
     assert ("During a flow, never offer Cancel or Stop as a suggestion: the flow card has its own Cancel button."
             in FLOW_INSTRUCTIONS)
+
+
+def test_flow_instructions_pick_neon_for_a_database():
+    assert "If Alex wants a database, pick Neon unless he asks for Supabase." in FLOW_INSTRUCTIONS

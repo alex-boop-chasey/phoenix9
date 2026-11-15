@@ -26,11 +26,13 @@ list = list_
 
 
 def show(name: str) -> dict:
-    """All info of one project, plus recent changelog lines, open gates and whether Phoenix made its repo."""
+    """All info of one project, plus recent changelog lines, open gates, whether Phoenix made its repo and its chat."""
     from phoenix9 import project, project_delete
     folder = common.project_dir(name)
-    data = project.show_project(name, common.make_adapters())
-    return {**data, "repo_made_by_phoenix": bool(data["repo"]) and project_delete.made_by_phoenix(folder)}
+    adapters = common.make_adapters()
+    data = project.show_project(name, adapters)
+    return {**data, "repo_made_by_phoenix": bool(data["repo"]) and project_delete.made_by_phoenix(folder),
+            "chat": chat_or_none(name, adapters)}
 
 
 def edit(name: str, who: str, description=None, profile=None, repo=None) -> dict:

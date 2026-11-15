@@ -305,6 +305,8 @@ def git_dir_mounts(workspace: Path) -> list[Mount]:
 
 
 GIT_ENV = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}
+# Check containers: test runners print plain text (colour codes break checks that read their output).
+NO_COLOUR_ENV = {"NO_COLOR": "1", "FORCE_COLOR": "0"}
 
 
 def build_argv(r: Run, limits: dict | None = None) -> list[str]:
@@ -532,6 +534,7 @@ def check_run(project: str, run_id: str, task: int | str, attempt: int, role: st
     env["PHOENIX_CPUS"] = str(max(1, int(cpus)))        # a project's test command may use it (parallel workers)
     env.update(GIT_ENV)
     env.update(check_extra_env(extra_env))
+    env.update(NO_COLOUR_ENV)
     return Run(project, run_id, task, attempt, role, image, ["bash", "-c", command], mounts=mounts, env=env,
                env_files=[Path(env_file)] if env_file else [], firewall=firewall)
 

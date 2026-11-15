@@ -1869,7 +1869,7 @@
   },
   {
     "name": "project-show",
-    "description": "All info of one project, plus recent changelog lines, open gates and whether Phoenix made its repo.",
+    "description": "All info of one project, plus recent changelog lines, open gates, whether Phoenix made its repo and its chat.",
     "inputs": [
       {
         "name": "name",

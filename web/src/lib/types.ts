@@ -613,6 +613,8 @@ export interface LibraryTool {
 export interface Service {
   name: string
   title: string
+  /** A short quiet label from the service folder, such as "Default database" ("" or missing when none). */
+  tag?: string
   project_keys: ServiceKey[]
 }
 

@@ -45,6 +45,24 @@ describe("ProjectPage", () => {
     expect(screen.getByLabelText("1 waiting for you")).toBeInTheDocument()
   })
 
+  it("the header's chat dot shows awake from the project's own chat field", async () => {
+    const row = projects.find((p) => p.name === "demo-site")!
+    mockApi({
+      "GET /api/projects/demo-site": {
+        ...row, chat: { state: "awake", bridge_session_id: "s1", web_url: "https://claude.ai/code/s1", app_url: null, last_active: null },
+      },
+      "GET /api/gates": [],
+      "GET /api/projects/demo-site/runs": [],
+      "GET /api/projects/demo-site/changelog": [],
+      "GET /api/events/recent": { events: [], next: 0 },
+    })
+    renderAt("/p/demo-site/overview")
+    await screen.findByRole("heading", { name: "demo-site" })
+    expect(screen.getByRole("button", { name: /Chat/ })).toHaveAttribute("title", "Awake")
+    expect(document.querySelector(".phead .chatdot")).toHaveClass("chatdot-awake")
+    expect(screen.getByRole("button", { name: "Sleep" })).toBeInTheDocument()
+  })
+
   it("tab change updates the url", async () => {
     api()
     renderAt("/p/demo-site/overview")

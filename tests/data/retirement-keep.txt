@@ -336,6 +336,8 @@ services/github/recipe.py
 services/github/service.toml
 services/mux/install.md
 services/mux/service.toml
+services/neon/install.md
+services/neon/service.toml
 services/openrouter/install.md
 services/openrouter/service.toml
 services/resend/install.md

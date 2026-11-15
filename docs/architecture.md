@@ -350,6 +350,8 @@ name = "supabase"                 # = folder name
 title = "Supabase"
 description = "Postgres database, auth and file storage."
 support = "store-and-wire"        # "store-and-wire" | "keys-only"
+tag = "Other database"            # optional, at most 30 characters of plain words; a quiet label on the New
+                                  # project tile; tag "Default database" sorts first there
 docs = "https://supabase.com/docs"
 website = "https://supabase.com/dashboard/account/tokens"   # optional: where the key is made; shown as a "Website" link
 account_keys = ["SUPABASE_ACCESS_TOKEN"]   # names stored in HOME/secrets/<secrets_file>

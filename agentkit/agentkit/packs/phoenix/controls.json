@@ -1247,6 +1247,67 @@
     "timeout_s": 0
   },
   {
+    "name": "keys-make",
+    "description": "Make the project's missing service keys with Alex's saved account keys and save them unseen; says which services still need a key by hand.",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      },
+      {
+        "name": "services",
+        "type": "list",
+        "required": false,
+        "description": "Only these services (default: every one that is ready).",
+        "choices": [],
+        "where": "body",
+        "into": []
+      }
+    ],
+    "risk": "change",
+    "agent": "tool",
+    "why": "",
+    "method": "POST",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/make",
+    "fixed": {
+      "confirm": true
+    },
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
+    "name": "keys-make-status",
+    "description": "Say which of a project's services Phoenix can make the missing keys for, and which need Alex (with the page link).",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "The project's name.",
+        "choices": [],
+        "where": "path",
+        "into": []
+      }
+    ],
+    "risk": "read",
+    "agent": "tool",
+    "why": "",
+    "method": "GET",
+    "route": "/api/projects/(?P<name>[^/]+)/keys/make",
+    "fixed": {},
+    "fixed_query": {},
+    "card": "",
+    "confirm_with": "",
+    "timeout_s": 0
+  },
+  {
     "name": "keys-remove",
     "description": "Delete a key.",
     "inputs": [],

@@ -903,6 +903,22 @@ def post_keys_save(req, name):
         return keys.save(check_name(name), rows, WHO)
 
 
+def get_keys_make(req, name):
+    """Reply with which services' missing keys Phoenix can make."""
+    return keys.make_status(check_name(name))
+
+
+def post_keys_make(req, name):
+    """Make the project's missing service keys (needs confirm: true); names only come back."""
+    if req.body.get("confirm") is not True:
+        raise BadRequest("Making keys needs confirmation.")
+    wanted = req.body.get("services")
+    if wanted is not None and (not isinstance(wanted, list) or not all(isinstance(s, str) for s in wanted)):
+        raise BadRequest("'services' should be a list of service names.")
+    with req.server.write_lock:
+        return keys.make(check_name(name), wanted, req.who)
+
+
 def post_keys_reveal(req, name):
     """Reveal one key value."""
     key = body_text(req, "name")
@@ -1371,6 +1387,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("GET", rf"/api/projects/{NAME}/changelog", get_changelog),
     ("GET", rf"/api/projects/{NAME}/delete-plan", get_delete_plan),
     ("GET", rf"/api/projects/{NAME}/keys", get_keys),
+    ("GET", rf"/api/projects/{NAME}/keys/make", get_keys_make),
     ("GET", rf"/api/projects/{NAME}/settings", get_settings),
     ("GET", rf"/api/projects/{NAME}/explain", get_explain),
     ("GET", rf"/api/projects/{NAME}/specs", get_specs),
@@ -1441,6 +1458,7 @@ ROUTES = [  # first match wins, so check-name comes before <name>
     ("POST", r"/api/global/addresses", post_global_addresses),
     ("POST", rf"/api/projects/{NAME}/edit", post_edit),
     ("POST", rf"/api/projects/{NAME}/keys/save", post_keys_save),
+    ("POST", rf"/api/projects/{NAME}/keys/make", post_keys_make),
     ("POST", rf"/api/projects/{NAME}/keys/reveal", post_keys_reveal),
     ("POST", rf"/api/projects/{NAME}/keys/remove", post_keys_remove),
     ("POST", rf"/api/projects/{NAME}/settings", post_settings),

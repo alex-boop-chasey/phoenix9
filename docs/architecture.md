@@ -382,6 +382,15 @@ expect = [200]
 fallback_path = "/accounts/{account_id}/tokens/verify"   # optional: tried when path gives no expected status;
                                   # {name} is filled from the service's saved account settings (must be an allowed call)
 
+[make]                            # optional, store-and-wire only: how Phoenix makes this service's project keys
+key = "SUPABASE_ACCESS_TOKEN"     # the account key that may make them (default proxy.key); a name not in
+                                  # account_keys is an optional "maker key" saved in the same secrets file
+needs = "create projects"         # plain words: the permission that account key must have
+key_page = "https://..."          # https link where such an account key is made
+[[make.allow]]                    # the only calls making keys may use (same patterns as proxy.allow,
+method = "POST"                   # upstream = proxy.upstream); never given to a build container
+path = "/v1/projects"
+
 [[account_settings]]              # optional plain (non-secret) account settings, shown in Phoenix settings > Configure
 name = "organisation"             # lower_case_with_underscores; saved in services.toml under [<service>.settings]
 label = "Organisation"
@@ -405,6 +414,16 @@ suffix, and each name must resolve on its own). Beside it: `install.md` (store-a
 instructions for the Builder: package names per profile, where config goes, env var names, never values)
 and an optional `recipe.py` (`def wire(ctx, service, proxy) -> dict`). Services with account API access
 list no `hosts` for that API: account calls go only through the proxy (github, sentry have none).
+
+**Key maker** (`phoenix9/keymaker.py`, host only). `PROVIDERS` maps a service to a module in
+`phoenix9/keymakers/` with `make(call, ctx) -> {KEY_NAME: value, "note"?: words}`. `call(method, path, body)`
+goes through a key proxy started with ONLY the `[make]` rules and the `[make].key` value (log
+`HOME/logs/proxy-keymaker.jsonl`, timeout 20 s, errors scrubbed); `ctx` = project name, the service's account
+settings and the project's non-secret key values. `status(project)` gives per chosen service `ready`,
+`needs-account-key`, `manual` or `done` with plain words and a link; `make(project, services, who)` saves each
+made value with `keys.set_key` only when that key has no value yet and returns names, problems and what is
+still missing, never values (event `keys.made`, names only). The step proxy (`spec_from_service`,
+`stepproxy`) never contains a `[make]` rule.
 
 ### 4.7 Deployer folder: `deployers/<name>/deployer.toml` (+ `deploy.py`)
 

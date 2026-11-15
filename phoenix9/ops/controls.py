@@ -163,6 +163,14 @@ CONTROLS = (
           "Revealing a key would put its value through the model."),
     _post("keys-remove", "keys.remove", rf"/api/projects/{NAME}/keys/remove", "destructive", "later", LATER),
     _get("keys-audit", "keys.audit", "/api/keys/audit", "later", LATER),
+    _get("keys-make-status", "keys.make_status", rf"/api/projects/{NAME}/keys/make", "tool", inputs=(P_NAME,),
+         text="Say which of a project's services Phoenix can make the missing keys for, and which need Alex "
+              "(with the page link)."),
+    _post("keys-make", "keys.make", rf"/api/projects/{NAME}/keys/make", "change", "tool",
+          text="Make the project's missing service keys with Alex's saved account keys and save them unseen; "
+               "says which services still need a key by hand.",
+          inputs=(P_NAME, _in("services", "list", description="Only these services (default: every one that is ready).")),
+          fixed={"confirm": True}),
     # ---- services ----
     _get("services-list", "services.list_", "/api/services", "tool", card="services_card",
          text="List every service and whether it is connected."),

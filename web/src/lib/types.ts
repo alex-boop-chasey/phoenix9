@@ -681,6 +681,8 @@ export interface ServiceStatus {
   ends_in?: Record<string, string>
   account_settings?: AccountSetting[]
   can_test?: boolean
+  /** An optional extra key for making project keys (e.g. a management key); never its value. */
+  make_key?: { name: string; saved: boolean } | null
 }
 
 export interface ConnectResult {

@@ -40,6 +40,8 @@ export const TOOL_WORDS: Record<string, ToolWords> = {
   "hotfix-start": { doing: "Starting a small fix", done: "Started a small fix" },
   "job-status": { doing: "Checking on a job", done: "Checked on a job" },
   "keys-list": { doing: "Looking at the keys", done: "Looked at the keys" },
+  "keys-make-status": { doing: "Checking which keys Phoenix can make", done: "Checked which keys Phoenix can make" },
+  "keys-make": { doing: "Making the missing keys", done: "Made the missing keys" },
   "library-profiles": { doing: "Checking project types", done: "Checked project types" },
   "library-services": { doing: "Checking the services", done: "Checked the services" },
   "library-templates": { doing: "Checking the templates", done: "Checked the templates" },

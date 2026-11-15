@@ -1041,3 +1041,15 @@ def test_release_tag_ignores_markers_and_old_tags(layout, monkeypatch):
     for name in ("v9.0", "v9.9", "v9.10"):
         git(inst, "tag", "-d", name)
     assert app.release_tag() == ""
+
+
+def test_failing_restart_logs_the_scrubbed_reason_and_records_the_update_step(layout, adapters):
+    secret = "ghp" + "_" + "Zx9Yw8Vu" * 5
+    adapters.host.script(["systemctl", "restart"], rc=1, err=f"Job failed: token {secret} refused\n")
+    updater.install("v9.1", adapters, who="alex")
+    log = (paths.logs() / "updater.log").read_text()
+    assert "Restarting Phoenix failed (exit code 1): Job failed: token" in log and secret not in log
+    failed = [e for e in events.read(paths.events()) if e["type"] == "command.failed"]
+    restart = [e for e in failed if e["data"]["what"] == updater.RESTART_WHAT]
+    assert restart and all(e["step"] == "update" for e in restart)
+    assert restart[0]["data"]["program"] == "systemctl restart" and secret not in restart[0]["data"]["stderr_tail"]

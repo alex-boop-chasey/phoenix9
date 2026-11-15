@@ -338,3 +338,108 @@ def test_ai_container_limits_unchanged(files, adapters):
 def test_bad_check_cpus_refused_plainly(files, adapters, bad):
     with pytest.raises(ValueError, match="limits.check_cpus must be"):
         run_check(files, adapters, 8, setting=bad)
+
+
+# ------------------------------------------------------------- time limits and failure records
+def failures():
+    """The `command.failed` events recorded so far."""
+    import json
+    if not paths.events().exists():
+        return []
+    return [e for e in map(json.loads, paths.events().read_text().splitlines()) if e["type"] == "command.failed"]
+
+
+def fake_docker(tmp_path, monkeypatch, body):
+    """Point DockerRunner at a small python program standing in for docker."""
+    import sys
+    prog = tmp_path / "fake-docker"
+    prog.write_text(f"#!{sys.executable}\nimport sys, time\n{body}\n")
+    prog.chmod(0o755)
+    monkeypatch.setattr(docker, "DOCKER", str(prog))
+
+
+def test_short_docker_calls_have_time_limits(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch, "time.sleep(30)")
+    monkeypatch.setattr(docker, "DOCKER_CALL_TIMEOUT_S", 0.3)
+    d = docker.DockerRunner()
+    assert d.ps_ids("phoenix9") == [] and d.image_exists("x") is False and d.image_id("x") == ""
+    assert d.image_label("x", "y") == ""
+    d.rm("c1"), d.stop("c1"), d.volume_rm("v1")          # they return instead of hanging
+    with pytest.raises(docker.DockerError, match="timed out after 0.3s"):
+        d.volume_create("v1", ["phoenix9=1"])
+
+
+def test_every_docker_call_passes_its_time_limit(monkeypatch, tmp_path):
+    from phoenix9 import proc
+    seen = []
+    monkeypatch.setattr(proc, "run", lambda argv, **kw: seen.append((list(argv), kw.get("timeout"))) or
+                        proc.Result(0, "172.17.0.1 172.17.0.0/16 docker0", ""))
+    d = docker.DockerRunner()
+    d.rm("c"), d.stop("c"), d.ps_ids("l"), d.volume_create("v", []), d.volume_rm("v")
+    d.chown(tmp_path, 1, 1), d.image_exists("t"), d.image_id("t"), d.image_label("t", "l")
+    limits = [t for _, t in seen]
+    assert limits == [60, 60, 60, 60, 60, docker.CHOWN_TIMEOUT_S, 60, 60, 60] and docker.CHOWN_TIMEOUT_S == 600
+    stop = next(a for a, _ in seen if a[1] == "stop")
+    assert stop[2:4] == ["-t", "20"]                 # the 20 s grace stays inside the 60 s limit
+
+
+def test_volume_create_failure_says_why(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch, "print('Error response from daemon: no space left', file=sys.stderr)\n"
+                                       "sys.exit(1)")
+    with pytest.raises(docker.DockerError) as e:
+        docker.DockerRunner().volume_create("v1", ["phoenix9=1"])
+    assert str(e.value) == ("Creating the build's package store failed (exit code 1): "
+                            "Error response from daemon: no space left")
+    assert [f["data"]["what"] for f in failures()] == [docker.VOLUME_WHAT]
+
+
+def test_probe_failures_record_nothing(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch, "sys.exit(1)")
+    d = docker.DockerRunner()
+    d.rm("c1"), d.stop("c1"), d.volume_rm("v1"), d.ps_ids("l"), d.image_exists("x")
+    assert failures() == []
+
+
+def test_failed_image_build_records_the_log_tail(tmp_path, monkeypatch):
+    fake_docker(tmp_path, monkeypatch, "print('step 3/9 npm ERR! network down'); sys.exit(1)")
+    log = tmp_path / "build.log"
+    rc = docker.DockerRunner().build(tmp_path / "Dockerfile", "phoenix9-step:web", tmp_path, {}, log)
+    assert rc == 1
+    [f] = failures()
+    assert f["data"]["what"] == "Building the phoenix9-step:web toolbox image"
+    assert f["data"]["program"] == "fake-docker build" and "network down" in f["data"]["stderr_tail"]
+
+
+def test_failing_claude_container_records_one_event_with_the_step(files, adapters):
+    from phoenix9 import proc
+    d = adapters.docker
+    d.exit_codes = [1]
+    d.errors = ["Error: token secret-token-value was refused\n"]
+    with proc.context(project="shop", run="abcd", task=3, step="build"):
+        rc, _ = docker.run_claude_container(d, "shop", "abcd", 3, 1, "builder", IMAGE, files["ws"], files["prompt"],
+                                            ["claude"], 1, env_files=[files["env"]])
+    assert rc == 1
+    [f] = failures()
+    assert (f["project"], f["run"], f["task"], f["step"]) == ("shop", "abcd", 3, "build")
+    assert f["data"]["what"] == "AI session (builder)" and f["data"]["exit_code"] == 1
+    assert "was refused" in f["data"]["stderr_tail"] and "secret-token-value" not in f["data"]["stderr_tail"]
+
+
+def test_working_claude_container_records_nothing(files, adapters):
+    docker.run_claude_container(adapters.docker, "shop", "abcd", 3, 1, "builder", IMAGE, files["ws"],
+                                files["prompt"], ["claude"], 1, env_files=[files["env"]])
+    assert failures() == []
+
+
+@pytest.mark.parametrize("code,recorded", [(1, False), (2, False), (125, True), (124, True), (137, True)])
+def test_check_container_records_only_when_docker_could_not_run_it(files, adapters, code, recorded):
+    d = adapters.docker
+    d.exit_codes = [code]
+    d.outputs = ["docker: Error response from daemon: no such image\n"]
+    rc, _ = docker.run_check_container(d, "shop", "abcd", 3, 1, IMAGE, files["ws"], "make test",
+                                       files["env"], files["domains"], 5)
+    assert rc == code
+    found = failures()
+    assert len(found) == (1 if recorded else 0)
+    if recorded:
+        assert found[0]["data"]["what"] == "Check container (check)" and "no such image" in found[0]["data"]["stderr_tail"]

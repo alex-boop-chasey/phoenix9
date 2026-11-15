@@ -341,14 +341,35 @@ def test_backup_failure_leaves_nothing(env):
     _project_with_stuff(env)
     real = env["host"].run
 
-    def fail_verify(argv, timeout=60, cwd=None):
+    def fail_verify(argv, timeout=60, cwd=None, **kw):
         if "verify" in argv:
             return 1, "", "bad bundle"
-        return real(argv, timeout, cwd)
+        return real(argv, timeout, cwd, **kw)
     env["host"].run = fail_verify
     with pytest.raises(OpsError, match="bundle"):
         project_delete.backup("alpha", "cli", env["fakes"])
     assert list(paths.deleted_projects().iterdir()) == []
+
+
+def test_backup_bundle_failure_records_what_and_keeps_words(env):
+    _project_with_stuff(env)
+    host, real = env["host"], env["host"].run
+    secret = "ghp" + "_" + "A1b2C3d4" * 5
+
+    def fail_create(argv, timeout=60, cwd=None, what=None):
+        if "bundle" in argv and "create" in argv:
+            host.script(list(argv), rc=128, err=f"fatal: disk full {secret}")
+            return type(host).run(host, argv, timeout, cwd, what=what)   # the fake records like Host does
+        return real(argv, timeout, cwd, what=what)
+    host.run = fail_create
+    with pytest.raises(OpsError) as e:
+        project_delete.backup("alpha", "cli", env["fakes"])
+    assert str(e.value).startswith("git could not bundle the code: fatal: disk full")
+    assert list(paths.deleted_projects().iterdir()) == []
+    failed = [json.loads(ln) for ln in paths.events().read_text().splitlines() if '"command.failed"' in ln]
+    assert [f["data"]["what"] for f in failed] == [project_delete.BUNDLE_WHAT]
+    assert failed[0]["data"]["program"].startswith("git") and failed[0]["data"]["exit_code"] == 128
+    assert "disk full" in failed[0]["data"]["stderr_tail"] and secret not in failed[0]["data"]["stderr_tail"]
 
 
 def test_backup_unknown_project_leaves_nothing(env):

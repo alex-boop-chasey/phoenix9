@@ -7,7 +7,8 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from phoenix9 import atomic, deploy, events, git, keys, paths, project, projectchat, runs, settings, state, status
+from phoenix9 import (atomic, deploy, events, git, keys, paths, project, projectchat, runs, scrub, settings, state,
+                      status)
 from phoenix9.ops import common
 from phoenix9.project_removal import PROTECTED, _save_removed, removed_list, untrust
 
@@ -23,6 +24,8 @@ URL_RE = re.compile(r"^https?://\S+$")
 SYSTEMD_DIR = Path("/etc/systemd/system")
 UNIT_GONE = ("not loaded", "does not exist", "not found", "no such file")
 SCOPE_WORDS = ("delete_repo", "403")
+BUNDLE_WHAT = "Bundling the code for the safety copy"
+CHAT_WHAT = {"stop": "Stopping the project's chat", "disable": "Turning off the project's chat"}
 LOCK_WAIT = 5.0            # seconds a delete waits for the project lock (a run start holds it briefly)
 CLOSE_WAIT = 10.0          # seconds the delete waits for closed terminals and sessions before SIGKILL
 CLOSE_POLL = 0.5
@@ -587,7 +590,8 @@ def _fetch(host, code: Path) -> str:
     ('' when it worked or there is no repo). A failed fetch does not stop the copy."""
     if not (code / ".git").exists():
         return ""
-    rc, out, err = host.run(git.git_argv("-C", str(code), "fetch", "--all", "--quiet"), timeout=300)
+    rc, out, err = host.run(git.git_argv("-C", str(code), "fetch", "--all", "--quiet"), timeout=300,
+                            what="Fetching the code from GitHub for the safety copy")
     if rc != 0:
         return (f"git fetch --all failed ({(err or out).strip()[:150]}), so the bundle holds what was on this server "
                 "only.")
@@ -600,10 +604,12 @@ def _bundle(host, code: Path, dest: Path) -> str:
         return "There is no git repo, so repo.bundle was skipped."
     if not _git_out(host, code, "rev-list", "-n", "1", "--all"):
         return "The git repo has no commits yet, so repo.bundle was skipped (its files are in files.tar.gz)."
-    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "create", str(dest), "--all"), timeout=600)
+    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "create", str(dest), "--all"), timeout=600,
+                            what=BUNDLE_WHAT)
     if rc != 0:
         raise common.OpsError(f"git could not bundle the code: {(err or out).strip()[:200]}")
-    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "verify", str(dest)), timeout=600)
+    rc, out, err = host.run(git.git_argv("-C", str(code), "bundle", "verify", str(dest)), timeout=600,
+                            what="Checking the code bundle")
     if rc != 0 or not dest.is_file():
         raise common.OpsError(f"the code bundle did not check out: {(err or out).strip()[:200]}")
     return ""
@@ -721,11 +727,11 @@ def stop_chat(name: str, host) -> str:
     """Stop and disable the chat unit, remove its drop-ins, reload systemd; raises OpsError if systemctl refuses."""
     unit = f"claude-rc-chat@{name}"
     for args in (("stop", unit), ("disable", unit)):
-        rc, out, err = host.systemctl(*args)
+        rc, out, err = host.systemctl(*args, what=CHAT_WHAT[args[0]])
         if not _unit_ok(rc, out, err):
             raise common.OpsError(f"systemctl {args[0]} {unit} failed: {(err or out).strip()[:200]}")
     host.remove_tree(SYSTEMD_DIR / f"{unit}.service.d")
-    rc, out, err = host.systemctl("daemon-reload")
+    rc, out, err = host.systemctl("daemon-reload", what="Reloading the service files")
     if rc != 0:
         raise common.OpsError(f"systemctl daemon-reload failed: {(err or out).strip()[:200]}")
     return f"Stopped and removed the chat unit {unit}."
@@ -754,7 +760,7 @@ def _gh_delete(repo: str | None, host) -> tuple[bool, str, bool]:
     """Delete the GitHub repo; returns (ok, words, refused_for_scope)."""
     if not repo:
         return True, "There is no GitHub repo.", False
-    rc, out, err = host.gh("repo", "delete", repo, "--yes")
+    rc, out, err = host.gh("repo", "delete", repo, "--yes", what="Deleting the GitHub repo")
     if rc == 0:
         return True, f"Deleted the GitHub repo {repo}.", False
     text = (err or out).strip()
@@ -918,14 +924,17 @@ def _github_matches_bundle(repo: str, copy: Path, host) -> str | None:
     Every branch and tag on GitHub (`git ls-remote`), with its commit, must be in the verified bundle
     (`git bundle list-heads`); a failing ls-remote or list-heads keeps the repo."""
     rc, out, err = host.run(git.git_argv("ls-remote", "--heads", "--tags", f"https://github.com/{repo}.git"),
-                            timeout=120)
+                            timeout=120, what="Listing the GitHub repo's branches")
     if rc != 0:
         return (f"GitHub repo {repo} not deleted: Phoenix could not list its branches to check them against the "
                 f"safety copy ({(err or out).strip()[:150]}).")
     remote = _ref_lines(out, "\t")
-    rc, out, err = host.run(git.git_argv("bundle", "list-heads", str(copy / "repo.bundle")), timeout=120)
+    rc, out, err = host.run(git.git_argv("bundle", "list-heads", str(copy / "repo.bundle")), timeout=120,
+                            what="Reading the safety copy's bundle")
     if rc != 0:
-        return f"GitHub repo {repo} not deleted: Phoenix could not read the safety copy's bundle to compare."
+        reason = scrub.scrub((err or out).strip())[:150]
+        return (f"GitHub repo {repo} not deleted: Phoenix could not read the safety copy's bundle to compare"
+                + (f" ({reason})." if reason else "."))
     have = _ref_lines(out, None)
     have |= {("refs/heads/" + ref[len("refs/remotes/origin/"):], sha) for ref, sha in have
              if ref.startswith("refs/remotes/origin/")}     # a branch fetched from GitHub but never checked out
